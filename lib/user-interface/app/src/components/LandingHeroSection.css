@@ -4,7 +4,7 @@
   align-items: center;
   width: 100%;
   box-sizing: border-box;
-  padding: 1rem 2.5rem;
+  padding: 2rem 2.5rem;
 }
 
 .landing-hero-text-container {
@@ -14,7 +14,7 @@
 }
 
 .landing-hero-text {
-  font-size: 2.5rem;
+  font-size: 2.25rem;
   font-family: "Fjalla One", sans-serif;
   font-weight: 400;
   font-style: normal;
@@ -22,12 +22,27 @@
   margin: 0;
 }
 
-.landing-hero-text-with {
-  color: #FF8724;
+.landing-hero-text-desktop {
+  display: none;
 }
 
-.landing-hero-text-for {
+.landing-hero-text-mobile {
+  display: block;
+}
+
+.landing-hero-text-orange {
+  color: #FF8724;
+  text-decoration: underline;
+}
+
+.landing-hero-text-blue {
+  color: #007AD1;
+  text-decoration: underline;
+}
+
+.landing-hero-text-pink {
   color: #F995A1;
+  text-decoration: underline;
 }
 
 .landing-hero-project-by {
@@ -41,6 +56,11 @@
   font-size: 1rem;
   color: rgba(30, 30, 30, 0.35);
   margin-bottom: 0.75rem;
+}
+
+.landing-hero-project-about-text {
+  font-size: 1.15rem;
+  color: #CBC6BC;
 }
 
 .landing-hero-logos {
@@ -69,6 +89,7 @@
   .landing-hero-section {
     flex-direction: row;
     justify-content: space-between;
+    padding: 4rem 4.5rem;
   }
 
   .landing-hero-text-container {
@@ -79,7 +100,15 @@
 
   .landing-hero-text {
     font-size: 3rem;
-    padding-top: 2rem;
+    padding-top: 1rem;
+  }
+
+  .landing-hero-text-desktop {
+    display: block;
+  }
+
+  .landing-hero-text-mobile {
+    display: none;
   }
 
   .landing-hero-project-by {
