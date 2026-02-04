@@ -12,7 +12,7 @@ const GreenSection = () => {
                 <p className="green-content-title">{t('greenSection.title')}</p>
                 <div className="green-content-row">
                     <p className="green-content-text">{t('greenSection.description1')}</p>
-                    <p className="green-content-text"><a href="#">{t('greenSection.burnesCenter')}</a> {t('greenSection.description2')} <a href="#">{t('greenSection.innovate')}</a> {t('greenSection.description3')}</p>
+                    <p className="green-content-text">{t('greenSection.description2')}</p>
                 </div>
             </div>
         </div>

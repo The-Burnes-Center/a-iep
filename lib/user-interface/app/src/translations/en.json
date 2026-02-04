@@ -514,12 +514,9 @@
     "landingHero.title.principles": "principles.",
     "landingHero.projectBy": "A project by:",
 
-    "greenSection.title": "Artificial intelligence is rapidly entering public systems, but too often, the people most affected by these systems have little say in how AI is designed or deployed.",
-    "greenSection.description1": "AI for IEPs (AIEP) is a community-centered research and development initiative that works alongside families of students with disabilities to reimagine how AI can support understanding, advocacy, and equity in special education.",
-    "greenSection.burnesCenter": "The Burnes Center for Social Change",
-    "greenSection.description2": "and its AI for Impact program, and",
-    "greenSection.innovate": "Innovate Public Schools",
-    "greenSection.description3": "partnered with families in California to both build an AI-powered tool for IEP understanding and develop new models for public-purpose, community-led AI.",
+    "greenSection.title": "AI for IEPs (AIEP) is a free, open-source AI tool built with families to help parents and caregivers understand, translate, and use Individualized Education Programs (IEPs).",
+    "greenSection.description1": "IEPs are legally binding documents that define the services, supports, and accommodations a student with a disability is entitled to receive. Yet for many families, especially multilingual families, IEPs are difficult to read, navigate, and use as advocacy tools. AIEP exists to change that.",
+    "greenSection.description2": "AIEP aims to help families move from confusion to clarity, and from passive receipt of information to confident participation in their child's educational journey.",
 
     "landingContainer.outputs.title": "Our Outputs",
     "landingContainer.outputs.subtitle": "AIEP has resulted in several public-facing outputs:",

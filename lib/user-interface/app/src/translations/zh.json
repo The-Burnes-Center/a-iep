@@ -499,12 +499,9 @@
     "landingHero.title.principles": "原则构建。",
     "landingHero.projectBy": "项目由:",
 
-    "greenSection.title": "人工智能正在迅速进入公共系统，但往往受这些系统影响最大的人在AI的设计或部署方面几乎没有发言权。",
-    "greenSection.description1": "AI for IEPs (AIEP) 是一项以社区为中心的研究和开发计划，与残疾学生的家庭合作，重新构想AI如何支持特殊教育中的理解、倡导和公平。",
-    "greenSection.burnesCenter": "伯恩斯社会变革中心",
-    "greenSection.description2": "及其AI for Impact项目，以及",
-    "greenSection.innovate": "Innovate Public Schools",
-    "greenSection.description3": "与加州的家庭合作，共同构建一个用于理解IEP的AI工具，并开发以公共目的、社区主导的AI新模式。",
+    "greenSection.title": "AI for IEPs (AIEP) 是一款免费、开源的AI工具，与家庭共同打造，帮助家长和照护者理解、翻译和使用个别化教育计划 (IEPs)。",
+    "greenSection.description1": "IEPs是具有法律约束力的文件，定义了残疾学生有权获得的服务、支持和便利设施。然而，对于许多家庭，尤其是多语言家庭来说，IEPs难以阅读、导航和用作倡导工具。AIEP的存在就是为了改变这一现状。",
+    "greenSection.description2": "AIEP旨在帮助家庭从困惑走向清晰，从被动接收信息转变为自信地参与孩子的教育旅程。",
 
     "landingContainer.outputs.title": "我们的成果",
     "landingContainer.outputs.subtitle": "AIEP产生了几项面向公众的成果：",

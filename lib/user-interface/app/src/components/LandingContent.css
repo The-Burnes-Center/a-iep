@@ -11,4 +11,8 @@
   .landing-content > * {
     width: 50%;
   }
+
+  .landing-content {
+    padding: 4rem 2rem;
+  }
 }

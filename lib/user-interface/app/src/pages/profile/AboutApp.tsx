@@ -78,9 +78,6 @@ export default function AboutApp({
   return (
     <>
       <NavigationComponent />
-      <LandingHeroSection />
-      <GreenSection />
-      <LandingContainer />
       <div>
       {/* Breadcrumbs - only show when enabled */}
       {showBreadcrumbs && (
@@ -91,7 +88,10 @@ export default function AboutApp({
           </Breadcrumb>
         </div>
       )}
-    
+      
+      <LandingHeroSection />
+      <GreenSection />
+      <LandingContainer />
 
       <div className='about-app-all-content-container'>
 

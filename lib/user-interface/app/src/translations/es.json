@@ -502,12 +502,9 @@
     "landingHero.title.principles": "",
     "landingHero.projectBy": "Un proyecto de:",
 
-    "greenSection.title": "La inteligencia artificial está entrando rápidamente en los sistemas públicos, pero con demasiada frecuencia, las personas más afectadas por estos sistemas tienen poca voz en cómo se diseña o implementa la IA.",
-    "greenSection.description1": "AI para IEPs (AIEP) es una iniciativa de investigación y desarrollo centrada en la comunidad que trabaja junto a familias de estudiantes con discapacidades para reimaginar cómo la IA puede apoyar la comprensión, la defensa y la equidad en la educación especial.",
-    "greenSection.burnesCenter": "El Centro Burnes para el Cambio Social",
-    "greenSection.description2": "y su programa AI for Impact, e",
-    "greenSection.innovate": "Innovate Public Schools",
-    "greenSection.description3": "se asociaron con familias en California para construir una herramienta impulsada por IA para la comprensión de IEP y desarrollar nuevos modelos de IA de propósito público liderada por la comunidad.",
+    "greenSection.title": "AI para IEPs (AIEP) es una herramienta de IA gratuita y de código abierto creada con familias para ayudar a padres y cuidadores a entender, traducir y utilizar los Programas de Educación Individualizada (IEPs).",
+    "greenSection.description1": "Los IEPs son documentos legalmente vinculantes que definen los servicios, apoyos y adaptaciones que un estudiante con discapacidad tiene derecho a recibir. Sin embargo, para muchas familias, especialmente las familias multilingües, los IEPs son difíciles de leer, navegar y usar como herramientas de defensa. AIEP existe para cambiar eso.",
+    "greenSection.description2": "AIEP tiene como objetivo ayudar a las familias a pasar de la confusión a la claridad, y de la recepción pasiva de información a la participación segura en el camino educativo de su hijo.",
 
     "landingContainer.outputs.title": "Nuestros Resultados",
     "landingContainer.outputs.subtitle": "AIEP ha producido varios resultados de cara al público:",
