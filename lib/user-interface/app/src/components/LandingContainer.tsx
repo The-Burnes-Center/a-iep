@@ -7,55 +7,40 @@ const LandingContainer = () => {
 
   return (
     <div className="landing-container">
-      <LandingSection title={t('landingContainer.outputs.title')}>
-        <p className="landing-content-title">{t('landingContainer.outputs.subtitle')}</p>
+      <LandingSection title={t('landingContainer.whyAiepExists.title')}>
+        <p className="landing-content-text">{t('landingContainer.whyAiepExists.intro')}</p>
+        <p className="landing-content-title">{t('landingContainer.whyAiepExists.subtitle')}</p>
         <ul>
-          <li className="landing-content-list-item"><a href="#">{t('landingContainer.outputs.item1.link')}</a> {t('landingContainer.outputs.item1.text')}</li>
-          <li className="landing-content-list-item">{t('landingContainer.outputs.item2.text1')} <a href="#">{t('landingContainer.outputs.item2.link')}</a> {t('landingContainer.outputs.item2.text2')}</li>
-          <li className="landing-content-list-item">{t('landingContainer.outputs.item3.text1')} <a href="#">{t('landingContainer.outputs.item3.link')}</a> {t('landingContainer.outputs.item3.text2')}</li>
-          <li className="landing-content-list-item"><a href="#">{t('landingContainer.outputs.item4.link1')}</a> {t('landingContainer.outputs.item4.and')} <a href="#">{t('landingContainer.outputs.item4.link2')}</a> {t('landingContainer.outputs.item4.text')}</li>
+          <li className="landing-content-list-item">{t('landingContainer.whyAiepExists.item1')}</li>
+          <li className="landing-content-list-item">{t('landingContainer.whyAiepExists.item2')}</li>
+          <li className="landing-content-list-item">{t('landingContainer.whyAiepExists.item3')}</li>
+          <li className="landing-content-list-item">{t('landingContainer.whyAiepExists.item4')}</li>
         </ul>
-        <p className="landing-content-text">{t('landingContainer.outputs.conclusion')}</p>
+        <p className="landing-content-text">{t('landingContainer.whyAiepExists.consequences')}</p>
+        <p className="landing-content-text">{t('landingContainer.whyAiepExists.conclusion')}</p>
       </LandingSection>
-      <LandingSection title={t('landingContainer.challenge.title')}>
-        <p className="landing-content-text">{t('landingContainer.challenge.description')}</p>
-        <p className="landing-content-title">{t('landingContainer.challenge.subtitle')}</p>
+      <LandingSection title={t('landingContainer.whatAiepDoes.title')}>
+        <p className="landing-content-title">{t('landingContainer.whatAiepDoes.subtitle')}</p>
         <ul>
-          <li className="landing-content-list-item">{t('landingContainer.challenge.item1')}</li>
-          <li className="landing-content-list-item">{t('landingContainer.challenge.item2')}</li>
-          <li className="landing-content-list-item">{t('landingContainer.challenge.item3')}</li>
-          <li className="landing-content-list-item">{t('landingContainer.challenge.item4')}</li>
+          <li className="landing-content-list-item">{t('landingContainer.whatAiepDoes.item1')}</li>
+          <li className="landing-content-list-item">{t('landingContainer.whatAiepDoes.item2')}</li>
+          <li className="landing-content-list-item">{t('landingContainer.whatAiepDoes.item3')}</li>
+          <li className="landing-content-list-item">{t('landingContainer.whatAiepDoes.item4')}</li>
+          <li className="landing-content-list-item">{t('landingContainer.whatAiepDoes.item5')}</li>
         </ul>
-        <p className="landing-content-text">{t('landingContainer.challenge.conclusion')}</p>
+        <p className="landing-content-text">{t('landingContainer.whatAiepDoes.conclusion')}</p>
       </LandingSection>
-      <LandingSection title={t('landingContainer.codesign.title')}>
-        <p className="landing-content-text">{t('landingContainer.codesign.description')}</p>
-        <p className="landing-content-title">{t('landingContainer.codesign.subtitle')}</p>
+      <LandingSection title={t('landingContainer.builtWithFamilies.title')}>
+        <p className="landing-content-text">{t('landingContainer.builtWithFamilies.intro')}</p>
+        <p className="landing-content-title">{t('landingContainer.builtWithFamilies.subtitle')}</p>
         <ul>
-          <li className="landing-content-list-item">{t('landingContainer.codesign.item1')}</li>
-          <li className="landing-content-list-item">{t('landingContainer.codesign.item2')}</li>
-          <li className="landing-content-list-item">{t('landingContainer.codesign.item3')}</li>
-          <li className="landing-content-list-item">{t('landingContainer.codesign.item4')}</li>
+          <li className="landing-content-list-item">{t('landingContainer.builtWithFamilies.item1')}</li>
+          <li className="landing-content-list-item">{t('landingContainer.builtWithFamilies.item2')}</li>
+          <li className="landing-content-list-item">{t('landingContainer.builtWithFamilies.item3')}</li>
+          <li className="landing-content-list-item">{t('landingContainer.builtWithFamilies.item4')}</li>
         </ul>
-        <p className="landing-content-text">{t('landingContainer.codesign.conclusion1')}</p>
-        <p className="landing-content-title">{t('landingContainer.codesign.reimaginingTitle')}</p>
-        <p className="landing-content-text">{t('landingContainer.codesign.reimaginingDescription')}</p>
-        <ul>
-          <li className="landing-content-list-item">{t('landingContainer.codesign.role1')}</li>
-          <li className="landing-content-list-item">{t('landingContainer.codesign.role2')}</li>
-          <li className="landing-content-list-item">{t('landingContainer.codesign.role3')}</li>
-        </ul>
-        <p className="landing-content-text">{t('landingContainer.codesign.conclusion2')}</p>
-      </LandingSection>
-      <LandingSection title={t('landingContainer.research.title')}>
-        <p className="landing-content-title">{t('landingContainer.research.subtitle')}</p>
-        <ul>
-          <li className="landing-content-list-item">{t('landingContainer.research.item1')}</li>
-          <li className="landing-content-list-item">{t('landingContainer.research.item2')}</li>
-          <li className="landing-content-list-item">{t('landingContainer.research.item3')}</li>
-          <li className="landing-content-list-item">{t('landingContainer.research.item4')}</li>
-        </ul>
-        <p className="landing-content-text">{t('landingContainer.research.conclusion')}</p>
+        <p className="landing-content-text">{t('landingContainer.builtWithFamilies.codesigners')}</p>
+        <p className="landing-content-text">{t('landingContainer.builtWithFamilies.conclusion')}</p>
       </LandingSection>
     </div>
   );
