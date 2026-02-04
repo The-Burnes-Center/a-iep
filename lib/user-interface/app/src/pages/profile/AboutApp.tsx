@@ -8,6 +8,9 @@ import { useLanguage } from '../../common/language-context';
 import GoToWebsiteButton from '../../components/GoToWebsiteButton';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
+import LandingHeroSection from '../../components/LandingHeroSection';
+import GreenSection from '../../components/GreenSection';
+import LandingContainer from '../../components/LandingContainer';
 import './ProfileForms.css';
 import './UpdateProfileName.css';
 import './ProfileForms.css';
@@ -75,6 +78,9 @@ export default function AboutApp({
   return (
     <>
       <NavigationComponent />
+      <LandingHeroSection />
+      <GreenSection />
+      <LandingContainer />
       <div>
       {/* Breadcrumbs - only show when enabled */}
       {showBreadcrumbs && (
@@ -86,60 +92,6 @@ export default function AboutApp({
         </div>
       )}
     
-        <Container 
-          fluid 
-          className="about-app-intro-container"
-          >
-          <Row style={{ width: '100%', justifyContent: 'center' }}>
-            <Col xs={12} md={8} lg={6}>
-              <div className="profile-form">
-                <img src="/images/carousel/blissful.png" alt="" className="about-hero-image" />
-                <h4 className="update-profile-header" style={{ whiteSpace: 'pre-line' }}>{t("about.projectTitle")}</h4>   
-              </div>  
-            </Col>
-          </Row>
-        </Container>
-
-        <div className='section-header section-header--about'>
-          <h5>{t("about.title")}</h5>
-        </div>
-
-        <Container 
-          fluid 
-          className="about-app-intro-container"
-          >
-          <Row style={{ width: '100%', justifyContent: 'center' }}>
-            <Col xs={12} md={8} lg={6}>
-              <div className="profile-form">
-                <h4 className='about-app-header'>{t("about.aboutTheAiepTool")}</h4>
-                <p className='about-text'>{t("about.aiepDescription")}</p>
-                <p className='about-text'>{t("about.builtWith")}</p>
-                <ul className='about-app-list'>
-                  <li>{t("about.helpsFamilies.translate")}</li>
-                  <li>{t("about.helpsFamilies.understand")}</li>
-                  <li>{t("about.helpsFamilies.summaries")}</li>
-                  <li>{t("about.helpsFamilies.prepare")}</li>
-                </ul>
-                <p className='about-text'>{t("about.ourGoal")}</p>
-              
-                <h4 className='about-app-header'>{t("about.builtWithFamilies")}</h4>
-                <p className='about-text'>{t("about.developedBy")}</p>
-                <p className='about-text'>{t("about.parentNavigatorsIntro")}</p>
-                <ul className='about-app-list'>
-                  <li>{t("about.parentNavigatorsList.codesigned")}</li>
-                  <li>{t("about.parentNavigatorsList.tested")}</li>
-                  <li>{t("about.parentNavigatorsList.canvassers")}</li>
-                </ul>
-                <p className='about-text'>{t("about.livedExperience")}</p>
-
-                <h4 className='about-app-header'>{t("about.partOfBiggerProject")}</h4>
-                <p className='about-text'>{t("about.biggerProjectDescription")}</p>
-                <p className='about-text'>{t("about.learnMoreProject")}</p>
-                <p className='about-text'>{t("about.supportedBy")}</p>
-              </div>  
-            </Col>
-          </Row>
-        </Container>
 
       <div className='about-app-all-content-container'>
 
