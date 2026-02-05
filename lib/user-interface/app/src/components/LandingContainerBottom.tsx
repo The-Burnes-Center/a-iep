@@ -2,6 +2,7 @@ import './LandingContainer.css';
 import LandingSection from './LandingSection';
 import OrangeHeader from './OrangeHeader';
 import LandingContent from './LandingContent';
+import LandingCTA from './LandingCTA';
 import { useLanguage } from '../common/language-context';
 
 const LandingContainerBottom = () => {
@@ -11,6 +12,10 @@ const LandingContainerBottom = () => {
     <div className="landing-container">
       <LandingSection title={t('landingContainer.communityCenteredAI.title')}>
         <p className="landing-content-text">{t('landingContainer.communityCenteredAI.intro')}</p>
+        <LandingCTA pretext={t('landingContainer.cta.exploreMore.pretext')} title={t('landingContainer.cta.exploreMore.title')} />
+        <LandingCTA pretext={t('landingContainer.cta.writing.pretext')} title={t('landingContainer.cta.writing.title')} />
+        <LandingCTA pretext={t('landingContainer.cta.course.pretext')} title={t('landingContainer.cta.course.title')} />
+        <LandingCTA pretext={t('landingContainer.cta.research.pretext')} title={t('landingContainer.cta.research.title')} />
         <p className="landing-content-text">{t('landingContainer.communityCenteredAI.text1')}</p>
         <p className="landing-content-text">{t('landingContainer.communityCenteredAI.text2')}</p>
         <p className="landing-content-title">{t('landingContainer.communityCenteredAI.subtitle')}</p>
@@ -32,6 +37,11 @@ const LandingContainerBottom = () => {
           <li className="landing-content-list-item">{t('landingContainer.privacyAndTrust.item4')}</li>
         </ul>
         <p className="landing-content-title">{t('landingContainer.privacyAndTrust.conclusion')}</p>
+        <img 
+          src="/images/privacy-diagram-en.jpg" 
+          alt={t('landingContainer.privacyAndTrust.diagramAlt')} 
+          style={{ width: '50%', display: 'block', border: '1px solid #CBC6BC', borderRadius: '20px' }} 
+        />
       </LandingSection>
       <LandingSection title={t('landingContainer.moreThanATool.title')}>
         <p className="landing-content-text">{t('landingContainer.moreThanATool.intro')}</p>
@@ -44,12 +54,13 @@ const LandingContainerBottom = () => {
         </ul>
         <p className="landing-content-title">{t('landingContainer.moreThanATool.conclusion')}</p>
       </LandingSection>
-      <OrangeHeader title={"About the project"} />
+      <OrangeHeader title={t('landingContainer.aboutProject.title')} />
       <LandingContent>
-        <p className="landing-content-text">AI for IEPs is a project of the Burnes Center for Social Change and its AI for Impact, developed in partnership with Innovate Public Schools and families in California.</p>
-        <p className="landing-content-text">
-          The project was supported by grants from the Chan Zuckerberg Initiative and the Burnes Center for Social Change.
-        </p>
+        <p className="landing-content-text">{t('landingContainer.aboutProject.text1')}</p>
+        <p className="landing-content-text">{t('landingContainer.aboutProject.text2')}</p>
+        <LandingCTA pretext={t('landingContainer.cta.tryTool.pretext')} title={t('landingContainer.cta.tryTool.title')} />
+        <LandingCTA pretext={t('landingContainer.cta.learnHow.pretext')} title={t('landingContainer.cta.learnHow.title')} />
+        <LandingCTA pretext={t('landingContainer.cta.explore.pretext')} title={t('landingContainer.cta.explore.title')} />
       </LandingContent>
     </div>
   );

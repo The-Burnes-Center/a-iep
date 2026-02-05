@@ -540,6 +540,7 @@
     "landingContainer.privacyAndTrust.item3": "Quyền kiểm soát rõ ràng của người dùng đối với thông tin được lưu trữ",
     "landingContainer.privacyAndTrust.item4": "Khả năng cho các gia đình xóa dữ liệu của họ bất cứ lúc nào",
     "landingContainer.privacyAndTrust.conclusion": "Sự tin cậy được xây dựng thông qua các lựa chọn thiết kế tôn trọng người dùng và dữ liệu của họ.",
+    "landingContainer.privacyAndTrust.diagramAlt": "Sơ đồ cho thấy cách AIEP bảo vệ quyền riêng tư của bạn: AWS Comprehend phát hiện và xóa dữ liệu cá nhân, sau đó OpenAI tạo tóm tắt và bản dịch mà không lưu trữ thông tin của bạn",
 
     "landingContainer.whatAiepDoes.title": "AIEP làm gì",
     "landingContainer.whatAiepDoes.subtitle": "AIEP hỗ trợ các gia đình trước, trong và sau các cuộc họp IEP bằng cách giúp họ:",
@@ -594,5 +595,24 @@
     "landingCards.research.bottom": "của chúng tôi để hiểu cách tiếp cận AI lấy cộng đồng làm trung tâm",
     "landingCards.playbook.top": "Đọc",
     "landingCards.playbook.middle": "Sổ tay Hướng dẫn",
-    "landingCards.playbook.bottom": "của chúng tôi để học cách tạo AI lấy cộng đồng làm trung tâm"
+    "landingCards.playbook.bottom": "của chúng tôi để học cách tạo AI lấy cộng đồng làm trung tâm",
+
+    "landingContainer.cta.exploreMore.pretext": "Khám phá thêm",
+    "landingContainer.cta.exploreMore.title": "AI lấy cộng đồng làm trung tâm",
+    "landingContainer.cta.writing.pretext": "Đọc những gì chúng tôi đang",
+    "landingContainer.cta.writing.title": "Viết về AI lấy cộng đồng làm trung tâm",
+    "landingContainer.cta.course.pretext": "Tham gia",
+    "landingContainer.cta.course.title": "Khóa học",
+    "landingContainer.cta.research.pretext": "Xem",
+    "landingContainer.cta.research.title": "Nghiên cứu của chúng tôi",
+
+    "landingContainer.aboutProject.title": "Về dự án",
+    "landingContainer.aboutProject.text1": "AI for IEPs là dự án của Trung tâm Burnes vì Thay đổi Xã hội và AI for Impact, được phát triển với sự hợp tác của Innovate Public Schools và các gia đình ở California.",
+    "landingContainer.aboutProject.text2": "Dự án được hỗ trợ bởi các khoản tài trợ từ Chan Zuckerberg Initiative và Trung tâm Burnes vì Thay đổi Xã hội.",
+    "landingContainer.cta.tryTool.pretext": "Dùng thử",
+    "landingContainer.cta.tryTool.title": "công cụ AIEP",
+    "landingContainer.cta.learnHow.pretext": "Tìm hiểu cách",
+    "landingContainer.cta.learnHow.title": "AIEP được xây dựng",
+    "landingContainer.cta.explore.pretext": "Khám phá",
+    "landingContainer.cta.explore.title": "AI lấy cộng đồng làm trung tâm"
 }

@@ -547,6 +547,7 @@
     "landingContainer.privacyAndTrust.item3": "Clear user control over stored information",
     "landingContainer.privacyAndTrust.item4": "The ability for families to delete their data at any time",
     "landingContainer.privacyAndTrust.conclusion": "Trust is earned through design choices that respect users and their data.",
+    "landingContainer.privacyAndTrust.diagramAlt": "Diagram showing how AIEP protects your privacy: AWS Comprehend detects and removes personal data, then OpenAI creates summaries and translations without storing your information",
 
     "landingContainer.whatAiepDoes.title": "What AIEP does",
     "landingContainer.whatAiepDoes.subtitle": "AIEP supports families before, during, and after IEP meetings by helping them:",
@@ -601,5 +602,24 @@
     "landingCards.research.bottom": "to understand our approach to community-centered AI",
     "landingCards.playbook.top": "Read our",
     "landingCards.playbook.middle": "Playbook",
-    "landingCards.playbook.bottom": "to learn about creating community-centered AI"
+    "landingCards.playbook.bottom": "to learn about creating community-centered AI",
+
+    "landingContainer.cta.exploreMore.pretext": "Explore More",
+    "landingContainer.cta.exploreMore.title": "Community-Centered AI",
+    "landingContainer.cta.writing.pretext": "Read what we are",
+    "landingContainer.cta.writing.title": "Writing about Community-Centered AI",
+    "landingContainer.cta.course.pretext": "Take a",
+    "landingContainer.cta.course.title": "Course",
+    "landingContainer.cta.research.pretext": "View Our",
+    "landingContainer.cta.research.title": "Research",
+
+    "landingContainer.aboutProject.title": "About the project",
+    "landingContainer.aboutProject.text1": "AI for IEPs is a project of the Burnes Center for Social Change and its AI for Impact, developed in partnership with Innovate Public Schools and families in California.",
+    "landingContainer.aboutProject.text2": "The project was supported by grants from the Chan Zuckerberg Initiative and the Burnes Center for Social Change.",
+    "landingContainer.cta.tryTool.pretext": "Try the",
+    "landingContainer.cta.tryTool.title": "AIEP tool",
+    "landingContainer.cta.learnHow.pretext": "Learn How",
+    "landingContainer.cta.learnHow.title": "AIEP was built",
+    "landingContainer.cta.explore.pretext": "Explore",
+    "landingContainer.cta.explore.title": "Community-centered AI"
   }

@@ -532,6 +532,7 @@
     "landingContainer.privacyAndTrust.item3": "用户对存储信息的明确控制",
     "landingContainer.privacyAndTrust.item4": "家庭可以随时删除其数据",
     "landingContainer.privacyAndTrust.conclusion": "信任是通过尊重用户及其数据的设计选择赢得的。",
+    "landingContainer.privacyAndTrust.diagramAlt": "图示展示AIEP如何保护您的隐私：AWS Comprehend检测并删除个人数据，然后OpenAI创建摘要和翻译，而不存储您的信息",
 
     "landingContainer.whatAiepDoes.title": "AIEP的功能",
     "landingContainer.whatAiepDoes.subtitle": "AIEP在IEP会议前、中、后支持家庭，帮助他们：",
@@ -586,5 +587,24 @@
     "landingCards.research.bottom": "以理解我们以社区为中心的AI方法",
     "landingCards.playbook.top": "阅读我们的",
     "landingCards.playbook.middle": "操作手册",
-    "landingCards.playbook.bottom": "学习如何创建以社区为中心的AI"
+    "landingCards.playbook.bottom": "学习如何创建以社区为中心的AI",
+
+    "landingContainer.cta.exploreMore.pretext": "探索更多",
+    "landingContainer.cta.exploreMore.title": "以社区为中心的AI",
+    "landingContainer.cta.writing.pretext": "阅读我们正在",
+    "landingContainer.cta.writing.title": "撰写的关于以社区为中心的AI的文章",
+    "landingContainer.cta.course.pretext": "参加",
+    "landingContainer.cta.course.title": "课程",
+    "landingContainer.cta.research.pretext": "查看我们的",
+    "landingContainer.cta.research.title": "研究",
+
+    "landingContainer.aboutProject.title": "关于项目",
+    "landingContainer.aboutProject.text1": "AI for IEPs是Burnes社会变革中心及其AI for Impact的项目，与Innovate Public Schools和加州家庭合作开发。",
+    "landingContainer.aboutProject.text2": "该项目得到了Chan Zuckerberg Initiative和Burnes社会变革中心的资助支持。",
+    "landingContainer.cta.tryTool.pretext": "试用",
+    "landingContainer.cta.tryTool.title": "AIEP工具",
+    "landingContainer.cta.learnHow.pretext": "了解",
+    "landingContainer.cta.learnHow.title": "AIEP是如何构建的",
+    "landingContainer.cta.explore.pretext": "探索",
+    "landingContainer.cta.explore.title": "以社区为中心的AI"
 }

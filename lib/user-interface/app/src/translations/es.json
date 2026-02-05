@@ -535,6 +535,7 @@
     "landingContainer.privacyAndTrust.item3": "Control claro del usuario sobre la información almacenada",
     "landingContainer.privacyAndTrust.item4": "La capacidad de las familias para eliminar sus datos en cualquier momento",
     "landingContainer.privacyAndTrust.conclusion": "La confianza se gana a través de decisiones de diseño que respetan a los usuarios y sus datos.",
+    "landingContainer.privacyAndTrust.diagramAlt": "Diagrama que muestra cómo AIEP protege tu privacidad: AWS Comprehend detecta y elimina datos personales, luego OpenAI crea resúmenes y traducciones sin almacenar tu información",
 
     "landingContainer.whatAiepDoes.title": "Lo que hace AIEP",
     "landingContainer.whatAiepDoes.subtitle": "AIEP apoya a las familias antes, durante y después de las reuniones del IEP ayudándoles a:",
@@ -589,5 +590,24 @@
     "landingCards.research.bottom": "para entender nuestro enfoque de IA centrada en la comunidad",
     "landingCards.playbook.top": "Lee nuestro",
     "landingCards.playbook.middle": "Manual de Estrategias",
-    "landingCards.playbook.bottom": "para aprender a crear IA centrada en la comunidad"
+    "landingCards.playbook.bottom": "para aprender a crear IA centrada en la comunidad",
+
+    "landingContainer.cta.exploreMore.pretext": "Explorar más",
+    "landingContainer.cta.exploreMore.title": "IA centrada en la comunidad",
+    "landingContainer.cta.writing.pretext": "Lee lo que estamos",
+    "landingContainer.cta.writing.title": "Escribiendo sobre IA centrada en la comunidad",
+    "landingContainer.cta.course.pretext": "Toma un",
+    "landingContainer.cta.course.title": "Curso",
+    "landingContainer.cta.research.pretext": "Ver nuestra",
+    "landingContainer.cta.research.title": "Investigación",
+
+    "landingContainer.aboutProject.title": "Sobre el proyecto",
+    "landingContainer.aboutProject.text1": "AI for IEPs es un proyecto del Burnes Center for Social Change y su AI for Impact, desarrollado en colaboración con Innovate Public Schools y familias en California.",
+    "landingContainer.aboutProject.text2": "El proyecto fue apoyado por subvenciones de la Chan Zuckerberg Initiative y el Burnes Center for Social Change.",
+    "landingContainer.cta.tryTool.pretext": "Prueba la",
+    "landingContainer.cta.tryTool.title": "herramienta AIEP",
+    "landingContainer.cta.learnHow.pretext": "Aprende cómo",
+    "landingContainer.cta.learnHow.title": "se construyó AIEP",
+    "landingContainer.cta.explore.pretext": "Explora",
+    "landingContainer.cta.explore.title": "IA centrada en la comunidad"
   }

@@ -9,6 +9,12 @@
   margin-bottom: 0.5rem;
 }
 
+.landing-content-pretext {
+  font-size: 1.05rem;
+  font-weight: 800;
+  margin-bottom: 0.5rem;
+}
+
 .landing-content-text,
 .landing-content-list-item {
   font-size: 1.15rem;
