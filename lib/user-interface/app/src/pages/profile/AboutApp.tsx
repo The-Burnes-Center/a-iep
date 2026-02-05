@@ -11,6 +11,7 @@ import AIEPFooter from '../../components/AIEPFooter';
 import LandingHeroSection from '../../components/LandingHeroSection';
 import GreenSection from '../../components/GreenSection';
 import LandingContainer from '../../components/LandingContainer';
+import TransparentHeader from '../../components/TransparentHeader';
 import './ProfileForms.css';
 import './UpdateProfileName.css';
 import './ProfileForms.css';
@@ -95,9 +96,7 @@ export default function AboutApp({
 
       <div className='about-app-all-content-container'>
 
-      <div className='section-header section-header--parent-navigators'>
-          <h5>{t("about.parentNavigatorsTitle")}</h5>
-        </div>
+      <TransparentHeader title={t("about.parentNavigatorsTitle")} />
 
       <div className='parent-navigators-list-container-top-row'>
             {parentNavigator.slice(0, 4).map((member) => (
@@ -132,9 +131,8 @@ export default function AboutApp({
             ))}
           </div>
 
-          <div className='section-header section-header--team'>
-            <h5>{t("about.theTeam")}</h5>
-          </div>
+          <TransparentHeader title={t("about.theTeam")} />
+
 
           <div className='team-members-list-container'>
             {teamMembers.map((member) => (
@@ -151,10 +149,6 @@ export default function AboutApp({
                 </div>
               </div>
             ))}
-          </div>
-
-          <div className='section-header section-header--team'>
-            <h5> </h5>
           </div>
 
         <div className="about-app-partner-container">
