@@ -11,6 +11,7 @@ import AIEPFooter from '../../components/AIEPFooter';
 import LandingHeroSection from '../../components/LandingHeroSection';
 import GreenSection from '../../components/GreenSection';
 import LandingContainer from '../../components/LandingContainer';
+import LandingContainerBottom from '../../components/LandingContainerBottom';
 import TransparentHeader from '../../components/TransparentHeader';
 import './ProfileForms.css';
 import './UpdateProfileName.css';
@@ -131,8 +132,9 @@ export default function AboutApp({
             ))}
           </div>
 
-          <TransparentHeader title={t("about.theTeam")} />
+          <LandingContainerBottom />
 
+          <TransparentHeader title={t("about.theTeam")} />
 
           <div className='team-members-list-container'>
             {teamMembers.map((member) => (
