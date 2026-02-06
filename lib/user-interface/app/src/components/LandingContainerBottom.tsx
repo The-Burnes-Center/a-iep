@@ -1,4 +1,5 @@
 import './LandingContainer.css';
+import './LandingContainerBottom.css';
 import LandingSection from './LandingSection';
 import OrangeHeader from './OrangeHeader';
 import LandingContent from './LandingContent';
@@ -40,7 +41,7 @@ const LandingContainerBottom = () => {
         <img 
           src="/images/privacy-diagram-en.jpg" 
           alt={t('landingContainer.privacyAndTrust.diagramAlt')} 
-          style={{ width: '50%', display: 'block', border: '1px solid #CBC6BC', borderRadius: '20px' }} 
+          className="privacy-diagram"
         />
       </LandingSection>
       <LandingSection title={t('landingContainer.moreThanATool.title')}>
