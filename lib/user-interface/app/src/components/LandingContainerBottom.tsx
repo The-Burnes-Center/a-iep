@@ -15,8 +15,10 @@ const LandingContainerBottom = () => {
         <p className="landing-content-text">{t('landingContainer.communityCenteredAI.intro')}</p>
         <LandingCTA pretext={t('landingContainer.cta.exploreMore.pretext')} title={t('landingContainer.cta.exploreMore.title')} />
         <LandingCTA pretext={t('landingContainer.cta.writing.pretext')} title={t('landingContainer.cta.writing.title')} />
-        <LandingCTA pretext={t('landingContainer.cta.course.pretext')} title={t('landingContainer.cta.course.title')} />
-        <LandingCTA pretext={t('landingContainer.cta.research.pretext')} title={t('landingContainer.cta.research.title')} />
+        <div className="landing-cta-row">
+          <LandingCTA pretext={t('landingContainer.cta.course.pretext')} title={t('landingContainer.cta.course.title')} />
+          <LandingCTA pretext={t('landingContainer.cta.research.pretext')} title={t('landingContainer.cta.research.title')} />
+        </div>
         <p className="landing-content-text">{t('landingContainer.communityCenteredAI.text1')}</p>
         <p className="landing-content-text">{t('landingContainer.communityCenteredAI.text2')}</p>
         <p className="landing-content-title">{t('landingContainer.communityCenteredAI.subtitle')}</p>

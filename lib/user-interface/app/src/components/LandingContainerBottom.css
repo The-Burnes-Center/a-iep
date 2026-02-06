@@ -6,9 +6,26 @@
   margin-top: 2rem;
 }
 
+.landing-cta-row {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.landing-cta-row .landing-cta {
+  width: 100%;
+}
+
 /* Desktop styles */
 @media (min-width: 768px) {
   .privacy-diagram {
     width: 50%;
+  }
+
+  .landing-cta-row {
+    flex-direction: row;
+    gap: 1rem;
+    width: 50%;
+    margin-bottom: 2rem;
   }
 }
