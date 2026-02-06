@@ -1,5 +1,5 @@
 .parent-rights-banner-container {
-    background-color: #F5F3EE;
+    background-color: #EEEBE5;
     width: 100%;
     display: flex;
     position: relative;
@@ -92,7 +92,7 @@
     bottom: 0;
     background: rgba(255, 255, 255, 0.95);
     z-index: 1;
-    background: #F5F3EE;
+    background: #EEEBE5;
 }
 
 /* Banner Slide Content */
@@ -263,11 +263,16 @@
     }
 
     .parent-rights-banner-content {
-        flex-direction: row;
+        align-items: center;
     }
 
     .parent-rights-banner-content-left {
-        padding: 7rem;
+        width: 30%;
+        margin-top: 4rem;
+    }
+    .parent-rights-banner-content-right {
+        width: 30%;
+        margin: 2rem 0 4rem 0;
     }
 
     .banner-slide-image {
