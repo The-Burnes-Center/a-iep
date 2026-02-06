@@ -1,6 +1,7 @@
 .how-to-banner {
     background: transparent;
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
 }
@@ -25,4 +26,44 @@
 
 .how-to-banner-title-orange {
     color: #FF8724;
+}
+
+/* Base styles (Mobile-first) */
+.how-to-cards-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0px;
+}
+
+.how-to-card {
+    max-width: 350px;
+}
+
+.how-to-card-image {
+    margin-bottom: 2rem;
+}
+
+.how-to-card-title {
+    color: #1E1E1E;
+    width: 100%;
+    margin-bottom: 2rem;
+}
+
+.how-to-card-text {
+    font-size: 1rem;
+    color: #1E1E1E;
+    margin-bottom: 2rem;
+}
+
+/* Desktop styles */
+@media (min-width: 768px) {
+    .how-to-cards-container {
+        flex-direction: row;
+        width: 85%;
+        justify-content: space-between;
+    }
+
+    .how-to-banner-content {
+        width: 85%;
+    }
 }
