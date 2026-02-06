@@ -12,26 +12,51 @@ const HowToBanner: React.FC = () => {
             </div>
             <div className="how-to-cards-container">
                 <div className="how-to-card">
-                    <img src="/images/Summarize_Illustration.png" alt="Summarize" className="how-to-card-image" />
-                    <h2 className="how-to-card-title">Summarize</h2>
+                    <img src="/images/tutorial_upload.jpg" alt="Upload IEP document" className="how-to-card-image" />
+                    <h2 className="how-to-card-title">Upload an IEP to the tool</h2>
                     <p className="how-to-card-text">
-                        The tool will break down the key aspects of your IEP document into easy-to-understand language.
+                        After signing up, you will be able to upload your child's IEP document as a document file (doc or docx) or a PDF.
                     </p>
                 </div>
 
                 <div className="how-to-card">
-                    <img src="/images/Translate_Illustration.png" alt="Translate" className="how-to-card-image" />
-                    <h2 className="how-to-card-title">Translate</h2>
+                    <img src="/images/tutorial_select-language.jpg" alt="Select language" className="how-to-card-image" />
+                    <h2 className="how-to-card-title">Translate the IEP to your preferred language</h2>
                     <p className="how-to-card-text">
-                        AIEP can also translate the summaries of IEP documents into your the language of your choice.
+                        Your uploaded IEP will be translated to the language you chose at sign up and will also be available in English.
                     </p>
                 </div>
 
                 <div className="how-to-card">
-                    <img src="/images/Advocate_Illustration.png" alt="Advocate" className="how-to-card-image" />
-                    <h2 className="how-to-card-title">Advocate</h2>
+                    <img src="/images/tutorial_summary.jpg" alt="View summary" className="how-to-card-image" />
+                    <h2 className="how-to-card-title">Get a first glimpse of the entire IEP document</h2>
                     <p className="how-to-card-text">
-                        Advocate for your child's education by exploring the IEP and understanding your rights.
+                        At the top of the screen, you will find a short summary of the information we found on your IEP document.
+                    </p>
+                </div>
+            </div>
+            <div className="how-to-cards-container">
+                <div className="how-to-card">
+                    <img src="/images/tutorial_insights.jpg" alt="Key insights" className="how-to-card-image" />
+                    <h2 className="how-to-card-title">Understand the main insights from the IEP</h2>
+                    <p className="how-to-card-text">
+                        In the sections below, you will find the key insights we drew from the document you uploaded. Click on the titles to read the information.
+                    </p>
+                </div>
+
+                <div className="how-to-card">
+                    <img src="/images/tutorial_glossary.jpg" alt="Complex terms" className="how-to-card-image" />
+                    <h2 className="how-to-card-title">Find the meaning of complex terms</h2>
+                    <p className="how-to-card-text">
+                        Whenever you see a blue word, you will be able to click on it to show its definition. When you're done, click on the X to return to your summary.
+                    </p>
+                </div>
+
+                <div className="how-to-card">
+                    <img src="/images/tutorial_page-numbers.jpg" alt="Contrast with original" className="how-to-card-image" />
+                    <h2 className="how-to-card-title">Contrast the content with the original IEP</h2>
+                    <p className="how-to-card-text">
+                        Below the title of each key insight, you will find the page number where we took the information from. Always double check!
                     </p>
                 </div>
             </div>
