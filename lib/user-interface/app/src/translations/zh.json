@@ -606,5 +606,21 @@
     "landingContainer.cta.learnHow.pretext": "了解",
     "landingContainer.cta.learnHow.title": "AIEP是如何构建的",
     "landingContainer.cta.explore.pretext": "探索",
-    "landingContainer.cta.explore.title": "以社区为中心的AI"
+    "landingContainer.cta.explore.title": "以社区为中心的AI",
+
+    "landing.howTo.titlePrefix": "如何使用",
+    "landing.howTo.titleSuffix": "AIEP工具",
+
+    "landing.howTo.card1.title": "将IEP上传到工具",
+    "landing.howTo.card1.text": "注册后，您可以将孩子的IEP文档以文档文件（doc或docx）或PDF格式上传。",
+    "landing.howTo.card2.title": "将IEP翻译成您偏好的语言",
+    "landing.howTo.card2.text": "您上传的IEP将被翻译成您注册时选择的语言，同时也可以使用英文版本。",
+    "landing.howTo.card3.title": "初步了解整个IEP文档",
+    "landing.howTo.card3.text": "在屏幕顶部，您将看到我们从您的IEP文档中找到的信息的简短摘要。",
+    "landing.howTo.card4.title": "理解IEP的主要见解",
+    "landing.howTo.card4.text": "在下面的部分中，您将找到我们从您上传的文档中提取的关键见解。点击标题阅读信息。",
+    "landing.howTo.card5.title": "查找复杂术语的含义",
+    "landing.howTo.card5.text": "每当您看到蓝色单词时，可以点击它查看其定义。完成后，点击X返回您的摘要。",
+    "landing.howTo.card6.title": "将内容与原始IEP进行对比",
+    "landing.howTo.card6.text": "在每个关键见解的标题下方，您会找到我们提取信息的页码。请务必核实！"
 }

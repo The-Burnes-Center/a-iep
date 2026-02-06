@@ -37,6 +37,7 @@
 
 .how-to-card {
     max-width: 350px;
+    margin-bottom: 4rem;
 }
 
 .how-to-card-image {
@@ -64,9 +65,14 @@
         flex-direction: row;
         width: 85%;
         justify-content: space-between;
+        margin-top: 3.5rem;
     }
 
     .how-to-banner-content {
         width: 85%;
+    }
+
+    .how-to-card {
+        margin-bottom: 0.5rem;
     }
 }

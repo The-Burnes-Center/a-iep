@@ -614,5 +614,21 @@
     "landingContainer.cta.learnHow.pretext": "Tìm hiểu cách",
     "landingContainer.cta.learnHow.title": "AIEP được xây dựng",
     "landingContainer.cta.explore.pretext": "Khám phá",
-    "landingContainer.cta.explore.title": "AI lấy cộng đồng làm trung tâm"
+    "landingContainer.cta.explore.title": "AI lấy cộng đồng làm trung tâm",
+
+    "landing.howTo.titlePrefix": "Cách sử dụng",
+    "landing.howTo.titleSuffix": "công cụ AIEP",
+
+    "landing.howTo.card1.title": "Tải lên IEP vào công cụ",
+    "landing.howTo.card1.text": "Sau khi đăng ký, bạn sẽ có thể tải lên tài liệu IEP của con bạn dưới dạng tệp tài liệu (doc hoặc docx) hoặc PDF.",
+    "landing.howTo.card2.title": "Dịch IEP sang ngôn ngữ bạn muốn",
+    "landing.howTo.card2.text": "IEP bạn tải lên sẽ được dịch sang ngôn ngữ bạn đã chọn khi đăng ký và cũng sẽ có sẵn bằng tiếng Anh.",
+    "landing.howTo.card3.title": "Xem tổng quan về toàn bộ tài liệu IEP",
+    "landing.howTo.card3.text": "Ở đầu màn hình, bạn sẽ tìm thấy bản tóm tắt ngắn gọn về thông tin chúng tôi tìm thấy trong tài liệu IEP của bạn.",
+    "landing.howTo.card4.title": "Hiểu những thông tin chính từ IEP",
+    "landing.howTo.card4.text": "Trong các phần bên dưới, bạn sẽ tìm thấy những thông tin quan trọng chúng tôi rút ra từ tài liệu bạn đã tải lên. Nhấp vào tiêu đề để đọc thông tin.",
+    "landing.howTo.card5.title": "Tìm ý nghĩa của các thuật ngữ phức tạp",
+    "landing.howTo.card5.text": "Mỗi khi bạn thấy một từ màu xanh, bạn có thể nhấp vào nó để xem định nghĩa. Khi hoàn tất, nhấp vào X để quay lại bản tóm tắt.",
+    "landing.howTo.card6.title": "Đối chiếu nội dung với IEP gốc",
+    "landing.howTo.card6.text": "Bên dưới tiêu đề của mỗi thông tin quan trọng, bạn sẽ tìm thấy số trang nơi chúng tôi lấy thông tin. Hãy luôn kiểm tra lại!"
 }

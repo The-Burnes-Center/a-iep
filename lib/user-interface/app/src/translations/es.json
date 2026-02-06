@@ -609,5 +609,21 @@
     "landingContainer.cta.learnHow.pretext": "Aprende cómo",
     "landingContainer.cta.learnHow.title": "se construyó AIEP",
     "landingContainer.cta.explore.pretext": "Explora",
-    "landingContainer.cta.explore.title": "IA centrada en la comunidad"
+    "landingContainer.cta.explore.title": "IA centrada en la comunidad",
+
+    "landing.howTo.titlePrefix": "Cómo usar la",
+    "landing.howTo.titleSuffix": "herramienta AIEP",
+
+    "landing.howTo.card1.title": "Sube un IEP a la herramienta",
+    "landing.howTo.card1.text": "Después de registrarte, podrás subir el documento IEP de tu hijo como un archivo de documento (doc o docx) o un PDF.",
+    "landing.howTo.card2.title": "Traduce el IEP a tu idioma preferido",
+    "landing.howTo.card2.text": "Tu IEP subido será traducido al idioma que elegiste al registrarte y también estará disponible en inglés.",
+    "landing.howTo.card3.title": "Obtén un primer vistazo del documento IEP completo",
+    "landing.howTo.card3.text": "En la parte superior de la pantalla, encontrarás un breve resumen de la información que encontramos en tu documento IEP.",
+    "landing.howTo.card4.title": "Comprende las ideas principales del IEP",
+    "landing.howTo.card4.text": "En las secciones a continuación, encontrarás las ideas clave que extrajimos del documento que subiste. Haz clic en los títulos para leer la información.",
+    "landing.howTo.card5.title": "Encuentra el significado de términos complejos",
+    "landing.howTo.card5.text": "Cada vez que veas una palabra azul, podrás hacer clic en ella para ver su definición. Cuando termines, haz clic en la X para volver a tu resumen.",
+    "landing.howTo.card6.title": "Contrasta el contenido con el IEP original",
+    "landing.howTo.card6.text": "Debajo del título de cada idea clave, encontrarás el número de página de donde tomamos la información. ¡Siempre verifica!"
   }
