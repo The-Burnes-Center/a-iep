@@ -1,0 +1,28 @@
+.how-to-banner {
+    background: transparent;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.how-to-banner-content {
+    display: flex;
+    flex-direction: row;
+    width: 80%;
+    padding: 2.5rem 0;
+}
+
+.how-to-banner-title {
+    font-size: 3rem;
+    font-family: "Fjalla One", sans-serif;
+    font-weight: 400;
+    font-style: normal;
+}
+
+.how-to-banner-title-green {
+    color: #00682F;
+}
+
+.how-to-banner-title-orange {
+    color: #FF8724;
+}
