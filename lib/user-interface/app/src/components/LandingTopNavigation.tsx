@@ -35,11 +35,6 @@ const LandingTopNavigation: React.FC = () => {
       route: '/login'
     },
     {
-      icon: IconWorld,
-      label: t('navigation.hub') || 'Hub',
-      route: '/aiep-hub'
-    },
-    {
       icon: IconHelpCircle,
       label: t('navigation.faqs') || 'FAQs',
       route: '/faqs'
