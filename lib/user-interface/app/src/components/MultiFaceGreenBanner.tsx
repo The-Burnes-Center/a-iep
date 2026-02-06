@@ -1,10 +1,12 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../common/language-context';
 import './MultiFaceGreenBanner.css';
 import CreateAccountButton from './CreateAccountButton';
 
 const MultiFaceGreenBanner: React.FC = () => {
     const { t } = useLanguage();
+    const navigate = useNavigate();
 
     return (
         <>
@@ -14,7 +16,7 @@ const MultiFaceGreenBanner: React.FC = () => {
                         <h2 className='multi-face-green-banner-title'>{t("landing.greenBanner.title")}</h2>
                         <p className='multi-face-green-banner-text'>{t("landing.greenBanner.description")}</p>
                         <CreateAccountButton 
-                            onClick={() => console.log('Create Account clicked')} 
+                            onClick={() => navigate('/login')} 
                             buttonText={t("landing.greenBanner.createAccountButton")}
                         />
                     </div>
