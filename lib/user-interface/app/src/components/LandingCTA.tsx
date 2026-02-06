@@ -1,3 +1,5 @@
+import './LandingCTA.css';
+
 interface LandingCTAProps {
   pretext: string;
   title: string;
@@ -5,8 +7,8 @@ interface LandingCTAProps {
 
 const LandingCTA = ({ pretext, title }: LandingCTAProps) => {
   return (
-    <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #CBC6BC', borderRadius: '20px', padding: '16px', margin: '16px 0' }}>
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
+    <div className="landing-cta">
+      <div className="landing-cta-content">
         <p className="landing-content-pretext">{pretext}</p>
         <p className="landing-content-title">{title}</p>
       </div>

@@ -7,7 +7,7 @@ const LandingHeroSection = () => {
   return (
     <section className="landing-hero-section">
       <div className="landing-hero-text-container">
-      <span className="landing-hero-project-about-text">About AI for IEPs</span>
+      <span className="landing-hero-project-about-text">{t('landingHero.aboutAIEP')}</span>
         {/* Desktop h1 - with line breaks */}
         <h1 className="landing-hero-text landing-hero-text-desktop">
           {t('landingHero.title.aiep')} {t('landingHero.title.isAn')} <span className="landing-hero-text-orange">{t('landingHero.title.aiForImpact')}</span> {t('landingHero.title.project')}<br />
