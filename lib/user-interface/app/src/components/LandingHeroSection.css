@@ -1,0 +1,131 @@
+.landing-hero-section {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 2rem 2.5rem;
+}
+
+.landing-hero-text-container {
+  display: flex;
+  flex-direction: column;
+  margin-top: 2rem;
+}
+
+.landing-hero-text {
+  font-size: 2.25rem;
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  color: #00682F;
+  margin: 0;
+}
+
+.landing-hero-text-desktop {
+  display: none;
+}
+
+.landing-hero-text-mobile {
+  display: block;
+}
+
+.landing-hero-text-orange {
+  color: #FF8724;
+  text-decoration: underline;
+}
+
+.landing-hero-text-blue {
+  color: #007AD1;
+  text-decoration: underline;
+}
+
+.landing-hero-text-pink {
+  color: #F995A1;
+  text-decoration: underline;
+}
+
+.landing-hero-project-by {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 1.5rem;
+}
+
+.landing-hero-project-by-text {
+  font-size: 1rem;
+  color: rgba(30, 30, 30, 0.35);
+  margin-bottom: 0.75rem;
+}
+
+.landing-hero-project-about-text {
+  font-size: 1.15rem;
+  color: #CBC6BC;
+}
+
+.landing-hero-logos {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.landing-hero-logo {
+  height: 80px;
+  object-fit: contain;
+}
+
+.landing-hero-image-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.landing-hero-image {
+  height: 370px;
+  object-fit: contain;
+}
+
+@media (min-width: 992px) {
+  .landing-hero-section {
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 4rem 4.5rem;
+  }
+
+  .landing-hero-text-container {
+    width: 70%;
+    align-self: flex-start;
+    margin-top: 0;
+  }
+
+  .landing-hero-text {
+    font-size: 3rem;
+    padding-top: 1rem;
+  }
+
+  .landing-hero-text-desktop {
+    display: block;
+  }
+
+  .landing-hero-text-mobile {
+    display: none;
+  }
+
+  .landing-hero-project-by {
+    align-items: flex-start;
+  }
+
+  .landing-hero-logos {
+    flex-direction: row;
+    align-items: center;
+    gap: 3.5rem;
+  }
+
+  .landing-hero-image-container {
+    width: 25%;
+  }
+
+  .landing-hero-image {
+    height: 410px;
+  }
+}

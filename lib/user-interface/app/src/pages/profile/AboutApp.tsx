@@ -8,6 +8,11 @@ import { useLanguage } from '../../common/language-context';
 import GoToWebsiteButton from '../../components/GoToWebsiteButton';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
+import LandingHeroSection from '../../components/LandingHeroSection';
+import GreenSection from '../../components/GreenSection';
+import LandingContainer from '../../components/LandingContainer';
+import LandingContainerBottom from '../../components/LandingContainerBottom';
+import TransparentHeader from '../../components/TransparentHeader';
 import './ProfileForms.css';
 import './UpdateProfileName.css';
 import './ProfileForms.css';
@@ -85,65 +90,14 @@ export default function AboutApp({
           </Breadcrumb>
         </div>
       )}
-    
-        <Container 
-          fluid 
-          className="about-app-intro-container"
-          >
-          <Row style={{ width: '100%', justifyContent: 'center' }}>
-            <Col xs={12} md={8} lg={6}>
-              <div className="profile-form">
-                <img src="/images/carousel/blissful.png" alt="" className="about-hero-image" />
-                <h4 className="update-profile-header" style={{ whiteSpace: 'pre-line' }}>{t("about.projectTitle")}</h4>   
-              </div>  
-            </Col>
-          </Row>
-        </Container>
-
-        <div className='section-header section-header--about'>
-          <h5>{t("about.title")}</h5>
-        </div>
-
-        <Container 
-          fluid 
-          className="about-app-intro-container"
-          >
-          <Row style={{ width: '100%', justifyContent: 'center' }}>
-            <Col xs={12} md={8} lg={6}>
-              <div className="profile-form">
-                <p className='about-text' dangerouslySetInnerHTML={{ __html: t("about.intro") }} />
-                <h4 className='about-app-header'>{t("about.theProblem")}</h4>
-                <p className='about-text'>{t("about.problemDescription")}</p>
-                <ul className='about-app-list'>
-                  <li>{t("about.problemList.translate")}</li>
-                  <li>{t("about.problemList.simplify")}</li>
-                  <li>{t("about.problemList.summarize")}</li>
-                  <li>{t("about.problemList.conversation")}</li>
-                  <li>{t("about.problemList.recommendations")}</li>
-                </ul>
-                <p className='about-text'>{t("about.empowerFamilies")}</p>
-              
-                <h4 className='about-app-header'>{t("about.researchQuestions")}</h4>
-                <p className='about-text'>{t("about.researchDescription")}</p>
-                <ul className='about-app-list'>
-                  <li>{t("about.researchList.educate")}</li>
-                  <li>{t("about.researchList.codesign")}</li>
-                  <li>{t("about.researchList.amplify")}</li>
-                  <li>{t("about.researchList.translateInsights")}</li>
-                  <li>{t("about.researchList.equity")}</li>
-                </ul>
-                <p className='about-text'>{t("about.projectOutcomes")}</p>
-              
-              </div>  
-            </Col>
-          </Row>
-        </Container>
+      
+      <LandingHeroSection />
+      <GreenSection />
+      <LandingContainer />
 
       <div className='about-app-all-content-container'>
 
-      <div className='section-header section-header--parent-navigators'>
-          <h5>{t("about.parentNavigatorsTitle")}</h5>
-        </div>
+      <TransparentHeader title={t("about.parentNavigatorsTitle")} />
 
       <div className='parent-navigators-list-container-top-row'>
             {parentNavigator.slice(0, 4).map((member) => (
@@ -178,9 +132,9 @@ export default function AboutApp({
             ))}
           </div>
 
-          <div className='section-header section-header--team'>
-            <h5>{t("about.theTeam")}</h5>
-          </div>
+          <LandingContainerBottom />
+
+          <TransparentHeader title={t("about.theTeam")} />
 
           <div className='team-members-list-container'>
             {teamMembers.map((member) => (
@@ -197,10 +151,6 @@ export default function AboutApp({
                 </div>
               </div>
             ))}
-          </div>
-
-          <div className='section-header section-header--team'>
-            <h5> </h5>
           </div>
 
         <div className="about-app-partner-container">

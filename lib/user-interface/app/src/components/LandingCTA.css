@@ -1,0 +1,24 @@
+.landing-cta {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid #CBC6BC;
+  border-radius: 20px;
+  padding: 16px;
+  margin: 16px 0;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.landing-cta-content {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 992px) {
+  .landing-cta {
+    width: 100%;
+  }
+}

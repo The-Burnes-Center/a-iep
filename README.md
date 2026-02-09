@@ -93,6 +93,16 @@ Each section shows the original page numbers where information was found, making
 
 ![Page References](images/page_no_skeleton_ui.jpg)
 
+### Document Upload
+Select your IEP file and click Upload. Supported formats include .doc, .docx, .pdf, and other formats.
+
+![Document Upload](images/tutorial_upload.jpg)
+
+### Language Selection & Changing Language in Summary View
+Choose your preferred language — English, Spanish, Chinese, or Vietnamese. You can also change the language directly from the summary view using the language dropdown, and the content will update accordingly.
+
+![Language Selection](images/tutorial_select-language.jpg)
+
 ---
 
 ## Data Privacy & Security

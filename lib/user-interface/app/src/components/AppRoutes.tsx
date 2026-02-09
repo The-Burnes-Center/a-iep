@@ -30,6 +30,7 @@ import RightsAndOnboarding from '../pages/RightsAndOnboarding';
 import ConsentForm from '../pages/profile/ConsentForm';
 import WelcomeIntro from '../pages/profile/WelcomeIntro';
 import FrequentlyAskedQuestions from '../components/FrequentlyAskedQuestions';
+import AIEPHub from '../components/AIEPHub';
 import ParentRightsCarousel from '../components/ParentRightsCarousel';
 import AccountCenter from '../pages/profile/AccountCenter';
 import SurveyForm from '../components/SurveyForm';
@@ -80,6 +81,13 @@ export default function AppRoutes() {
       {/* Privacy Policy - public route */}
       <Route path="/public-privacy-policy" element={
         <PrivacyPolicy isPublic={true} />
+      } />
+
+      {/* AIEP Hub - public route */}
+      <Route path="/aiep-hub" element={
+        <AIEPHub 
+          NavigationComponent={LandingTopNavigation} 
+        />
       } />
       
       {/* ===== PROTECTED ROUTES ===== */}

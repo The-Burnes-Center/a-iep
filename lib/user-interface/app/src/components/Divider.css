@@ -1,0 +1,14 @@
+.divider {
+    display: flex;
+    flex-direction: row;
+    padding: 30px 10px 30px 30px;
+    background: url('/images/orange-pattern-stripe-mobile.png') center/cover;
+    position: relative;
+  }
+  
+  /* Desktop styles */
+  @media (min-width: 992px) {
+    .divider {
+      background: url('/images/orange-pattern-stripe-desktop.png') center/cover;
+    }
+  }

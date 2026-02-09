@@ -2,6 +2,7 @@ import React from 'react';
 import LandingTopNavigation from '../components/LandingTopNavigation';
 import './LandingPage.css';
 import MultiFaceGreenBanner from '../components/MultiFaceGreenBanner';
+import HowToBanner from '../components/HowToBanner';
 import SummarizeTranslateAdvocateBanner from '../components/SummarizeTranslateAdvocateBanner';
 import HeroSection from '../components/HeroSection';
 import AIEPFooter from '../components/AIEPFooter';
@@ -23,6 +24,7 @@ const LandingPage: React.FC = () => {
             <HeroSection />
             <SummarizeTranslateAdvocateBanner />
             <MultiFaceGreenBanner />
+            <HowToBanner />
             <ParentRightsBanner />
             <ResourcesBanner />
             <AIEPFooter footerLinks={publicFooterLinks} />

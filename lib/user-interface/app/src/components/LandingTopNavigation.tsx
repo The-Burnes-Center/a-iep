@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useLanguage, SupportedLanguage } from '../common/language-context';
-import { IconFileDescription, IconHelpCircle, IconInfoCircle, IconHome } from '@tabler/icons-react';
+import { IconFileDescription, IconHelpCircle, IconInfoCircle, IconHome, IconWorld } from '@tabler/icons-react';
 import LanguageDropdown from './LanguageDropdown';
 import './LandingTopNavigation.css';
 
@@ -54,7 +54,7 @@ const LandingTopNavigation: React.FC = () => {
     <div className="landing-top-navigation">
       <div className="navigation-container">
         {/* Left logo - desktop only */}
-        <div className="nav-logo nav-logo-left">
+        <div className="nav-logo nav-logo-left" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
           <img src="/images/logo-v-white.svg" alt="AI IEP Logo" />
         </div>
 

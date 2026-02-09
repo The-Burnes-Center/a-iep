@@ -1,0 +1,29 @@
+.landing-section-header-orange {
+  display: flex;
+  flex-direction: row;
+  padding: 30px 10px 30px 10px;
+  border-top: 1px solid #1E1E1E;
+  justify-content: flex-start;
+  background: url('/images/orange-pattern-stripe-mobile.png') center/cover;
+  position: relative;
+}
+
+.landing-section-header-orange h5 {
+  font-size: 2.5rem;
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  margin: auto;
+  min-height: 2.5rem;
+}
+
+/* Desktop styles */
+@media (min-width: 992px) {
+  .landing-section-header-orange {
+    background: url('/images/orange-pattern-stripe-desktop.png') center/cover;
+  }
+
+  .landing-section-header-orange h5 {
+    width: 50%;
+  }
+}

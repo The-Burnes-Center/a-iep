@@ -1,0 +1,78 @@
+.how-to-banner {
+    background: transparent;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.how-to-banner-content {
+    display: flex;
+    flex-direction: row;
+    width: 80%;
+    padding: 2.5rem 0;
+}
+
+.how-to-banner-title {
+    font-size: 3rem;
+    font-family: "Fjalla One", sans-serif;
+    font-weight: 400;
+    font-style: normal;
+}
+
+.how-to-banner-title-green {
+    color: #00682F;
+}
+
+.how-to-banner-title-orange {
+    color: #FF8724;
+}
+
+/* Base styles (Mobile-first) */
+.how-to-cards-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0px;
+}
+
+.how-to-card {
+    max-width: 350px;
+    margin-bottom: 4rem;
+}
+
+.how-to-card-image {
+    margin-bottom: 2rem;
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid #1E1E1E;
+}
+
+.how-to-card-title {
+    color: #1E1E1E;
+    width: 100%;
+    margin-bottom: 2rem;
+}
+
+.how-to-card-text {
+    font-size: 1rem;
+    color: #1E1E1E;
+    margin-bottom: 2rem;
+}
+
+/* Desktop styles */
+@media (min-width: 768px) {
+    .how-to-cards-container {
+        flex-direction: row;
+        width: 85%;
+        justify-content: space-between;
+        margin-top: 3.5rem;
+    }
+
+    .how-to-banner-content {
+        width: 85%;
+    }
+
+    .how-to-card {
+        margin-bottom: 0.5rem;
+    }
+}
