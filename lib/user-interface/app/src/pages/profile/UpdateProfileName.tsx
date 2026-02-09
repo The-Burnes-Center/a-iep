@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Container, Form, Button, Row, Col, Alert, Spinner, Breadcrumb } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
-import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
-import { UserProfile } from '../../common/types';
-import { useNotifications } from '../../components/notif-manager';
 import { useLanguage } from '../../common/language-context'; 
 import './UpdateProfileName.css';
 import './ProfileForms.css';
@@ -15,63 +13,22 @@ import './ProfileForms.css';
 export default function UpdateProfileName() {
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
-  const iepDocumentClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
-  const { addNotification } = useNotifications();
   const { t } = useLanguage();
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [parentName, setParentName] = useState<string>('');
   const [saving, setSaving] = useState(false);
-  const [hasExistingDocument, setHasExistingDocument] = useState<boolean>(false);
+
+  const { data: profile, isLoading, error } = useQuery({
+    queryKey: ['profile'],
+    queryFn: () => apiClient.profile.getProfile(),
+  });
 
   useEffect(() => {
-    loadProfileAndCheckDocument();
-  }, []);
-
-  const loadProfileAndCheckDocument = async () => {
-    try {
-      setLoading(true);
-      
-      // Load user profile
-      const data = await apiClient.profile.getProfile();
-      setProfile(data);
-      
-      // Check if parentName exists in the profile
-      if (data.parentName) {
-        setParentName(data.parentName);
-      }
-      
-      // Check for existing documents
-      await checkForExistingDocument();
-      
-      setError(null);
-    } catch (err) {
-      // console.error('Error loading profile or checking document:', err);
-      setError(t('updateProfile.error.serviceUnavailable'));
-    } finally {
-      setLoading(false);
+    if (profile?.parentName) {
+      setParentName(profile.parentName);
     }
-  };
-
-  const checkForExistingDocument = async () => {
-    try {
-      const document = await iepDocumentClient.getMostRecentDocumentWithSummary();
-      
-      // Check if document exists and has been processed or is processing
-      if (document && (document.status === "PROCESSED" || document.status === "PROCESSING")) {
-        setHasExistingDocument(true);
-      } else {
-        setHasExistingDocument(false);
-      }
-    } catch (err) {
-      // console.error('Error checking for existing document:', err);
-      // If there's an error checking for documents, assume no document exists
-      setHasExistingDocument(false);
-    }
-  };
+  }, [profile]);
 
   const handleSaveAndContinue = async () => {
     if (!parentName.trim()) {
@@ -88,7 +45,6 @@ export default function UpdateProfileName() {
       
       // Update the profile with parent name
       await apiClient.profile.updateProfile(updatedProfileData);
-      addNotification('success', t('updateProfile.success.saved'));
       
       // Check if user has any children - if not, create a default child
       if (!profile?.children || profile.children.length === 0) {
@@ -103,9 +59,6 @@ export default function UpdateProfileName() {
         }
       }
       
-      // Check for existing documents after potentially creating child
-      await checkForExistingDocument();
-      
       // Mark onboarding as completed since user has finished all required steps
       try {
         await apiClient.profile.updateProfile({ showOnboarding: false });
@@ -115,15 +68,10 @@ export default function UpdateProfileName() {
         // Don't fail the flow if this update fails
       }
       
-      // Navigate based on whether user has existing documents
-      if (hasExistingDocument) {
-        navigate('/account-center');
-      } else {
-        navigate('/account-center');
-      }
+      navigate('/account-center');
+
     } catch (err) {
-      // console.error('Error saving parent name:', err);
-      addNotification('error', t('updateProfile.error.saveFailed'));
+      console.error('Error saving parent name:', err);
     } finally {
       setSaving(false);
     }
@@ -137,7 +85,7 @@ export default function UpdateProfileName() {
     navigate('/account-center');
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <Container className="text-center">
         <Spinner animation="border" role="status">
@@ -150,7 +98,7 @@ export default function UpdateProfileName() {
   if (error) {
     return (
       <Container>
-        <Alert variant="danger">{error}</Alert>
+        <Alert variant="danger">{t('updateProfile.error.serviceUnavailable')}</Alert>
       </Container>
     );
   }
