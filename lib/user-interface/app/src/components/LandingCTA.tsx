@@ -1,5 +1,6 @@
 import './LandingCTA.css';
 
+
 interface LandingCTAProps {
   pretext: string;
   title: string;
@@ -13,7 +14,9 @@ const LandingCTA = ({ pretext, title, link }: LandingCTAProps) => {
         <p className="landing-content-pretext">{pretext}</p>
         <p className="landing-content-title">{title}</p>
       </div>
-      <img src="/images/next-btn-light.svg" alt="Next" />
+      <span className="landing-cta-arrow" aria-hidden="true">
+        <img className="landing-cta-arrow-icon" src="/images/arrow-icon.svg" alt="" />
+      </span>
     </>
   );
 
