@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useContext } from 'react';
 import { Container, Form, Row, Col, Alert, Spinner, Breadcrumb } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -7,7 +7,6 @@ import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
 import { ApiClient } from '../../common/api-client/api-client';
 import { UserProfile } from '../../common/types';
-import { useNotifications } from '../../components/notif-manager';
 import { useLanguage, SupportedLanguage } from '../../common/language-context'; 
 import './ChangeLanguage.css';
 import './ProfileForms.css';
@@ -17,7 +16,6 @@ export default function ChangeLanguage() {
   const apiClient = new ApiClient(appContext);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { addNotification } = useNotifications();
   const { t, setLanguage } = useLanguage();
 
   // Language options - hardcoded so users can always read the language names
@@ -45,53 +43,40 @@ export default function ChangeLanguage() {
   });
 
   // ============================================================================
-  // LOCAL STATE FOR OPTIMISTIC UPDATES
-  // ============================================================================
-  // We keep a separate local 'profile' state because we want to show the new
-  // value immediately when the user selects a language (optimistic update),
-  // before the API call completes. The 'originalProfile' from useQuery
-  // represents the server's confirmed state.
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-
-  // Sync local state when query data loads or changes.
-  // This runs when the component mounts and whenever originalProfile updates
-  // (e.g., after a successful mutation invalidates the cache).
-  useEffect(() => {
-    if (originalProfile) {
-      setProfile(originalProfile);
-    }
-  }, [originalProfile]);
-
-  // ============================================================================
   // MUTATION FOR UPDATING PROFILE
   // ============================================================================
-  // useMutation handles async operations that modify data (POST, PUT, DELETE).
-  // Unlike useQuery which runs automatically, mutations only run when you
-  // explicitly call mutate().
-  //
-  // Key properties:
-  // - mutationFn: The async function to call
-  // - onSuccess: Called after successful API response
-  // - onError: Called if the API call fails
-  // - isPending: Boolean indicating if the mutation is in progress (replaces manual 'saving' state)
+  // Execution order when mutate(data) is called:
+  // 1. onMutate  — runs BEFORE the API call (optimistic cache update + snapshot for rollback)
+  // 2. mutationFn — the actual API call
+  // 3. onSuccess  — if API succeeded (update language context, invalidate cache)
+  //    OR onError — if API failed (roll back cache to snapshot)
   const updateProfileMutation = useMutation({
     mutationFn: (updatedProfile: UserProfile) => apiClient.profile.updateProfile(updatedProfile),
+    onMutate: async (updatedProfile) => {
+      // Cancel any in-flight refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: ['profile'] });
+
+      // Snapshot the current cache value for rollback
+      const previousProfile = queryClient.getQueryData<UserProfile>(['profile']);
+
+      // Optimistically update the cache — UI reflects the change immediately
+      queryClient.setQueryData(['profile'], updatedProfile);
+
+      return { previousProfile };
+    },
     onSuccess: (_, updatedProfile) => {
       // Update the app's language context so UI translations change
       if (updatedProfile.secondaryLanguage) {
         setLanguage(updatedProfile.secondaryLanguage as SupportedLanguage);
       }
-      // Invalidate the 'profile' query cache. This marks the cached data as stale
-      // and triggers a background refetch, ensuring our originalProfile stays
-      // in sync with the server.
+      // Invalidate the 'profile' query cache to refetch the confirmed server state
       queryClient.invalidateQueries({ queryKey: ['profile'] });
-      addNotification('success', t('profile.success.update'));
     },
-    onError: () => {
-      // If the API call fails, revert the optimistic update by resetting
-      // local state back to the server's confirmed state (originalProfile).
-      setProfile(originalProfile ?? null);
-      addNotification('error', t('profile.error.update'));
+    onError: (_error, _updatedProfile, context) => {
+      // Roll back the cache to the previous value
+      if (context?.previousProfile) {
+        queryClient.setQueryData(['profile'], context.previousProfile);
+      }
     },
   });
 
@@ -100,26 +85,15 @@ export default function ChangeLanguage() {
   };
 
   // ============================================================================
-  // LANGUAGE CHANGE HANDLER - OPTIMISTIC UPDATE PATTERN
+  // LANGUAGE CHANGE HANDLER
   // ============================================================================
-  // Flow:
-  // 1. User selects new language
-  // 2. We immediately update local state (optimistic update) - UI changes instantly
-  // 3. We trigger the API call via mutation
-  // 4. If API succeeds: cache is invalidated, originalProfile updates
-  // 5. If API fails: we revert local state to originalProfile (in onError above)
+  // The mutation's onMutate handles the optimistic cache update, so we just
+  // need to trigger the mutation here. On success, the cache is invalidated.
+  // On failure, onError rolls back the cache automatically.
   const handlePreferredLanguageChange = (languageCode: string) => {
-    // Don't do anything if no profile loaded or same language selected
-    if (!profile || languageCode === profile.secondaryLanguage) return;
-    
-    const updatedProfile = {...profile, secondaryLanguage: languageCode};
-    
-    // Step 1: Optimistic update - show the change immediately in the UI
-    // This provides instant feedback to the user without waiting for the API
-    setProfile(updatedProfile);
-    
-    // Step 2: Trigger the actual API call. The mutation's onSuccess/onError
-    // callbacks will handle the result.
+    if (!originalProfile || languageCode === originalProfile.secondaryLanguage) return;
+
+    const updatedProfile = { ...originalProfile, secondaryLanguage: languageCode };
     updateProfileMutation.mutate(updatedProfile);
   };
 
@@ -182,7 +156,7 @@ export default function ChangeLanguage() {
                         while a save is in flight.
                       */}
                       <Form.Select 
-                        value={profile?.secondaryLanguage || 'en'}
+                        value={originalProfile?.secondaryLanguage || 'en'}
                         onChange={e => handlePreferredLanguageChange(e.target.value)}
                         disabled={updateProfileMutation.isPending}
                         className='language-select-dropdown'
