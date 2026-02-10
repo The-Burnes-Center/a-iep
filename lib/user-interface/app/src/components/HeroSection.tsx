@@ -1,6 +1,7 @@
 import React from 'react';
 import { useLanguage, SupportedLanguage } from '../common/language-context';
 import CustomLogin from './CustomLogin';
+import HowToUseToolButton from './HowToUseToolButton';
 import LanguageDropdown from './LanguageDropdown';
 import './CustomLogin.css';
 import './HeroSection.css';
@@ -30,6 +31,15 @@ const HeroSection: React.FC = () => {
                     <div className='hero-illustration-text-container'>
                         <h2 className='hero-illustration-title'>{t('hero.title')}</h2>
                         <p className='hero-illustration-text'>{t('hero.description')}</p>
+                        <HowToUseToolButton
+                            buttonText={t('hero.howToUseTool')}
+                            onClick={() => {
+                                const howToBanner = document.getElementById('how-to-banner');
+                                if (howToBanner) {
+                                    howToBanner.scrollIntoView({ behavior: 'smooth' });
+                                }
+                            }}
+                        />
                     </div>
                 </div>
                 <div className='hero-section-login-container'>

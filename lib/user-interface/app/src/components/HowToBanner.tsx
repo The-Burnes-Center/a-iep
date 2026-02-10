@@ -6,7 +6,7 @@ const HowToBanner: React.FC = () => {
     const { t } = useLanguage();
 
     return (
-        <div className="how-to-banner">
+        <div id="how-to-banner" className="how-to-banner">
             <div className="how-to-banner-content">
                 <h2 className="how-to-banner-title">
                     <span className="how-to-banner-title-green">{t("landing.howTo.titlePrefix")} </span>
