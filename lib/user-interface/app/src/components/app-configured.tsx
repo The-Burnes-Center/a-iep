@@ -122,6 +122,8 @@ export default function AppConfigured() {
 
   // Always render the router with all providers
   // The router will handle showing login vs protected routes based on auth state
+  // Provider hierarchy: LanguageProvider > AuthProvider > QueryClientProvider > BrowserRouter
+  // This order is correct — no outer provider depends on hooks from an inner one
   return (
     <AppContext.Provider value={config}>
       <LanguageProvider>
