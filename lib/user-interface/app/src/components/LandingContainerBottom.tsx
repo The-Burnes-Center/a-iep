@@ -63,7 +63,7 @@ const LandingContainerBottom = () => {
         <p className="landing-content-text">{t('landingContainer.aboutProject.text2')}</p>
         <LandingCTA pretext={t('landingContainer.cta.tryTool.pretext')} title={t('landingContainer.cta.tryTool.title')} link="/" />
         <LandingCTA pretext={t('landingContainer.cta.learnHow.pretext')} title={t('landingContainer.cta.learnHow.title')} link="https://drive.google.com/file/d/1ijmrBXrc0p-7ryOl0dXUzQ8Z4zcXdV5M/view?usp=sharing" />
-        {/* <LandingCTA pretext={t('landingContainer.cta.explore.pretext')} title={t('landingContainer.cta.explore.title')} /> */}
+        <LandingCTA pretext={t('landingContainer.cta.explore.pretext')} title={t('landingContainer.cta.explore.title')} link="https://communitycentered.ai/" /> 
       </LandingContent>
     </div>
   );
