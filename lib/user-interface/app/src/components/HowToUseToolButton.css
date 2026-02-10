@@ -1,0 +1,17 @@
+.how-to-use-tool-button {
+  background-color: #00682F !important;
+  border-color: #00682F !important;
+  border-radius: 20px;
+  color: #F5F3EE !important;
+  font-family: akzidenz-grotesk-next-conden, sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-size: 1rem !important;
+  letter-spacing: 0.05em;
+}
+
+.how-to-use-tool-button:hover {
+  background-color: #00682F !important;
+  border-color: #00682F !important;
+  color: #F5F3EE !important;
+}
