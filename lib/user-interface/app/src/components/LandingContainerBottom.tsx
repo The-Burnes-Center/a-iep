@@ -13,11 +13,11 @@ const LandingContainerBottom = () => {
     <div className="landing-container">
       <LandingSection title={t('landingContainer.communityCenteredAI.title')}>
         <p className="landing-content-text">{t('landingContainer.communityCenteredAI.intro')}</p>
-        <LandingCTA pretext={t('landingContainer.cta.exploreMore.pretext')} title={t('landingContainer.cta.exploreMore.title')} />
-        <LandingCTA pretext={t('landingContainer.cta.writing.pretext')} title={t('landingContainer.cta.writing.title')} />
+        {/* <LandingCTA pretext={t('landingContainer.cta.exploreMore.pretext')} title={t('landingContainer.cta.exploreMore.title')} /> */}
+        {/* <LandingCTA pretext={t('landingContainer.cta.writing.pretext')} title={t('landingContainer.cta.writing.title')} /> */}
         <div className="landing-cta-row">
           <LandingCTA pretext={t('landingContainer.cta.course.pretext')} title={t('landingContainer.cta.course.title')} link="https://bit.ly/civic-ai-course" />
-          <LandingCTA pretext={t('landingContainer.cta.research.pretext')} title={t('landingContainer.cta.research.title')} />
+          {/* <LandingCTA pretext={t('landingContainer.cta.research.pretext')} title={t('landingContainer.cta.research.title')} /> */}
         </div>
         <p className="landing-content-text">{t('landingContainer.communityCenteredAI.text1')}</p>
         <p className="landing-content-text">{t('landingContainer.communityCenteredAI.text2')}</p>
@@ -63,7 +63,7 @@ const LandingContainerBottom = () => {
         <p className="landing-content-text">{t('landingContainer.aboutProject.text2')}</p>
         <LandingCTA pretext={t('landingContainer.cta.tryTool.pretext')} title={t('landingContainer.cta.tryTool.title')} link="/" />
         <LandingCTA pretext={t('landingContainer.cta.learnHow.pretext')} title={t('landingContainer.cta.learnHow.title')} link="https://drive.google.com/file/d/1ijmrBXrc0p-7ryOl0dXUzQ8Z4zcXdV5M/view?usp=sharing" />
-        <LandingCTA pretext={t('landingContainer.cta.explore.pretext')} title={t('landingContainer.cta.explore.title')} />
+        {/* <LandingCTA pretext={t('landingContainer.cta.explore.pretext')} title={t('landingContainer.cta.explore.title')} /> */}
       </LandingContent>
     </div>
   );
