@@ -289,31 +289,22 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     }
   };
   
-  const sectionConfig = useMemo(() => {
-  if (!translationsLoaded) return [];
-  
-  return [
-        { apiName: "Strengths", englishName: "Strengths", displayName: t('sections.strengths') },
-        { apiName: "Eligibility", englishName: "Eligibility", displayName: t('sections.eligibility') },
-        { apiName: "Present Levels", englishName: "Present Levels of Performance", displayName: t('sections.presentLevels') },
-        { apiName: "Goals", englishName: "Goals", displayName: t('sections.goals') },
-        { apiName: "Services", englishName: "Services", displayName: t('sections.services') },
-        { apiName: "Accommodations", englishName: "Accommodations", displayName: t('sections.accommodations') },
-        { apiName: "Placement", englishName: "Placement", displayName: t('sections.placement') },
-        { apiName: "Key People", englishName: "Key People", displayName: t('sections.keyPeople') },
-        { apiName: "Informed Consent", englishName: "Consent", displayName: t('sections.informedConsent') },
-  ];
-}, [t, translationsLoaded]);
+  const sectionDisplayNames: Record<string, Record<string, string>> = {
+    "Strengths":        { en: "Strengths",                       es: "Fortalezas",                    vi: "Điểm Mạnh",                        zh: "优势" },
+    "Eligibility":      { en: "Eligibility",                     es: "Elegibilidad",                  vi: "Điều kiện hội đủ",                  zh: "资格条件" },
+    "Present Levels":   { en: "Present Levels of Performance",   es: "Niveles Actuales de Desempeño", vi: "Mức Độ Hiệu Suất Hiện Tại",        zh: "当前表现水平" },
+    "Goals":            { en: "Goals",                           es: "Objetivos",                     vi: "Mục Tiêu",                          zh: "目标" },
+    "Services":         { en: "Services",                        es: "Servicios",                     vi: "Dịch Vụ",                           zh: "服务" },
+    "Accommodations":   { en: "Accommodations",                  es: "Adaptaciones",                  vi: "Điều Chỉnh Hỗ Trợ",                zh: "调整措施" },
+    "Placement":        { en: "Placement",                       es: "Ubicación",                     vi: "Vị Trí Sắp Xếp",                   zh: "安置" },
+    "Key People":       { en: "Key People",                      es: "Personas Clave",                vi: "Những Người Chủ Chốt",             zh: "关键人员" },
+    "Informed Consent": { en: "Consent",                         es: "Consentimiento Informado",      vi: "Chấp thuận sau khi được thông báo", zh: "知情同意" },
+  };
 
-  const getDisplayName = (apiName: string, useTranslation: boolean = false): string => {
-    const config = sectionConfig.find(s => 
-      s.apiName === apiName || 
-      s.englishName === apiName || 
-      apiName.toLowerCase().includes(s.apiName.toLowerCase())
-    );
-    
-    if (!config) return apiName;
-    return useTranslation ? config.displayName : config.englishName;
+  const getDisplayName = (apiName: string, lang: string): string => {
+    const section = sectionDisplayNames[apiName];
+    if (!section) return apiName;
+    return section[lang] || section['en'] || apiName;
   };
 
   // Helper function to convert abbreviations to markdown table
@@ -328,20 +319,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     return markdown;
   };
 
-  // Function to sort sections by predefined order
+  const sectionOrder = Object.keys(sectionDisplayNames);
+
   const sortSections = (sections: IEPSection[]) => {
     return [...sections].sort((a, b) => {
-      const indexA = sectionConfig.findIndex(s => 
-        s.apiName === a.name || 
-        s.englishName === a.name ||
-        a.name.toLowerCase().includes(s.apiName.toLowerCase())
-      );
-      const indexB = sectionConfig.findIndex(s => 
-        s.apiName === b.name || 
-        s.englishName === b.name ||
-        b.name.toLowerCase().includes(s.apiName.toLowerCase())
-      );
-      
+      const indexA = sectionOrder.indexOf(a.name);
+      const indexB = sectionOrder.indexOf(b.name);
+
       if (indexA !== -1 && indexB !== -1) return indexA - indexB;
       if (indexA !== -1) return -1;
       if (indexB !== -1) return 1;
@@ -363,7 +347,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             if (section.title && section.content) {
               extractedSections.push({
                 name: section.title,
-                displayName: getDisplayName(section.title, lang !== 'en'),
+                displayName: getDisplayName(section.title, lang),
                 content: section.content,
                 pageNumbers: section.page_numbers || []
               });
