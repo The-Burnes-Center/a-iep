@@ -2,7 +2,7 @@
 
 **AI for Individualized Education Programs** - A serverless application that helps parents understand their child's IEP documents through AI-powered translation, simplified language, and helpful resources.
 
-🌐 **Live Application**: [https://alpha.a-iep.org/](https://alpha.a-iep.org/)
+🌐 **Live Application**: [https://a-iep.org/](https://a-iep.org/)
 
 ---
 
