@@ -10,15 +10,15 @@ const LandingHeroSection = () => {
       <span className="landing-hero-project-about-text">{t('landingHero.aboutAIEP')}</span>
         {/* Desktop h1 - with line breaks */}
         <h1 className="landing-hero-text landing-hero-text-desktop">
-          {t('landingHero.title.aiep')} {t('landingHero.title.isAn')} <span className="landing-hero-text-orange">{t('landingHero.title.aiForImpact')}</span> {t('landingHero.title.project')}<br />
-          {t('landingHero.title.inPartnershipWith')} <span className="landing-hero-text-blue">{t('landingHero.title.innovate')}</span><br />
-          <span className="landing-hero-text-blue">{t('landingHero.title.publicSchools')}</span> {t('landingHero.title.builtOn')}<br />
-          <span className="landing-hero-text-pink">{t('landingHero.title.communityCenteredAI')}</span><br />
+          {t('landingHero.title.aiep')} {t('landingHero.title.isAn')} <a href="https://ai4impact.ai/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-orange landing-hero-link">{t('landingHero.title.aiForImpact')}</a> {t('landingHero.title.project')}<br />
+          {t('landingHero.title.inPartnershipWith')} <a href="https://innovateschools.org/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-blue landing-hero-link">{t('landingHero.title.innovate')}</a><br />
+          <a href="https://innovateschools.org/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-blue landing-hero-link">{t('landingHero.title.publicSchools')}</a> {t('landingHero.title.builtOn')}<br />
+          <a href="https://communitycentered.ai/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-pink landing-hero-link">{t('landingHero.title.communityCenteredAI')}</a><br />
           {t('landingHero.title.principles')}
         </h1>
         {/* Mobile h1 - without line breaks */}
         <h1 className="landing-hero-text landing-hero-text-mobile">
-          {t('landingHero.title.aiep')} {t('landingHero.title.isAn')} <span className="landing-hero-text-orange">{t('landingHero.title.aiForImpact')}</span> {t('landingHero.title.project')} {t('landingHero.title.inPartnershipWith')} <span className="landing-hero-text-blue">{t('landingHero.title.innovate')} {t('landingHero.title.publicSchools')}</span> {t('landingHero.title.builtOn')} <span className="landing-hero-text-pink">{t('landingHero.title.communityCenteredAI')}</span> {t('landingHero.title.principles')}
+          {t('landingHero.title.aiep')} {t('landingHero.title.isAn')} <a href="https://ai4impact.ai/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-orange landing-hero-link">{t('landingHero.title.aiForImpact')}</a> {t('landingHero.title.project')} {t('landingHero.title.inPartnershipWith')} <a href="https://innovateschools.org/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-blue landing-hero-link">{t('landingHero.title.innovate')} {t('landingHero.title.publicSchools')}</a> {t('landingHero.title.builtOn')} <a href="https://communitycentered.ai/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-pink landing-hero-link">{t('landingHero.title.communityCenteredAI')}</a> {t('landingHero.title.principles')}
         </h1>
         <div className="landing-hero-project-by">
           <span className="landing-hero-project-by-text">{t('landingHero.projectBy')}</span>

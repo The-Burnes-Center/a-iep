@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useLanguage, SupportedLanguage } from '../common/language-context';
 import { IconFileDescription, IconHelpCircle, IconInfoCircle, IconHome, IconWorld } from '@tabler/icons-react';
 import LanguageDropdown from './LanguageDropdown';
+import PartnerBanner from './PartnerBanner';
 import './LandingTopNavigation.css';
 
 const LandingTopNavigation: React.FC = () => {
@@ -51,6 +52,8 @@ const LandingTopNavigation: React.FC = () => {
   };
 
   return (
+    <>
+    <PartnerBanner />
     <div className="landing-top-navigation">
       <div className="navigation-container">
         {/* Left logo - desktop only */}
@@ -86,6 +89,7 @@ const LandingTopNavigation: React.FC = () => {
         </div>
       </div>
     </div>
+    </>
   );
 };
 

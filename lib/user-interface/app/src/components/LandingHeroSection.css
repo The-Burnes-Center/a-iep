@@ -30,6 +30,12 @@
   display: block;
 }
 
+.landing-hero-link {
+  color: inherit;
+  text-decoration: inherit;
+  cursor: pointer;
+}
+
 .landing-hero-text-orange {
   color: #FF8724;
   text-decoration: underline;

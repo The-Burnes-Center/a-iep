@@ -1,0 +1,135 @@
+.partner-banner {
+  width: 100%;
+  background-color: #00682F;
+  border-bottom: 1.5px solid rgba(255, 255, 255, 0.2);
+}
+
+/* ── Desktop ── */
+.partner-banner__desktop {
+  height: 34px;
+  padding: 0 80px;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.partner-banner__mobile {
+  display: none;
+}
+
+.partner-banner__label {
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 400;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.partner-banner__link {
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 400;
+  color: #F5F3EE;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+.partner-banner__link:hover {
+  opacity: 0.8;
+  color: #ffffff;
+}
+
+.partner-banner__icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+/* ── Mobile toggle button ── */
+.partner-banner__toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.partner-banner__arrow {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.3s ease;
+}
+
+.partner-banner__arrow--open {
+  transform: rotate(180deg);
+}
+
+/* ── Mobile dropdown ── */
+.partner-banner__dropdown {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 20px 14px;
+  border-bottom: 1.5px solid rgba(255, 255, 255, 0.15);
+  animation: partnerSlideDown 0.3s ease;
+  cursor: pointer;
+}
+
+.partner-banner__dropdown--reverse {
+  flex-direction: column-reverse;
+  animation: partnerSlideUp 0.3s ease;
+  border-bottom: none;
+  border-top: 1.5px solid rgba(255, 255, 255, 0.15);
+}
+
+.partner-banner__arrow--up {
+  transform: rotate(180deg);
+}
+
+.partner-banner__dropdown-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+@keyframes partnerSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes partnerSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Responsive ── */
+@media (max-width: 1024px) {
+  .partner-banner__desktop {
+    display: none;
+  }
+
+  .partner-banner__mobile {
+    display: flex;
+    flex-direction: column;
+  }
+}
