@@ -1092,14 +1092,6 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           </Form>
         )}
       
-      {/* SMS Frequency Disclaimer - positioned at bottom */}
-      {showMobileLogin && (
-        <div className="position-fixed bottom-0 start-0 end-0 p-2" style={{ backgroundColor: 'rgba(248, 249, 250, 0.95)', borderTop: '1px solid rgba(0,0,0,0.1)' }}>
-          <p className="text-center mb-0" style={{ fontSize: '0.75rem', color: 'rgba(108, 117, 125, 0.7)', lineHeight: '1.2' }}>
-            {t('auth.smsFrequencyDisclaimer')}
-          </p>
-        </div>
-      )}
     </>
   );
 };

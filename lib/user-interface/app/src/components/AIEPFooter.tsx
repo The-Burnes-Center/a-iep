@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../common/language-context';
+import PartnerBanner from './PartnerBanner';
 import './AIEPFooter.css';
 
 interface FooterLink {
@@ -19,15 +20,18 @@ const defaultFooterLinks: FooterLink[] = [
   { route: '/about-the-app', labelKey: 'footer.aboutUs' },
 ];
 
-const AIEPFooter: React.FC<AIEPFooterProps> = ({ footerLinks = defaultFooterLinks }) => {
+const AIEPFooter: React.FC<AIEPFooterProps> = ({ footerLinks }) => {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const isPublic = footerLinks !== undefined;
+  const resolvedLinks = footerLinks ?? defaultFooterLinks;
 
   const handleNavigation = (route: string) => {
     navigate(route);
   };
 
   return (
+    <>
     <footer className="aiep-footer">
       <img 
         src="/images/rainbow-stripe-desktop.png" 
@@ -47,7 +51,7 @@ const AIEPFooter: React.FC<AIEPFooterProps> = ({ footerLinks = defaultFooterLink
         </div>
         <div className="footer-links">
             <ul>
-                {footerLinks.map((link, index) => (
+                {resolvedLinks.map((link, index) => (
                   <li key={index} onClick={() => handleNavigation(link.route)}>
                     {t(link.labelKey)}
                   </li>
@@ -72,9 +76,18 @@ const AIEPFooter: React.FC<AIEPFooterProps> = ({ footerLinks = defaultFooterLink
           </div>
         </div>
       </div>
-
-
     </footer>
+    {isPublic && (
+      <>
+        <PartnerBanner position="bottom" />
+        <div style={{ height: '40px', backgroundColor: '#00682F', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 1rem' }}>
+          <p style={{ margin: 0, fontSize: '0.75rem', color: 'rgba(255,255,255,0.7)', lineHeight: '1.2', textAlign: 'center' }}>
+            {t('auth.smsFrequencyDisclaimer')}
+          </p>
+        </div>
+      </>
+    )}
+    </>
   );
 };
 
