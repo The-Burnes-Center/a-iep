@@ -110,27 +110,37 @@ def validate_language(lang: str) -> bool:
     """
     return lang in SUPPORTED_LANGUAGES
 
+class FieldEncryptionError(RuntimeError):
+    """Raised when a PII field cannot be encrypted with KMS.
+
+    We fail the operation rather than silently storing PII in plaintext.
+    """
+
+
 def kms_encrypt_string(plaintext: str) -> str:
     if not plaintext:
         return plaintext
     try:
-        # Try to encrypt with KMS
         resp = kms_client.encrypt(
             KeyId=kms_key_alias,
             Plaintext=plaintext.encode('utf-8'),
         )
         encrypted = base64.b64encode(resp['CiphertextBlob']).decode('utf-8')
-        print(f"Successfully encrypted field with KMS")
+        print("Successfully encrypted field with KMS")
         return encrypted
     except ClientError as e:
-        error_code = e.response['Error']['Code']
-        print(f"KMS encrypt failed with {error_code}: {str(e)}")
-        if error_code in ['UnrecognizedClientException', 'AccessDeniedException', 'NotFoundException']:
-            print("KMS key not available - storing as plaintext (encryption disabled)")
-        return plaintext
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        # CRITICAL: Do not silently fall back to plaintext. If KMS is misconfigured
+        # or unavailable, fail loudly so PII is never persisted unencrypted.
+        print(f"CRITICAL: KMS encrypt failed with {error_code}: {str(e)}")
+        raise FieldEncryptionError(
+            f"Field encryption failed: {error_code}"
+        ) from e
     except Exception as e:
-        print(f"KMS encrypt failed with unexpected error: {str(e)}")
-        return plaintext
+        print(f"CRITICAL: KMS encrypt failed with unexpected error: {str(e)}")
+        raise FieldEncryptionError(
+            f"Field encryption failed: {type(e).__name__}"
+        ) from e
 
 def kms_decrypt_string(ciphertext_b64: str) -> str:
     if not ciphertext_b64:
@@ -364,7 +374,13 @@ def update_user_profile(event: Dict) -> Dict:
         )
         
         return create_response(event, 200, {'message': 'Profile updated successfully'})
-        
+
+    except FieldEncryptionError as e:
+        # Encryption failure must not silently degrade to plaintext storage.
+        print(f"Refusing to update profile due to field encryption failure: {str(e)}")
+        return create_response(event, 503, {
+            'message': 'Profile update temporarily unavailable: encryption service error. Please try again later.'
+        })
     except Exception as e:
         return create_response(event, 500, {'message': f'Error updating user profile: {str(e)}'})
 
@@ -451,6 +467,33 @@ def clean_dynamodb_json(data):
     else:
         return data
 
+def _user_owns_child(user_id: str, child_id: str) -> bool:
+    """
+    Verify the given childId belongs to the authenticated user's profile.
+    Returns True only if the user has a child with the matching childId.
+    """
+    if not user_id or not child_id:
+        return False
+    try:
+        profile_response = user_profiles_table.get_item(Key={'userId': user_id})
+    except Exception as e:
+        print(f"Error loading profile for ownership check (user {user_id}): {str(e)}")
+        return False
+
+    profile = profile_response.get('Item')
+    if not profile:
+        return False
+
+    children = profile.get('children') or []
+    if not isinstance(children, list):
+        return False
+
+    return any(
+        isinstance(child, dict) and child.get('childId') == child_id
+        for child in children
+    )
+
+
 def get_child_documents(event: Dict) -> Dict:
     """
     Get document associated with a specific child.
@@ -470,7 +513,12 @@ def get_child_documents(event: Dict) -> Dict:
         child_id = event['pathParameters']['childId']
         
         print(f"Getting documents for childId: {child_id}, userId: {user_id}")
-        
+
+        # Authorization: the authenticated user must own the requested child.
+        if not _user_owns_child(user_id, child_id):
+            print(f"Access denied: user {user_id} does not own child {child_id}")
+            return create_response(event, 403, {'message': 'Access denied'})
+
         # Query documents by childId
         response = iep_documents_table.query(
             IndexName='byChildId',
@@ -483,8 +531,9 @@ def get_child_documents(event: Dict) -> Dict:
         latest_timestamp = 0
         
         for doc in response['Items']:
-            # Only include document if userId is not present or it matches the authenticated user
-            if 'userId' not in doc or doc['userId'] == user_id:
+            # Strict ownership: require an explicit userId match. Documents without
+            # a userId field are not returned to avoid IDOR via missing fields.
+            if doc.get('userId') == user_id:
                 # Find the document with the latest createdAt timestamp
                 created_at = doc.get('createdAt', 0)
                 if created_at > latest_timestamp:
@@ -630,7 +679,12 @@ def delete_child_documents(event: Dict) -> Dict:
         child_id = event['pathParameters']['childId']
         
         print(f"Processing request to delete IEP documents for childId: {child_id} by userId: {user_id}")
-        
+
+        # Authorization: only allow deletion if the authenticated user owns the child.
+        if not _user_owns_child(user_id, child_id):
+            print(f"Access denied: user {user_id} does not own child {child_id}")
+            return create_response(event, 403, {'message': 'Access denied'})
+
         # Delete all IEP-related data
         try:
             # Initialize clients
@@ -672,9 +726,10 @@ def delete_child_documents(event: Dict) -> Dict:
                 
                 documents_deleted = 0
                 
-                # Delete each document record that belongs to this user
+                # Delete each document record that belongs to this user.
+                # Strict ownership: require an explicit userId match.
                 for doc in response['Items']:
-                    if 'userId' not in doc or doc['userId'] == user_id:
+                    if doc.get('userId') == user_id:
                         # Delete S3 content if it exists (new format)
                         if 'contentS3Reference' in doc:
                             s3_ref = doc['contentS3Reference']
