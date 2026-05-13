@@ -128,7 +128,15 @@ export class UserInterface extends Construct {
       prune: false,
       sources: [asset, exportsAsset],
       destinationBucket: websiteBucket,
-      distribution: distribution
+      distribution: distribution,
+      // Versioned destination bucket + prune:false has accumulated many
+      // object versions over time, so the helper Lambda's `aws s3 sync`
+      // listing pass takes much longer than the 128MB / 512MB defaults
+      // can handle, causing the custom resource to time out (>60min).
+      // Give it more headroom so the sync completes within Lambda's 15min
+      // limit and CloudFormation's 60min custom-resource cutoff.
+      memoryLimit: 1024,
+      ephemeralStorageSize: cdk.Size.gibibytes(1),
     });
 
 
