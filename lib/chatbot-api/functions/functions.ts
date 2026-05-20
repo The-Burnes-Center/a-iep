@@ -84,12 +84,13 @@ export class LambdaFunctionStack extends cdk.Stack {
       ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
     });
 
+    // Scope to only the operation the handler actually needs.
     deleteS3APIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
-        's3:*'
+        's3:DeleteObject'
       ],
-      resources: [props.knowledgeBucket.bucketArn,props.knowledgeBucket.bucketArn+"/*"]
+      resources: [props.knowledgeBucket.bucketArn + "/*"]
     }));
 
     this.deleteS3Function = deleteS3APIHandlerFunction;
