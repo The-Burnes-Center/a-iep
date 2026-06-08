@@ -8,12 +8,29 @@ import boto3
 import urllib.parse
 import traceback
 
+def _safe_event_summary(event):
+    """Summarize the trigger event without logging sensitive details.
+
+    The raw S3 notification carries the object key (whose filename may embed a
+    student's name) plus requester IP/principal metadata, and a direct
+    invocation carries opaque IDs and S3 references. We avoid dumping the whole
+    event; the bucket/key are logged after parsing below.
+    """
+    if not isinstance(event, dict):
+        return f"event of type {type(event).__name__}"
+    if isinstance(event.get('Records'), list):
+        return f"S3 event with {len(event['Records'])} record(s)"
+    safe_keys = ('iep_id', 'user_id', 'child_id', 's3_bucket', 's3_key')
+    meta = {k: event[k] for k in safe_keys if k in event}
+    return f"direct invocation {json.dumps(meta)}"
+
+
 def lambda_handler(event, context):
     """
     Lightweight orchestrator that starts the Step Functions state machine
     for IEP document processing.
     """
-    print("Orchestrator received event:", json.dumps(event))
+    print(f"Orchestrator received event: {_safe_event_summary(event)}")
     
     try:
         # Extract S3 event info

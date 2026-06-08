@@ -19,6 +19,40 @@ from s3_content_handler import (
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(os.environ['IEP_DOCUMENTS_TABLE'])
 
+# The `params` block can carry FERPA-protected document content (OCR text,
+# parsed sections, translated content) under keys like `ocr_data`/`content`.
+# That must never reach CloudWatch, where any principal with log-read access
+# could harvest it, so we log the operation plus only non-sensitive params.
+_SENSITIVE_PARAM_FIELDS = {
+    'ocr_data',       # save_ocr_data: full (or redacted) OCR text
+    'content',        # save_content_to_s3: summaries/sections/meetingNotes/translations
+    'results',        # save_results: processing results
+    'final_result',   # save_final_results: combined final content
+    'field_updates',  # save_api_fields: per-language content fields
+    'items',          # append_to_list_field: content list items
+}
+
+
+def sanitize_event_for_logging(event):
+    """Return a copy of the DDB service event with content-bearing params redacted.
+
+    Keeps the operation name and non-sensitive scalar params (IDs, status,
+    data_type, etc.) so logs stay useful, while never emitting document content.
+    """
+    if not isinstance(event, dict):
+        return {'_type': type(event).__name__}
+    safe = {'operation': event.get('operation')}
+    params = event.get('params')
+    if isinstance(params, dict):
+        safe['params'] = {
+            k: ('[REDACTED]' if k in _SENSITIVE_PARAM_FIELDS else v)
+            for k, v in params.items()
+        }
+    elif params is not None:
+        safe['params'] = '[REDACTED]'
+    return safe
+
+
 def lambda_handler(event, context):
     """
     Central DynamoDB service for all database operations.
@@ -31,7 +65,7 @@ def lambda_handler(event, context):
         }
     }
 """
-    print(f"DDB Service received: {json.dumps(event, default=str)}")
+    print(f"DDB Service received: {json.dumps(sanitize_event_for_logging(event), default=str)}")
     
     try:
         operation = event.get('operation')
@@ -736,7 +770,7 @@ def save_content_to_s3_operation(params):
         }
         
         print(f"Before merge - existing meetingNotes keys: {list(merged_content.get('meetingNotes', {}).keys())}")
-        print(f"New content meetingNotes: {new_content.get('meetingNotes', 'NOT_PRESENT')}")
+        print(f"New content meetingNotes keys: {list(new_content.get('meetingNotes', {}).keys()) if isinstance(new_content.get('meetingNotes'), dict) else 'not-a-dict'}")
         
         # Merge new content - only update non-empty values
         for field in ['summaries', 'sections', 'document_index', 'abbreviations', 'meetingNotes']:
