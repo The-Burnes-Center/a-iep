@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Dict, List, Optional, Literal
 from router import Router, UserProfileRouter, RouteNotFoundException
 import base64
+import copy
 from botocore.exceptions import ClientError
 
 dynamodb = boto3.resource('dynamodb')
@@ -34,6 +35,65 @@ class DecimalEncoder(json.JSONEncoder):
             return int(obj) if obj % 1 == 0 else float(obj)
         return super(DecimalEncoder, self).default(obj)
 
+# --- Log sanitization -------------------------------------------------------
+# API Gateway events carry a JWT bearer token (Authorization header), the
+# Cognito JWT claims carry PII (email, phone_number), and the request body
+# carries user/child PII. None of these may be written to CloudWatch, where any
+# IAM principal with log-read access could harvest a live token and impersonate
+# the user. The helpers below redact those fields before logging, without ever
+# mutating the original event (the handlers still need the real values).
+_SENSITIVE_HEADERS = {'authorization', 'cookie', 'x-api-key', 'x-amz-security-token'}
+_SENSITIVE_CLAIMS = {'email', 'phone_number', 'phone', 'name', 'cognito:username'}
+_REDACTED = '[REDACTED]'
+
+
+def _redact_sensitive_headers(headers: Dict) -> Dict:
+    """Return a copy of an HTTP headers dict with auth/token headers redacted."""
+    if not isinstance(headers, dict):
+        return headers
+    return {
+        key: (_REDACTED if key.lower() in _SENSITIVE_HEADERS else value)
+        for key, value in headers.items()
+    }
+
+
+def sanitize_event_for_logging(event: Dict) -> Dict:
+    """Return a deep copy of an API Gateway event that is safe to log.
+
+    Redacts the JWT bearer token (Authorization header / cookies), PII in the
+    Cognito JWT claims (email, phone_number), and the request body, which
+    carries user/child PII. Never mutates the original event.
+    """
+    if not isinstance(event, dict):
+        return event
+    try:
+        sanitized = copy.deepcopy(event)
+    except Exception:
+        return {'_note': 'event omitted from logs (not serializable)'}
+
+    if isinstance(sanitized.get('headers'), dict):
+        sanitized['headers'] = _redact_sensitive_headers(sanitized['headers'])
+
+    # HTTP API (v2) delivers cookies in a top-level list; they can hold tokens.
+    if 'cookies' in sanitized:
+        sanitized['cookies'] = _REDACTED
+
+    try:
+        claims = sanitized['requestContext']['authorizer']['jwt']['claims']
+    except (KeyError, TypeError):
+        claims = None
+    if isinstance(claims, dict):
+        for claim in _SENSITIVE_CLAIMS:
+            if claim in claims:
+                claims[claim] = _REDACTED
+
+    # The request body carries user/child PII (names, phone, city, etc.).
+    if sanitized.get('body') is not None:
+        sanitized['body'] = _REDACTED
+
+    return sanitized
+
+
 def get_origin_from_event(event: Dict) -> str:
     """
     Extract origin from event headers in a case-insensitive way.
@@ -45,7 +105,7 @@ def get_origin_from_event(event: Dict) -> str:
         str: The origin header value or default localhost
     """
     headers = event.get('headers', {})
-    print("Request headers:", json.dumps(headers, indent=2))
+    print("Request headers:", json.dumps(_redact_sensitive_headers(headers), indent=2))
     
     # Case-insensitive search for origin header
     origin_header = next(
@@ -197,7 +257,7 @@ def get_user_profile(event: Dict) -> Dict:
     """
     try:
         claims = event['requestContext']['authorizer']['jwt']['claims']
-        print("Full Cognito claims:", json.dumps(claims, indent=2))
+        # Do not log full Cognito claims: they contain PII (email, phone_number).
         
         user_id = claims['sub']
         print(f"Retrieved from Cognito - userId: {user_id}")
@@ -272,7 +332,7 @@ def get_user_profile(event: Dict) -> Dict:
         
     except Exception as e:
         print(f"Error in get_user_profile: {str(e)}")
-        print(f"Event data: {json.dumps(event, default=str)}")
+        print(f"Event data: {json.dumps(sanitize_event_for_logging(event), default=str)}")
         return create_response(event, 500, {'message': f'Error getting user profile: {str(e)}'})
 
 def update_user_profile(event: Dict) -> Dict:
@@ -955,7 +1015,7 @@ def lambda_handler(event: Dict, context) -> Dict:
     Returns:
         Dict: API Gateway response
     """
-    print(f"Lambda handler invoked with event: {json.dumps(event, default=str)}")
+    print(f"Lambda handler invoked with event: {json.dumps(sanitize_event_for_logging(event), default=str)}")
     
     try:
         # Handle OPTIONS request for CORS
