@@ -148,6 +148,25 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   };
 
   /**
+   * Sign in via the phone custom-auth flow, transparently answering the
+   * backend's language-handshake round. Cognito doesn't forward sign-in
+   * clientMetadata to the SMS lambda, so the backend's first challenge round
+   * sends no SMS and just collects the UI language: answering it through
+   * sendCustomChallengeAnswer DOES forward clientMetadata, and the next
+   * round sends the OTP in that language.
+   */
+  const signInWithPhone = async (phone: string) => {
+    let user = await Auth.signIn(phone, undefined, { language });
+    if (
+      user.challengeName === 'CUSTOM_CHALLENGE' &&
+      user.challengeParam?.challengeType === 'LANGUAGE_HANDSHAKE'
+    ) {
+      user = await Auth.sendCustomChallengeAnswer(user, 'HANDSHAKE_ACK', { language });
+    }
+    return user;
+  };
+
+  /**
    * Clean Phone Authentication Flow (Frontend Only)
    * Handles both signup confirmation and custom auth properly
    */
@@ -180,8 +199,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       // Try custom auth first (for existing users)
       let cognitoUser;
       try {
-        // clientMetadata.language lets the backend send the OTP SMS in the UI language
-        cognitoUser = await Auth.signIn(formattedPhone, undefined, { language });
+        cognitoUser = await signInWithPhone(formattedPhone);
         // console.log('Existing user found, custom auth initiated');
         // console.log('SignIn result:', { challengeName: cognitoUser.challengeName, username: cognitoUser.username });
         
@@ -234,7 +252,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             // console.error('SignUp error:', signUpError);
             if (signUpError.code === 'UsernameExistsException') {
               // User was created between our attempts, try signin again
-              cognitoUser = await Auth.signIn(formattedPhone, undefined, { language });
+              cognitoUser = await signInWithPhone(formattedPhone);
               
               if (cognitoUser.challengeName === 'CUSTOM_CHALLENGE') {
                 setCognitoUserForSms(cognitoUser);
@@ -329,8 +347,8 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         // console.log('Starting custom auth after confirmation');
         
         try {
-          const cognitoUser = await Auth.signIn(pendingPhoneNumber, undefined, { language });
-          
+          const cognitoUser = await signInWithPhone(pendingPhoneNumber);
+
           if (cognitoUser.challengeName === 'CUSTOM_CHALLENGE') {
             // Switch to custom auth mode
             setCognitoUserForSms(cognitoUser);
@@ -489,7 +507,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             return;
           }
           
-          const result = await Auth.signIn(phoneNumber, undefined, { language });
+          const result = await signInWithPhone(phoneNumber);
 
           if (result.challengeName === 'CUSTOM_CHALLENGE') {
             setCognitoUserForSms(result);
