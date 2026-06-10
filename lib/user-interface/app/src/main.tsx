@@ -7,7 +7,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import AppConfigured from "./components/app-configured";
 import { StorageHelper } from "./common/helpers/storage-helper";
-import "bootstrap-icons/font/bootstrap-icons.css";
 import './styles/app.scss';
 import './styles/modal.css';
 import './styles/buttons.css';
