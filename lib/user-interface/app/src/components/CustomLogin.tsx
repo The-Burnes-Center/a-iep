@@ -7,7 +7,8 @@ import {
   Alert, 
   Spinner,
 } from 'react-bootstrap';
-import 'bootstrap/dist/css/bootstrap.min.css';
+// Bootstrap CSS is managed at runtime by common/direction.ts (LTR/RTL swap) —
+// do not import it statically anywhere or both builds load at once
 import './CustomLogin.css'; // Import the custom CSS file
 import { useLanguage, SupportedLanguage } from '../common/language-context';
 import { useAuth } from '../common/auth-provider';

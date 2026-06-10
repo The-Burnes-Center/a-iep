@@ -24,6 +24,22 @@ export const LanguageContext = createContext<LanguageContextType>({
 // Language context storage key
 const LANGUAGE_STORAGE_KEY = 'aiep-language-preference';
 
+const SUPPORTED_LANGUAGES: SupportedLanguage[] = ['en', 'es', 'zh', 'vi', 'ar'];
+
+// Module-level cache of loaded translation dictionaries. Combined with the
+// idle-time prefetch below, this makes language switches instant: by the time
+// a user reaches the language picker, every dictionary is already in memory.
+const translationCache: Partial<Record<SupportedLanguage, Record<string, string>>> = {};
+
+const fetchTranslations = async (lang: SupportedLanguage): Promise<Record<string, string>> => {
+  const cached = translationCache[lang];
+  if (cached) return cached;
+  // Dynamic import keeps each language out of the main bundle (~15KB gz each)
+  const translationModule = await import(`../translations/${lang}.json`);
+  translationCache[lang] = translationModule.default;
+  return translationModule.default;
+};
+
 // Create the provider component
 export const LanguageProvider = ({ children }: { children: React.ReactNode }) => {
   // Initialize with stored preference or default to English
@@ -54,9 +70,7 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
   // Load translations for the current language
   const loadTranslations = async (lang: SupportedLanguage) => {
     try {
-      // Dynamic import to load only the needed language file
-      const translationModule = await import(`../translations/${lang}.json`);
-      setTranslations(translationModule.default);
+      setTranslations(await fetchTranslations(lang));
       setTranslationsLoaded(true); // Set to true when translations are loaded
       setInitialLoadDone(true);
     } catch (error) {
@@ -64,8 +78,7 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
       // Fallback to English if translation file is missing
       if (lang !== 'en') {
         try {
-          const fallbackModule = await import('../translations/en.json');
-          setTranslations(fallbackModule.default);
+          setTranslations(await fetchTranslations('en'));
         } catch (fallbackError) {
           // console.error('Failed to load fallback translations:', fallbackError);
         }
@@ -80,6 +93,24 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
     applyDirection(language); // Keep document dir/lang and Bootstrap LTR/RTL build in sync
     loadTranslations(language);
   }, [language]); // Added language as dependency to reload when it changes
+
+  // Once the active language is loaded, prefetch the remaining dictionaries
+  // in the background during idle time so switching languages never waits on
+  // the network. Failures are ignored — the switch path loads on demand.
+  useEffect(() => {
+    if (!initialLoadDone) return;
+    const prefetchRemaining = () => {
+      SUPPORTED_LANGUAGES
+        .filter((lang) => !translationCache[lang])
+        .forEach((lang) => { fetchTranslations(lang).catch(() => {}); });
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(prefetchRemaining, { timeout: 5000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = setTimeout(prefetchRemaining, 2000);
+    return () => clearTimeout(id);
+  }, [initialLoadDone]);
 
   // Translation function
   const t = (key: string): string => {

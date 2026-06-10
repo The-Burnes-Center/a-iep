@@ -9,7 +9,7 @@ import { Link } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage, SupportedLanguage } from '../common/language-context';
 import { useNotifications } from './notif-manager';
-import 'bootstrap/dist/css/bootstrap.min.css';
+// Bootstrap CSS is managed at runtime by common/direction.ts (LTR/RTL swap)
 import './global-header.css';
 
 export default function GlobalHeader() {
