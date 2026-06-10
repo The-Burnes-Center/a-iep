@@ -8,7 +8,6 @@ import * as path from 'path';
 import { getTagProps, tagResource } from '../tags';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { CfnUserPool } from 'aws-cdk-lib/aws-cognito';
-import { Logger } from '../chatbot-api/logging/logger';
 
 /**
  * Props for NewAuthorizationStack
@@ -32,9 +31,6 @@ export class NewAuthorizationStack extends Construct {
 
   constructor(scope: Construct, id: string, props?: NewAuthorizationStackProps) {
     super(scope, id);
-
-    // Use the shared Logger for consistent logging
-    const logger = Logger.getInstance();
 
     // 1. Create the Cognito User Pool with self sign-up and email/phone support
     const userPool = new UserPool(this, 'NewUserPool', {      
@@ -78,14 +74,6 @@ export class NewAuthorizationStack extends Construct {
     cfnRole.addPropertyOverride('AssumeRolePolicyDocument.Statement.0.Condition', {
       'StringEquals': { 'sts:ExternalId': this.node.addr }
     });
-    
-    logger.logEvent({
-      eventType: 'AUTHZ_STACK',
-      action: 'Created CognitoSmsRole',
-      resourceType: 'COGNITO',
-      resourceId: cognitoSmsRole.roleArn,
-      details: { roleArn: cognitoSmsRole.roleArn, externalId: this.node.addr },
-    });
 
     // 4. Attach the SMS role to the user pool
     cfnUserPool.smsConfiguration = {
@@ -94,14 +82,6 @@ export class NewAuthorizationStack extends Construct {
     };
     cfnUserPool.smsAuthenticationMessage = 'Your login code for The GovLab AIEP is: {####}. Do not share this code.';
     cfnUserPool.smsVerificationMessage = 'Your OTP from The GovLab AIEP is: {####}. Do not share this code. Msg & data rates may apply.';
-    
-    logger.logEvent({
-      eventType: 'AUTHZ_STACK',
-      action: 'Configured Cognito SMS settings',
-      resourceType: 'COGNITO',
-      resourceId: userPool.userPoolId,
-      details: { userPoolId: userPool.userPoolId },
-    });
 
     // 5. Create Lambda functions for Phone OTP authentication
     this.createPhoneOtpLambdaTriggers(userPool, props?.userProfilesTable);

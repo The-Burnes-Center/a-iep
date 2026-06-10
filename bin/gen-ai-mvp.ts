@@ -3,13 +3,7 @@ import 'source-map-support/register';
 import * as cdk from 'aws-cdk-lib';
 import { GenAiMvpStack } from '../lib/gen-ai-mvp-stack';
 import { stackName } from "../lib/constants"
-import { STANDARD_TAGS, getEnvironment } from '../lib/tags';
-import { Logger } from '../lib/chatbot-api/logging/logger';
-
-// Initialize the Logger singleton with the correct log group name
-const environment = getEnvironment();
-const logGroupName = `/ai-iep/${environment}/logs`;
-Logger.initialize(logGroupName);
+import { STANDARD_TAGS } from '../lib/tags';
 
 const app = new cdk.App();
 const stack = new GenAiMvpStack(app, stackName, {
