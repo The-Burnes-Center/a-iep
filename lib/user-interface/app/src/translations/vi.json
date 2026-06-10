@@ -632,5 +632,12 @@
     "landing.howTo.card5.title": "Tìm ý nghĩa của các thuật ngữ phức tạp",
     "landing.howTo.card5.text": "Mỗi khi bạn thấy một từ màu xanh, bạn có thể nhấp vào nó để xem định nghĩa. Khi hoàn tất, nhấp vào X để quay lại bản tóm tắt.",
     "landing.howTo.card6.title": "Đối chiếu nội dung với IEP gốc",
-    "landing.howTo.card6.text": "Bên dưới tiêu đề của mỗi thông tin quan trọng, bạn sẽ tìm thấy số trang nơi chúng tôi lấy thông tin. Hãy luôn kiểm tra lại!"
+    "landing.howTo.card6.text": "Bên dưới tiêu đề của mỗi thông tin quan trọng, bạn sẽ tìm thấy số trang nơi chúng tôi lấy thông tin. Hãy luôn kiểm tra lại!",
+    "partnerBanner.label": "Xem các dự án đối tác của chúng tôi",
+    "auth.authenticationIncomplete": "Xác thực chưa hoàn tất. Vui lòng thử lại.",
+    "auth.maxAttemptsExceeded": "Đã vượt quá số lần xác minh tối đa. Vui lòng bắt đầu lại.",
+    "auth.pleaseEnterSmsCode": "Vui lòng nhập mã xác minh",
+    "auth.resendFailed": "Không thể gửi lại mã xác minh. Vui lòng thử lại.",
+    "auth.sessionExpired": "Phiên đã hết hạn. Vui lòng bắt đầu lại.",
+    "auth.verificationFailed": "Xác minh mã không thành công. Vui lòng thử lại."
 }

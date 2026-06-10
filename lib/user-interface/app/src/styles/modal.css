@@ -27,7 +27,7 @@
 .modal-navigation {
   padding-bottom: 2rem;
   padding-top: 1.5rem;
-  text-align: left;
+  text-align: start;
   display: flex;
   justify-content: space-between;
 }

@@ -639,5 +639,8 @@
     "landing.howTo.card5.title": "Find the meaning of complex terms",
     "landing.howTo.card5.text": "Whenever you see a blue word, you will be able to click on it to show its definition. When you're done, click on the X to return to your summary.",
     "landing.howTo.card6.title": "Contrast the content with the original IEP",
-    "landing.howTo.card6.text": "Below the title of each key insight, you will find the page number where we took the information from. Always double check!"
+    "landing.howTo.card6.text": "Below the title of each key insight, you will find the page number where we took the information from. Always double check!",
+    "partnerBanner.label": "See our partner projects",
+    "sections.foundIn": "Found in",
+    "sections.pages": "pages"
   }

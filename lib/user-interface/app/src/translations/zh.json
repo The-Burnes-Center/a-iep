@@ -624,5 +624,18 @@
     "landing.howTo.card5.title": "查找复杂术语的含义",
     "landing.howTo.card5.text": "每当您看到蓝色单词时，可以点击它查看其定义。完成后，点击X返回您的摘要。",
     "landing.howTo.card6.title": "将内容与原始IEP进行对比",
-    "landing.howTo.card6.text": "在每个关键见解的标题下方，您会找到我们提取信息的页码。请务必核实！"
+    "landing.howTo.card6.text": "在每个关键见解的标题下方，您会找到我们提取信息的页码。请务必核实！",
+    "partnerBanner.label": "查看我们的合作伙伴项目",
+    "about.learnMore": "了解更多",
+    "auth.authenticationIncomplete": "身份验证未完成。请重试。",
+    "auth.maxAttemptsExceeded": "已超过最大验证尝试次数。请重新开始。",
+    "auth.pleaseEnterSmsCode": "请输入验证码",
+    "auth.resendFailed": "重新发送验证码失败。请重试。",
+    "auth.sessionExpired": "会话已过期。请重新开始。",
+    "auth.verificationFailed": "验证码验证失败。请重试。",
+    "authNotAuthorized": "身份验证未获授权。请重试。",
+    "update.profile.child": "孩子",
+    "update.profile.name": "姓名",
+    "update.profile.noChildrenAdded": "尚未添加孩子",
+    "update.profile.schoolCity": "学校所在城市"
 }

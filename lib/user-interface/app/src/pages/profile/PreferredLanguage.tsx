@@ -32,10 +32,15 @@ const LANGUAGE_OPTIONS = [
     label: 'Chinese',
     translatedPreference: '我喜欢中文'
   },
-  { 
-    value: 'vi', 
+  {
+    value: 'vi',
     label: 'Vietnamese',
     translatedPreference: 'Tôi thích tiếng Việt'
+  },
+  {
+    value: 'ar',
+    label: 'Arabic',
+    translatedPreference: 'أفضّل اللغة العربية'
   }
 ];
 

@@ -11,6 +11,7 @@ const languageOptions = [
     { value: 'es', label: 'Español' },
     { value: 'zh', label: '中文' },
     { value: 'vi', label: 'Tiếng Việt' },
+    { value: 'ar', label: 'العربية' },
 ];
 
 const HeroSection: React.FC = () => { 

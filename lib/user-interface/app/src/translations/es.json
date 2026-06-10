@@ -627,5 +627,17 @@
     "landing.howTo.card5.title": "Encuentra el significado de términos complejos",
     "landing.howTo.card5.text": "Cada vez que veas una palabra azul, podrás hacer clic en ella para ver su definición. Cuando termines, haz clic en la X para volver a tu resumen.",
     "landing.howTo.card6.title": "Contrasta el contenido con el IEP original",
-    "landing.howTo.card6.text": "Debajo del título de cada idea clave, encontrarás el número de página de donde tomamos la información. ¡Siempre verifica!"
+    "landing.howTo.card6.text": "Debajo del título de cada idea clave, encontrarás el número de página de donde tomamos la información. ¡Siempre verifica!",
+    "partnerBanner.label": "Conoce los proyectos de nuestros socios",
+    "auth.authenticationIncomplete": "La autenticación no se completó. Por favor, intente de nuevo.",
+    "auth.maxAttemptsExceeded": "Se excedió el número máximo de intentos de verificación. Por favor, comience de nuevo.",
+    "auth.pleaseEnterSmsCode": "Por favor, ingrese el código de verificación",
+    "auth.resendFailed": "No se pudo reenviar el código de verificación. Por favor, intente de nuevo.",
+    "auth.sessionExpired": "La sesión expiró. Por favor, comience de nuevo.",
+    "auth.verificationFailed": "La verificación del código falló. Por favor, intente de nuevo.",
+    "authNotAuthorized": "Autenticación no autorizada. Por favor, intente de nuevo.",
+    "update.profile.child": "Hijo/a",
+    "update.profile.name": "Nombre",
+    "update.profile.noChildrenAdded": "Aún no se han agregado hijos",
+    "update.profile.schoolCity": "Ciudad de la escuela"
   }

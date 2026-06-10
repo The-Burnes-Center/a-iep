@@ -6,6 +6,7 @@ import { faLanguage, faDownload, faArrowsRotate, faForward } from '@fortawesome/
 import './IEPSummarizationAndTranslation.css';
 import { IEPDocument, IEPSection, Language, UserProfile } from '../../common/types';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
+import { getDirForLanguage } from '../../common/direction';
 import { useDocumentFetch, processContentWithJargon } from '../utils';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import ParentRightsCarousel, { SlideData } from '../../components/ParentRightsCarousel';
@@ -35,7 +36,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     en: false,
     es: false,
     vi: false,
-    zh: false
+    zh: false,
+    ar: false
   });
   
   // Profile-related state
@@ -59,19 +61,22 @@ const IEPSummarizationAndTranslation: React.FC = () => {
       en: '',
       es: '',
       vi: '',
-      zh: ''
+      zh: '',
+      ar: ''
     },
     document_index: {
       en: '',
       es: '',
       vi: '',
-      zh: ''
+      zh: '',
+      ar: ''
     },
     sections: {
       en: [],
       es: [],
       vi: [],
-      zh: []
+      zh: [],
+      ar: []
     }
   });
   
@@ -131,7 +136,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     { value: 'en', label: 'English' },
     { value: 'es', label: 'Español' },
     { value: 'zh', label: '中文' },
-    { value: 'vi', label: 'Tiếng Việt' }
+    { value: 'vi', label: 'Tiếng Việt' },
+    { value: 'ar', label: 'العربية' }
   ];
 
   const languageOptions = allLanguageOptions.filter(option => 
@@ -140,22 +146,25 @@ const IEPSummarizationAndTranslation: React.FC = () => {
 
   const handlePreferredLanguageChange = async (languageCode: string) => {
     if (!profile || languageCode === profile.secondaryLanguage) return;
-    
+
+    const previousLanguage = language;
     const updatedProfile = {...profile, secondaryLanguage: languageCode};
     setProfile(updatedProfile);
-    
+    // Switch the UI immediately; the profile save runs in the background
+    setLanguage(languageCode as SupportedLanguage);
+
     try {
       setSaving(true);
-      await apiClient.profile.updateProfile(updatedProfile);
-      
-      // Update language context
-      setLanguage(languageCode as SupportedLanguage);
-      
+      // Send only the changed field: a partial update skips re-encrypting
+      // untouched PII fields (phone/city/parentName) with KMS on the backend
+      await apiClient.profile.updateProfile({ secondaryLanguage: languageCode });
+
       setOriginalProfile(updatedProfile);
       addNotification('success', t('profile.success.update'));
     } catch (err) {
       // Revert on error
       setProfile(originalProfile);
+      setLanguage(previousLanguage);
       addNotification('error', t('profile.error.update'));
     } finally {
       setSaving(false);
@@ -543,8 +552,10 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     
     const isEnglishTab = lang === 'en';
 
+    // Content direction follows the CONTENT language, not the UI language
+    // (e.g. Arabic UI viewing the English tab stays LTR, and vice versa)
     return (
-      <>        
+      <div dir={getDirForLanguage(lang)} lang={lang}>
         {/* Summary Section */}
         {hasSummary ? (
           <>
@@ -705,7 +716,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             )}
           </Alert>
         )}
-      </>
+      </div>
     );
   };
 
@@ -716,6 +727,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
       case 'es': return 'Español';
       case 'vi': return 'Tiếng Việt';
       case 'zh': return '中文';
+      case 'ar': return 'العربية';
       default: return languageCode.toUpperCase();
     }
   };

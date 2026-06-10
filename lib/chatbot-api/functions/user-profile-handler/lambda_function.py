@@ -21,7 +21,7 @@ kms_key_alias = os.environ.get('AIEP_KMS_KEY_ALIAS', 'alias/aiep/app')
 
 print(f"KMS client initialized for region: {region}, using key alias: {kms_key_alias}")
 
-SUPPORTED_LANGUAGES = ['en', 'zh', 'es', 'vi']
+SUPPORTED_LANGUAGES = ['en', 'zh', 'es', 'vi', 'ar']
 DEFAULT_LANGUAGE = 'en'
 
 # Document processing statuses

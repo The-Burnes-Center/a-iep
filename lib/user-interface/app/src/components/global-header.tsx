@@ -120,7 +120,8 @@ export default function GlobalHeader() {
     { value: 'en', label: 'English' },
     { value: 'es', label: 'Español' },
     { value: 'zh', label: '中文' },
-    { value: 'vi', label: 'Tiếng Việt' }
+    { value: 'vi', label: 'Tiếng Việt' },
+    { value: 'ar', label: 'العربية' }
   ];
 
   return (

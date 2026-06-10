@@ -1,0 +1,28 @@
+/* Arabic typography and RTL overrides.
+   :lang(ar) matches both whole-UI Arabic (inherited from <html lang="ar">)
+   and Arabic content blocks rendered inside an English UI (dir/lang set on
+   the content wrapper), without affecting Latin text. */
+
+:lang(ar) {
+  font-family: "Noto Naskh Arabic", "akzidenz-grotesk-next-pro", sans-serif;
+  /* Naskh script needs taller lines; letter-spacing breaks cursive joining */
+  line-height: 1.8;
+  letter-spacing: 0;
+}
+
+/* Fjalla One display headings have no Arabic glyphs; use Cairo instead.
+   !important is needed to beat the per-component "Fjalla One" rules. */
+:lang(ar) h1,
+:lang(ar) h2,
+:lang(ar) h3,
+:lang(ar) h4,
+:lang(ar) h5,
+:lang(ar) h6 {
+  font-family: "Cairo", "Fjalla One", sans-serif !important;
+}
+
+/* Directional icons used as navigation affordances */
+[dir="rtl"] .bi-arrow-right,
+[dir="rtl"] .arrow-icon {
+  transform: scaleX(-1);
+}

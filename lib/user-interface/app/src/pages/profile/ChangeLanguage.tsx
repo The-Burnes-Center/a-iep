@@ -16,14 +16,15 @@ export default function ChangeLanguage() {
   const apiClient = new ApiClient(appContext);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { t, setLanguage } = useLanguage();
+  const { t, language, setLanguage } = useLanguage();
 
   // Language options - hardcoded so users can always read the language names
   const LANGUAGE_OPTIONS = [
     { value: 'en', label: 'English' },
     { value: 'zh', label: '中文' },
     { value: 'es', label: 'Español' },
-    { value: 'vi', label: 'Tiếng Việt' }
+    { value: 'vi', label: 'Tiếng Việt' },
+    { value: 'ar', label: 'العربية' }
   ];
 
   // ============================================================================
@@ -46,36 +47,44 @@ export default function ChangeLanguage() {
   // MUTATION FOR UPDATING PROFILE
   // ============================================================================
   // Execution order when mutate(data) is called:
-  // 1. onMutate  — runs BEFORE the API call (optimistic cache update + snapshot for rollback)
-  // 2. mutationFn — the actual API call
-  // 3. onSuccess  — if API succeeded (update language context, invalidate cache)
-  //    OR onError — if API failed (roll back cache to snapshot)
+  // 1. onMutate  — runs BEFORE the API call (optimistic cache + language update,
+  //    snapshot for rollback) so the UI switches immediately
+  // 2. mutationFn — the actual API call (partial body: only the language field,
+  //    so the backend skips re-encrypting untouched PII fields with KMS)
+  // 3. onSuccess  — if API succeeded (invalidate cache to refetch server state)
+  //    OR onError — if API failed (roll back cache and language to snapshot)
   const updateProfileMutation = useMutation({
-    mutationFn: (updatedProfile: UserProfile) => apiClient.profile.updateProfile(updatedProfile),
+    mutationFn: (updatedProfile: UserProfile) =>
+      apiClient.profile.updateProfile({ secondaryLanguage: updatedProfile.secondaryLanguage }),
     onMutate: async (updatedProfile) => {
       // Cancel any in-flight refetches so they don't overwrite our optimistic update
       await queryClient.cancelQueries({ queryKey: ['profile'] });
 
-      // Snapshot the current cache value for rollback
+      // Snapshot the current cache and language for rollback
       const previousProfile = queryClient.getQueryData<UserProfile>(['profile']);
+      const previousLanguage = language;
 
       // Optimistically update the cache — UI reflects the change immediately
       queryClient.setQueryData(['profile'], updatedProfile);
 
-      return { previousProfile };
-    },
-    onSuccess: (_, updatedProfile) => {
-      // Update the app's language context so UI translations change
+      // Switch the UI language right away instead of waiting for the API round-trip
       if (updatedProfile.secondaryLanguage) {
         setLanguage(updatedProfile.secondaryLanguage as SupportedLanguage);
       }
+
+      return { previousProfile, previousLanguage };
+    },
+    onSuccess: () => {
       // Invalidate the 'profile' query cache to refetch the confirmed server state
       queryClient.invalidateQueries({ queryKey: ['profile'] });
     },
     onError: (_error, _updatedProfile, context) => {
-      // Roll back the cache to the previous value
+      // Roll back the cache and the UI language to the previous values
       if (context?.previousProfile) {
         queryClient.setQueryData(['profile'], context.previousProfile);
+      }
+      if (context?.previousLanguage) {
+        setLanguage(context.previousLanguage);
       }
     },
   });

@@ -17,7 +17,8 @@ const LANGUAGE_OPTIONS = [
   { value: 'en', label: 'English' },
   { value: 'zh', label: 'Chinese' },
   { value: 'es', label: 'Spanish' },
-  { value: 'vi', label: 'Vietnamese' }
+  { value: 'vi', label: 'Vietnamese' },
+  { value: 'ar', label: 'Arabic' }
 ];
 
 export default function UserProfileForm() {

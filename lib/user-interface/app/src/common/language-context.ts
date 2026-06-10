@@ -1,8 +1,9 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { StorageHelper } from './helpers/storage-helper';
+import { applyDirection } from './direction';
 
 // Define supported languages
-export type SupportedLanguage = 'en' | 'es' | 'zh' | 'vi';
+export type SupportedLanguage = 'en' | 'es' | 'zh' | 'vi' | 'ar';
 
 // Define the context type
 interface LanguageContextType {
@@ -68,6 +69,7 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
 
   // Load translations on initial render
   useEffect(() => {
+    applyDirection(language); // Keep document dir/lang and Bootstrap LTR/RTL build in sync
     loadTranslations(language);
   }, [language]); // Added language as dependency to reload when it changes
 

@@ -101,32 +101,36 @@ export interface IEPDocument {
     vi?:string;
     es?: string;
     zh?: string;
+    ar?: string;
     // Add other languages as needed
   };
-  
+
   // Document index (Table of Contents)
   document_index: {
     en?: string;
     vi?: string;
     es?: string;
     zh?: string;
+    ar?: string;
     // Add other languages as needed
   };
-  
+
   sections: {
     en: IEPSection[];
     vi: IEPSection[];
     es: IEPSection[];
     zh: IEPSection[];
+    ar: IEPSection[];
     // Add other languages as needed
   };
-  
+
   // Meeting notes by language (verbatim text string)
   meetingNotes?: {
     en?: string;
     vi?: string;
     es?: string;
     zh?: string;
+    ar?: string;
     // Add other languages as needed
   };
   

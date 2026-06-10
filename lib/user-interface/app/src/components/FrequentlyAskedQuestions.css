@@ -44,7 +44,7 @@
   font-weight: 500;
   font-size: 1.125rem;
   line-height: 2;
-  text-align: left;
+  text-align: start;
   color: #1E1E1E;
 }
 
@@ -119,13 +119,13 @@
 .faq-content th, 
 .faq-content td {
   padding: 0.5rem;
-  text-align: left;
+  text-align: start;
 }
 
 .faq-content blockquote {
-  border-left: 4px solid #0040BA;
-  padding-left: 1rem;
-  margin-left: 0;
+  border-inline-start: 4px solid #0040BA;
+  padding-inline-start: 1rem;
+  margin-inline-start: 0;
   color: #6c757d;
 }
 

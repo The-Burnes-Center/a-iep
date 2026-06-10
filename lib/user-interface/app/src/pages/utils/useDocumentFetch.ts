@@ -120,19 +120,22 @@ export const useDocumentFetch = ({
               en: '',
               es: '',
               vi: '',
-              zh: ''
+              zh: '',
+              ar: ''
             },
             document_index: {
               en: '',
               es: '',
               vi: '',
-              zh: ''
+              zh: '',
+              ar: ''
             },
             sections: {
               en: [],
               es: [],
               vi: [],
-              zh: []
+              zh: [],
+              ar: []
             }
           }));
         }
