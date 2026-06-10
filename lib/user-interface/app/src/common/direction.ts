@@ -12,6 +12,20 @@ export const getDirForLanguage = (lang: string): Dir =>
 // static import in main.tsx) so the LTR/RTL build can be swapped at runtime.
 // It is inserted BEFORE existing stylesheets so custom CSS (app.scss, etc.)
 // keeps winning the cascade, matching the old import order in main.tsx.
+//
+// Dev-only: Vite's dev server also injects ?url-imported CSS as inline
+// <style> tags, which would load BOTH bootstrap builds at once (their rules
+// then fight, e.g. input-group corner rounding). Remove those duplicates so
+// dev renders like the production build, where ?url emits assets only.
+if (import.meta.env.DEV) {
+  const removeViteInjectedBootstrap = () =>
+    document
+      .querySelectorAll('style[data-vite-dev-id*="/bootstrap/dist/css/"]')
+      .forEach((el) => el.remove());
+  removeViteInjectedBootstrap();
+  new MutationObserver(removeViteInjectedBootstrap).observe(document.head, { childList: true });
+}
+
 const bootstrapLink = document.createElement('link');
 bootstrapLink.rel = 'stylesheet';
 bootstrapLink.id = 'bootstrap-css';
