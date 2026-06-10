@@ -550,11 +550,12 @@ export class LambdaFunctionStack extends cdk.Stack {
       ]
     }));
 
-    // Add Cognito permissions for user deletion
+    // Add Cognito permissions for user deletion and locale attribute sync
     userProfileHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
-        'cognito-idp:AdminDeleteUser'
+        'cognito-idp:AdminDeleteUser',
+        'cognito-idp:AdminUpdateUserAttributes'
       ],
       resources: [props.userPool.userPoolArn]
     }));

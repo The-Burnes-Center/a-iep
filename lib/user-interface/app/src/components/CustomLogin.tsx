@@ -212,7 +212,10 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
               username: formattedPhone,
               password: tempPassword,
               attributes: {
-                phone_number: formattedPhone
+                phone_number: formattedPhone,
+                // 'locale' is how the OTP login SMS gets localized: Cognito
+                // doesn't forward sign-in clientMetadata to that trigger
+                locale: language
               },
               clientMetadata: { language }
             });
@@ -601,7 +604,8 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         username: signUpEmail.toLowerCase(),
         password: signUpPassword,
         attributes: {
-          email: signUpEmail.toLowerCase()
+          email: signUpEmail.toLowerCase(),
+          locale: language
         },
         clientMetadata: { language }
       });

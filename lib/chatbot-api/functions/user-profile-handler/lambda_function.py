@@ -432,7 +432,24 @@ def update_user_profile(event: Dict) -> Dict:
             UpdateExpression=update_expr,
             ExpressionAttributeValues=expr_values
         )
-        
+
+        # Mirror the language preference into the Cognito 'locale' attribute.
+        # Cognito does NOT forward InitiateAuth clientMetadata to the
+        # CreateAuthChallenge/CustomMessage triggers, so user attributes are
+        # the only reliable way to localize the first login SMS. Best-effort:
+        # a failure here must not fail the profile update.
+        if body.get('secondaryLanguage'):
+            try:
+                cognito = boto3.client('cognito-idp')
+                cognito.admin_update_user_attributes(
+                    UserPoolId=os.environ.get('USER_POOL_ID', ''),
+                    Username=user_id,
+                    UserAttributes=[{'Name': 'locale', 'Value': body['secondaryLanguage']}]
+                )
+                print(f"Synced Cognito locale attribute for userId: {user_id}")
+            except Exception as locale_error:
+                print(f"Could not sync Cognito locale attribute: {str(locale_error)}")
+
         return create_response(event, 200, {'message': 'Profile updated successfully'})
 
     except FieldEncryptionError as e:
