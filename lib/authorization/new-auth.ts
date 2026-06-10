@@ -221,6 +221,29 @@ export class NewAuthorizationStack extends Construct {
       userProfilesTable.grantReadData(customMessageFunction);
     }
 
+    // Pre Authentication Function - stamps the sign-in screen's UI language
+    // onto the user profile so create-auth-challenge can localize the OTP
+    // SMS. Cognito forwards InitiateAuth clientMetadata to this trigger (as
+    // validationData) but NOT to create-auth-challenge, so this is the only
+    // path from the login screen's language picker to the SMS.
+    const preAuthenticationFunction = new lambda.Function(this, 'PreAuthenticationFunction', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
+      handler: 'pre-authentication.handler',
+      environment: {
+        ...(userProfilesTable && { USER_PROFILES_TABLE: userProfilesTable.tableName })
+      },
+      timeout: cdk.Duration.seconds(30),
+      logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
+      description: 'Stamp sign-in UI language for OTP SMS localization'
+    });
+
+    // grantReadWriteData (not a manual UpdateItem policy) also covers the
+    // KMS permissions for the table's customer-managed encryption key
+    if (userProfilesTable) {
+      userProfilesTable.grantReadWriteData(preAuthenticationFunction);
+    }
+
     // Verify Auth Challenge Function
     const verifyAuthChallengeFunction = new lambda.Function(this, 'VerifyAuthChallengeFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -244,7 +267,7 @@ export class NewAuthorizationStack extends Construct {
     }
 
     // Allow Cognito to invoke the Lambda functions
-    [defineAuthChallengeFunction, createAuthChallengeFunction, verifyAuthChallengeFunction, customMessageFunction].forEach(func => {
+    [defineAuthChallengeFunction, createAuthChallengeFunction, verifyAuthChallengeFunction, customMessageFunction, preAuthenticationFunction].forEach(func => {
       func.addPermission('CognitoInvocation', {
         principal: new iam.ServicePrincipal('cognito-idp.amazonaws.com'),
         action: 'lambda:InvokeFunction',
@@ -271,6 +294,11 @@ export class NewAuthorizationStack extends Construct {
     userPool.addTrigger(
       cognito.UserPoolOperation.CUSTOM_MESSAGE,
       customMessageFunction
+    );
+
+    userPool.addTrigger(
+      cognito.UserPoolOperation.PRE_AUTHENTICATION,
+      preAuthenticationFunction
     );
 
     console.log('Phone OTP Lambda triggers configured successfully');
