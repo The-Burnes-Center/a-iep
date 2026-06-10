@@ -905,7 +905,8 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                 <div className="sms-verification-info">
                   <p>
                     {t('auth.smsCodeSentTo')}<br />
-                    <span className="phone-display">{phoneNumber}</span>
+                    {/* Phone numbers must always render left-to-right, even in RTL UI */}
+                    <span className="phone-display" dir="ltr">{phoneNumber}</span>
                   </p>
                 </div>
                 <VerificationCodeInput

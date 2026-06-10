@@ -214,13 +214,12 @@ export class NewAuthorizationStack extends Construct {
       resources: ['*'] // SNS publish requires * for phone numbers
     }));
 
-    // Allow reading user profiles to localize the OTP SMS
+    // Allow reading user profiles to localize the OTP SMS. grantReadData
+    // (rather than a manual GetItem policy) also grants kms:Decrypt on the
+    // table's customer-managed encryption key — without it the profile
+    // lookup fails with AccessDeniedException and falls back to English.
     if (userProfilesTable) {
-      createAuthChallengeFunction.addToRolePolicy(new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: ['dynamodb:GetItem'],
-        resources: [userProfilesTable.tableArn]
-      }));
+      userProfilesTable.grantReadData(createAuthChallengeFunction);
     }
 
     // Custom Message Function - localizes Cognito's verification / forgot
@@ -238,11 +237,8 @@ export class NewAuthorizationStack extends Construct {
     });
 
     if (userProfilesTable) {
-      customMessageFunction.addToRolePolicy(new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: ['dynamodb:GetItem'],
-        resources: [userProfilesTable.tableArn]
-      }));
+      // Includes kms:Decrypt for the table's customer-managed key
+      userProfilesTable.grantReadData(customMessageFunction);
     }
 
     // Verify Auth Challenge Function
@@ -258,16 +254,13 @@ export class NewAuthorizationStack extends Construct {
       description: 'Verify Auth Challenge for Phone OTP authentication'
     });
 
-    // Add DynamoDB permissions for user profile creation (if table provided)
+    // Add DynamoDB permissions for user profile creation (if table provided).
+    // grantReadWriteData also covers the KMS encrypt/decrypt permissions for
+    // the table's customer-managed key; with the previous manual GetItem/
+    // PutItem policy, profile creation for new phone users failed silently
+    // with a KMS AccessDeniedException.
     if (userProfilesTable) {
-      verifyAuthChallengeFunction.addToRolePolicy(new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: [
-          'dynamodb:GetItem',
-          'dynamodb:PutItem'
-        ],
-        resources: [userProfilesTable.tableArn]
-      }));
+      userProfilesTable.grantReadWriteData(verifyAuthChallengeFunction);
     }
 
     // Allow Cognito to invoke the Lambda functions

@@ -36,6 +36,12 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
   const [translations, setTranslations] = useState<Record<string, string>>({});
   // Add translationsLoaded state
   const [translationsLoaded, setTranslationsLoaded] = useState<boolean>(false);
+  // True once the FIRST translation file has loaded. Children are not
+  // rendered before that, otherwise t() returns raw keys (e.g. "auth.title")
+  // while the language chunk is still downloading. Stays true on later
+  // language switches so the app isn't unmounted (old strings show briefly
+  // instead).
+  const [initialLoadDone, setInitialLoadDone] = useState<boolean>(false);
 
   // Update language and store preference
   const setLanguage = (lang: SupportedLanguage) => {
@@ -52,6 +58,7 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
       const translationModule = await import(`../translations/${lang}.json`);
       setTranslations(translationModule.default);
       setTranslationsLoaded(true); // Set to true when translations are loaded
+      setInitialLoadDone(true);
     } catch (error) {
       // console.error(`Failed to load translations for ${lang}:`, error);
       // Fallback to English if translation file is missing
@@ -64,6 +71,7 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
         }
       }
       setTranslationsLoaded(true); // Still set to true even if there was an error
+      setInitialLoadDone(true);
     }
   };
 
@@ -87,9 +95,9 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
   };
   
   return React.createElement(
-    LanguageContext.Provider, 
-    { value: contextValue }, 
-    children
+    LanguageContext.Provider,
+    { value: contextValue },
+    initialLoadDone ? children : null
   );
 };
 
