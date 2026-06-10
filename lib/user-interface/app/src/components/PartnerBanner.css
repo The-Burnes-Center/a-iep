@@ -6,11 +6,15 @@
 
 /* ── Desktop ── */
 .partner-banner__desktop {
-  height: 34px;
-  padding: 0 80px;
+  min-height: 34px;
+  /* Fluid padding/gap sized so the ~1080px of links fits one row at 1280px
+     viewports, wrapping as a last resort instead of widening the page */
+  padding: 0 clamp(16px, calc(6vw - 32px), 80px);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 32px;
+  column-gap: clamp(12px, calc(2.5vw - 16px), 32px);
+  row-gap: 0;
 }
 
 .partner-banner__mobile {

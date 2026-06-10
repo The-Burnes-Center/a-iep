@@ -21,6 +21,8 @@
 
 .summarize-translate-advocate-image {
     margin-bottom: 2rem;
+    max-width: 100%;
+    height: auto;
 }
 
 .summarize-translate-advocate-title {
@@ -43,6 +45,15 @@
 
     .summarize-translate-advocate-cards-container {
         flex-direction: row;
-        gap: 8rem;
+        justify-content: center;
+        /* Fluid gap: 8rem on wide screens, shrinking with the viewport so
+           three 350px cards never overflow (3*350px + 2 gaps + card padding
+           must stay <= 100vw); below ~1160px the cards themselves shrink */
+        gap: clamp(1.5rem, calc((100vw - 1110px) / 2), 8rem);
+    }
+
+    .summarize-translate-advocate-card {
+        flex: 0 1 350px;
+        min-width: 0;
     }
 }
