@@ -671,7 +671,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     setError(null);
     
     try {
-      await Auth.resendSignUp(signUpEmail.toLowerCase());
+      await Auth.resendSignUp(signUpEmail.toLowerCase(), { language });
       setSuccessMessage('auth.verificationCodeResent');
     } catch (err) {
       // console.error('Resend confirmation error', err);
