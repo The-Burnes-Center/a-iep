@@ -134,13 +134,13 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     } catch (err) {
       // console.error('Login error', err);
       if (err.code === 'UserNotConfirmedException') {
-        setError(t('auth.errorUserNotConfirmed'));
+        setError('auth.errorUserNotConfirmed');
       } else if (err.code === 'NotAuthorizedException') {
-        setError(t('auth.errorIncorrectCredentials'));
+        setError('auth.errorIncorrectCredentials');
       } else if (err.code === 'UserNotFoundException') {
-        setError(t('auth.errorUserNotFound'));
+        setError('auth.errorUserNotFound');
       } else {
-        setError(err.message || t('auth.errorGeneric'));
+        setError(err.message || 'auth.errorGeneric');
       }
     } finally {
       setLoading(false);
@@ -154,7 +154,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   const handleMobileLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!phoneNumber.trim()) {
-      setError(t('auth.pleaseEnterPhoneNumber') || 'Please enter your phone number');
+      setError('auth.pleaseEnterPhoneNumber');
       return;
     }
 
@@ -190,7 +190,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           setCognitoUserForSms(cognitoUser);
           setSmsCodeSent(true);
           setIsNewUserConfirmation(false);
-          setSuccessMessage(t('auth.smsCodeSent'));
+          setSuccessMessage('auth.smsCodeSent');
           // console.log('SMS code sent for existing user');
               } else {
                 // console.log('User authenticated successfully');
@@ -228,7 +228,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             setPendingPhoneNumber(formattedPhone);
             setIsNewUserSignup(true); // Mark as new user signup
             setSmsCodeSent(true);
-            setSuccessMessage(t('auth.smsCodeSentNewUser'));
+            setSuccessMessage('auth.smsCodeSentNewUser');
             
           } catch (signUpError: any) {
             // console.error('SignUp error:', signUpError);
@@ -240,7 +240,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                 setCognitoUserForSms(cognitoUser);
                 setSmsCodeSent(true);
                 setIsNewUserConfirmation(false);
-                setSuccessMessage(t('auth.smsCodeSent'));
+                setSuccessMessage('auth.smsCodeSent');
               } else {
                 login(cognitoUser);
                 handleSuccessfulAuthentication();
@@ -265,7 +265,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           setIsNewUserConfirmation(true);
           setPendingPhoneNumber(formattedPhone);
           setSmsCodeSent(true);
-          setSuccessMessage(t('auth.phoneAccountConfirmPrompt'));
+          setSuccessMessage('auth.phoneAccountConfirmPrompt');
         } else {
           throw signInError;
         }
@@ -280,7 +280,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       } else if (error.code === 'InvalidParameterException') {
         setError('Invalid phone number format. Please use a valid US phone number.');
       } else if (error.code === 'LimitExceededException') {
-        setError(t('auth.tooManyAttempts') || 'Too many attempts. Please wait before trying again.');
+        setError('auth.tooManyAttempts');
       } else {
         setError(error.message || 'Authentication failed. Please try again.');
       }
@@ -296,7 +296,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   const handleSmsCodeVerification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!smsCode.trim() || smsCode.length !== 6) {
-      setError(t('auth.pleaseEnterSmsCode') || 'Please enter the 6-digit verification code');
+      setError('auth.pleaseEnterSmsCode');
       return;
     }
 
@@ -337,12 +337,12 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             setIsNewUserConfirmation(false);
             setPendingPhoneNumber(null);
             setSmsCode(''); // Clear the confirmation code
-            setSuccessMessage(t('auth.accountConfirmedNewCode'));
+            setSuccessMessage('auth.accountConfirmedNewCode');
             // console.log('Custom auth initiated after confirmation');
           } else if (cognitoUser.signInUserSession) {
             // User is fully authenticated (shouldn't happen with CUSTOM_AUTH but handle gracefully)
             // console.log('User authenticated successfully after confirmation');
-            setSuccessMessage(t('auth.accountConfirmedSuccess'));
+            setSuccessMessage('auth.accountConfirmedSuccess');
             
             // Update auth context with logged in user
             login(cognitoUser);
@@ -393,7 +393,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         // Check if authentication is complete
         if (result.signInUserSession) {
           // console.log('Authentication successful!');
-          setSuccessMessage(t('auth.phoneVerificationSuccess'));
+          setSuccessMessage('auth.phoneVerificationSuccess');
           
           // Update auth context with logged in user
           login(result);
@@ -421,13 +421,13 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       
       // Handle specific error cases
       if (error.code === 'NotAuthorizedException' || error.message?.includes('Incorrect')) {
-        setError(t('auth.invalidSmsCode') || 'Invalid verification code. Please try again.');
+        setError('auth.invalidSmsCode');
       } else if (error.code === 'CodeMismatchException') {
-        setError(t('auth.invalidSmsCode') || 'Invalid verification code. Please try again.');
+        setError('auth.invalidSmsCode');
       } else if (error.code === 'ExpiredCodeException') {
-        setError(t('auth.expiredSmsCode') || 'Verification code expired. Please request a new one.');
+        setError('auth.expiredSmsCode');
       } else if (error.code === 'LimitExceededException') {
-        setError(t('auth.tooManyAttempts') || 'Too many attempts. Please try again later.');
+        setError('auth.tooManyAttempts');
       } else {
         setError(error.message || 'Verification failed. Please try again.');
       }
@@ -464,7 +464,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         
         // console.log('Resending signup confirmation for:', pendingPhoneNumber);
         await Auth.resendSignUp(pendingPhoneNumber, { language });
-        setSuccessMessage(t('auth.smsCodeResent'));
+        setSuccessMessage('auth.smsCodeResent');
         setSmsCode(''); // Clear previous code
         
       } else {
@@ -493,7 +493,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
 
           if (result.challengeName === 'CUSTOM_CHALLENGE') {
             setCognitoUserForSms(result);
-            setSuccessMessage(t('auth.smsCodeResent'));
+            setSuccessMessage('auth.smsCodeResent');
             setSmsCode(''); // Clear previous code
           } else {
             setError('Failed to resend code. Please try again.');
@@ -516,7 +516,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     e.preventDefault();
     
     if (newPassword !== confirmPassword) {
-      setError(t('auth.errorPasswordsNotMatch'));
+      setError('auth.errorPasswordsNotMatch');
       return;
     }
     
@@ -538,7 +538,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       handleSuccessfulAuthentication();
     } catch (err) {
       // console.error('Password change error', err);
-      setError(err.message || t('auth.errorGeneric'));
+      setError(err.message || 'auth.errorGeneric');
     } finally {
       setLoading(false);
     }
@@ -552,10 +552,10 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     try {
       await Auth.forgotPassword(resetEmail.toLowerCase(), { language });
       setResetSent(true);
-      setSuccessMessage(t('auth.resetCodeSent'));
+      setSuccessMessage('auth.resetCodeSent');
     } catch (err) {
       // console.error('Forgot password error', err);
-      setError(err.message || t('auth.errorGeneric'));
+      setError(err.message || 'auth.errorGeneric');
     } finally {
       setLoading(false);
     }
@@ -565,7 +565,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     e.preventDefault();
     
     if (newPassword !== confirmPassword) {
-      setError(t('auth.errorPasswordsNotMatch'));
+      setError('auth.errorPasswordsNotMatch');
       return;
     }
     
@@ -574,7 +574,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     
     try {
       await Auth.forgotPasswordSubmit(resetEmail.toLowerCase(), resetCode, newPassword);
-      setSuccessMessage(t('auth.passwordResetSuccess'));
+      setSuccessMessage('auth.passwordResetSuccess');
       setShowForgotPassword(false);
       setResetSent(false);
       setResetCode('');
@@ -583,7 +583,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       setConfirmPassword('');
     } catch (err) {
       // console.error('Reset password error', err);
-      setError(err.message || t('auth.errorGeneric'));
+      setError(err.message || 'auth.errorGeneric');
     } finally {
       setLoading(false);
     }
@@ -593,7 +593,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     e.preventDefault();
     
     if (signUpPassword !== signUpConfirmPassword) {
-      setError(t('auth.errorPasswordsNotMatch'));
+      setError('auth.errorPasswordsNotMatch');
       return;
     }
     
@@ -613,13 +613,13 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       
       // console.log('Sign up successful', user);
       setIsSignUpComplete(true);
-      setSuccessMessage(t('auth.signUpSuccess'));
+      setSuccessMessage('auth.signUpSuccess');
     } catch (err) {
       // console.error('Sign up error', err);
       if (err.code === 'UsernameExistsException') {
-        setError(t('auth.errorUserExists'));
+        setError('auth.errorUserExists');
       } else {
-        setError(err.message || t('auth.errorGeneric'));
+        setError(err.message || 'auth.errorGeneric');
       }
     } finally {
       setLoading(false);
@@ -633,7 +633,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     
     try {
       await Auth.confirmSignUp(signUpEmail.toLowerCase(), verificationCode);
-      setSuccessMessage(t('auth.emailVerified'));
+      setSuccessMessage('auth.emailVerified');
       setShowSignUp(false);
       setIsSignUpComplete(false);
       setSignUpEmail('');
@@ -642,7 +642,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       setVerificationCode('');
     } catch (err) {
       // console.error('Confirm sign up error', err);
-      setError(err.message || t('auth.errorGeneric'));
+      setError(err.message || 'auth.errorGeneric');
     } finally {
       setLoading(false);
     }
@@ -654,10 +654,10 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     
     try {
       await Auth.resendSignUp(signUpEmail.toLowerCase());
-      setSuccessMessage(t('auth.verificationCodeResent'));
+      setSuccessMessage('auth.verificationCodeResent');
     } catch (err) {
       // console.error('Resend confirmation error', err);
-      setError(err.message || t('auth.errorGeneric'));
+      setError(err.message || 'auth.errorGeneric');
     } finally {
       setLoading(false);
     }

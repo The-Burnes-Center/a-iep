@@ -102,8 +102,9 @@ export default function GlobalHeader() {
           const languageLabels = {
             'en': 'English',
             'es': 'Spanish',
-            'zh': 'Chinese', 
-            'vi': 'Vietnamese'
+            'zh': 'Chinese',
+            'vi': 'Vietnamese',
+            'ar': 'Arabic'
           };
           addNotification('success', `Language preference updated to ${languageLabels[lang] || lang}`);
         }
