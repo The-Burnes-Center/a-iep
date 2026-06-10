@@ -33,6 +33,7 @@
     "common.cancel": "取消",
     "common.close": "关闭",
     "common.save": "保存",
+    "common.generatingPdf": "正在生成 PDF…",
     "common.skip": "跳过",
 
     "tutorial.appTutorial.title": "我们现在在做什么？",

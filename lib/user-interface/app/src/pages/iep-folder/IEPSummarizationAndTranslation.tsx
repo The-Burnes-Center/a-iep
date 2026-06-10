@@ -299,15 +299,15 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   };
   
   const sectionDisplayNames: Record<string, Record<string, string>> = {
-    "Strengths":        { en: "Strengths",                       es: "Fortalezas",                    vi: "Điểm Mạnh",                        zh: "优势" },
-    "Eligibility":      { en: "Eligibility",                     es: "Elegibilidad",                  vi: "Điều kiện hội đủ",                  zh: "资格条件" },
-    "Present Levels":   { en: "Present Levels of Performance",   es: "Niveles Actuales de Desempeño", vi: "Mức Độ Hiệu Suất Hiện Tại",        zh: "当前表现水平" },
-    "Goals":            { en: "Goals",                           es: "Objetivos",                     vi: "Mục Tiêu",                          zh: "目标" },
-    "Services":         { en: "Services",                        es: "Servicios",                     vi: "Dịch Vụ",                           zh: "服务" },
-    "Accommodations":   { en: "Accommodations",                  es: "Adaptaciones",                  vi: "Điều Chỉnh Hỗ Trợ",                zh: "调整措施" },
-    "Placement":        { en: "Placement",                       es: "Ubicación",                     vi: "Vị Trí Sắp Xếp",                   zh: "安置" },
-    "Key People":       { en: "Key People",                      es: "Personas Clave",                vi: "Những Người Chủ Chốt",             zh: "关键人员" },
-    "Informed Consent": { en: "Consent",                         es: "Consentimiento Informado",      vi: "Chấp thuận sau khi được thông báo", zh: "知情同意" },
+    "Strengths":        { en: "Strengths",                       es: "Fortalezas",                    vi: "Điểm Mạnh",                        zh: "优势",       ar: "نقاط القوة" },
+    "Eligibility":      { en: "Eligibility",                     es: "Elegibilidad",                  vi: "Điều kiện hội đủ",                  zh: "资格条件",   ar: "الأهلية" },
+    "Present Levels":   { en: "Present Levels of Performance",   es: "Niveles Actuales de Desempeño", vi: "Mức Độ Hiệu Suất Hiện Tại",        zh: "当前表现水平", ar: "مستويات الأداء الحالية" },
+    "Goals":            { en: "Goals",                           es: "Objetivos",                     vi: "Mục Tiêu",                          zh: "目标",       ar: "الأهداف" },
+    "Services":         { en: "Services",                        es: "Servicios",                     vi: "Dịch Vụ",                           zh: "服务",       ar: "الخدمات" },
+    "Accommodations":   { en: "Accommodations",                  es: "Adaptaciones",                  vi: "Điều Chỉnh Hỗ Trợ",                zh: "调整措施",   ar: "التسهيلات" },
+    "Placement":        { en: "Placement",                       es: "Ubicación",                     vi: "Vị Trí Sắp Xếp",                   zh: "安置",       ar: "التنسيب التعليمي" },
+    "Key People":       { en: "Key People",                      es: "Personas Clave",                vi: "Những Người Chủ Chốt",             zh: "关键人员",   ar: "الأشخاص الرئيسيون" },
+    "Informed Consent": { en: "Consent",                         es: "Consentimiento Informado",      vi: "Chấp thuận sau khi được thông báo", zh: "知情同意",   ar: "الموافقة المستنيرة" },
   };
 
   const getDisplayName = (apiName: string, lang: string): string => {
@@ -370,7 +370,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
           "en": "Abbreviations",
           "es": "Abreviaturas",
           "vi": "Chữ viết tắt",
-          "zh": "缩写"
+          "zh": "缩写",
+          "ar": "الاختصارات"
         };
         
         if ( doc.abbreviations && doc.abbreviations[lang] && doc.abbreviations.en && doc.abbreviations.en.length > 0) {
@@ -836,7 +837,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                 {isGeneratingPDF ? (
                   <>
                     <Spinner animation="border" size="sm" className="me-2" />
-                    Generating PDF...
+                    {t('common.generatingPdf')}
                   </>
                 ) : (
                   <>

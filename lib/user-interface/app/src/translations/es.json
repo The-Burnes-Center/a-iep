@@ -33,6 +33,7 @@
     "common.cancel": "Cancelar",
     "common.close": "Cerrar",
     "common.save": "Guardar",
+    "common.generatingPdf": "Generando PDF...",
     "common.skip": "Omitir",
 
     "tutorial.appTutorial.title": "¿Qué estamos haciendo ahora mismo?",

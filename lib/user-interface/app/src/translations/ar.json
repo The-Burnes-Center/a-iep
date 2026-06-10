@@ -33,6 +33,7 @@
     "common.cancel": "إلغاء",
     "common.close": "إغلاق",
     "common.save": "حفظ",
+    "common.generatingPdf": "جارٍ إنشاء ملف PDF...",
     "common.skip": "تخطّي",
 
     "tutorial.appTutorial.title": "ماذا نفعل الآن؟",
@@ -89,7 +90,7 @@
     "sections.presentLevels": "مستويات الأداء الحالية",
     "sections.strengths": "نقاط القوة",
     "sections.eligibility": "الأهلية",
-    "sections.informedConsent": "اختبارات الولاية",
+    "sections.informedConsent": "الموافقة المستنيرة",
     "sections.assistiveTechnology": "التقنيات المساعدة",
     "sections.stateTesting": "اختبارات الولاية",
 

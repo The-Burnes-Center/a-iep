@@ -33,6 +33,7 @@
     "common.cancel": "Cancel",
     "common.close": "Close",
     "common.save": "Save",
+    "common.generatingPdf": "Generating PDF...",
     "common.skip": "Skip",
 
     "tutorial.appTutorial.title": "What are we doing right now ?",
@@ -89,7 +90,7 @@
     "sections.presentLevels": "Present Levels of Performance",   
     "sections.strengths": "Strengths", 
     "sections.eligibility": "Eligibility",
-    "sections.informedConsent": "State Testing",   
+    "sections.informedConsent": "Consent",   
     "sections.assistiveTechnology": "Assistive Technology",
     "sections.stateTesting": "State Testing",    
 
