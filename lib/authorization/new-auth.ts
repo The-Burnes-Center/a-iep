@@ -197,6 +197,9 @@ export class NewAuthorizationStack extends Construct {
       runtime: lambda.Runtime.NODEJS_20_X,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'create-auth-challenge.handler',
+      environment: {
+        ...(userProfilesTable && { USER_PROFILES_TABLE: userProfilesTable.tableName })
+      },
       timeout: cdk.Duration.seconds(30),
       logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
       description: 'Create Auth Challenge for Phone OTP authentication'
@@ -210,6 +213,37 @@ export class NewAuthorizationStack extends Construct {
       ],
       resources: ['*'] // SNS publish requires * for phone numbers
     }));
+
+    // Allow reading user profiles to localize the OTP SMS
+    if (userProfilesTable) {
+      createAuthChallengeFunction.addToRolePolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['dynamodb:GetItem'],
+        resources: [userProfilesTable.tableArn]
+      }));
+    }
+
+    // Custom Message Function - localizes Cognito's verification / forgot
+    // password / MFA messages (SMS and email) to the user's language
+    const customMessageFunction = new lambda.Function(this, 'CustomMessageFunction', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
+      handler: 'custom-message.handler',
+      environment: {
+        ...(userProfilesTable && { USER_PROFILES_TABLE: userProfilesTable.tableName })
+      },
+      timeout: cdk.Duration.seconds(30),
+      logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
+      description: 'Localize Cognito SMS and email messages'
+    });
+
+    if (userProfilesTable) {
+      customMessageFunction.addToRolePolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['dynamodb:GetItem'],
+        resources: [userProfilesTable.tableArn]
+      }));
+    }
 
     // Verify Auth Challenge Function
     const verifyAuthChallengeFunction = new lambda.Function(this, 'VerifyAuthChallengeFunction', {
@@ -237,7 +271,7 @@ export class NewAuthorizationStack extends Construct {
     }
 
     // Allow Cognito to invoke the Lambda functions
-    [defineAuthChallengeFunction, createAuthChallengeFunction, verifyAuthChallengeFunction].forEach(func => {
+    [defineAuthChallengeFunction, createAuthChallengeFunction, verifyAuthChallengeFunction, customMessageFunction].forEach(func => {
       func.addPermission('CognitoInvocation', {
         principal: new iam.ServicePrincipal('cognito-idp.amazonaws.com'),
         action: 'lambda:InvokeFunction',
@@ -259,6 +293,11 @@ export class NewAuthorizationStack extends Construct {
     userPool.addTrigger(
       cognito.UserPoolOperation.VERIFY_AUTH_CHALLENGE_RESPONSE,
       verifyAuthChallengeFunction
+    );
+
+    userPool.addTrigger(
+      cognito.UserPoolOperation.CUSTOM_MESSAGE,
+      customMessageFunction
     );
 
     console.log('Phone OTP Lambda triggers configured successfully');
