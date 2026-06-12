@@ -209,6 +209,8 @@
     "auth.errorRequestPasswordReset": "Lỗi khi yêu cầu đặt lại mật khẩu",
     "auth.errorResetPassword": "Lỗi khi đặt lại mật khẩu",
     "auth.errorPasswordChange": "Lỗi khi thay đổi mật khẩu",
+    "auth.errorSessionExpired": "Phiên đã hết hạn. Vui lòng bắt đầu lại.",
+    "auth.errorPhoneFormat": "Vui lòng nhập số điện thoại Hoa Kỳ hợp lệ gồm 10 chữ số",
     "auth.successPasswordReset": "Đặt lại mật khẩu thành công. Vui lòng đăng nhập bằng mật khẩu mới của bạn.",
     "auth.successAccountCreated": "Tạo tài khoản thành công! Vui lòng đăng nhập bằng thông tin đăng nhập của bạn.",
     "auth.successCodeResent": "Mã xác nhận đã được gửi lại đến email của bạn",

@@ -204,6 +204,8 @@
     "auth.errorRequestPasswordReset": "Error al solicitar restablecimiento de contraseña",
     "auth.errorResetPassword": "Error al restablecer la contraseña",
     "auth.errorPasswordChange": "Error al cambiar la contraseña",
+    "auth.errorSessionExpired": "La sesión ha expirado. Por favor, comience de nuevo.",
+    "auth.errorPhoneFormat": "Por favor, introduzca un número de teléfono válido de EE. UU. de 10 dígitos",
     "auth.successPasswordReset": "Contraseña restablecida exitosamente. Por favor inicie sesión con su nueva contraseña.",
     "auth.successAccountCreated": "¡Cuenta creada exitosamente! Por favor inicie sesión con sus credenciales.",
     "auth.successCodeResent": "El código de verificación ha sido reenviado a su correo",

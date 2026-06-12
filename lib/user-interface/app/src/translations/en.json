@@ -210,6 +210,8 @@
     "auth.errorRequestPasswordReset": "Error requesting password reset",
     "auth.errorResetPassword": "Error resetting password",
     "auth.errorPasswordChange": "Error changing password",
+    "auth.errorSessionExpired": "Session expired. Please start over.",
+    "auth.errorPhoneFormat": "Please enter a valid 10-digit US phone number",
     "auth.successPasswordReset": "Password reset successful. Please sign in with your new password.",
     "auth.successAccountCreated": "Account created successfully! Please sign in with your credentials.",
     "auth.successCodeResent": "Verification code has been resent to your email",

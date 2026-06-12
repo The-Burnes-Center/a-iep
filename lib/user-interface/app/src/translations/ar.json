@@ -207,6 +207,8 @@
     "auth.errorRequestPasswordReset": "خطأ في طلب إعادة تعيين كلمة المرور",
     "auth.errorResetPassword": "خطأ في إعادة تعيين كلمة المرور",
     "auth.errorPasswordChange": "خطأ في تغيير كلمة المرور",
+    "auth.errorSessionExpired": "انتهت صلاحية الجلسة. يرجى البدء من جديد.",
+    "auth.errorPhoneFormat": "يرجى إدخال رقم هاتف أمريكي صحيح مكوّن من 10 أرقام",
     "auth.successPasswordReset": "تمت إعادة تعيين كلمة المرور بنجاح. يرجى تسجيل الدخول بكلمة المرور الجديدة.",
     "auth.successAccountCreated": "تم إنشاء الحساب بنجاح! يرجى تسجيل الدخول ببيانات حسابك.",
     "auth.successCodeResent": "تمت إعادة إرسال رمز التحقق إلى بريدك الإلكتروني",

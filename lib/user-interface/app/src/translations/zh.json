@@ -204,6 +204,8 @@
     "auth.errorRequestPasswordReset": "请求重置密码时出错",
     "auth.errorResetPassword": "重置密码时出错",
     "auth.errorPasswordChange": "更改密码时出错",
+    "auth.errorSessionExpired": "会话已过期，请重新开始。",
+    "auth.errorPhoneFormat": "请输入有效的10位美国电话号码",
     "auth.successPasswordReset": "密码重置成功。请使用新密码登录。",
     "auth.successAccountCreated": "账号创建成功！请使用您的登录凭证登录。",
     "auth.successCodeResent": "验证码已重新发送到您的邮箱",

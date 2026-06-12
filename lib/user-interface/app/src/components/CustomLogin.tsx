@@ -12,6 +12,7 @@ import {
 import './CustomLogin.css'; // Import the custom CSS file
 import { useLanguage, SupportedLanguage } from '../common/language-context';
 import { useAuth } from '../common/auth-provider';
+import { cognitoErrorKey } from '../common/helpers/cognito-error-helper';
 import AuthHeader from './AuthHeader';
 import PasswordInput from './PasswordInput';
 import PasswordRequirements from './PasswordRequirements';
@@ -133,15 +134,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       handleSuccessfulAuthentication();
     } catch (err) {
       // console.error('Login error', err);
-      if (err.code === 'UserNotConfirmedException') {
-        setError('auth.errorUserNotConfirmed');
-      } else if (err.code === 'NotAuthorizedException') {
-        setError('auth.errorIncorrectCredentials');
-      } else if (err.code === 'UserNotFoundException') {
-        setError('auth.errorUserNotFound');
-      } else {
-        setError(err.message || 'auth.errorGeneric');
-      }
+      setError(cognitoErrorKey(err, { NotAuthorizedException: 'auth.errorIncorrectCredentials' }));
     } finally {
       setLoading(false);
     }
@@ -184,7 +177,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     // Extract only digits and format properly to E.164
     const digits = phoneNumber.replace(/\D/g, '');
     if (digits.length < 10) {
-      setError('Please enter a valid 10-digit phone number');
+      setError('auth.errorPhoneFormat');
       setMobileLoading(false);
       return;
     }
@@ -292,16 +285,12 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     } catch (error: any) {
       // console.error('Phone authentication error:', error);
       
-      // Handle specific error cases
-      if (error.code === 'NotAuthorizedException') {
-        setError('Authentication failed. Please try again.');
-      } else if (error.code === 'InvalidParameterException') {
-        setError('Invalid phone number format. Please use a valid US phone number.');
-      } else if (error.code === 'LimitExceededException') {
-        setError('auth.tooManyAttempts');
-      } else {
-        setError(error.message || 'Authentication failed. Please try again.');
-      }
+      // In this flow InvalidParameterException means the phone number was
+      // rejected, so it gets the phone-specific message
+      setError(cognitoErrorKey(error, {
+        NotAuthorizedException: 'auth.errorGeneric',
+        InvalidParameterException: 'auth.errorPhoneFormat',
+      }));
     } finally {
       setMobileLoading(false);
     }
@@ -331,7 +320,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       if (isNewUserConfirmation) {
         // This is a signup confirmation
         if (!pendingPhoneNumber) {
-          setError('Session expired. Please start over.');
+          setError('auth.errorSessionExpired');
           setSmsCodeSent(false);
           setLoading(false);
           return;
@@ -370,7 +359,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             }, 1000);
           } else {
             // console.error('Unexpected auth state after confirmation:', cognitoUser);
-            setError('Authentication error after confirmation. Please try signing in again.');
+            setError('auth.errorGeneric');
             // Reset to phone input
             setSmsCodeSent(false);
             setIsNewUserConfirmation(false);
@@ -380,9 +369,9 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         } catch (postConfirmError: any) {
           // console.error('Error starting custom auth after confirmation:', postConfirmError);
           if (postConfirmError.code === 'UserNotConfirmedException') {
-            setError('Account confirmation failed. Please try the process again.');
+            setError('auth.errorVerification');
           } else {
-            setError('Authentication error after confirmation. Please try again.');
+            setError('auth.errorGeneric');
           }
           // Reset to phone input
           setSmsCodeSent(false);
@@ -395,7 +384,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       } else {
         // This is a custom auth challenge
         if (!cognitoUserForSms) {
-          setError('Session expired. Please start over.');
+          setError('auth.errorSessionExpired');
           setSmsCodeSent(false);
           setLoading(false);
           return;
@@ -425,29 +414,27 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           // Still have challenges to complete
           // console.log('Additional challenge required:', result.challengeName);
           setCognitoUserForSms(result);
-          setError('Additional verification required. Please try again.');
-          
+          setError('auth.errorGeneric');
+
         } else {
           // Unexpected state
           // console.error('Unexpected auth state:', result);
-          setError('Authentication incomplete. Please try again.');
+          setError('auth.errorGeneric');
         }
       }
       
     } catch (error: any) {
       // console.error('SMS verification error:', error);
       
-      // Handle specific error cases
+      // Handle specific error cases. The message check catches custom-auth
+      // lambdas that report a wrong code as NotAuthorized/"Incorrect ...".
       if (error.code === 'NotAuthorizedException' || error.message?.includes('Incorrect')) {
         setError('auth.invalidSmsCode');
-      } else if (error.code === 'CodeMismatchException') {
-        setError('auth.invalidSmsCode');
-      } else if (error.code === 'ExpiredCodeException') {
-        setError('auth.expiredSmsCode');
-      } else if (error.code === 'LimitExceededException') {
-        setError('auth.tooManyAttempts');
       } else {
-        setError(error.message || 'Verification failed. Please try again.');
+        setError(cognitoErrorKey(error, {
+          CodeMismatchException: 'auth.invalidSmsCode',
+          ExpiredCodeException: 'auth.expiredSmsCode',
+        }));
       }
       
       // Clear the SMS code on error
@@ -474,7 +461,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       if (isNewUserConfirmation) {
         // Resend signup confirmation code
         if (!pendingPhoneNumber) {
-          setError('Session expired. Please start over.');
+          setError('auth.errorSessionExpired');
           setSmsCodeSent(false);
           setLoading(false);
           return;
@@ -488,7 +475,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       } else {
         // Resend custom auth challenge
         if (!cognitoUserForSms) {
-          setError('Session expired. Please start over.');
+          setError('auth.errorSessionExpired');
           setSmsCodeSent(false);
           setLoading(false);
           return;
@@ -501,7 +488,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         try {
           const phoneNumber = cognitoUserForSms.username || cognitoUserForSms.challengeParam?.USERNAME;
           if (!phoneNumber) {
-            setError('Session expired. Please start over.');
+            setError('auth.errorSessionExpired');
             setSmsCodeSent(false);
             setLoading(false);
             return;
@@ -514,17 +501,17 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             setSuccessMessage('auth.smsCodeResent');
             setSmsCode(''); // Clear previous code
           } else {
-            setError('Failed to resend code. Please try again.');
+            setError('auth.errorResendCode');
           }
         } catch (resendError: any) {
           // console.error('Resend custom auth error:', resendError);
-          setError('Failed to resend code. Please try again.');
+          setError(cognitoErrorKey(resendError, undefined, 'auth.errorResendCode'));
         }
       }
       
     } catch (error: any) {
       // console.error('Resend SMS error:', error);
-      setError(error.message || 'Failed to resend verification code. Please try again.');
+      setError(cognitoErrorKey(error, undefined, 'auth.errorResendCode'));
     } finally {
       setLoading(false);
     }
@@ -556,7 +543,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       handleSuccessfulAuthentication();
     } catch (err) {
       // console.error('Password change error', err);
-      setError(err.message || 'auth.errorGeneric');
+      setError(cognitoErrorKey(err));
     } finally {
       setLoading(false);
     }
@@ -566,14 +553,15 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     e.preventDefault();
     setLoading(true);
     setError(null);
-    
+    setSuccessMessage(null);
+
     try {
       await Auth.forgotPassword(resetEmail.toLowerCase(), { language });
       setResetSent(true);
       setSuccessMessage('auth.resetCodeSent');
     } catch (err) {
       // console.error('Forgot password error', err);
-      setError(err.message || 'auth.errorGeneric');
+      setError(cognitoErrorKey(err));
     } finally {
       setLoading(false);
     }
@@ -581,15 +569,16 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (newPassword !== confirmPassword) {
       setError('auth.errorPasswordsNotMatch');
       return;
     }
-    
+
     setLoading(true);
     setError(null);
-    
+    setSuccessMessage(null);
+
     try {
       await Auth.forgotPasswordSubmit(resetEmail.toLowerCase(), resetCode, newPassword);
       setSuccessMessage('auth.passwordResetSuccess');
@@ -601,7 +590,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       setConfirmPassword('');
     } catch (err) {
       // console.error('Reset password error', err);
-      setError(err.message || 'auth.errorGeneric');
+      setError(cognitoErrorKey(err));
     } finally {
       setLoading(false);
     }
@@ -617,7 +606,8 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     
     setLoading(true);
     setError(null);
-    
+    setSuccessMessage(null);
+
     try {
       const { user } = await Auth.signUp({
         username: signUpEmail.toLowerCase(),
@@ -634,11 +624,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       setSuccessMessage('auth.signUpSuccess');
     } catch (err) {
       // console.error('Sign up error', err);
-      if (err.code === 'UsernameExistsException') {
-        setError('auth.errorUserExists');
-      } else {
-        setError(err.message || 'auth.errorGeneric');
-      }
+      setError(cognitoErrorKey(err));
     } finally {
       setLoading(false);
     }
@@ -648,7 +634,8 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     e.preventDefault();
     setLoading(true);
     setError(null);
-    
+    setSuccessMessage(null);
+
     try {
       await Auth.confirmSignUp(signUpEmail.toLowerCase(), verificationCode);
       setSuccessMessage('auth.emailVerified');
@@ -660,7 +647,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       setVerificationCode('');
     } catch (err) {
       // console.error('Confirm sign up error', err);
-      setError(err.message || 'auth.errorGeneric');
+      setError(cognitoErrorKey(err));
     } finally {
       setLoading(false);
     }
@@ -669,13 +656,14 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   const handleResendConfirmation = async () => {
     setLoading(true);
     setError(null);
-    
+    setSuccessMessage(null);
+
     try {
       await Auth.resendSignUp(signUpEmail.toLowerCase(), { language });
       setSuccessMessage('auth.verificationCodeResent');
     } catch (err) {
       // console.error('Resend confirmation error', err);
-      setError(err.message || 'auth.errorGeneric');
+      setError(cognitoErrorKey(err, undefined, 'auth.errorResendCode'));
     } finally {
       setLoading(false);
     }
