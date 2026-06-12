@@ -550,6 +550,7 @@ The system supports the following languages:
 - Chinese (zh)
 - Spanish (es)
 - Vietnamese (vi)
+- Arabic (ar)
 
 ## Error Handling
 

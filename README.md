@@ -29,7 +29,7 @@
 A-IEP is a comprehensive platform designed to make Individualized Education Program (IEP) documents more accessible to parents and families. The application uses generative AI to:
 
 - **Process IEP documents** using OCR and AI-powered analysis
-- **Translate content** into multiple languages (English, Spanish, Vietnamese, Chinese)
+- **Translate content** into multiple languages (English, Spanish, Vietnamese, Chinese, Arabic)
 - **Simplify complex language** into parent-friendly summaries
 - **Extract key sections** including accommodations, goals, services, and meeting notes
 - **Provide educational resources** about parent rights and the IEP process
@@ -49,7 +49,9 @@ The platform is built as a serverless application using AWS CDK, providing a sca
 - **Progress Tracking**: Real-time progress updates during document processing
 
 ### Translation & Localization
-- **Multi-Language Support**: Full translation support for English, Spanish, Vietnamese, and Chinese
+- **Multi-Language Support**: Full translation support for English, Spanish, Vietnamese, Chinese, and Arabic
+- **Right-to-Left (RTL) Support**: The entire UI mirrors for Arabic, including a runtime swap between the Bootstrap LTR and RTL builds and Arabic-specific typography
+- **Localized Authentication**: Cognito verification emails, password-reset emails, and OTP login SMS are sent in the language selected on the login screen; backend auth errors are mapped to translated messages client-side
 - **Language Preferences**: User-configurable language preferences
 - **Glossary**: Educational terminology glossary with translations
 - **Abbreviation Dictionary**: Centralized list of IEP abbreviations and their meanings
@@ -99,7 +101,7 @@ Select your IEP file and click Upload. Supported formats include .doc, .docx, .p
 ![Document Upload](images/tutorial_upload.jpg)
 
 ### Language Selection & Changing Language in Summary View
-Choose your preferred language — English, Spanish, Chinese, or Vietnamese. You can also change the language directly from the summary view using the language dropdown, and the content will update accordingly.
+Choose your preferred language — English, Spanish, Chinese, Vietnamese, or Arabic. You can also change the language directly from the summary view using the language dropdown, and the content will update accordingly.
 
 ![Language Selection](images/tutorial_select-language.jpg)
 
@@ -168,6 +170,15 @@ The document processing workflow uses AWS Step Functions to orchestrate the foll
 7. **Finalization** (100%): Store structured results in DynamoDB
 
 For detailed pipeline documentation, see [`lib/chatbot-api/functions/metadata-handler/README.md`](lib/chatbot-api/functions/metadata-handler/README.md).
+
+### Internationalization & RTL
+
+The UI supports English, Spanish, Chinese, Vietnamese, and Arabic end-to-end:
+
+- **Translation loading**: A custom React language context (`src/common/language-context.ts`) lazy-loads one JSON dictionary per language (`src/translations/*.json`) and prefetches the rest during idle time, so language switches are instant. The preference persists in `localStorage`.
+- **Direction handling**: `src/common/direction.ts` swaps between the Bootstrap LTR and RTL builds at runtime through a managed `<link>` tag and keeps `<html dir>`/`<html lang>` in sync, so a returning Arabic user never sees an LTR first paint. Arabic typography (Naskh body text, Cairo headings) is applied via `:lang(ar)` rules in `src/styles/rtl.css`.
+- **Localized authentication**: The login screen's language follows the user into Cognito flows — sign-up and password-reset emails get the language via `clientMetadata`, and the phone OTP flow uses a custom-challenge "language handshake" round (`lib/chatbot-api/functions/phone-otp-auth/`) so the login SMS arrives in the UI language. Cognito error responses (always English) are mapped to translated messages client-side (`src/common/helpers/cognito-error-helper.ts`).
+- **Localized PDFs**: Generated PDFs render section headings, cover title, and date in the document's target language alongside English.
 
 ---
 
@@ -247,6 +258,7 @@ ai-iep/
 │   │   │   │   ├── ddb-service/
 │   │   │   │   └── steps/       # Step Functions steps
 │   │   │   ├── pdf-generator/   # PDF generation function
+│   │   │   ├── phone-otp-auth/  # Custom-auth lambdas for OTP SMS login
 │   │   │   ├── user-profile-handler/ # User management
 │   │   │   └── knowledge-management/ # S3 file operations
 │   │   ├── gateway/             # API Gateway configuration
@@ -273,7 +285,7 @@ ai-iep/
 
 ### Key Modules
 
-- **`authorization/`**: Handles user authentication with AWS Cognito, supporting email and phone/SMS verification
+- **`authorization/`**: Handles user authentication with AWS Cognito, supporting email and phone/SMS verification with localized verification messages
 - **`chatbot-api/`**: Contains all backend infrastructure including API Gateway, Lambda functions, Step Functions, DynamoDB tables, and S3 buckets
 - **`user-interface/`**: React-based frontend application with multi-language support
 - **`shared/`**: Common utilities and helper functions used across the stack
@@ -373,8 +385,8 @@ npm run dev
 - **Vite**: Build tool and dev server
 - **React Router**: Client-side routing
 - **AWS Amplify**: AWS service integration
-- **Bootstrap**: UI component library
-- **i18next**: Internationalization
+- **Bootstrap**: UI component library (LTR and RTL builds swapped at runtime)
+- **Custom i18n context**: Per-language JSON dictionaries, lazy-loaded with idle-time prefetch
 
 ---
 
