@@ -17,6 +17,13 @@
   opacity: 0.35;
 }
 
+/* Browsers force type="email" inputs to LTR, which left-aligns the
+   placeholder in RTL locales. Right-align only the placeholder so it
+   follows the UI language while typed addresses stay LTR-left. */
+[dir="rtl"] .email-input-control::placeholder {
+  text-align: right;
+}
+
 /* Focus state for email input */
 .email-input-control:focus {
   border-color: #1E1E1E;
