@@ -38,7 +38,7 @@ export class ChatBotApi extends Construct {
       description: 'Customer-managed CMK for S3, DynamoDB, Lambda env vars, and logs',
     });
     const environment = getEnvironment();
-    const kmsAliasName = environment === 'staging' ? 'alias/aiep/app' : 'alias/aiep/app-prod';
+    const kmsAliasName = environment === 'dev' ? 'alias/aiep/app' : 'alias/aiep/app-prod';
     const appKmsAlias = new kms.Alias(this, 'AppKmsAlias', {
       aliasName: kmsAliasName,
       targetKey: appKmsKey,

@@ -509,7 +509,7 @@ export class LambdaFunctionStack extends cdk.Stack {
         "DDB_SERVICE_FUNCTION_NAME": this.ddbServiceFunction.functionName,
         "AIEP_KMS_KEY_ALIAS": ((): string => {
           const env = getEnvironment();
-          return env === 'staging' ? 'alias/aiep/app' : 'alias/aiep/app-prod';
+          return env === 'dev' ? 'alias/aiep/app' : 'alias/aiep/app-prod';
         })()
       },
       timeout: cdk.Duration.seconds(300),
