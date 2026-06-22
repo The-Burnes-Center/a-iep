@@ -3,7 +3,8 @@ name: Deploy A-IEP Tool to AWS Staging Env
 on:
   push:
     branches:
-      - staging  
+      - staging
+  workflow_dispatch:
 
 jobs:
   deploy:

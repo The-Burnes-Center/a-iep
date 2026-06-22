@@ -3,7 +3,8 @@ name: Deploy A-IEP Tool to AWS Prod
 on:
   push:
     branches:
-      - main  # or 'master' if you're using the master branch
+      - main
+  workflow_dispatch:
 
 jobs:
   deploy:
