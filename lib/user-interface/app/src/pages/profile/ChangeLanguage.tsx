@@ -7,7 +7,8 @@ import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
 import { ApiClient } from '../../common/api-client/api-client';
 import { UserProfile } from '../../common/types';
-import { useLanguage, SupportedLanguage } from '../../common/language-context'; 
+import { useLanguage, SupportedLanguage } from '../../common/language-context';
+import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import './ChangeLanguage.css';
 import './ProfileForms.css';
 
@@ -16,16 +17,11 @@ export default function ChangeLanguage() {
   const apiClient = new ApiClient(appContext);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { t, language, setLanguage } = useLanguage();
+  const { t, language, setLanguage, enabledLanguages } = useLanguage();
 
-  // Language options - hardcoded so users can always read the language names
-  const LANGUAGE_OPTIONS = [
-    { value: 'en', label: 'English' },
-    { value: 'zh', label: '中文' },
-    { value: 'es', label: 'Español' },
-    { value: 'vi', label: 'Tiếng Việt' },
-    { value: 'ar', label: 'العربية' }
-  ];
+  // Language options enabled for this environment. Each is labelled in its own
+  // language so users can always read the language names.
+  const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
   // ============================================================================
   // DATA FETCHING WITH REACT QUERY
@@ -170,7 +166,7 @@ export default function ChangeLanguage() {
                         disabled={updateProfileMutation.isPending}
                         className='language-select-dropdown'
                       >
-                        {LANGUAGE_OPTIONS.map(option => (
+                        {languageOptions.map(option => (
                           <option key={option.value} value={option.value}>
                             {option.label}
                           </option>

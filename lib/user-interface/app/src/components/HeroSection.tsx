@@ -1,22 +1,16 @@
 import React from 'react';
 import { useLanguage, SupportedLanguage } from '../common/language-context';
+import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import CustomLogin from './CustomLogin';
 import HowToUseToolButton from './HowToUseToolButton';
 import LanguageDropdown from './LanguageDropdown';
 import './CustomLogin.css';
 import './HeroSection.css';
 
-const languageOptions = [
-    { value: 'en', label: 'English' },
-    { value: 'es', label: 'Español' },
-    { value: 'zh', label: '中文' },
-    { value: 'vi', label: 'Tiếng Việt' },
-    { value: 'ar', label: 'العربية' },
-];
+const HeroSection: React.FC = () => {
+    const { t, language, setLanguage, enabledLanguages } = useLanguage();
+    const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
-const HeroSection: React.FC = () => { 
-    const { t, language, setLanguage } = useLanguage();
-    
     return (
         <div className='hero-section-container'>
             <div className='hero-section-content'>

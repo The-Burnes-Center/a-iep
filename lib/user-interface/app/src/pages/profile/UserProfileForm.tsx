@@ -7,26 +7,22 @@ import { ApiClient } from '../../common/api-client/api-client';
 import { UserProfile } from '../../common/types';
 import { useNotifications } from '../../components/notif-manager';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
+import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useNavigate } from 'react-router-dom';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
 import DeleteProfileModal from './DeleteProfileModal';
 import './ProfileForms.css';
 
-const LANGUAGE_OPTIONS = [
-  { value: 'en', label: 'English' },
-  { value: 'zh', label: 'Chinese' },
-  { value: 'es', label: 'Spanish' },
-  { value: 'vi', label: 'Vietnamese' },
-  { value: 'ar', label: 'Arabic' }
-];
-
 export default function UserProfileForm() {
   const appContext = useContext(AppContext);
   const { setAuthenticated } = useAuth();
   const apiClient = new ApiClient(appContext);
   const { addNotification } = useNotifications();
-  const { t, setLanguage } = useLanguage();
+  const { t, setLanguage, enabledLanguages } = useLanguage();
+
+  // Language options enabled for this environment
+  const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -163,9 +159,9 @@ export default function UserProfileForm() {
                 value={profile?.secondaryLanguage || 'en'}
                 onChange={e => handlePreferredLanguageChange(e.target.value)}
               >
-                {LANGUAGE_OPTIONS.map(option => (
+                {languageOptions.map(option => (
                   <option key={option.value} value={option.value}>
-                    {option.label}
+                    {option.englishLabel}
                   </option>
                 ))}
               </Form.Select>

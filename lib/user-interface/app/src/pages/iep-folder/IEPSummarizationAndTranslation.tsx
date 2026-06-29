@@ -6,6 +6,7 @@ import { faLanguage, faDownload, faArrowsRotate, faForward } from '@fortawesome/
 import './IEPSummarizationAndTranslation.css';
 import { IEPDocument, IEPSection, Language, UserProfile } from '../../common/types';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
+import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { getDirForLanguage } from '../../common/direction';
 import { useDocumentFetch, processContentWithJargon } from '../utils';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
@@ -19,7 +20,7 @@ import LinearProgress from '@mui/material/LinearProgress';
 import { TextHelper } from '../../common/helpers/text-helper';
 
 const IEPSummarizationAndTranslation: React.FC = () => {
-  const { t, language, setLanguage, translationsLoaded } = useLanguage();
+  const { t, language, setLanguage, translationsLoaded, enabledLanguages } = useLanguage();
   const appContext = useContext(AppContext);
   const { addNotification } = useNotifications();
   const apiClient = new ApiClient(appContext);
@@ -131,16 +132,11 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     }
   }, [preferredLanguage, initialLoading, document.summaries, document.sections, hasUserSelectedLanguage]);
 
-  // Dynamic language options - only show English and preferred language
-  const allLanguageOptions = [
-    { value: 'en', label: 'English' },
-    { value: 'es', label: 'Español' },
-    { value: 'zh', label: '中文' },
-    { value: 'vi', label: 'Tiếng Việt' },
-    { value: 'ar', label: 'العربية' }
-  ];
+  // Only show tabs for languages enabled in this environment AND actually
+  // present in the document (a translation exists for them).
+  const allLanguageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
-  const languageOptions = allLanguageOptions.filter(option => 
+  const languageOptions = allLanguageOptions.filter(option =>
     document.summaries && document.summaries[option.value]
   );
 

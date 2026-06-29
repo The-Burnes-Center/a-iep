@@ -5,6 +5,21 @@ import react from "@vitejs/plugin-react";
 
 const isDev = process.env.NODE_ENV === "development";
 
+// Languages offered in the UI. Defaults to all supported languages on
+// dev/local and drops Arabic on prod; an explicit ENABLED_LANGUAGES env var
+// (comma-separated codes) overrides both. Kept in sync with the deploy-time
+// logic in lib/user-interface/index.ts.
+const ALL_LANGUAGES = ["en", "es", "zh", "vi", "ar"];
+const PROD_LANGUAGES = ["en", "es", "zh", "vi"];
+function resolveEnabledLanguages(): string[] {
+  const override = process.env.ENABLED_LANGUAGES;
+  if (override) {
+    return override.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  const env = process.env.ENVIRONMENT || process.env.NODE_ENV;
+  return env === "prod" || env === "production" ? PROD_LANGUAGES : ALL_LANGUAGES;
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
   define: {
@@ -26,6 +41,7 @@ export default defineConfig({
               aws_user_pools_id: process.env.AWS_USER_POOLS_ID,
               aws_user_pools_web_client_id:
                 process.env.AWS_USER_POOLS_WEB_CLIENT_ID,
+              enabledLanguages: resolveEnabledLanguages(),
               config: {
                 api_endpoint: `https://${process.env.API_DISTRIBUTION_DOMAIN_NAME}/api`,
                 websocket_endpoint: `wss://${process.env.API_DISTRIBUTION_DOMAIN_NAME}/socket`,

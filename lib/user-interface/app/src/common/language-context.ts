@@ -1,9 +1,16 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useMemo } from 'react';
 import { StorageHelper } from './helpers/storage-helper';
 import { applyDirection } from './direction';
+import { AppContext } from './app-context';
+import {
+  SupportedLanguage,
+  ALL_LANGUAGES,
+  resolveEnabledLanguages,
+} from './languages';
 
-// Define supported languages
-export type SupportedLanguage = 'en' | 'es' | 'zh' | 'vi' | 'ar';
+// SupportedLanguage now lives in ./languages (the single source of truth for
+// language metadata). Re-exported here so existing imports keep working.
+export type { SupportedLanguage };
 
 // Define the context type
 interface LanguageContextType {
@@ -11,6 +18,9 @@ interface LanguageContextType {
   setLanguage: (lang: SupportedLanguage) => void;
   t: (key: string) => string;
   translationsLoaded: boolean; // Added translationsLoaded flag
+  // Languages enabled for this environment (e.g. Arabic is off on prod).
+  // Use this to drive language pickers so disabled languages never appear.
+  enabledLanguages: SupportedLanguage[];
 }
 
 // Create the context with default values
@@ -19,12 +29,11 @@ export const LanguageContext = createContext<LanguageContextType>({
   setLanguage: () => {},
   t: (key: string) => key,
   translationsLoaded: false, // Default is false
+  enabledLanguages: ALL_LANGUAGES,
 });
 
 // Language context storage key
 const LANGUAGE_STORAGE_KEY = 'aiep-language-preference';
-
-const SUPPORTED_LANGUAGES: SupportedLanguage[] = ['en', 'es', 'zh', 'vi', 'ar'];
 
 // Module-level cache of loaded translation dictionaries. Combined with the
 // idle-time prefetch below, this makes language switches instant: by the time
@@ -42,10 +51,22 @@ const fetchTranslations = async (lang: SupportedLanguage): Promise<Record<string
 
 // Create the provider component
 export const LanguageProvider = ({ children }: { children: React.ReactNode }) => {
-  // Initialize with stored preference or default to English
+  // Languages enabled for this environment, from the runtime config
+  // (aws-exports.json). Falls back to every language when the field is absent
+  // so older deployments keep working. The AppContext config is already loaded
+  // before this provider renders (see app-configured.tsx).
+  const appConfig = useContext(AppContext);
+  const enabledLanguages = useMemo(
+    () => resolveEnabledLanguages(appConfig?.enabledLanguages),
+    [appConfig]
+  );
+
+  // Initialize with stored preference or default to English. A stored
+  // preference for a now-disabled language (e.g. Arabic on prod) falls back to
+  // English.
   const [language, setLanguageState] = useState<SupportedLanguage>(() => {
     const stored = StorageHelper.getItem(LANGUAGE_STORAGE_KEY) as SupportedLanguage;
-    return stored || 'en';
+    return stored && enabledLanguages.includes(stored) ? stored : 'en';
   });
   
   // Initialize with empty translations
@@ -59,12 +80,15 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
   // instead).
   const [initialLoadDone, setInitialLoadDone] = useState<boolean>(false);
 
-  // Update language and store preference
+  // Update language and store preference. Disabled languages are coerced to
+  // English so a stale profile value can never switch the UI into a language
+  // that isn't offered in this environment.
   const setLanguage = (lang: SupportedLanguage) => {
-    setLanguageState(lang);
-    StorageHelper.setItem(LANGUAGE_STORAGE_KEY, lang);
+    const next = enabledLanguages.includes(lang) ? lang : 'en';
+    setLanguageState(next);
+    StorageHelper.setItem(LANGUAGE_STORAGE_KEY, next);
     setTranslationsLoaded(false); // Reset loading state when changing language
-    loadTranslations(lang);
+    loadTranslations(next);
   };
 
   // Load translations for the current language
@@ -100,7 +124,7 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
   useEffect(() => {
     if (!initialLoadDone) return;
     const prefetchRemaining = () => {
-      SUPPORTED_LANGUAGES
+      enabledLanguages
         .filter((lang) => !translationCache[lang])
         .forEach((lang) => { fetchTranslations(lang).catch(() => {}); });
     };
@@ -110,7 +134,7 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
     }
     const id = setTimeout(prefetchRemaining, 2000);
     return () => clearTimeout(id);
-  }, [initialLoadDone]);
+  }, [initialLoadDone, enabledLanguages]);
 
   // Translation function
   const t = (key: string): string => {
@@ -118,11 +142,12 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
   };
 
   // Include translationsLoaded in the context value
-  const contextValue = { 
-    language, 
-    setLanguage, 
+  const contextValue = {
+    language,
+    setLanguage,
     t,
-    translationsLoaded
+    translationsLoaded,
+    enabledLanguages
   };
   
   return React.createElement(

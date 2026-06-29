@@ -1,5 +1,6 @@
 import { SelectProps } from "@cloudscape-design/components";
 import { CognitoHostedUIIdentityProvider } from "@aws-amplify/auth";
+import { SupportedLanguage } from "./languages";
 
 export interface AppConfig {
   Auth: {
@@ -17,6 +18,10 @@ export interface AppConfig {
       httpEndpoint : string,
       wsEndpoint : string,
       federatedSignInProvider : string,
+      // Languages offered in this environment. Set per environment at
+      // build/deploy time (e.g. Arabic is enabled on dev but not prod).
+      // Optional: when absent the UI falls back to all supported languages.
+      enabledLanguages? : SupportedLanguage[],
 }
 
 export interface NavigationPanelState {

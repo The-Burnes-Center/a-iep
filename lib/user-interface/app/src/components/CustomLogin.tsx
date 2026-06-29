@@ -11,6 +11,7 @@ import {
 // do not import it statically anywhere or both builds load at once
 import './CustomLogin.css'; // Import the custom CSS file
 import { useLanguage, SupportedLanguage } from '../common/language-context';
+import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import { useAuth } from '../common/auth-provider';
 import { cognitoErrorKey } from '../common/helpers/cognito-error-helper';
 import AuthHeader from './AuthHeader';
@@ -34,7 +35,7 @@ interface CustomLoginProps {
 
 const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguageDropdown = false }) => {
   // Get translation function and language setter from context
-  const { t, language, setLanguage } = useLanguage();
+  const { t, language, setLanguage, enabledLanguages } = useLanguage();
   
   // Get auth functions and navigation
   const { login } = useAuth();
@@ -82,14 +83,8 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   const [showSignUpPassword, setShowSignUpPassword] = useState(false);
   const [showSignUpConfirmPassword, setShowSignUpConfirmPassword] = useState(false);
 
-  // Language options with labels
-  const languageOptions = [
-    { value: 'en', label: 'English' },
-    { value: 'es', label: 'Español' },
-    { value: 'zh', label: '中文' },
-    { value: 'vi', label: 'Tiếng Việt' },
-    { value: 'ar', label: 'العربية' }
-  ];
+  // Language options enabled for this environment
+  const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
   // Handle language change
   const handleLanguageChange = (lang: SupportedLanguage) => {

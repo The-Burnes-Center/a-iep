@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useLanguage, SupportedLanguage } from '../common/language-context';
+import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import { IconFileDescription, IconHelpCircle, IconInfoCircle, IconHome, IconWorld } from '@tabler/icons-react';
 import LanguageDropdown from './LanguageDropdown';
 import PartnerBanner from './PartnerBanner';
@@ -9,16 +10,10 @@ import './LandingTopNavigation.css';
 const LandingTopNavigation: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t, language, setLanguage } = useLanguage();
+  const { t, language, setLanguage, enabledLanguages } = useLanguage();
 
-  // Language options with labels
-  const languageOptions = [
-    { value: 'en', label: 'English' },
-    { value: 'es', label: 'Español' },
-    { value: 'zh', label: '中文' },
-    { value: 'vi', label: 'Tiếng Việt' },
-    { value: 'ar', label: 'العربية' }
-  ];
+  // Language options enabled for this environment
+  const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
   // Handle language change
   const handleLanguageChange = (lang: SupportedLanguage) => {

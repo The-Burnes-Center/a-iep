@@ -6,6 +6,7 @@ import { ApiClient } from '../../common/api-client/api-client';
 import { Language } from '../../common/types';
 import { useNotifications } from '../../components/notif-manager';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
+import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import './ProfileForms.css';
 import './SurveyForm.css';
 
@@ -16,41 +17,16 @@ declare global {
   }
 }
 
-const LANGUAGE_OPTIONS = [
-  { 
-    value: 'en', 
-    label: 'English',
-    translatedPreference: 'I prefer English'
-  },
-  { 
-    value: 'es', 
-    label: 'Spanish',
-    translatedPreference: 'Prefiero Español'
-  },
-  { 
-    value: 'zh', 
-    label: 'Chinese',
-    translatedPreference: '我喜欢中文'
-  },
-  {
-    value: 'vi',
-    label: 'Vietnamese',
-    translatedPreference: 'Tôi thích tiếng Việt'
-  },
-  {
-    value: 'ar',
-    label: 'Arabic',
-    translatedPreference: 'أفضّل اللغة العربية'
-  }
-];
-
 export default function PreferredLanguage() {
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
   const navigate = useNavigate();
   const location = useLocation();
   const { addNotification } = useNotifications();
-  const { setLanguage } = useLanguage();
+  const { setLanguage, enabledLanguages } = useLanguage();
+
+  // Language options enabled for this environment
+  const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -276,7 +252,7 @@ export default function PreferredLanguage() {
               </Alert>
             )}
             <Row className="g-3">
-              {LANGUAGE_OPTIONS.map(option => (
+              {languageOptions.map(option => (
                 <Col xs={12} key={option.value}>
                   <Button 
                     variant={profile?.secondaryLanguage === option.value ? "primary" : "outline-primary"}
