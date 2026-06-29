@@ -2,28 +2,12 @@ import * as cdk from 'aws-cdk-lib';
 import { Tags } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 
-/**
- * Environment type for the application
- */
-export type Environment = 'production' | 'staging' | 'development';
+export type Environment = 'dev' | 'prod';
 
-/**
- * Get the current environment based on branch, environment variable, or local development
- */
 export function getEnvironment(): Environment {
-  // Check for environment variable first
   const env = process.env.ENVIRONMENT || process.env.NODE_ENV;
-  
-  // If explicitly set to staging, use staging
-  if (env === 'staging') return 'staging';
-  
-  // If explicitly set to development or running locally, use development
-  if (env === 'development' || process.env.LOCAL_DEVELOPMENT === 'true') {
-    return 'development';
-  }
-  
-  // Default to production for safety
-  return 'production';
+  if (env === 'production' || env === 'prod') return 'prod';
+  return 'dev';
 }
 
 /**
@@ -34,18 +18,15 @@ export function getEnvironment(): Environment {
  */
 export function getResourceName(baseName: string, resourceType?: 'stack' | 'cognito'): string {
   const env = getEnvironment();
-  
-  if (env === 'staging') {
-    // Special handling for stack names
+
+  if (env === 'dev') {
     if (resourceType === 'stack' && baseName.endsWith('Stack')) {
       const baseWithoutStack = baseName.replace('Stack', '');
       return `${baseWithoutStack}StagingStack`;
     }
-    // Default behavior for other resources
     return `${baseName}-staging`;
   }
-  
-  // Production remains unchanged
+
   return baseName;
 }
 
@@ -53,11 +34,10 @@ export function getResourceName(baseName: string, resourceType?: 'stack' | 'cogn
  * Standard tags to apply to all resources in the stack
  */
 export const STANDARD_TAGS = {
-  Project: 'AI-IEP',
+  Project: 'a-iep',
   Environment: getEnvironment(),
-  ManagedBy: 'CDK',
-  Owner: 'BurnesCenter',
-  Application: 'IEP Tool',
+  ManagedBy: 'cdk',
+  Owner: 'burnes-center',
 };
 
 /**

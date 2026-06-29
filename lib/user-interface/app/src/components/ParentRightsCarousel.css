@@ -39,6 +39,17 @@
   transform: rotate(-90deg);
 }
 
+/* Under RTL the flex row already mirrors the buttons' positions, so the
+   glyphs must flip with them: "previous" points toward the start (right)
+   and "next" toward the end (left) */
+[dir="rtl"] .arrow-icon-prev {
+  transform: rotate(-90deg);
+}
+
+[dir="rtl"] .arrow-icon-next {
+  transform: rotate(90deg);
+}
+
 .parent-rights-container {
   display: flex;
   flex-direction: column;

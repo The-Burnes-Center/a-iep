@@ -1,8 +1,16 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useMemo } from 'react';
 import { StorageHelper } from './helpers/storage-helper';
+import { applyDirection } from './direction';
+import { AppContext } from './app-context';
+import {
+  SupportedLanguage,
+  ALL_LANGUAGES,
+  resolveEnabledLanguages,
+} from './languages';
 
-// Define supported languages
-export type SupportedLanguage = 'en' | 'es' | 'zh' | 'vi';
+// SupportedLanguage now lives in ./languages (the single source of truth for
+// language metadata). Re-exported here so existing imports keep working.
+export type { SupportedLanguage };
 
 // Define the context type
 interface LanguageContextType {
@@ -10,6 +18,9 @@ interface LanguageContextType {
   setLanguage: (lang: SupportedLanguage) => void;
   t: (key: string) => string;
   translationsLoaded: boolean; // Added translationsLoaded flag
+  // Languages enabled for this environment (e.g. Arabic is off on prod).
+  // Use this to drive language pickers so disabled languages never appear.
+  enabledLanguages: SupportedLanguage[];
 }
 
 // Create the context with default values
@@ -18,58 +29,112 @@ export const LanguageContext = createContext<LanguageContextType>({
   setLanguage: () => {},
   t: (key: string) => key,
   translationsLoaded: false, // Default is false
+  enabledLanguages: ALL_LANGUAGES,
 });
 
 // Language context storage key
 const LANGUAGE_STORAGE_KEY = 'aiep-language-preference';
 
+// Module-level cache of loaded translation dictionaries. Combined with the
+// idle-time prefetch below, this makes language switches instant: by the time
+// a user reaches the language picker, every dictionary is already in memory.
+const translationCache: Partial<Record<SupportedLanguage, Record<string, string>>> = {};
+
+const fetchTranslations = async (lang: SupportedLanguage): Promise<Record<string, string>> => {
+  const cached = translationCache[lang];
+  if (cached) return cached;
+  // Dynamic import keeps each language out of the main bundle (~15KB gz each)
+  const translationModule = await import(`../translations/${lang}.json`);
+  translationCache[lang] = translationModule.default;
+  return translationModule.default;
+};
+
 // Create the provider component
 export const LanguageProvider = ({ children }: { children: React.ReactNode }) => {
-  // Initialize with stored preference or default to English
+  // Languages enabled for this environment, from the runtime config
+  // (aws-exports.json). Falls back to every language when the field is absent
+  // so older deployments keep working. The AppContext config is already loaded
+  // before this provider renders (see app-configured.tsx).
+  const appConfig = useContext(AppContext);
+  const enabledLanguages = useMemo(
+    () => resolveEnabledLanguages(appConfig?.enabledLanguages),
+    [appConfig]
+  );
+
+  // Initialize with stored preference or default to English. A stored
+  // preference for a now-disabled language (e.g. Arabic on prod) falls back to
+  // English.
   const [language, setLanguageState] = useState<SupportedLanguage>(() => {
     const stored = StorageHelper.getItem(LANGUAGE_STORAGE_KEY) as SupportedLanguage;
-    return stored || 'en';
+    return stored && enabledLanguages.includes(stored) ? stored : 'en';
   });
   
   // Initialize with empty translations
   const [translations, setTranslations] = useState<Record<string, string>>({});
   // Add translationsLoaded state
   const [translationsLoaded, setTranslationsLoaded] = useState<boolean>(false);
+  // True once the FIRST translation file has loaded. Children are not
+  // rendered before that, otherwise t() returns raw keys (e.g. "auth.title")
+  // while the language chunk is still downloading. Stays true on later
+  // language switches so the app isn't unmounted (old strings show briefly
+  // instead).
+  const [initialLoadDone, setInitialLoadDone] = useState<boolean>(false);
 
-  // Update language and store preference
+  // Update language and store preference. Disabled languages are coerced to
+  // English so a stale profile value can never switch the UI into a language
+  // that isn't offered in this environment.
   const setLanguage = (lang: SupportedLanguage) => {
-    setLanguageState(lang);
-    StorageHelper.setItem(LANGUAGE_STORAGE_KEY, lang);
+    const next = enabledLanguages.includes(lang) ? lang : 'en';
+    setLanguageState(next);
+    StorageHelper.setItem(LANGUAGE_STORAGE_KEY, next);
     setTranslationsLoaded(false); // Reset loading state when changing language
-    loadTranslations(lang);
+    loadTranslations(next);
   };
 
   // Load translations for the current language
   const loadTranslations = async (lang: SupportedLanguage) => {
     try {
-      // Dynamic import to load only the needed language file
-      const translationModule = await import(`../translations/${lang}.json`);
-      setTranslations(translationModule.default);
+      setTranslations(await fetchTranslations(lang));
       setTranslationsLoaded(true); // Set to true when translations are loaded
+      setInitialLoadDone(true);
     } catch (error) {
       // console.error(`Failed to load translations for ${lang}:`, error);
       // Fallback to English if translation file is missing
       if (lang !== 'en') {
         try {
-          const fallbackModule = await import('../translations/en.json');
-          setTranslations(fallbackModule.default);
+          setTranslations(await fetchTranslations('en'));
         } catch (fallbackError) {
           // console.error('Failed to load fallback translations:', fallbackError);
         }
       }
       setTranslationsLoaded(true); // Still set to true even if there was an error
+      setInitialLoadDone(true);
     }
   };
 
   // Load translations on initial render
   useEffect(() => {
+    applyDirection(language); // Keep document dir/lang and Bootstrap LTR/RTL build in sync
     loadTranslations(language);
   }, [language]); // Added language as dependency to reload when it changes
+
+  // Once the active language is loaded, prefetch the remaining dictionaries
+  // in the background during idle time so switching languages never waits on
+  // the network. Failures are ignored — the switch path loads on demand.
+  useEffect(() => {
+    if (!initialLoadDone) return;
+    const prefetchRemaining = () => {
+      enabledLanguages
+        .filter((lang) => !translationCache[lang])
+        .forEach((lang) => { fetchTranslations(lang).catch(() => {}); });
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(prefetchRemaining, { timeout: 5000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = setTimeout(prefetchRemaining, 2000);
+    return () => clearTimeout(id);
+  }, [initialLoadDone, enabledLanguages]);
 
   // Translation function
   const t = (key: string): string => {
@@ -77,17 +142,18 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
   };
 
   // Include translationsLoaded in the context value
-  const contextValue = { 
-    language, 
-    setLanguage, 
+  const contextValue = {
+    language,
+    setLanguage,
     t,
-    translationsLoaded
+    translationsLoaded,
+    enabledLanguages
   };
   
   return React.createElement(
-    LanguageContext.Provider, 
-    { value: contextValue }, 
-    children
+    LanguageContext.Provider,
+    { value: contextValue },
+    initialLoadDone ? children : null
   );
 };
 

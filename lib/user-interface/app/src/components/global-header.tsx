@@ -8,15 +8,16 @@ import { CHATBOT_NAME } from "../common/constants";
 import { Link } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage, SupportedLanguage } from '../common/language-context';
+import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import { useNotifications } from './notif-manager';
-import 'bootstrap/dist/css/bootstrap.min.css';
+// Bootstrap CSS is managed at runtime by common/direction.ts (LTR/RTL swap)
 import './global-header.css';
 
 export default function GlobalHeader() {
   const [userName, setUserName] = useState<string | null>(null);
   const { setAuthenticated } = useAuth();
   const appContext = useContext(AppContext);
-  const { language, setLanguage } = useLanguage();
+  const { language, setLanguage, enabledLanguages } = useLanguage();
   const { addNotification } = useNotifications();
   const navigate = useNavigate();
   const [showMenu, setShowMenu] = useState(false);
@@ -97,15 +98,10 @@ export default function GlobalHeader() {
         if (currentProfile.secondaryLanguage !== updatedProfile.secondaryLanguage) {
           await apiClient.profile.updateProfile(updatedProfile);
           // console.log(`Language preference updated to: ${lang}`);
-          
+
           // Show success notification
-          const languageLabels = {
-            'en': 'English',
-            'es': 'Spanish',
-            'zh': 'Chinese', 
-            'vi': 'Vietnamese'
-          };
-          addNotification('success', `Language preference updated to ${languageLabels[lang] || lang}`);
+          const languageLabel = LANGUAGES.find(option => option.value === lang)?.englishLabel || lang;
+          addNotification('success', `Language preference updated to ${languageLabel}`);
         }
       }
     } catch (error) {
@@ -115,13 +111,8 @@ export default function GlobalHeader() {
     }
   };
 
-  // Language options with labels
-  const languageOptions = [
-    { value: 'en', label: 'English' },
-    { value: 'es', label: 'Español' },
-    { value: 'zh', label: '中文' },
-    { value: 'vi', label: 'Tiếng Việt' }
-  ];
+  // Language options enabled for this environment
+  const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
   return (
     <Navbar 

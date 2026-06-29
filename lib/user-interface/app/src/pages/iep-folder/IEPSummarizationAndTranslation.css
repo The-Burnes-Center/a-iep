@@ -146,7 +146,7 @@
   font-weight: 500;
   font-size: 1.125rem;
   line-height: 2;
-  text-align: left;
+  text-align: start;
   color: #1E1E1E;
 }
 
@@ -204,7 +204,7 @@ background-color: #F5f3EE;
 
 .summary-header {
   font-size: 2.2rem;
-  padding-left: 1rem;
+  padding-inline-start: 1rem;
   font-family: "Fjalla One", sans-serif;
   font-weight: 400;
   font-style: normal;
@@ -212,7 +212,7 @@ background-color: #F5f3EE;
 }
 
 .summary-updated-at {
-  padding-left: 1rem;
+  padding-inline-start: 1rem;
 }
 
 .summary-updated-at span {
@@ -224,9 +224,9 @@ background-color: #F5f3EE;
   font-weight: 500;
   font-size: 1.4rem;
   line-height: 2;
-  text-align: left;
+  text-align: start;
   color: #1E1E1E;
-  padding-left: 1rem;
+  padding-inline-start: 1rem;
 }
 
 .no-padding-inherit {
@@ -266,16 +266,16 @@ background-color: #F5f3EE;
   border: 1px solid #dee2e6;
 }
 
-.markdown-content th, 
+.markdown-content th,
 .markdown-content td {
   padding: 0.5rem;
-  text-align: left;
+  text-align: start;
 }
 
 .markdown-content blockquote {
-  border-left: 4px solid #0040BA;
-  padding-left: 1rem;
-  margin-left: 0;
+  border-inline-start: 4px solid #0040BA;
+  padding-inline-start: 1rem;
+  margin-inline-start: 0;
   color: #6c757d;
 }
 
@@ -306,7 +306,7 @@ background-color: #F5f3EE;
 .markdown-content ul, .markdown-content ol {
   margin-top: 0.5rem;
   margin-bottom: 0.5rem;
-  padding-left: 2rem;
+  padding-inline-start: 2rem;
 }
 
 .markdown-content li {
@@ -379,11 +379,11 @@ filter: invert(1) grayscale(100%) brightness(200%);
 margin-bottom: 1rem;
 }
 
-.summary-content .markdown-content ul, 
+.summary-content .markdown-content ul,
 .summary-content .markdown-content ol {
 margin-top: 0.2rem;
 margin-bottom: 0.2rem;
-padding-left: 1.5rem;
+padding-inline-start: 1.5rem;
 }
 
 .summary-content .markdown-content li {
@@ -402,13 +402,13 @@ margin-bottom: 0.2rem;
 line-height: 1.2;
 }
 
-.table-of-contents-content ul, 
+.table-of-contents-content ul,
 .table-of-contents-content ol {
 margin-top: 0;
 margin-bottom: 0;
 padding-top: 0;
 padding-bottom: 0;
-padding-left: 1.25rem;
+padding-inline-start: 1.25rem;
 }
 
 .table-of-contents-content li {
@@ -509,7 +509,7 @@ display: none !important;
 }
 
 .example-video-text {
-  padding-left: 3rem;
+  padding-inline-start: 3rem;
   margin-top: 1rem;
 }
 

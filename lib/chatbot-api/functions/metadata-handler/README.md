@@ -12,7 +12,7 @@ The document processing pipeline is orchestrated by AWS Step Functions via an `O
 - **PII Redaction**: The extracted text is scanned for PII (personally identifiable information) using AWS Comprehend, and sensitive data is redacted.
 - **S3 Cleanup**: The original file is deleted from S3 after successful OCR processing.
 - **Multi-Agent Analysis**: The redacted document is analyzed using OpenAI models to extract structured data (summaries, sections, document index, abbreviations) and IEP meeting notes verbatim.
-- **Language Translation**: Content is translated to user's preferred languages (Spanish, Vietnamese, Chinese) if needed.
+- **Language Translation**: Content is translated to user's preferred languages (Spanish, Vietnamese, Chinese, Arabic) if needed.
 - **Structured Data Storage**: The final structured results are stored in DynamoDB.
 
 ---
@@ -114,7 +114,7 @@ The IEP processing workflow uses comprehensive status tracking with real-time pr
 **S3 Event → OCR (Mistral) → PII Redaction (Comprehend) → S3 Cleanup → Multi-Agent Analysis (OpenAI) → Language Translation (if needed) → Validation & Formatting → Store Structured Output in DynamoDB**
 
 ### Key Output Components
-- **Summaries**: Parent-friendly explanations in all supported languages (en, es, vi, zh)
+- **Summaries**: Parent-friendly explanations in all supported languages (en, es, vi, zh, ar)
 - **Sections**: Detailed IEP sections in Markdown format for all languages
 - **Document Index**: Table of contents with page references for all languages  
 - **Abbreviations**: Centralized legend of all abbreviations and their full forms for all languages

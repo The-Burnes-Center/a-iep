@@ -95,8 +95,7 @@
 }
 
 @media (min-width: 1025px) {
-    .multi-face-green-banner-container { 
-        min-width: 1280px;
+    .multi-face-green-banner-container {
         min-height: 462px;
         flex-direction: row;
         align-items: center;

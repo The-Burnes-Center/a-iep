@@ -3,7 +3,8 @@ name: Deploy A-IEP Tool to AWS Staging Env
 on:
   push:
     branches:
-      - staging  
+      - staging
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -49,6 +50,8 @@ jobs:
       run: npx cdk deploy AIEPStagingStack --require-approval never
       env:
         ENVIRONMENT: staging
+        ACM_CERTIFICATE_ARN: ${{ secrets.ACM_CERTIFICATE_ARN_STAGING }}
+        DOMAIN: ${{ secrets.DOMAIN_STAGING }}
 
     # Step 8: Fetch CloudFormation outputs and save to a file
     - name: Fetch CloudFormation Outputs

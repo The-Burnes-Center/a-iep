@@ -7,6 +7,23 @@ import boto3
 import traceback
 from translation_agent import OptimizedTranslationAgent
 
+# Only non-sensitive metadata is safe to log. These events can carry
+# FERPA-protected document content (OCR text, parsed sections, translated
+# content) as the workflow evolves; dumping the whole event would expose it
+# to anyone with CloudWatch log access.
+_SAFE_LOG_FIELDS = (
+    'iep_id', 'child_id', 'user_id', 's3_bucket', 's3_key', 'current_step',
+    'progress', 'status', 'content_type', 'target_languages', 'translation_needed',
+)
+
+
+def _safe_event_meta(event):
+    """Return only the allowlisted, non-sensitive fields from the event."""
+    if not isinstance(event, dict):
+        return {'_type': type(event).__name__}
+    return {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+
+
 def lambda_handler(event, context):
     """
     Unified translation handler that can translate both parsing results and missing info.
@@ -16,7 +33,7 @@ def lambda_handler(event, context):
     - target_languages: list of language codes
     - Other standard parameters (iep_id, user_id, child_id)
     """
-    print(f"TranslateContent handler received: {json.dumps(event)}")
+    print(f"TranslateContent handler received: {json.dumps(_safe_event_meta(event))}")
     
     try:
         iep_id = event['iep_id']
@@ -103,8 +120,8 @@ def lambda_handler(event, context):
             
             if 'en' not in summaries or 'en' not in sections:
                 print(f"Error: summaries.en exists: {'en' in summaries}, sections.en exists: {'en' in sections}")
-                print(f"Full summaries: {summaries}")
-                print(f"Full sections: {sections}")
+                print(f"summaries keys: {list(summaries.keys()) if isinstance(summaries, dict) else type(summaries).__name__}")
+                print(f"sections keys: {list(sections.keys()) if isinstance(sections, dict) else type(sections).__name__}")
                 raise Exception("English parsing data not found - summaries.en or sections.en missing")
             
             # Reconstruct the format expected by translation agent
@@ -121,7 +138,7 @@ def lambda_handler(event, context):
             
             # Debug logging
             print(f"meetingNotes type: {type(meeting_notes_raw)}")
-            print(f"meetingNotes value: {meeting_notes_raw}")
+            print(f"meetingNotes keys: {list(meeting_notes_raw.keys()) if isinstance(meeting_notes_raw, dict) else 'not-a-dict'}")
             
             # Handle different data types
             source_result = None
@@ -143,11 +160,11 @@ def lambda_handler(event, context):
             if source_result is None:
                 # Check for English meeting notes in dict structure
                 if not isinstance(meeting_notes, dict) or 'en' not in meeting_notes or not meeting_notes.get('en'):
-                    print(f"English meeting notes not found. meetingNotes structure: {meeting_notes}")
+                    print(f"English meeting notes not found. meetingNotes keys: {list(meeting_notes.keys()) if isinstance(meeting_notes, dict) else type(meeting_notes).__name__}")
                     print(f"meetingNotes is dict: {isinstance(meeting_notes, dict)}")
                     if isinstance(meeting_notes, dict):
                         print(f"meetingNotes keys: {list(meeting_notes.keys())}")
-                        print(f"meetingNotes['en'] value: {meeting_notes.get('en')}")
+                        print(f"meetingNotes['en'] present: {'en' in meeting_notes}, length: {len(meeting_notes.get('en') or '')}")
                     event_copy = {k: v for k, v in event.items() if k not in ['progress', 'current_step']}
                     return {
                         **event_copy,

@@ -4,10 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/images/aiep-logo-vertical.svg" />
+    <!-- Icon font is served from public/vendor (synced by scripts/sync-bootstrap.cjs)
+         instead of being imported in main.tsx: Vite 4 production builds leave the
+         font url()s as unreplaced __VITE_ASSET__ placeholders, breaking every bi-* glyph -->
+    <link rel="stylesheet" href="/vendor/bootstrap-icons.min.css" />
     <link rel="stylesheet" href="https://use.typekit.net/sdn7ohf.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fjalla+One&display=swap" rel="stylesheet">
+    <!-- Arabic fonts: Noto Naskh Arabic for body text, Cairo for headings -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;500;700&family=Cairo:wght@600;700&display=swap" rel="stylesheet">
     
     <!-- Google Analytics -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-HR9GRXHLHK"></script>

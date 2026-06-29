@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Carousel } from 'react-bootstrap';
+import { useLanguage } from '../common/language-context';
 import './AppTutorialCarousel.css';
 
 interface SlideData {
@@ -16,6 +17,7 @@ interface AppTutorialCarouselProps {
 }
 
 const AppTutorialCarousel: React.FC<AppTutorialCarouselProps> = ({ slides, className = '',onLastSlideReached}) => {
+  const { t } = useLanguage();
   const [activeIndex, setActiveIndex] = useState(0);
 
   const handleSelect = (selectedIndex: number) => {
@@ -63,19 +65,19 @@ const AppTutorialCarousel: React.FC<AppTutorialCarouselProps> = ({ slides, class
         </Carousel>
         
         <div className="carousel-desktop-navigation">
-          <button 
-            className="carousel-nav-btn prev-btn" 
+          <button
+            className="carousel-nav-btn prev-btn"
             onClick={handlePrevious}
             disabled={activeIndex === 0}
           >
-            PREVIOUS
+            {t('common.previous')}
           </button>
-          <button 
-            className="carousel-nav-btn next-btn" 
+          <button
+            className="carousel-nav-btn next-btn"
             onClick={handleNext}
             disabled={activeIndex === slides.length - 1}
           >
-            NEXT
+            {t('common.next')}
           </button>
          </div>
       </div>

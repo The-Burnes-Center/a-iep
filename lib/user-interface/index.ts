@@ -14,6 +14,21 @@ import { Website } from "./generate-app"
 import { NagSuppressions } from "cdk-nag";
 import { Utils } from "../shared/utils"
 import { OIDCIntegrationName } from "../constants";
+import { getEnvironment } from "../tags";
+
+// Languages offered in the UI per environment. Arabic ships on dev/staging but
+// not prod; an explicit ENABLED_LANGUAGES env var (comma-separated codes)
+// overrides the default. Kept in sync with the dev-build logic in
+// lib/user-interface/app/vite.config.ts.
+const ALL_LANGUAGES = ["en", "es", "zh", "vi", "ar"];
+const PROD_LANGUAGES = ["en", "es", "zh", "vi"];
+function resolveEnabledLanguages(): string[] {
+  const override = process.env.ENABLED_LANGUAGES;
+  if (override) {
+    return override.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  return getEnvironment() === "prod" ? PROD_LANGUAGES : ALL_LANGUAGES;
+}
 
 export interface UserInterfaceProps {
   readonly userPoolId: string;
@@ -72,7 +87,8 @@ export class UserInterface extends Construct {
         }
       },
       httpEndpoint : props.api.httpAPI.restAPI.url,
-      federatedSignInProvider : OIDCIntegrationName
+      federatedSignInProvider : OIDCIntegrationName,
+      enabledLanguages : resolveEnabledLanguages()
     });
 
     const asset = s3deploy.Source.asset(appPath, {

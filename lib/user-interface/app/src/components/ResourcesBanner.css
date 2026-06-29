@@ -81,6 +81,22 @@
     }
 
     .resources-banner-list-container {
-        width: 60%;
+        width: 100%;
+        /* Cards shrink to 250px before wrapping so the row never overflows */
+        flex-wrap: wrap;
+        align-items: stretch;
+    }
+
+    .resources-banner-item {
+        flex: 1 1 250px;
+        min-width: 250px;
+    }
+}
+
+/* Where four cards can't fit on one row, force two balanced rows of two
+   instead of an asymmetric 3 + 1 wrap */
+@media (min-width: 1025px) and (max-width: 1223px) {
+    .resources-banner-item {
+        flex-basis: 40%;
     }
 }

@@ -6,8 +6,8 @@
   }
   
   .login-method-toggle-container .btn-group .btn {
-    border-top-left-radius: 0.5rem;
-    border-bottom-left-radius: 0.5rem;
+    border-start-start-radius: 0.5rem;
+    border-end-start-radius: 0.5rem;
     --bs-btn-border-width: none;
     font-family: akzidenz-grotesk-next-conden, sans-serif;
     font-weight: 400;

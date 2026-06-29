@@ -161,6 +161,17 @@
     transform: rotate(-90deg);
 }
 
+/* Under RTL the flex row already mirrors the buttons' positions, so the
+   glyphs must flip with them: "previous" points toward the start (right)
+   and "next" toward the end (left) */
+[dir="rtl"] .banner-arrow-prev {
+    transform: rotate(-90deg);
+}
+
+[dir="rtl"] .banner-arrow-next {
+    transform: rotate(90deg);
+}
+
 /* Banner Carousel Indicators */
 .banner-carousel .carousel-indicators {
     bottom: 1rem;

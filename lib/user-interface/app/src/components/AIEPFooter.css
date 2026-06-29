@@ -119,10 +119,9 @@
   }
 }
 
-/* Desktop styles - min-width: 1280px, min-height: 364.75px */
+/* Desktop styles - min-height: 364.75px */
 @media (min-width: 1025px) {
   .aiep-footer {
-    min-width: 1280px;
     min-height: 364.75px;
   }
   
@@ -136,6 +135,7 @@
 
   .footer-content {
     flex-direction: row;
+    flex-wrap: wrap;
     justify-content: space-between;
     padding: 0.5rem 4rem;
   }
@@ -145,7 +145,8 @@
     flex-direction: row;
     justify-content: center;
     align-items: center;
-    gap: 5rem;
+    /* Fluid gap so the partner logos never push the footer past the viewport */
+    gap: clamp(1.5rem, 4vw, 5rem);
   }
 
   .footer-links ul {

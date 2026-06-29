@@ -121,7 +121,7 @@
   /* Mobile language dropdown styling */
   #language-dropdown {
     width: 25%;
-    text-align: left;
+    text-align: start;
     margin: 0.5rem 0;
     color: #000 !important;
     border-color: #1E1E1E !important;

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useLanguage } from '../common/language-context';
 import './PartnerBanner.css';
 
 const partners = [
@@ -16,12 +17,13 @@ interface PartnerBannerProps {
 
 const PartnerBanner: React.FC<PartnerBannerProps> = ({ position = 'top' }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const { t } = useLanguage();
 
   return (
     <div className="partner-banner">
       {/* Desktop view */}
       <div className="partner-banner__desktop">
-        <span className="partner-banner__label">See our partner projects</span>
+        <span className="partner-banner__label">{t('partnerBanner.label')}</span>
         {partners.map((partner) => (
           <a
             key={partner.name}
@@ -40,7 +42,7 @@ const PartnerBanner: React.FC<PartnerBannerProps> = ({ position = 'top' }) => {
       <div className="partner-banner__mobile">
         {!isOpen ? (
           <button className="partner-banner__toggle" onClick={() => setIsOpen(true)}>
-            <span className="partner-banner__label">See our partner projects</span>
+            <span className="partner-banner__label">{t('partnerBanner.label')}</span>
             <img
               src="/images/arrow-down.svg"
               alt=""
@@ -53,7 +55,7 @@ const PartnerBanner: React.FC<PartnerBannerProps> = ({ position = 'top' }) => {
             onClick={() => setIsOpen(false)}
           >
             <span className="partner-banner__dropdown-header">
-              <span className="partner-banner__label">See our partner projects</span>
+              <span className="partner-banner__label">{t('partnerBanner.label')}</span>
               <img
                 src="/images/arrow-down.svg"
                 alt=""

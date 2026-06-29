@@ -6,6 +6,8 @@ import { faLanguage, faDownload, faArrowsRotate, faForward } from '@fortawesome/
 import './IEPSummarizationAndTranslation.css';
 import { IEPDocument, IEPSection, Language, UserProfile } from '../../common/types';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
+import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
+import { getDirForLanguage } from '../../common/direction';
 import { useDocumentFetch, processContentWithJargon } from '../utils';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import ParentRightsCarousel, { SlideData } from '../../components/ParentRightsCarousel';
@@ -18,7 +20,7 @@ import LinearProgress from '@mui/material/LinearProgress';
 import { TextHelper } from '../../common/helpers/text-helper';
 
 const IEPSummarizationAndTranslation: React.FC = () => {
-  const { t, language, setLanguage, translationsLoaded } = useLanguage();
+  const { t, language, setLanguage, translationsLoaded, enabledLanguages } = useLanguage();
   const appContext = useContext(AppContext);
   const { addNotification } = useNotifications();
   const apiClient = new ApiClient(appContext);
@@ -35,7 +37,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     en: false,
     es: false,
     vi: false,
-    zh: false
+    zh: false,
+    ar: false
   });
   
   // Profile-related state
@@ -59,19 +62,22 @@ const IEPSummarizationAndTranslation: React.FC = () => {
       en: '',
       es: '',
       vi: '',
-      zh: ''
+      zh: '',
+      ar: ''
     },
     document_index: {
       en: '',
       es: '',
       vi: '',
-      zh: ''
+      zh: '',
+      ar: ''
     },
     sections: {
       en: [],
       es: [],
       vi: [],
-      zh: []
+      zh: [],
+      ar: []
     }
   });
   
@@ -126,36 +132,35 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     }
   }, [preferredLanguage, initialLoading, document.summaries, document.sections, hasUserSelectedLanguage]);
 
-  // Dynamic language options - only show English and preferred language
-  const allLanguageOptions = [
-    { value: 'en', label: 'English' },
-    { value: 'es', label: 'Español' },
-    { value: 'zh', label: '中文' },
-    { value: 'vi', label: 'Tiếng Việt' }
-  ];
+  // Only show tabs for languages enabled in this environment AND actually
+  // present in the document (a translation exists for them).
+  const allLanguageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
-  const languageOptions = allLanguageOptions.filter(option => 
+  const languageOptions = allLanguageOptions.filter(option =>
     document.summaries && document.summaries[option.value]
   );
 
   const handlePreferredLanguageChange = async (languageCode: string) => {
     if (!profile || languageCode === profile.secondaryLanguage) return;
-    
+
+    const previousLanguage = language;
     const updatedProfile = {...profile, secondaryLanguage: languageCode};
     setProfile(updatedProfile);
-    
+    // Switch the UI immediately; the profile save runs in the background
+    setLanguage(languageCode as SupportedLanguage);
+
     try {
       setSaving(true);
-      await apiClient.profile.updateProfile(updatedProfile);
-      
-      // Update language context
-      setLanguage(languageCode as SupportedLanguage);
-      
+      // Send only the changed field: a partial update skips re-encrypting
+      // untouched PII fields (phone/city/parentName) with KMS on the backend
+      await apiClient.profile.updateProfile({ secondaryLanguage: languageCode });
+
       setOriginalProfile(updatedProfile);
       addNotification('success', t('profile.success.update'));
     } catch (err) {
       // Revert on error
       setProfile(originalProfile);
+      setLanguage(previousLanguage);
       addNotification('error', t('profile.error.update'));
     } finally {
       setSaving(false);
@@ -290,15 +295,15 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   };
   
   const sectionDisplayNames: Record<string, Record<string, string>> = {
-    "Strengths":        { en: "Strengths",                       es: "Fortalezas",                    vi: "Điểm Mạnh",                        zh: "优势" },
-    "Eligibility":      { en: "Eligibility",                     es: "Elegibilidad",                  vi: "Điều kiện hội đủ",                  zh: "资格条件" },
-    "Present Levels":   { en: "Present Levels of Performance",   es: "Niveles Actuales de Desempeño", vi: "Mức Độ Hiệu Suất Hiện Tại",        zh: "当前表现水平" },
-    "Goals":            { en: "Goals",                           es: "Objetivos",                     vi: "Mục Tiêu",                          zh: "目标" },
-    "Services":         { en: "Services",                        es: "Servicios",                     vi: "Dịch Vụ",                           zh: "服务" },
-    "Accommodations":   { en: "Accommodations",                  es: "Adaptaciones",                  vi: "Điều Chỉnh Hỗ Trợ",                zh: "调整措施" },
-    "Placement":        { en: "Placement",                       es: "Ubicación",                     vi: "Vị Trí Sắp Xếp",                   zh: "安置" },
-    "Key People":       { en: "Key People",                      es: "Personas Clave",                vi: "Những Người Chủ Chốt",             zh: "关键人员" },
-    "Informed Consent": { en: "Consent",                         es: "Consentimiento Informado",      vi: "Chấp thuận sau khi được thông báo", zh: "知情同意" },
+    "Strengths":        { en: "Strengths",                       es: "Fortalezas",                    vi: "Điểm Mạnh",                        zh: "优势",       ar: "نقاط القوة" },
+    "Eligibility":      { en: "Eligibility",                     es: "Elegibilidad",                  vi: "Điều kiện hội đủ",                  zh: "资格条件",   ar: "الأهلية" },
+    "Present Levels":   { en: "Present Levels of Performance",   es: "Niveles Actuales de Desempeño", vi: "Mức Độ Hiệu Suất Hiện Tại",        zh: "当前表现水平", ar: "مستويات الأداء الحالية" },
+    "Goals":            { en: "Goals",                           es: "Objetivos",                     vi: "Mục Tiêu",                          zh: "目标",       ar: "الأهداف" },
+    "Services":         { en: "Services",                        es: "Servicios",                     vi: "Dịch Vụ",                           zh: "服务",       ar: "الخدمات" },
+    "Accommodations":   { en: "Accommodations",                  es: "Adaptaciones",                  vi: "Điều Chỉnh Hỗ Trợ",                zh: "调整措施",   ar: "التسهيلات" },
+    "Placement":        { en: "Placement",                       es: "Ubicación",                     vi: "Vị Trí Sắp Xếp",                   zh: "安置",       ar: "التنسيب التعليمي" },
+    "Key People":       { en: "Key People",                      es: "Personas Clave",                vi: "Những Người Chủ Chốt",             zh: "关键人员",   ar: "الأشخاص الرئيسيون" },
+    "Informed Consent": { en: "Consent",                         es: "Consentimiento Informado",      vi: "Chấp thuận sau khi được thông báo", zh: "知情同意",   ar: "الموافقة المستنيرة" },
   };
 
   const getDisplayName = (apiName: string, lang: string): string => {
@@ -361,7 +366,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
           "en": "Abbreviations",
           "es": "Abreviaturas",
           "vi": "Chữ viết tắt",
-          "zh": "缩写"
+          "zh": "缩写",
+          "ar": "الاختصارات"
         };
         
         if ( doc.abbreviations && doc.abbreviations[lang] && doc.abbreviations.en && doc.abbreviations.en.length > 0) {
@@ -543,8 +549,10 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     
     const isEnglishTab = lang === 'en';
 
+    // Content direction follows the CONTENT language, not the UI language
+    // (e.g. Arabic UI viewing the English tab stays LTR, and vice versa)
     return (
-      <>        
+      <div dir={getDirForLanguage(lang)} lang={lang}>
         {/* Summary Section */}
         {hasSummary ? (
           <>
@@ -705,7 +713,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             )}
           </Alert>
         )}
-      </>
+      </div>
     );
   };
 
@@ -716,6 +724,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
       case 'es': return 'Español';
       case 'vi': return 'Tiếng Việt';
       case 'zh': return '中文';
+      case 'ar': return 'العربية';
       default: return languageCode.toUpperCase();
     }
   };
@@ -824,7 +833,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                 {isGeneratingPDF ? (
                   <>
                     <Spinner animation="border" size="sm" className="me-2" />
-                    Generating PDF...
+                    {t('common.generatingPdf')}
                   </>
                 ) : (
                   <>

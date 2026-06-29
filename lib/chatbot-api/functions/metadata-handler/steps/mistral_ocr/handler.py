@@ -7,12 +7,29 @@ import traceback
 import boto3
 from mistral_ocr import process_document_with_mistral_ocr
 
+# Only non-sensitive metadata is safe to log. These events can carry
+# FERPA-protected document content (OCR text, parsed sections, translated
+# content) as the workflow evolves; dumping the whole event would expose it
+# to anyone with CloudWatch log access.
+_SAFE_LOG_FIELDS = (
+    'iep_id', 'child_id', 'user_id', 's3_bucket', 's3_key', 'current_step',
+    'progress', 'status', 'content_type', 'target_languages', 'translation_needed',
+)
+
+
+def _safe_event_meta(event):
+    """Return only the allowlisted, non-sensitive fields from the event."""
+    if not isinstance(event, dict):
+        return {'_type': type(event).__name__}
+    return {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+
+
 def lambda_handler(event, context):
     """
     Extract text from document using Mistral OCR API.
     Core OCR logic only - DDB operations handled by centralized service.
     """
-    print(f"MistralOCR handler received: {json.dumps(event)}")
+    print(f"MistralOCR handler received: {json.dumps(_safe_event_meta(event))}")
     
     try:
         s3_bucket = event['s3_bucket']

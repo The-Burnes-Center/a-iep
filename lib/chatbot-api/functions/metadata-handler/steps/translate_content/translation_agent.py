@@ -50,6 +50,11 @@ class OptimizedTranslationAgent:
                     with open('en_zh_translations.json', 'r', encoding='utf-8-sig') as f:
                         translations = json.load(f)
                     return translations.get(term.lower(), f"No translation found for '{term}'")
+                elif target_language == 'ar':
+                    # Load Arabic translations
+                    with open('en_ar_translations.json', 'r', encoding='utf-8-sig') as f:
+                        translations = json.load(f)
+                    return translations.get(term.lower(), f"No translation found for '{term}'")
                 else:
                     return f"Terminology lookup not available for {target_language}"
             except:

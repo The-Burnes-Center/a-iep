@@ -8,7 +8,6 @@ import * as path from 'path';
 import { getTagProps, tagResource } from '../tags';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { CfnUserPool } from 'aws-cdk-lib/aws-cognito';
-import { Logger } from '../chatbot-api/logging/logger';
 
 /**
  * Props for NewAuthorizationStack
@@ -32,9 +31,6 @@ export class NewAuthorizationStack extends Construct {
 
   constructor(scope: Construct, id: string, props?: NewAuthorizationStackProps) {
     super(scope, id);
-
-    // Use the shared Logger for consistent logging
-    const logger = Logger.getInstance();
 
     // 1. Create the Cognito User Pool with self sign-up and email/phone support
     const userPool = new UserPool(this, 'NewUserPool', {      
@@ -78,14 +74,6 @@ export class NewAuthorizationStack extends Construct {
     cfnRole.addPropertyOverride('AssumeRolePolicyDocument.Statement.0.Condition', {
       'StringEquals': { 'sts:ExternalId': this.node.addr }
     });
-    
-    logger.logEvent({
-      eventType: 'AUTHZ_STACK',
-      action: 'Created CognitoSmsRole',
-      resourceType: 'COGNITO',
-      resourceId: cognitoSmsRole.roleArn,
-      details: { roleArn: cognitoSmsRole.roleArn, externalId: this.node.addr },
-    });
 
     // 4. Attach the SMS role to the user pool
     cfnUserPool.smsConfiguration = {
@@ -94,14 +82,6 @@ export class NewAuthorizationStack extends Construct {
     };
     cfnUserPool.smsAuthenticationMessage = 'Your login code for The GovLab AIEP is: {####}. Do not share this code.';
     cfnUserPool.smsVerificationMessage = 'Your OTP from The GovLab AIEP is: {####}. Do not share this code. Msg & data rates may apply.';
-    
-    logger.logEvent({
-      eventType: 'AUTHZ_STACK',
-      action: 'Configured Cognito SMS settings',
-      resourceType: 'COGNITO',
-      resourceId: userPool.userPoolId,
-      details: { userPoolId: userPool.userPoolId },
-    });
 
     // 5. Create Lambda functions for Phone OTP authentication
     this.createPhoneOtpLambdaTriggers(userPool, props?.userProfilesTable);
@@ -197,6 +177,9 @@ export class NewAuthorizationStack extends Construct {
       runtime: lambda.Runtime.NODEJS_20_X,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'create-auth-challenge.handler',
+      environment: {
+        ...(userProfilesTable && { USER_PROFILES_TABLE: userProfilesTable.tableName })
+      },
       timeout: cdk.Duration.seconds(30),
       logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
       description: 'Create Auth Challenge for Phone OTP authentication'
@@ -211,6 +194,56 @@ export class NewAuthorizationStack extends Construct {
       resources: ['*'] // SNS publish requires * for phone numbers
     }));
 
+    // Allow reading user profiles to localize the OTP SMS. grantReadData
+    // (rather than a manual GetItem policy) also grants kms:Decrypt on the
+    // table's customer-managed encryption key — without it the profile
+    // lookup fails with AccessDeniedException and falls back to English.
+    if (userProfilesTable) {
+      userProfilesTable.grantReadData(createAuthChallengeFunction);
+    }
+
+    // Custom Message Function - localizes Cognito's verification / forgot
+    // password / MFA messages (SMS and email) to the user's language
+    const customMessageFunction = new lambda.Function(this, 'CustomMessageFunction', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
+      handler: 'custom-message.handler',
+      environment: {
+        ...(userProfilesTable && { USER_PROFILES_TABLE: userProfilesTable.tableName })
+      },
+      timeout: cdk.Duration.seconds(30),
+      logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
+      description: 'Localize Cognito SMS and email messages'
+    });
+
+    if (userProfilesTable) {
+      // Includes kms:Decrypt for the table's customer-managed key
+      userProfilesTable.grantReadData(customMessageFunction);
+    }
+
+    // Pre Authentication Function - stamps the sign-in screen's UI language
+    // onto the user profile so create-auth-challenge can localize the OTP
+    // SMS. Cognito forwards InitiateAuth clientMetadata to this trigger (as
+    // validationData) but NOT to create-auth-challenge, so this is the only
+    // path from the login screen's language picker to the SMS.
+    const preAuthenticationFunction = new lambda.Function(this, 'PreAuthenticationFunction', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
+      handler: 'pre-authentication.handler',
+      environment: {
+        ...(userProfilesTable && { USER_PROFILES_TABLE: userProfilesTable.tableName })
+      },
+      timeout: cdk.Duration.seconds(30),
+      logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
+      description: 'Stamp sign-in UI language for OTP SMS localization'
+    });
+
+    // grantReadWriteData (not a manual UpdateItem policy) also covers the
+    // KMS permissions for the table's customer-managed encryption key
+    if (userProfilesTable) {
+      userProfilesTable.grantReadWriteData(preAuthenticationFunction);
+    }
+
     // Verify Auth Challenge Function
     const verifyAuthChallengeFunction = new lambda.Function(this, 'VerifyAuthChallengeFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -224,20 +257,17 @@ export class NewAuthorizationStack extends Construct {
       description: 'Verify Auth Challenge for Phone OTP authentication'
     });
 
-    // Add DynamoDB permissions for user profile creation (if table provided)
+    // Add DynamoDB permissions for user profile creation (if table provided).
+    // grantReadWriteData also covers the KMS encrypt/decrypt permissions for
+    // the table's customer-managed key; with the previous manual GetItem/
+    // PutItem policy, profile creation for new phone users failed silently
+    // with a KMS AccessDeniedException.
     if (userProfilesTable) {
-      verifyAuthChallengeFunction.addToRolePolicy(new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: [
-          'dynamodb:GetItem',
-          'dynamodb:PutItem'
-        ],
-        resources: [userProfilesTable.tableArn]
-      }));
+      userProfilesTable.grantReadWriteData(verifyAuthChallengeFunction);
     }
 
     // Allow Cognito to invoke the Lambda functions
-    [defineAuthChallengeFunction, createAuthChallengeFunction, verifyAuthChallengeFunction].forEach(func => {
+    [defineAuthChallengeFunction, createAuthChallengeFunction, verifyAuthChallengeFunction, customMessageFunction, preAuthenticationFunction].forEach(func => {
       func.addPermission('CognitoInvocation', {
         principal: new iam.ServicePrincipal('cognito-idp.amazonaws.com'),
         action: 'lambda:InvokeFunction',
@@ -259,6 +289,16 @@ export class NewAuthorizationStack extends Construct {
     userPool.addTrigger(
       cognito.UserPoolOperation.VERIFY_AUTH_CHALLENGE_RESPONSE,
       verifyAuthChallengeFunction
+    );
+
+    userPool.addTrigger(
+      cognito.UserPoolOperation.CUSTOM_MESSAGE,
+      customMessageFunction
+    );
+
+    userPool.addTrigger(
+      cognito.UserPoolOperation.PRE_AUTHENTICATION,
+      preAuthenticationFunction
     );
 
     console.log('Phone OTP Lambda triggers configured successfully');

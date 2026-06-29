@@ -3,7 +3,8 @@ name: Deploy A-IEP Tool to AWS Prod
 on:
   push:
     branches:
-      - main  # or 'master' if you're using the master branch
+      - main
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -49,6 +50,8 @@ jobs:
       run: npx cdk deploy AIEPStack --require-approval never
       env:
         ENVIRONMENT: production
+        ACM_CERTIFICATE_ARN: ${{ secrets.ACM_CERTIFICATE_ARN_PROD }}
+        DOMAIN: ${{ secrets.DOMAIN_PROD }}
 
     # Step 8: Fetch CloudFormation outputs and save to a file
     - name: Fetch CloudFormation Outputs

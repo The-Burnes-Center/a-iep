@@ -28,7 +28,10 @@ export abstract class TextHelper {
       'en': 'en-US',
       'es': 'es-ES',
       'vi': 'vi-VN',
-      'zh': 'zh-CN'
+      'zh': 'zh-CN',
+      // nu-latn keeps Western digits so dates match page references
+      // to the original English IEP document
+      'ar': 'ar-u-nu-latn'
     };
     
     const locale = localeMap[languageCode] || 'en-US';

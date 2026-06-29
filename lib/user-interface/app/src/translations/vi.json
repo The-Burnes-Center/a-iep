@@ -33,6 +33,7 @@
     "common.cancel": "Hủy",
     "common.close": "Đóng",
     "common.save": "Lưu",
+    "common.generatingPdf": "Đang tạo PDF...",
     "common.skip": "Bỏ qua",
 
     "tutorial.appTutorial.title": "Chúng ta đang làm gì bây giờ?",
@@ -208,6 +209,8 @@
     "auth.errorRequestPasswordReset": "Lỗi khi yêu cầu đặt lại mật khẩu",
     "auth.errorResetPassword": "Lỗi khi đặt lại mật khẩu",
     "auth.errorPasswordChange": "Lỗi khi thay đổi mật khẩu",
+    "auth.errorSessionExpired": "Phiên đã hết hạn. Vui lòng bắt đầu lại.",
+    "auth.errorPhoneFormat": "Vui lòng nhập số điện thoại Hoa Kỳ hợp lệ gồm 10 chữ số",
     "auth.successPasswordReset": "Đặt lại mật khẩu thành công. Vui lòng đăng nhập bằng mật khẩu mới của bạn.",
     "auth.successAccountCreated": "Tạo tài khoản thành công! Vui lòng đăng nhập bằng thông tin đăng nhập của bạn.",
     "auth.successCodeResent": "Mã xác nhận đã được gửi lại đến email của bạn",
@@ -632,5 +635,12 @@
     "landing.howTo.card5.title": "Tìm ý nghĩa của các thuật ngữ phức tạp",
     "landing.howTo.card5.text": "Mỗi khi bạn thấy một từ màu xanh, bạn có thể nhấp vào nó để xem định nghĩa. Khi hoàn tất, nhấp vào X để quay lại bản tóm tắt.",
     "landing.howTo.card6.title": "Đối chiếu nội dung với IEP gốc",
-    "landing.howTo.card6.text": "Bên dưới tiêu đề của mỗi thông tin quan trọng, bạn sẽ tìm thấy số trang nơi chúng tôi lấy thông tin. Hãy luôn kiểm tra lại!"
+    "landing.howTo.card6.text": "Bên dưới tiêu đề của mỗi thông tin quan trọng, bạn sẽ tìm thấy số trang nơi chúng tôi lấy thông tin. Hãy luôn kiểm tra lại!",
+    "partnerBanner.label": "Xem các dự án đối tác của chúng tôi",
+    "auth.authenticationIncomplete": "Xác thực chưa hoàn tất. Vui lòng thử lại.",
+    "auth.maxAttemptsExceeded": "Đã vượt quá số lần xác minh tối đa. Vui lòng bắt đầu lại.",
+    "auth.pleaseEnterSmsCode": "Vui lòng nhập mã xác minh",
+    "auth.resendFailed": "Không thể gửi lại mã xác minh. Vui lòng thử lại.",
+    "auth.sessionExpired": "Phiên đã hết hạn. Vui lòng bắt đầu lại.",
+    "auth.verificationFailed": "Xác minh mã không thành công. Vui lòng thử lại."
 }

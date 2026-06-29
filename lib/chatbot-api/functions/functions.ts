@@ -509,7 +509,7 @@ export class LambdaFunctionStack extends cdk.Stack {
         "DDB_SERVICE_FUNCTION_NAME": this.ddbServiceFunction.functionName,
         "AIEP_KMS_KEY_ALIAS": ((): string => {
           const env = getEnvironment();
-          return env === 'staging' ? 'alias/aiep/app' : 'alias/aiep/app-prod';
+          return env === 'dev' ? 'alias/aiep/app' : 'alias/aiep/app-prod';
         })()
       },
       timeout: cdk.Duration.seconds(300),
@@ -550,11 +550,12 @@ export class LambdaFunctionStack extends cdk.Stack {
       ]
     }));
 
-    // Add Cognito permissions for user deletion
+    // Add Cognito permissions for user deletion and locale attribute sync
     userProfileHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
-        'cognito-idp:AdminDeleteUser'
+        'cognito-idp:AdminDeleteUser',
+        'cognito-idp:AdminUpdateUserAttributes'
       ],
       resources: [props.userPool.userPoolArn]
     }));

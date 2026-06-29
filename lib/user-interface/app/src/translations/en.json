@@ -33,6 +33,7 @@
     "common.cancel": "Cancel",
     "common.close": "Close",
     "common.save": "Save",
+    "common.generatingPdf": "Generating PDF...",
     "common.skip": "Skip",
 
     "tutorial.appTutorial.title": "What are we doing right now ?",
@@ -89,7 +90,7 @@
     "sections.presentLevels": "Present Levels of Performance",   
     "sections.strengths": "Strengths", 
     "sections.eligibility": "Eligibility",
-    "sections.informedConsent": "State Testing",   
+    "sections.informedConsent": "Consent",   
     "sections.assistiveTechnology": "Assistive Technology",
     "sections.stateTesting": "State Testing",    
 
@@ -209,6 +210,8 @@
     "auth.errorRequestPasswordReset": "Error requesting password reset",
     "auth.errorResetPassword": "Error resetting password",
     "auth.errorPasswordChange": "Error changing password",
+    "auth.errorSessionExpired": "Session expired. Please start over.",
+    "auth.errorPhoneFormat": "Please enter a valid 10-digit US phone number",
     "auth.successPasswordReset": "Password reset successful. Please sign in with your new password.",
     "auth.successAccountCreated": "Account created successfully! Please sign in with your credentials.",
     "auth.successCodeResent": "Verification code has been resent to your email",
@@ -639,5 +642,8 @@
     "landing.howTo.card5.title": "Find the meaning of complex terms",
     "landing.howTo.card5.text": "Whenever you see a blue word, you will be able to click on it to show its definition. When you're done, click on the X to return to your summary.",
     "landing.howTo.card6.title": "Contrast the content with the original IEP",
-    "landing.howTo.card6.text": "Below the title of each key insight, you will find the page number where we took the information from. Always double check!"
+    "landing.howTo.card6.text": "Below the title of each key insight, you will find the page number where we took the information from. Always double check!",
+    "partnerBanner.label": "See our partner projects",
+    "sections.foundIn": "Found in",
+    "sections.pages": "pages"
   }

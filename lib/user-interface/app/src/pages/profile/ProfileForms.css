@@ -54,13 +54,13 @@
   font-size: 1rem;
   line-height: 2;
   margin-bottom: 1.5rem;
-  text-align: left;
+  text-align: start;
 }
 
 .checkbox-label {
   font-family: 'akzidenz-grotesk-next-pro', sans-serif;
   font-weight: 400;
-  padding-left: 0.5rem;
+  padding-inline-start: 0.5rem;
 }
 
 .form-control::placeholder {
@@ -85,7 +85,7 @@
   border: 1px solid #1e1e1e !important;
   border-radius: 20px;
   font-size: 1.2rem;
-  text-align: left;
+  text-align: start;
   font-family: 'akzidenz-grotesk-next-pro', sans-serif !important;
   font-weight: 400;
   text-transform: none;
