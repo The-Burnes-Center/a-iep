@@ -178,6 +178,9 @@ export class LambdaFunctionStack extends cdk.Stack {
     this.ddbServiceFunction = createTaggedLambda('DDBServiceFunction', {
       runtime: lambda.Runtime.PYTHON_3_12,
       code: lambda.Code.fromAsset(path.join(__dirname, 'metadata-handler/ddb-service'), {
+        // SOURCE hashing lets CDK skip Docker bundling when the staged asset
+        // already exists in cdk.out (restored from the CI cache)
+        assetHashType: cdk.AssetHashType.SOURCE,
         bundling: {
           image: lambda.Runtime.PYTHON_3_12.bundlingImage,
           command: [
@@ -284,6 +287,7 @@ export class LambdaFunctionStack extends cdk.Stack {
       const func = createTaggedLambda(name, {
         runtime: lambda.Runtime.PYTHON_3_12,
         code: lambda.Code.fromAsset(path.join(__dirname, handlerPath), {
+          assetHashType: cdk.AssetHashType.SOURCE,
           bundling: {
             image: lambda.Runtime.PYTHON_3_12.bundlingImage,
             command: [
@@ -440,6 +444,7 @@ export class LambdaFunctionStack extends cdk.Stack {
     this.orchestratorFunction = createTaggedLambda('OrchestratorFunction', {
       runtime: lambda.Runtime.PYTHON_3_12,
       code: lambda.Code.fromAsset(path.join(__dirname, 'metadata-handler'), {
+        assetHashType: cdk.AssetHashType.SOURCE,
         bundling: {
           image: lambda.Runtime.PYTHON_3_12.bundlingImage,
           command: [
@@ -618,6 +623,7 @@ export class LambdaFunctionStack extends cdk.Stack {
     const pdfGeneratorFunction = createTaggedLambda('PDFGeneratorFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
       code: lambda.Code.fromAsset(path.join(__dirname, 'pdf-generator'), {
+        assetHashType: cdk.AssetHashType.SOURCE,
         bundling: {
           image: lambda.Runtime.NODEJS_20_X.bundlingImage,
           command: [
