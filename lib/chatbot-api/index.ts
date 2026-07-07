@@ -163,6 +163,14 @@ export class ChatBotApi extends Construct {
       authorizer: httpAuthorizer,
     });
 
+    const ttsAPIIntegration = new HttpLambdaIntegration('TTSAPIIntegration', this.lambdaFunctions.ttsFunction);
+    this.httpAPI.restAPI.addRoutes({
+      path: "/documents/{iepId}/audio",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: ttsAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
     // Prints out the AppSync GraphQL API key to the terminal
     new cdk.CfnOutput(this, "HTTP-API - apiEndpoint", {
       value: this.httpAPI.restAPI.apiEndpoint || "",

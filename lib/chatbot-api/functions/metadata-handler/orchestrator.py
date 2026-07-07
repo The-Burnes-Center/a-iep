@@ -51,6 +51,16 @@ def lambda_handler(event, context):
                         'message': f'Skipped content.json file: {key}'
                     })
                 }
+
+            # Skip generated TTS audio cache writes - not documents to process
+            if key.startswith('iep-audio/') or key.lower().endswith(('.mp3', '.wav', '.ogg')):
+                print(f"Skipping generated audio file: {key} - TTS cache, not a document to process")
+                return {
+                    'statusCode': 200,
+                    'body': json.dumps({
+                        'message': f'Skipped generated audio file: {key}'
+                    })
+                }
             
             # Extract user ID, child ID, and IEP ID from the key
             key_parts = key.split('/')

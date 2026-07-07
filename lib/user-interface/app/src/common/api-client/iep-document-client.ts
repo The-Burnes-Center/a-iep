@@ -3,6 +3,14 @@ import { Utils } from "../utils";
 import { AppConfig } from "../types";
 import { ProfileClient } from "./profile-client";
 
+export interface DocumentAudioResponse {
+  status: string;
+  url: string;
+  expiresInSeconds: number;
+  cached: boolean;
+  provider: string;
+}
+
 export class IEPDocumentClient {
   private readonly API;
   private profileClient: ProfileClient;
@@ -112,6 +120,66 @@ export class IEPDocumentClient {
     }
   }
   
+  // Get (generating if needed) text-to-speech audio for a document's summary or a section.
+  // The backend reads the canonical content server-side and returns a presigned MP3 URL.
+  async getDocumentAudio(
+    iepId: string,
+    language: string,
+    target: 'summary' | 'section',
+    sectionName?: string
+  ): Promise<DocumentAudioResponse> {
+    const childId = await this.getDefaultChildId();
+    const auth = await Utils.authenticate();
+    const body = JSON.stringify({
+      childId,
+      language,
+      target,
+      ...(sectionName ? { sectionName } : {})
+    });
+
+    // A cold-cache synthesis can outlive the API Gateway 30s timeout while the
+    // Lambda keeps running and caches the result, so a retry of the identical
+    // request lands on the warm cache.
+    const maxAttempts = 5;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let response: Response | null = null;
+      try {
+        response = await fetch(`${this.API}/documents/${iepId}/audio`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + auth
+          },
+          body
+        });
+      } catch {
+        response = null; // network failure — treat like a timeout and retry
+      }
+
+      if (response) {
+        if (response.ok) {
+          return await response.json();
+        }
+        if (response.status !== 504) {
+          let message = 'Failed to get document audio';
+          try {
+            const errorBody = await response.json();
+            message = errorBody.message || message;
+          } catch {
+            // keep default message
+          }
+          throw new Error(message);
+        }
+      }
+
+      if (attempt < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+    }
+
+    throw new Error('Timed out generating document audio');
+  }
+
   // Delete a document
   async deleteFile(iepId: string) {
     try {

@@ -78,6 +78,11 @@
     "summary.noPreferredLanguageContent.title": "您的首选语言内容不可用",
     "summary.noPreferredLanguageContent.message": "此文档在设置您的语言偏好之前已被处理。请重新上传您的文档以将其翻译成您的首选语言。",
     "summary.lastUpdate": "最后更新:",
+
+    "tts.listen": "朗读",
+    "tts.pause": "暂停",
+    "tts.generating": "正在准备音频…",
+    "tts.error": "音频不可用。点按重试。",
     "summary.showLess": "收起",
     "summary.readMore": "阅读更多",
 

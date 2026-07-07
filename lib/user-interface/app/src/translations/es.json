@@ -78,6 +78,11 @@
     "summary.noPreferredLanguageContent.title": "Contenido No Disponible en Su Idioma Preferido",
     "summary.noPreferredLanguageContent.message": "Este documento fue procesado antes de que se estableciera su preferencia de idioma. Vuelva a subir su documento para traducirlo a su idioma preferido.",
     "summary.lastUpdate": "Última actualización:",
+
+    "tts.listen": "Escuchar",
+    "tts.pause": "Pausar",
+    "tts.generating": "Preparando el audio…",
+    "tts.error": "Audio no disponible. Toca para reintentar.",
     "summary.showLess": "Mostrar Menos",
     "summary.readMore": "Leer Más",
 

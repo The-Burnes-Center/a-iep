@@ -37,6 +37,7 @@ export class LambdaFunctionStack extends cdk.Stack {
   public readonly userProfileFunction : lambda.Function;
   public readonly cognitoTriggerFunction : lambda.Function;
   public readonly pdfGeneratorFunction : lambda.Function;
+  public readonly ttsFunction : lambda.Function;
   
   // Step Functions components
   public readonly orchestratorFunction : lambda.Function;
@@ -570,6 +571,84 @@ export class LambdaFunctionStack extends cdk.Stack {
     }));
 
     this.userProfileFunction = userProfileHandlerFunction;
+
+    // Text-to-speech handler: on-demand synthesis of summaries/sections with
+    // S3 caching. Timeout intentionally exceeds the API Gateway 30s cap so a
+    // long cold-cache synthesis still finishes and caches; the client retries
+    // the idempotent request and lands on the warm cache.
+    const ttsHandlerFunction = createTaggedLambda('TTSHandlerFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      code: lambda.Code.fromAsset(path.join(__dirname, 'tts-handler')),
+      handler: 'lambda_function.lambda_handler',
+      environment: {
+        "BUCKET": props.knowledgeBucket.bucketName,
+        "USER_PROFILES_TABLE": props.userProfilesTable.tableName,
+        "IEP_DOCUMENTS_TABLE": props.iepDocumentsTable.tableName,
+        "TTS_PROVIDER_PARAMETER_NAME": "/a-iep/TTS_PROVIDER",
+        "TTS_VOICE_CONFIG_PARAMETER_NAME": "/a-iep/TTS_VOICE_CONFIG",
+        "ELEVENLABS_API_KEY_PARAMETER_NAME": "/a-iep/ELEVENLABS_API_KEY",
+        "OPENAI_API_KEY_PARAMETER_NAME": "/ai-iep/OPENAI_API_KEY"
+      },
+      timeout: cdk.Duration.seconds(120),
+      memorySize: 512,
+      logRetention: logs.RetentionDays.ONE_YEAR,
+      ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
+    });
+
+    ttsHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:GetObject'],
+      resources: [props.knowledgeBucket.bucketArn + "/iep-data/*"]
+    }));
+
+    ttsHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:GetObject', 's3:PutObject'],
+      resources: [props.knowledgeBucket.bucketArn + "/iep-audio/*"]
+    }));
+
+    // ListBucket makes head_object on a missing cache key a clean 404 (not 403)
+    ttsHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:ListBucket'],
+      resources: [props.knowledgeBucket.bucketArn]
+    }));
+
+    ttsHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:GetItem'],
+      resources: [
+        props.userProfilesTable.tableArn,
+        props.iepDocumentsTable.tableArn
+      ]
+    }));
+
+    ttsHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['ssm:GetParameter'],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/a-iep/TTS_PROVIDER`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/a-iep/TTS_VOICE_CONFIG`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/a-iep/ELEVENLABS_API_KEY`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/ai-iep/OPENAI_API_KEY`
+      ]
+    }));
+
+    if (props.kmsKey) {
+      ttsHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'kms:Encrypt',
+          'kms:Decrypt',
+          'kms:ReEncrypt*',
+          'kms:GenerateDataKey*',
+          'kms:DescribeKey'
+        ],
+        resources: [props.kmsKey.keyArn]
+      }));
+    }
+
+    this.ttsFunction = ttsHandlerFunction;
 
     // Add Cognito Post Confirmation Trigger Lambda
     const cognitoTriggerFunction = new lambda.Function(scope, 'CognitoTriggerFunction', {

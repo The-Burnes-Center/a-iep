@@ -78,6 +78,11 @@
     "summary.noPreferredLanguageContent.title": "Nội Dung Không Có Sẵn Bằng Ngôn Ngữ Ưa Thích",
     "summary.noPreferredLanguageContent.message": "Tài liệu này đã được xử lý trước khi thiết lập ngôn ngữ ưa thích của bạn. Tải lên lại tài liệu để dịch sang ngôn ngữ ưa thích của bạn.",
     "summary.lastUpdate": "Cập nhật lần cuối:",
+
+    "tts.listen": "Nghe",
+    "tts.pause": "Tạm dừng",
+    "tts.generating": "Đang chuẩn bị âm thanh…",
+    "tts.error": "Âm thanh không khả dụng. Nhấn để thử lại.",
     "summary.showLess": "Thu Gọn",
     "summary.readMore": "Đọc Thêm",
 

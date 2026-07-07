@@ -78,6 +78,11 @@
     "summary.noPreferredLanguageContent.title": "المحتوى غير متاح بلغتك المفضلة",
     "summary.noPreferredLanguageContent.message": "تمت معالجة هذا المستند قبل تحديد لغتك المفضلة. أعد رفع مستندك للحصول على ترجمته إلى لغتك المفضلة.",
     "summary.lastUpdate": "آخر تحديث:",
+
+    "tts.listen": "استماع",
+    "tts.pause": "إيقاف مؤقت",
+    "tts.generating": "جارٍ تجهيز الصوت…",
+    "tts.error": "الصوت غير متاح. انقر لإعادة المحاولة.",
     "summary.showLess": "عرض أقل",
     "summary.readMore": "قراءة المزيد",
 

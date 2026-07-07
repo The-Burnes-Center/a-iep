@@ -10,6 +10,7 @@ import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { getDirForLanguage } from '../../common/direction';
 import { useDocumentFetch, processContentWithJargon } from '../utils';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
+import TTSPlayButton from '../../components/TTSPlayButton';
 import ParentRightsCarousel, { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
 import AIEPFooter from '../../components/AIEPFooter';
@@ -561,8 +562,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               <span>{t('summary.lastUpdate')} {TextHelper.formatUnixTimestamp(document.updatedAt, lang)}</span>
             )}
           </div>
-            <h4 className="summary-header mt-4">
+            <h4 className="summary-header mt-4 d-flex align-items-center gap-2">
               {isEnglishTab ? 'IEP Summary' : t('summary.iepSummary')}
+              <TTSPlayButton
+                iepId={document.documentId}
+                language={lang}
+                target="summary"
+              />
             </h4>
             <Card className="summary-content mb-3">
               <Card.Body>
@@ -650,6 +656,16 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                     {section.displayName}
                   </Accordion.Header>
                   <Accordion.Body>
+                    {/* No audio for the client-fabricated Abbreviations table */}
+                    {section.name !== 'Abbreviations' && (
+                      <TTSPlayButton
+                        iepId={document.documentId}
+                        language={lang}
+                        target="section"
+                        sectionName={section.name}
+                        className="mb-2"
+                      />
+                    )}
                     {section.pageNumbers && section.pageNumbers.length > 0 && (
                       <p className="text-muted mb-2 page-numbers-text">
                         <small>
