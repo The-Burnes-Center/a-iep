@@ -2,6 +2,7 @@
 Delete the original uploaded file from S3 - Core business logic only
 """
 import json
+import os
 import traceback
 import boto3
 
@@ -40,6 +41,34 @@ def _safe_event_meta(event):
     return {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
 
 
+def delete_raw_ocr(event):
+    """Delete the raw (unredacted) OCR payload via the centralized DDB service."""
+    lambda_client = boto3.client('lambda')
+    ddb_service_name = event.get('ddb_service_arn') or os.environ.get('DDB_SERVICE_FUNCTION_NAME', 'DDBService')
+
+    ddb_payload = {
+        'operation': 'delete_ocr_data',
+        'params': {
+            'iep_id': event['iep_id'],
+            'user_id': event.get('user_id'),
+            'child_id': event['child_id'],
+            'data_type': 'ocr_result'
+        }
+    }
+
+    ddb_response = lambda_client.invoke(
+        FunctionName=ddb_service_name,
+        InvocationType='RequestResponse',
+        Payload=json.dumps(ddb_payload)
+    )
+
+    ddb_result = json.loads(ddb_response['Payload'].read())
+    if not ddb_result or ddb_result.get('statusCode') != 200:
+        raise Exception(f"Failed to delete raw OCR data: {ddb_result}")
+
+    print("Successfully deleted raw OCR data")
+
+
 def lambda_handler(event, context):
     """
     Delete the original uploaded file from S3.
@@ -52,12 +81,17 @@ def lambda_handler(event, context):
         s3_key = event['s3_key']
         
         print(f"Deleting original file: s3://{s3_bucket}/{s3_key}")
-        
+
         # Delete the original file from S3
         delete_s3_object(s3_bucket, s3_key)
-        
+
         print("Successfully deleted original file")
-        
+
+        # Data-retention: redaction has succeeded by this point and every
+        # downstream step reads redacted_ocr_result only, so the raw
+        # (unredacted) OCR must be purged along with the original document.
+        delete_raw_ocr(event)
+
         return event  # Pass through all input data unchanged
         
     except Exception as e:

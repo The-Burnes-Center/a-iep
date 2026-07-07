@@ -9,10 +9,12 @@ import traceback
 from datetime import datetime
 from decimal import Decimal
 from s3_content_handler import (
-    save_content_to_s3, 
-    get_content_from_s3, 
+    save_content_to_s3,
+    get_content_from_s3,
     delete_content_from_s3,
-    migrate_dynamodb_to_s3
+    migrate_dynamodb_to_s3,
+    save_ocr_to_s3,
+    get_ocr_s3_key
 )
 
 # Initialize DynamoDB client
@@ -85,6 +87,8 @@ def lambda_handler(event, context):
             return save_ocr_data(params)
         elif operation == 'get_ocr_data':
             return get_ocr_data(params)
+        elif operation == 'delete_ocr_data':
+            return delete_ocr_data(params)
         elif operation == 'get_analysis_data':
             return get_analysis_data(params)
         elif operation == 'save_final_results':
@@ -225,6 +229,33 @@ def save_results(params):
         }, default=str)
     }
 
+def _cleanup_unredacted_artifacts(iep_id, child_id):
+    """Delete the original uploaded document and raw OCR for a document.
+
+    Data-retention policy: only redacted content may persist. On the happy
+    path the DeleteOriginal step handles this; this runs on failure so a
+    FAILED document also retains no unredacted artifacts.
+    """
+    response = table.get_item(Key={'iepId': iep_id, 'childId': child_id})
+    item = response.get('Item', {})
+
+    # Original uploaded file (documentUrl = s3://bucket/key)
+    document_url = item.get('documentUrl') or ''
+    if document_url.startswith('s3://'):
+        bucket, _, key = document_url[len('s3://'):].partition('/')
+        if bucket and key:
+            delete_content_from_s3(key, bucket)
+
+    # Raw OCR: S3 payload (new format) and/or inline attribute (legacy)
+    s3_ref = item.get('ocr_result_s3_ref')
+    if s3_ref:
+        delete_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
+    table.update_item(
+        Key={'iepId': iep_id, 'childId': child_id},
+        UpdateExpression="REMOVE ocr_result, ocr_result_s3_ref"
+    )
+
+
 def record_failure(params):
     """Record processing failure"""
     iep_id = params['iep_id']
@@ -232,7 +263,13 @@ def record_failure(params):
     user_id = params['user_id']
     error_message = params['error_message']
     failed_step = params.get('failed_step', 'unknown')
-    
+
+    # Best-effort purge of unredacted artifacts; must never mask the failure record
+    try:
+        _cleanup_unredacted_artifacts(iep_id, child_id)
+    except Exception as cleanup_error:
+        print(f"Cleanup of unredacted artifacts after failure did not complete: {str(cleanup_error)}")
+
     table.update_item(
         Key={
             'iepId': iep_id,
@@ -285,69 +322,140 @@ def get_document(params):
         'body': json.dumps(item, default=str)
     }
 
+# Only these OCR attribute names may appear in update expressions
+OCR_DATA_TYPES = {'ocr_result', 'redacted_ocr_result'}
+
+
+def _validate_ocr_data_type(data_type):
+    if data_type not in OCR_DATA_TYPES:
+        raise ValueError(f"Invalid OCR data_type: {data_type}")
+
+
 def save_ocr_data(params):
-    """Save OCR data to DynamoDB"""
+    """Save OCR data to S3 with a reference on the DynamoDB item.
+
+    OCR payloads for large documents exceed the DynamoDB 400KB item limit
+    (raw + redacted copies together broke processing), so the payload goes to
+    S3 and the item only carries {data_type}_s3_ref. Any legacy inline
+    attribute is removed in the same update.
+    """
     iep_id = params['iep_id']
     child_id = params['child_id']
     user_id = params['user_id']
     ocr_data = params['ocr_data']
     data_type = params.get('data_type', 'ocr_result')  # 'ocr_result' or 'redacted_ocr_result'
-    
-    update_expression = f"SET {data_type} = :ocr_data, updated_at = :updated_at"
-    expression_values = {
-        ':ocr_data': ocr_data,
-        ':updated_at': datetime.utcnow().isoformat()
-    }
-    
+    _validate_ocr_data_type(data_type)
+
+    s3_ref = save_ocr_to_s3(iep_id, child_id, data_type, ocr_data)
+
     table.update_item(
         Key={
             'iepId': iep_id,
             'childId': child_id
         },
-        UpdateExpression=update_expression,
-        ExpressionAttributeValues=expression_values
+        UpdateExpression=f"SET {data_type}_s3_ref = :s3_ref, updated_at = :updated_at REMOVE {data_type}",
+        ExpressionAttributeValues={
+            ':s3_ref': {'bucket': s3_ref['bucket'], 's3Key': s3_ref['s3Key']},
+            ':updated_at': datetime.utcnow().isoformat()
+        }
     )
-    
+
     return {
         'statusCode': 200,
         'body': json.dumps({
             'message': f'{data_type} saved successfully',
-            'iep_id': iep_id
+            'iep_id': iep_id,
+            's3_ref': {'bucket': s3_ref['bucket'], 's3Key': s3_ref['s3Key']}
         }, default=str)
     }
 
 def get_ocr_data(params):
-    """Get OCR data from DynamoDB"""
+    """Get OCR data via its S3 reference (falling back to legacy inline attribute)"""
     iep_id = params['iep_id']
     child_id = params['child_id']
     user_id = params['user_id']
     data_type = params.get('data_type', 'ocr_result')  # 'ocr_result' or 'redacted_ocr_result'
-    
+    _validate_ocr_data_type(data_type)
+
     response = table.get_item(
         Key={
             'iepId': iep_id,
             'childId': child_id
         }
     )
-    
+
     if 'Item' not in response:
         return {
             'statusCode': 404,
             'body': json.dumps({'error': 'Document not found'})
         }
-    
+
     item = response['Item']
-    
+
+    s3_ref = item.get(f'{data_type}_s3_ref')
+    if s3_ref:
+        data = get_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
+        if data is None:
+            return {
+                'statusCode': 404,
+                'body': json.dumps({'error': f'{data_type} not found in S3'})
+            }
+        return {
+            'statusCode': 200,
+            'body': json.dumps({'data': data}, default=str)
+        }
+
+    # Legacy documents stored the OCR payload inline on the item
     if data_type not in item:
         return {
             'statusCode': 404,
             'body': json.dumps({'error': f'{data_type} not found'})
         }
-    
+
     return {
         'statusCode': 200,
         'body': json.dumps({
             'data': item[data_type]
+        }, default=str)
+    }
+
+def delete_ocr_data(params):
+    """Delete an OCR payload: the S3 object plus both item attributes.
+
+    Used to purge the raw (unredacted) OCR once redaction has succeeded, and
+    by the failure path so failed documents retain no unredacted content.
+    """
+    iep_id = params['iep_id']
+    child_id = params['child_id']
+    data_type = params.get('data_type', 'ocr_result')
+    _validate_ocr_data_type(data_type)
+
+    response = table.get_item(Key={'iepId': iep_id, 'childId': child_id})
+    item = response.get('Item', {})
+
+    s3_ref = item.get(f'{data_type}_s3_ref')
+    if s3_ref:
+        delete_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
+    else:
+        # Delete the conventional key too in case the ref write was lost
+        delete_content_from_s3(get_ocr_s3_key(iep_id, child_id, data_type), os.environ.get('BUCKET', ''))
+
+    table.update_item(
+        Key={
+            'iepId': iep_id,
+            'childId': child_id
+        },
+        UpdateExpression=f"REMOVE {data_type}, {data_type}_s3_ref SET updated_at = :updated_at",
+        ExpressionAttributeValues={
+            ':updated_at': datetime.utcnow().isoformat()
+        }
+    )
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps({
+            'message': f'{data_type} deleted',
+            'iep_id': iep_id
         }, default=str)
     }
 

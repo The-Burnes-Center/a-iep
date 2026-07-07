@@ -48,6 +48,39 @@ def save_content_to_s3(iep_id: str, child_id: str, content: Dict) -> Dict:
         'lastUpdated': datetime.utcnow().isoformat() + 'Z'
     }
 
+def get_ocr_s3_key(iep_id: str, child_id: str, data_type: str) -> str:
+    """Generate S3 key for OCR payloads (raw or redacted)"""
+    return f"iep-data/{iep_id}/{child_id}/{data_type}.json"
+
+def save_ocr_to_s3(iep_id: str, child_id: str, data_type: str, ocr_data) -> Dict:
+    """
+    Save an OCR payload to S3. OCR text routinely exceeds the DynamoDB 400KB
+    item limit (large documents store two copies: raw and redacted), so the
+    payload lives in S3 and only a reference is kept on the item.
+
+    Returns:
+        Dict with s3Key, bucket, size, lastUpdated
+    """
+    s3_key = get_ocr_s3_key(iep_id, child_id, data_type)
+    body = json.dumps(ocr_data, default=str, ensure_ascii=False).encode('utf-8')
+
+    print(f"Saving {data_type} to S3: {s3_key} (size: {len(body)} bytes)")
+
+    s3_client.put_object(
+        Bucket=BUCKET_NAME,
+        Key=s3_key,
+        Body=body,
+        ContentType='application/json',
+        ServerSideEncryption='aws:kms'
+    )
+
+    return {
+        's3Key': s3_key,
+        'bucket': BUCKET_NAME,
+        'size': len(body),
+        'lastUpdated': datetime.utcnow().isoformat() + 'Z'
+    }
+
 def get_content_from_s3(s3_key: str, bucket: str) -> Optional[Dict]:
     """
     Retrieve IEP content from S3

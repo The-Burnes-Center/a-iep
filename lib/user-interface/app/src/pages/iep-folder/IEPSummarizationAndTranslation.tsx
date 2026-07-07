@@ -827,11 +827,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     );
   }
 
-  // If document fails the user is taken to the upload screen
-  if (document && document.status === "FAILED") {
-    navigate('/iep-documents');
-  }
-
   // Processed Container - when document is processed, failed, or in other states
   return (
     <>
@@ -900,8 +895,15 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                       <Alert variant="danger">
                         <h5>{t('summary.failed.title')}</h5>
                         <p>{t('summary.failed.message')}</p>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => navigate('/iep-documents')}
+                        >
+                          {t('summary.reuploadButton')}
+                        </Button>
                       </Alert>
-                    ) : 
+                    ) :
                       <>
                         {/* Show prominent alert when preferred language content is missing (shown at the top) */}
                         {preferredLanguage !== 'en' && !hasContent(preferredLanguage) && hasContent('en') && (
