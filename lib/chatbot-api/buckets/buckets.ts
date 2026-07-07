@@ -32,9 +32,24 @@ export class S3BucketStack extends cdk.Stack {
       encryptionKey: props?.encryptionKey,
       cors: [{
         allowedMethods: [s3.HttpMethods.GET,s3.HttpMethods.POST,s3.HttpMethods.PUT,s3.HttpMethods.DELETE],
-        allowedOrigins: ['*'],      
+        allowedOrigins: ['*'],
         allowedHeaders: ["*"]
-      }]
+      }],
+      lifecycleRules: [
+        {
+          // Retention: the bucket is versioned, so deletes (original PDFs,
+          // raw OCR) only add delete markers — the data survives as
+          // noncurrent versions. Expire those quickly so deleted sensitive
+          // documents are actually gone.
+          id: 'ExpireNoncurrentVersions',
+          noncurrentVersionExpiration: cdk.Duration.days(1),
+        },
+        {
+          // Clean up delete markers whose versions have all expired
+          id: 'CleanupExpiredDeleteMarkers',
+          expiredObjectDeleteMarker: true,
+        }
+      ]
     });
 
     // Apply restrictive bucket policy to the knowledge bucket (which contains IEP documents)
