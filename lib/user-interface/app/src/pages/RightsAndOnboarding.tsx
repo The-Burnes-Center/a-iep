@@ -21,7 +21,8 @@ const RightsAndOnboarding: React.FC = () => {
   ];
 
   const handleBackClick = () => {
-    navigate('/welcome-page');
+    // The legacy /welcome-page card hub is retired; Summary is the app home
+    navigate('/summary-and-translations');
   };
 
   return (

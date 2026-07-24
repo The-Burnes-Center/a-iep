@@ -124,7 +124,8 @@ export default function ViewAndAddChild() {
       
       // Navigate based on whether user has existing documents
       if (hasExistingDocument) {
-        navigate('/welcome-page');
+        // The legacy /welcome-page card hub is retired; Summary is the app home
+        navigate('/summary-and-translations');
       } else {
         navigate('/welcome-intro');
       }

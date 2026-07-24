@@ -116,24 +116,6 @@ export default function WelcomePage() {
               </div>
             </Card.Body>
           </Card>
-
-          {/* Fourth Card - Invite Other Parents */}
-          <Card
-            className="mb-4 hover-effect option-card"
-            onClick={() => navigate('/invite')}
-          >
-            <Card.Body className="py-4">
-              <div className="d-flex align-items-center">
-                <div className="flex-shrink-0">
-                  <i className="bi bi-people text-warning" style={{ fontSize: '2rem' }}></i>
-                </div>
-                <div className="ms-4 text-start">
-                  <h3 className="mb-1">{t('welcome.invite.title')}</h3>
-                  <p className="text-muted mb-0">{t('welcome.invite.description')}</p>
-                </div>
-              </div>
-            </Card.Body>
-          </Card>
         </Col>
         <Col xs={12} className="text-center mb-4">
           <Button 

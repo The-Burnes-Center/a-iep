@@ -75,8 +75,8 @@ export default function InvitePage() {
       <div>
         <div className="mt-3 text-start px-4 breadcrumb-container">
           <Breadcrumb>
-            <Breadcrumb.Item onClick={() => navigate('/welcome-page')}>
-              {t('invite.breadcrumb.home')}
+            <Breadcrumb.Item onClick={() => navigate('/account-center')}>
+              {t('changeLanguage.breadcrumb.account')}
             </Breadcrumb.Item>
             <Breadcrumb.Item active>{t('invite.breadcrumb.invite')}</Breadcrumb.Item>
           </Breadcrumb>

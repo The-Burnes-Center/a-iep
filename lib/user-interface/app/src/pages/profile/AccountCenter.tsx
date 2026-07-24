@@ -51,6 +51,9 @@ const AccountCenter: React.FC = () => {
         navigate('/account-center/delete-account');
         break;
       case '3':
+        navigate('/invite');
+        break;
+      case '4':
         handleSignOut();
         break;
       default:
@@ -74,6 +77,10 @@ const AccountCenter: React.FC = () => {
     },
     {
       id: "3",
+      title: t("invite.title"),
+    },
+    {
+      id: "4",
       title: t("accountCenter.logOut"),
     }
   ];
@@ -99,7 +106,7 @@ const AccountCenter: React.FC = () => {
                           >
                             <span className="accordion-title-content">
                               {header.title}
-                              {header.id === '3' ? (
+                              {header.id === '4' ? (
                                 <IconLogout size={18} stroke={2} className="accordion-icon logout-icon" />
                               ) : (
                                 <IconArrowRight size={18} stroke={2} className="accordion-icon arrow-icon" />

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { trackPageView } from '../common/helpers/analytics-helper';
 
 // Auth components
@@ -19,7 +19,7 @@ import AboutApp from '../pages/profile/AboutApp';
 import PreferredLanguage from '../pages/profile/PreferredLanguage';
 import OnboardingUser from '../pages/profile/OnboardingUser';
 import UserProfileForm from '../pages/profile/UserProfileForm';
-import WelcomePage from '../pages/WelcomePage';
+// import WelcomePage from '../pages/WelcomePage'; // legacy card hub, route disabled below
 import IEPDocumentView from '../pages/iep-folder/IEPDocumentView';
 import SummaryAndTranslationsPage from '../pages/iep-folder/SummaryAndTranslationsPage';
 import ViewAndAddChild from '../pages/profile/ViewAndAddChild';
@@ -114,7 +114,9 @@ export default function AppRoutes() {
         <Route path="/about-the-app" element={<AboutApp />} />
         
         {/* Main app pages */}
-        <Route path="/welcome-page" element={<WelcomePage />} />
+        {/* Legacy card-hub home, superseded by the top navigation; nothing
+            links here anymore. Remove for good once we're sure. */}
+        {/* <Route path="/welcome-page" element={<WelcomePage />} /> */}
         <Route path="/iep-documents" element={<IEPDocumentView />} />
         <Route path="/summary-and-translations" element={<SummaryAndTranslationsPage />} />
         
@@ -148,6 +150,10 @@ export default function AppRoutes() {
         {/* Internal admin console; unlinked, gated by the Cognito admin group */}
         <Route path="/admin/referrals" element={<AdminReferrals />} />
       </Route>
+
+      {/* Unknown URLs (including the retired /welcome-page) go home instead
+          of rendering a blank screen */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
     </>
   );

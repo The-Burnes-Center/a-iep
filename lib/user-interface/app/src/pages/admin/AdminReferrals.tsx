@@ -93,7 +93,7 @@ export default function AdminReferrals() {
     );
   }
   if (isAdmin === false) {
-    return <Navigate to="/welcome-page" replace />;
+    return <Navigate to="/account-center" replace />;
   }
 
   const linkUrl = (code: string) => `${window.location.origin}/r/${code}`;
