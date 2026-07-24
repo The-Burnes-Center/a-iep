@@ -90,6 +90,15 @@ export interface ReferralLink {
   ownerUserId?: string;
 }
 
+export interface AdminUser {
+  username: string;
+  sub?: string;
+  phone?: string;
+  email?: string;
+  name?: string;
+  status?: string;
+}
+
 export interface Language {
   primaryLanguage: string;
   secondaryLanguage: string;

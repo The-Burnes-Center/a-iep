@@ -213,6 +213,20 @@ export class ChatBotApi extends Construct {
       authorizer: httpAuthorizer,
     });
 
+    this.httpAPI.restAPI.addRoutes({
+      path: "/referral/admin/admins",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
+      integration: referralAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
+    this.httpAPI.restAPI.addRoutes({
+      path: "/referral/admin/admins/{username}",
+      methods: [apigwv2.HttpMethod.DELETE],
+      integration: referralAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
     // Prints out the AppSync GraphQL API key to the terminal
     new cdk.CfnOutput(this, "HTTP-API - apiEndpoint", {
       value: this.httpAPI.restAPI.apiEndpoint || "",

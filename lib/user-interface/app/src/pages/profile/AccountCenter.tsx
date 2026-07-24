@@ -6,6 +6,7 @@ import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
 import { Container, Row, Col, Card, Accordion, Spinner} from 'react-bootstrap';
 import { useLanguage } from '../../common/language-context';
+import { useAdminIdentity } from '../../common/helpers/use-admin-identity';
 import { IconArrowRight, IconLogout } from '@tabler/icons-react';
 import './AccountCenter.css';
 
@@ -13,6 +14,7 @@ const AccountCenter: React.FC = () => {
 
   const { t, translationsLoaded } = useLanguage();
   const { setAuthenticated } = useAuth();
+  const { isAdmin } = useAdminIdentity();
   const navigate = useNavigate();
 
   // Return loading state if translations aren't ready
@@ -56,6 +58,9 @@ const AccountCenter: React.FC = () => {
       case '4':
         handleSignOut();
         break;
+      case '5':
+        navigate('/admin/referrals');
+        break;
       default:
         break;
     }
@@ -79,6 +84,9 @@ const AccountCenter: React.FC = () => {
       id: "3",
       title: t("invite.title"),
     },
+    // Internal console entry, rendered only for members of the Cognito
+    // admin group (the backend re-checks the claim on every admin API call)
+    ...(isAdmin ? [{ id: "5", title: "Admin Console" }] : []),
     {
       id: "4",
       title: t("accountCenter.logOut"),

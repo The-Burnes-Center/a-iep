@@ -1,5 +1,5 @@
 import { Utils } from "../utils";
-import { AppConfig, ReferralLink, ReferralStats } from "../types";
+import { AppConfig, AdminUser, ReferralLink, ReferralStats } from "../types";
 
 export interface CampaignLinkInput {
   code: string;
@@ -107,6 +107,59 @@ export class ReferralClient {
     if (!response.ok) {
       const data = await response.json().catch(() => null);
       throw new Error(data?.message || 'Failed to create link');
+    }
+  }
+
+  async adminListAdmins(): Promise<AdminUser[]> {
+    const auth = await Utils.authenticate();
+    const response = await fetch(`${this.API}/referral/admin/admins`, {
+      method: 'GET',
+      mode: 'cors',
+      headers: {
+        'Authorization': 'Bearer ' + auth,
+        'Accept': 'application/json'
+      }
+    });
+    if (!response.ok) {
+      throw new Error('Service unavailable');
+    }
+    const data = await response.json();
+    return data.admins;
+  }
+
+  /** Add an admin by phone number or email; the backend resolves the account. */
+  async adminAddAdmin(identifier: string): Promise<AdminUser> {
+    const auth = await Utils.authenticate();
+    const response = await fetch(`${this.API}/referral/admin/admins`, {
+      method: 'POST',
+      mode: 'cors',
+      headers: {
+        'Authorization': 'Bearer ' + auth,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({ identifier })
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.message || 'Failed to add admin');
+    }
+    return data.admin;
+  }
+
+  async adminRemoveAdmin(username: string): Promise<void> {
+    const auth = await Utils.authenticate();
+    const response = await fetch(`${this.API}/referral/admin/admins/${encodeURIComponent(username)}`, {
+      method: 'DELETE',
+      mode: 'cors',
+      headers: {
+        'Authorization': 'Bearer ' + auth,
+        'Accept': 'application/json'
+      }
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error(data?.message || 'Failed to remove admin');
     }
   }
 

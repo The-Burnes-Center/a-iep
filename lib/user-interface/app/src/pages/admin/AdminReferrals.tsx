@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef, useState } from 'react';
+import React, { useContext, useRef, useState } from 'react';
 import {
   Container,
   Table,
@@ -12,13 +12,13 @@ import {
   Badge,
 } from 'react-bootstrap';
 import { Navigate } from 'react-router-dom';
-import { Auth } from 'aws-amplify';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { saveAs } from 'file-saver';
 import { QRCodeCanvas } from 'qrcode.react';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
-import { ReferralLink } from '../../common/types';
+import { AdminUser, ReferralLink } from '../../common/types';
+import { useAdminIdentity } from '../../common/helpers/use-admin-identity';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 
 const CHANNELS = ['social', 'conference', 'event', 'print', 'partner', 'other'];
@@ -35,26 +35,15 @@ export default function AdminReferrals() {
   const apiClient = new ApiClient(appContext);
   const queryClient = useQueryClient();
 
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const { isAdmin, sub, username } = useAdminIdentity();
   const [typeFilter, setTypeFilter] = useState<'all' | 'campaign' | 'user'>('all');
   const [qrLink, setQrLink] = useState<ReferralLink | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [form, setForm] = useState({ code: '', name: '', channel: 'social', notes: '' });
+  const [adminIdentifier, setAdminIdentifier] = useState('');
+  const [adminError, setAdminError] = useState<string | null>(null);
   const qrWrapRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const session = await Auth.currentSession();
-        const groups = session.getIdToken().decodePayload()['cognito:groups'] || [];
-        const list = Array.isArray(groups) ? groups : String(groups).split(/[,\s]+/);
-        setIsAdmin(list.includes('admin'));
-      } catch {
-        setIsAdmin(false);
-      }
-    })();
-  }, []);
 
   const { data: links, isLoading, error } = useQuery({
     queryKey: ['referral', 'admin', 'links'],
@@ -85,6 +74,31 @@ export default function AdminReferrals() {
       queryClient.invalidateQueries({ queryKey: ['referral', 'admin', 'links'] }),
   });
 
+  const { data: admins, isLoading: adminsLoading } = useQuery({
+    queryKey: ['referral', 'admin', 'admins'],
+    queryFn: () => apiClient.referral.adminListAdmins(),
+    enabled: isAdmin === true,
+  });
+
+  const addAdminMutation = useMutation({
+    mutationFn: () => apiClient.referral.adminAddAdmin(adminIdentifier.trim()),
+    onSuccess: () => {
+      setAdminIdentifier('');
+      setAdminError(null);
+      queryClient.invalidateQueries({ queryKey: ['referral', 'admin', 'admins'] });
+    },
+    onError: (err: Error) => setAdminError(err.message),
+  });
+
+  const removeAdminMutation = useMutation({
+    mutationFn: (target: string) => apiClient.referral.adminRemoveAdmin(target),
+    onSuccess: () => {
+      setAdminError(null);
+      queryClient.invalidateQueries({ queryKey: ['referral', 'admin', 'admins'] });
+    },
+    onError: (err: Error) => setAdminError(err.message),
+  });
+
   if (isAdmin === null) {
     return (
       <Container className="text-center mt-5">
@@ -112,6 +126,16 @@ export default function AdminReferrals() {
       return;
     }
     createMutation.mutate();
+  };
+
+  const isSelf = (admin: AdminUser) =>
+    admin.username === username || (!!admin.sub && admin.sub === sub);
+
+  const handleRemoveAdmin = (admin: AdminUser) => {
+    const label = admin.name || admin.phone || admin.email || admin.username;
+    if (window.confirm(`Remove ${label} from the admin group?`)) {
+      removeAdminMutation.mutate(admin.username);
+    }
   };
 
   const handleCopy = async (code: string) => {
@@ -295,6 +319,84 @@ export default function AdminReferrals() {
             </tbody>
           </Table>
         )}
+
+        <div className="d-flex justify-content-between align-items-center mt-5 mb-3">
+          <h4 className="mb-0 text-start">Admins</h4>
+          {adminsLoading && <Spinner animation="border" size="sm" />}
+        </div>
+
+        <Form
+          className="border rounded p-3 mb-3 text-start"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (adminIdentifier.trim()) addAdminMutation.mutate();
+          }}
+        >
+          <div className="fw-semibold mb-2">Add an admin</div>
+          {adminError && <Alert variant="danger" className="py-2">{adminError}</Alert>}
+          <Row className="g-2 align-items-end">
+            <Col xs={12} md={6}>
+              <Form.Label className="mb-1">Phone number or email</Form.Label>
+              <Form.Control
+                placeholder="+1 555 123 4567 or name@example.org"
+                value={adminIdentifier}
+                onChange={(e) => setAdminIdentifier(e.target.value)}
+                required
+              />
+            </Col>
+            <Col xs={12} md={2}>
+              <Button type="submit" className="w-100" disabled={addAdminMutation.isPending}>
+                {addAdminMutation.isPending ? 'Adding...' : 'Add'}
+              </Button>
+            </Col>
+          </Row>
+          <div className="form-text">
+            The account must already exist in the app. New admins pick up access
+            on their next sign-in.
+          </div>
+        </Form>
+
+        <Table striped hover responsive size="sm" className="align-middle text-start">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {(admins || []).map((admin) => (
+              <tr key={admin.username}>
+                <td>
+                  {admin.name || <span className="text-muted">-</span>}
+                  {isSelf(admin) && <Badge bg="secondary" className="ms-2">you</Badge>}
+                </td>
+                <td>{admin.phone || '-'}</td>
+                <td>{admin.email || '-'}</td>
+                <td>{admin.status}</td>
+                <td className="text-end">
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="p-1 text-danger"
+                    onClick={() => handleRemoveAdmin(admin)}
+                    disabled={isSelf(admin) || removeAdminMutation.isPending}
+                    title={isSelf(admin) ? 'You cannot remove yourself' : 'Remove admin'}
+                  >
+                    <i className="bi bi-person-dash"></i>
+                  </Button>
+                </td>
+              </tr>
+            ))}
+            {!adminsLoading && (admins || []).length === 0 && (
+              <tr>
+                <td colSpan={5} className="text-center text-muted py-4">No admins found.</td>
+              </tr>
+            )}
+          </tbody>
+        </Table>
       </Container>
 
       <Modal show={qrLink !== null} onHide={() => setQrLink(null)} centered>

@@ -704,6 +704,7 @@ export class LambdaFunctionStack extends cdk.Stack {
       environment: {
         "REFERRALS_TABLE": props.referralsTable.tableName,
         "USER_PROFILES_TABLE": props.userProfilesTable.tableName,
+        "USER_POOL_ID": props.userPool.userPoolId,
       },
       timeout: cdk.Duration.seconds(30),
       logRetention: logs.RetentionDays.ONE_YEAR,
@@ -748,6 +749,20 @@ export class LambdaFunctionStack extends cdk.Stack {
         resources: [props.kmsKey.keyArn]
       }));
     }
+
+    // Admin management: admins list/add/remove members of the 'admin' group
+    // from the console (self-removal is blocked in the handler).
+    referralHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'cognito-idp:ListUsers',
+        'cognito-idp:ListUsersInGroup',
+        'cognito-idp:AdminGetUser',
+        'cognito-idp:AdminAddUserToGroup',
+        'cognito-idp:AdminRemoveUserFromGroup'
+      ],
+      resources: [props.userPool.userPoolArn]
+    }));
 
     this.referralFunction = referralHandlerFunction;
 

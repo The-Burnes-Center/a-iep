@@ -26,10 +26,13 @@ from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
 
 dynamodb = boto3.resource('dynamodb')
 referrals_table = dynamodb.Table(os.environ['REFERRALS_TABLE'])
 user_profiles_table = dynamodb.Table(os.environ['USER_PROFILES_TABLE'])
+cognito = boto3.client('cognito-idp')
+USER_POOL_ID = os.environ.get('USER_POOL_ID', '')
 
 META = 'META'
 ADMIN_GROUP = 'admin'
@@ -403,8 +406,90 @@ def handle_admin_update(event, code):
 
 
 # ---------------------------------------------------------------------------
+# Admin management (admins manage admins; the group can also be edited from
+# the Cognito console). Self-removal is blocked so the group can never be
+# emptied from the app.
+
+def _cognito_user_summary(user):
+    attrs = {a['Name']: a['Value'] for a in user.get('Attributes', [])}
+    return {
+        'username': user.get('Username'),
+        'sub': attrs.get('sub'),
+        'phone': attrs.get('phone_number'),
+        'email': attrs.get('email'),
+        'name': attrs.get('name'),
+        'status': user.get('UserStatus'),
+    }
+
+
+def handle_admin_list_admins(event):
+    admins, token = [], None
+    while True:
+        kwargs = {'UserPoolId': USER_POOL_ID, 'GroupName': ADMIN_GROUP, 'Limit': 60}
+        if token:
+            kwargs['NextToken'] = token
+        response = cognito.list_users_in_group(**kwargs)
+        admins.extend(response.get('Users') or [])
+        token = response.get('NextToken')
+        if not token:
+            break
+    return create_response(event, 200, {'admins': [_cognito_user_summary(u) for u in admins]})
+
+
+def handle_admin_add_admin(event):
+    identifier = str(parse_body(event).get('identifier') or '').strip()
+    if not identifier:
+        return create_response(event, 400, {'message': 'phone number or email required'})
+
+    if '@' in identifier:
+        search_filter = f'email = "{identifier}"'
+    else:
+        digits = re.sub(r'[^\d+]', '', identifier)
+        if digits.startswith('+'):
+            phone = digits
+        elif len(digits) == 10:  # US number without country code
+            phone = '+1' + digits
+        else:
+            phone = '+' + digits
+        search_filter = f'phone_number = "{phone}"'
+
+    users = cognito.list_users(
+        UserPoolId=USER_POOL_ID, Filter=search_filter, Limit=10
+    ).get('Users') or []
+    if not users:
+        return create_response(event, 404, {'message': 'no account found for that phone/email'})
+    if len(users) > 1:
+        return create_response(event, 409, {'message': 'multiple accounts match; use the Cognito console'})
+
+    cognito.admin_add_user_to_group(
+        UserPoolId=USER_POOL_ID, GroupName=ADMIN_GROUP, Username=users[0]['Username'])
+    return create_response(event, 200, {'admin': _cognito_user_summary(users[0])})
+
+
+def handle_admin_remove_admin(event, username):
+    claims = get_claims(event)
+    try:
+        user = cognito.admin_get_user(UserPoolId=USER_POOL_ID, Username=username)
+    except ClientError as exc:
+        if exc.response['Error']['Code'] == 'UserNotFoundException':
+            return create_response(event, 404, {'message': 'user not found'})
+        raise
+
+    target_sub = next(
+        (a['Value'] for a in user.get('UserAttributes', []) if a['Name'] == 'sub'), None)
+    caller_ids = {claims.get('sub'), claims.get('cognito:username')}
+    if username in caller_ids or (target_sub and target_sub in caller_ids):
+        return create_response(event, 400, {'message': 'you cannot remove yourself'})
+
+    cognito.admin_remove_user_from_group(
+        UserPoolId=USER_POOL_ID, GroupName=ADMIN_GROUP, Username=username)
+    return create_response(event, 200, {'ok': True})
+
+
+# ---------------------------------------------------------------------------
 
 ADMIN_LINK_PATTERN = re.compile(r'^/referral/admin/links/([^/]+)$')
+ADMIN_ADMIN_PATTERN = re.compile(r'^/referral/admin/admins/([^/]+)$')
 
 
 def lambda_handler(event, context):
@@ -432,6 +517,13 @@ def lambda_handler(event, context):
                 return handle_admin_list(event)
             if path == '/referral/admin/links' and method == 'POST':
                 return handle_admin_create(event)
+            if path == '/referral/admin/admins' and method == 'GET':
+                return handle_admin_list_admins(event)
+            if path == '/referral/admin/admins' and method == 'POST':
+                return handle_admin_add_admin(event)
+            admin_match = ADMIN_ADMIN_PATTERN.match(path)
+            if admin_match and method == 'DELETE':
+                return handle_admin_remove_admin(event, admin_match.group(1))
             match = ADMIN_LINK_PATTERN.match(path)
             if match and method == 'GET':
                 return handle_admin_get(event, match.group(1))

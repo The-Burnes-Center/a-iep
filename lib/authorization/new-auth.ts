@@ -54,8 +54,8 @@ export class NewAuthorizationStack extends Construct {
     this.userPool = userPool;
 
     // Internal admin group: gates the referral admin API and console.
-    // Membership is granted manually (console or admin-add-user-to-group);
-    // nothing in the app can add a user to it.
+    // Existing admins manage membership from /admin/referrals (self-removal
+    // is blocked); it can also be edited via the Cognito console or CLI.
     new cognito.CfnUserPoolGroup(this, 'AdminGroup', {
       userPoolId: userPool.userPoolId,
       groupName: 'admin',
