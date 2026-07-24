@@ -128,6 +128,8 @@ export default function InvitePage() {
                       <Button
                         as="a"
                         href={`sms:?&body=${encodeURIComponent(shareText)}`}
+                        target="_blank"
+                        rel="noreferrer"
                         variant="outline-secondary"
                         className="button-text invite-share-chip"
                       >
@@ -137,6 +139,8 @@ export default function InvitePage() {
                       <Button
                         as="a"
                         href={`mailto:?subject=${encodeURIComponent(t('invite.emailSubject'))}&body=${encodeURIComponent(shareText)}`}
+                        target="_blank"
+                        rel="noreferrer"
                         variant="outline-secondary"
                         className="button-text invite-share-chip"
                       >
