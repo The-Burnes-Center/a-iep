@@ -48,8 +48,9 @@ import ReferralTracker from './ReferralTracker';
 import InvitePage from '../pages/profile/InvitePage';
 import AdminReferrals from '../pages/admin/AdminReferrals';
 
-// Route guard
+// Route guards
 import { ProtectedRoute } from './ProtectedRoute';
+import { ConsentGate } from './ConsentGate';
 
 export default function AppRoutes() {
   const location = useLocation();
@@ -117,8 +118,13 @@ export default function AppRoutes() {
         {/* Legacy card-hub home, superseded by the top navigation; nothing
             links here anymore. Remove for good once we're sure. */}
         {/* <Route path="/welcome-page" element={<WelcomePage />} /> */}
-        <Route path="/iep-documents" element={<IEPDocumentView />} />
-        <Route path="/summary-and-translations" element={<SummaryAndTranslationsPage />} />
+        {/* Consent is required to use the IEP tool itself; onboarding and
+            account routes stay reachable because consent is collected as
+            the final onboarding step */}
+        <Route element={<ConsentGate />}>
+          <Route path="/iep-documents" element={<IEPDocumentView />} />
+          <Route path="/summary-and-translations" element={<SummaryAndTranslationsPage />} />
+        </Route>
         
         {/* Profile & Settings */}
         <Route path="/profile" element={<UserProfileForm />} />

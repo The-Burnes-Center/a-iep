@@ -83,6 +83,14 @@ export default function PreferredLanguage() {
         return;
       }
 
+      // Consent is mandatory even when onboarding is done or was skipped:
+      // profiles created by fallback paths never saw the consent form, so
+      // send them there instead of into the app
+      if (!(data && data.consentGiven === true)) {
+        navigate('/consent-form');
+        return;
+      }
+
       // User doesn't need onboarding, go directly to welcome page
       // console.log('User has completed onboarding, going to welcome page');
       navigate('/summary-and-translations');
