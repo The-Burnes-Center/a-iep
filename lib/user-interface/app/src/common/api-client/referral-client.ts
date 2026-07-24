@@ -57,7 +57,12 @@ export class ReferralClient {
     return response.json();
   }
 
-  async attribute(code: string): Promise<{ attributed: boolean; reason?: string }> {
+  /**
+   * capturedAt (client Date.now() from the moment the code was captured) lets
+   * the backend confirm the click actually preceded signup, rather than
+   * just checking the account is new.
+   */
+  async attribute(code: string, capturedAt: number): Promise<{ attributed: boolean; reason?: string }> {
     const auth = await Utils.authenticate();
     const response = await fetch(`${this.API}/referral/attribute`, {
       method: 'POST',
@@ -67,7 +72,7 @@ export class ReferralClient {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
-      body: JSON.stringify({ code })
+      body: JSON.stringify({ code, capturedAt })
     });
     if (!response.ok) {
       throw new Error('Failed to record referral');

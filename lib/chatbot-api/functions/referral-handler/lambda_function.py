@@ -45,9 +45,16 @@ CODE_PATTERN = re.compile(r'^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$')
 CODE_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz'
 CODE_LENGTH = 6
 
-# A signup can only be attributed while the profile is this young. Keeps a
-# stray old link (or a gamed request) from rewriting history months later.
-ATTRIBUTION_WINDOW_DAYS = 7
+# Attribution requires the click to have happened at or before signup (the
+# client sends when it captured the code); CAPTURE_GRACE_MS only absorbs
+# client/server clock skew, not a real gap. Account age alone doesn't prove
+# the click caused the signup: an existing user who clicks a link later is
+# still "new" by that measure for their first week.
+CAPTURE_GRACE_MS = 10 * 60 * 1000
+# Defense in depth: the client already discards pending codes older than 30
+# days, so a much-older capture reaching here implies tampering, not a slow
+# signup.
+MAX_CAPTURE_AGE_DAYS = 35
 CLICK_EVENT_TTL_DAYS = 400
 CHANNELS = ['social', 'conference', 'event', 'print', 'partner', 'other']
 
@@ -245,19 +252,28 @@ def handle_attribute(event):
     Rejections return 200 with attributed=false so the client can clear its
     pending code either way."""
     user_id = get_claims(event)['sub']
+    body = parse_body(event)
 
     def rejected(reason):
         print(f"attribution rejected ({reason}) for user {user_id}")
         return create_response(event, 200, {'attributed': False, 'reason': reason})
 
-    code = normalize_code(parse_body(event).get('code'))
+    code = normalize_code(body.get('code'))
     if not code:
         return rejected('invalid_code')
+
+    captured_at = body.get('capturedAt')
+    if not isinstance(captured_at, (int, float)) or captured_at <= 0:
+        return rejected('invalid_capture')
+    captured_at = int(captured_at)
 
     meta = get_meta(code)
     if not meta or not meta.get('active'):
         return rejected('invalid_code')
-    if meta.get('ownerUserId') == user_id:
+    # Covers both link kinds: a parent's own code (ownerUserId) and a
+    # campaign link an admin created and then clicked themselves to test
+    # (createdBy) — the latter has no owner but is just as much self-referral.
+    if user_id in (meta.get('ownerUserId'), meta.get('createdBy')):
         return rejected('self_referral')
 
     profile = user_profiles_table.get_item(Key={'userId': user_id}).get('Item')
@@ -268,12 +284,17 @@ def handle_attribute(event):
 
     created_ms = int(profile.get('createdAt') or 0)
     if created_ms <= 0:
-        return rejected('window_expired')
+        return rejected('no_profile')
     if created_ms < 10**12:  # tolerate second-resolution timestamps
         created_ms *= 1000
-    age_days = (now_epoch_seconds() * 1000 - created_ms) / 86400000
-    if age_days > ATTRIBUTION_WINDOW_DAYS:
-        return rejected('window_expired')
+
+    # The click must precede signup (small grace for clock skew): this is
+    # what actually distinguishes "this link brought in a new user" from "an
+    # existing user later clicked a link". Account age alone doesn't do that.
+    if captured_at > created_ms + CAPTURE_GRACE_MS:
+        return rejected('click_after_signup')
+    if created_ms - captured_at > MAX_CAPTURE_AGE_DAYS * 86400000:
+        return rejected('capture_too_old')
 
     try:
         user_profiles_table.update_item(

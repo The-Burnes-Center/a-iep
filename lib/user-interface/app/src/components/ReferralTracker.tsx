@@ -5,7 +5,7 @@ import { ApiClient } from '../common/api-client/api-client';
 import { useAuth } from '../common/auth-provider';
 import {
   clearPendingReferral,
-  getPendingReferral,
+  getPendingReferralCapture,
   normalizeReferralCode,
   storePendingReferral,
 } from '../common/helpers/referral-capture';
@@ -34,11 +34,11 @@ export default function ReferralTracker() {
 
   useEffect(() => {
     if (!authenticated || !appContext || attributing.current) return;
-    const code = getPendingReferral();
-    if (!code) return;
+    const pending = getPendingReferralCapture();
+    if (!pending) return;
     attributing.current = true;
     new ApiClient(appContext).referral
-      .attribute(code)
+      .attribute(pending.code, pending.capturedAt)
       // A 200 means the server decided (attributed or rejected): done either
       // way. Only a network/server failure leaves the code pending for a
       // retry on the next visit.

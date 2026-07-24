@@ -14,7 +14,15 @@ export function normalizeReferralCode(value: string | null | undefined): string 
   return CODE_PATTERN.test(code) ? code : null;
 }
 
-export function getPendingReferral(): string | null {
+export interface PendingReferralCapture {
+  code: string;
+  // When this code was captured (client Date.now()), so the backend can
+  // confirm the click actually preceded signup rather than an existing
+  // account clicking a link long after the fact.
+  capturedAt: number;
+}
+
+function readPendingCapture(): PendingReferralCapture | null {
   try {
     const raw = window.localStorage.getItem(PENDING_KEY);
     if (!raw) return null;
@@ -27,10 +35,19 @@ export function getPendingReferral(): string | null {
       window.localStorage.removeItem(PENDING_KEY);
       return null;
     }
-    return normalizeReferralCode(parsed.code);
+    const code = normalizeReferralCode(parsed.code);
+    return code ? { code, capturedAt: parsed.at } : null;
   } catch {
     return null;
   }
+}
+
+export function getPendingReferral(): string | null {
+  return readPendingCapture()?.code ?? null;
+}
+
+export function getPendingReferralCapture(): PendingReferralCapture | null {
+  return readPendingCapture();
 }
 
 /**
