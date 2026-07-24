@@ -273,9 +273,17 @@ export default function AdminReferrals() {
               {visibleLinks.map((link) => (
                 <tr key={link.code}>
                   <td><code>{link.code}</code></td>
-                  <td>{link.type === 'user' ? <span className="text-muted">parent code</span> : link.name}</td>
+                  <td>
+                    {link.type === 'user' ? (
+                      // Personal links are anonymous by design: no parent
+                      // identity in the console, only aggregate numbers
+                      <span className="text-muted fst-italic">parent invite link (anonymous)</span>
+                    ) : (
+                      link.name
+                    )}
+                  </td>
                   <td>{link.channel && <Badge bg="light" text="dark">{link.channel}</Badge>}</td>
-                  <td>{link.type}</td>
+                  <td>{link.type === 'user' ? 'parent' : link.type}</td>
                   <td className="text-end">{link.clicks}</td>
                   <td className="text-end">{link.signups}</td>
                   <td className="text-end">{conversion(link)}</td>
