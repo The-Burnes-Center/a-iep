@@ -509,8 +509,14 @@ def handle_admin_add_admin(event):
     if not identifier:
         return create_response(event, 400, {'message': 'phone number or email required'})
 
+    # Diagnostic only, never the raw identifier: lets a failed lookup be
+    # debugged from CloudWatch (kind + shape) without logging PII.
+    log_context = ''
+
     if '@' in identifier:
         search_filter = f'email = "{identifier}"'
+        domain = identifier.rsplit('@', 1)[-1]
+        log_context = f"kind=email domain={domain!r} local_len={len(identifier) - len(domain) - 1}"
     else:
         digits = re.sub(r'[^\d+]', '', identifier)
         if digits.startswith('+'):
@@ -520,10 +526,12 @@ def handle_admin_add_admin(event):
         else:
             phone = '+' + digits
         search_filter = f'phone_number = "{phone}"'
+        log_context = f"kind=phone input_len={len(identifier)} normalized_len={len(phone)} last4={phone[-4:]}"
 
     users = cognito.list_users(
         UserPoolId=USER_POOL_ID, Filter=search_filter, Limit=10
     ).get('Users') or []
+    print(f"admin add-by-identifier lookup: {log_context} matches={len(users)}")
     if not users:
         return create_response(event, 404, {'message': 'no account found for that phone/email'})
     if len(users) > 1:
@@ -531,6 +539,7 @@ def handle_admin_add_admin(event):
 
     cognito.admin_add_user_to_group(
         UserPoolId=USER_POOL_ID, GroupName=ADMIN_GROUP, Username=users[0]['Username'])
+    print(f"admin add-by-identifier succeeded: {log_context}")
     return create_response(event, 200, {'admin': _cognito_user_summary(users[0])})
 
 
