@@ -3,7 +3,6 @@ import {
   Container,
   Row,
   Col,
-  Card,
   Alert,
   Spinner,
   Breadcrumb,
@@ -19,6 +18,7 @@ import { useLanguage } from '../../common/language-context';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
 import './ProfileForms.css';
+import './InvitePage.css';
 
 export default function InvitePage() {
   const appContext = useContext(AppContext);
@@ -72,7 +72,7 @@ export default function InvitePage() {
   return (
     <>
       <MobileTopNavigation />
-      <div>
+      <div className="invite-page">
         <div className="mt-3 text-start px-4 breadcrumb-container">
           <Breadcrumb>
             <Breadcrumb.Item onClick={() => navigate('/account-center')}>
@@ -94,7 +94,7 @@ export default function InvitePage() {
                 ) : (
                   <>
                     <Form.Label className="form-label mt-2">{t('invite.yourLink')}</Form.Label>
-                    <InputGroup className="mb-3">
+                    <InputGroup className="mb-3 invite-link-group">
                       <Form.Control
                         readOnly
                         value={inviteUrl}
@@ -109,7 +109,7 @@ export default function InvitePage() {
 
                     <div className="d-flex flex-wrap gap-2 mb-4">
                       {canNativeShare && (
-                        <Button variant="primary" onClick={handleNativeShare}>
+                        <Button variant="primary" className="button-text" onClick={handleNativeShare}>
                           <i className="bi bi-share me-2"></i>
                           {t('invite.share')}
                         </Button>
@@ -119,7 +119,8 @@ export default function InvitePage() {
                         href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
                         target="_blank"
                         rel="noreferrer"
-                        variant="outline-success"
+                        variant="outline-secondary"
+                        className="button-text invite-share-chip"
                       >
                         <i className="bi bi-whatsapp me-2"></i>
                         WhatsApp
@@ -127,7 +128,8 @@ export default function InvitePage() {
                       <Button
                         as="a"
                         href={`sms:?&body=${encodeURIComponent(shareText)}`}
-                        variant="outline-primary"
+                        variant="outline-secondary"
+                        className="button-text invite-share-chip"
                       >
                         <i className="bi bi-chat-dots me-2"></i>
                         SMS
@@ -136,47 +138,36 @@ export default function InvitePage() {
                         as="a"
                         href={`mailto:?subject=${encodeURIComponent(t('invite.emailSubject'))}&body=${encodeURIComponent(shareText)}`}
                         variant="outline-secondary"
+                        className="button-text invite-share-chip"
                       >
                         <i className="bi bi-envelope me-2"></i>
                         Email
                       </Button>
                     </div>
 
-                    <Row className="mb-4">
-                      <Col xs={6}>
-                        <Card className="text-center">
-                          <Card.Body className="py-3">
-                            <div style={{ fontSize: '1.75rem', fontWeight: 600 }}>
-                              {data?.clicks ?? 0}
-                            </div>
-                            <div className="text-muted">{t('invite.stats.clicks')}</div>
-                          </Card.Body>
-                        </Card>
+                    <Row className="mb-4 g-0 invite-stats-panel">
+                      <Col xs={6} className="invite-stat">
+                        <div className="invite-stat-value">{data?.clicks ?? 0}</div>
+                        <div className="invite-stat-label">{t('invite.stats.clicks')}</div>
                       </Col>
-                      <Col xs={6}>
-                        <Card className="text-center">
-                          <Card.Body className="py-3">
-                            <div style={{ fontSize: '1.75rem', fontWeight: 600 }}>
-                              {data?.signups ?? 0}
-                            </div>
-                            <div className="text-muted">{t('invite.stats.joined')}</div>
-                          </Card.Body>
-                        </Card>
+                      <Col xs={6} className="invite-stat">
+                        <div className="invite-stat-value">{data?.signups ?? 0}</div>
+                        <div className="invite-stat-label">{t('invite.stats.joined')}</div>
                       </Col>
                     </Row>
 
-                    <h5 className="text-start mb-2">{t('invite.joins.title')}</h5>
+                    <h5 className="text-start mb-2 invite-section-title">{t('invite.joins.title')}</h5>
                     {data && data.joins.length > 0 ? (
-                      <ul className="list-group text-start">
+                      <div className="invite-joins-panel text-start">
                         {data.joins.map((join, index) => (
-                          <li key={index} className="list-group-item d-flex align-items-center">
-                            <i className="bi bi-person-check text-success me-3"></i>
+                          <div key={index} className="invite-join-row d-flex align-items-center">
+                            <i className="bi bi-person-check me-3"></i>
                             {t('invite.joins.item')} · {formatJoinDate(join.joinedAt)}
-                          </li>
+                          </div>
                         ))}
-                      </ul>
+                      </div>
                     ) : (
-                      <p className="text-muted text-start">{t('invite.joins.empty')}</p>
+                      <p className="text-muted text-start invite-joins-empty">{t('invite.joins.empty')}</p>
                     )}
                   </>
                 )}
