@@ -193,21 +193,30 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         
         // Handle the authentication response for existing users
         if (cognitoUser.challengeName === 'CUSTOM_CHALLENGE') {
-          setCognitoUserForSms(cognitoUser);
-          setSmsCodeSent(true);
-          setIsNewUserConfirmation(false);
-          setSuccessMessage('auth.smsCodeSent');
-          // console.log('SMS code sent for existing user');
-              } else {
-                // console.log('User authenticated successfully');
-                login(cognitoUser);
-                handleSuccessfulAuthentication();
-              }
-        
+          if (cognitoUser.challengeParam?.error) {
+            // The SMS lambda reports send failures through this challenge
+            // parameter; without this check the UI claims a code was sent
+            setError('auth.errorSendingCode');
+          } else {
+            setCognitoUserForSms(cognitoUser);
+            setSmsCodeSent(true);
+            setIsNewUserConfirmation(false);
+            setSuccessMessage('auth.smsCodeSent');
+          }
+        } else {
+          // console.log('User authenticated successfully');
+          login(cognitoUser);
+          handleSuccessfulAuthentication();
+        }
+
       } catch (signInError: any) {
         // console.log('SignIn error:', signInError.code);
-        
-        if (signInError.code === 'UserNotFoundException') {
+
+        // NotAuthorizedException is how "user does not exist" surfaces here:
+        // the app client prevents user existence errors, so the define-auth
+        // lambda fails auth for unknown numbers instead of Cognito throwing
+        // UserNotFoundException. Treat both as "create the account".
+        if (signInError.code === 'UserNotFoundException' || signInError.code === 'NotAuthorizedException') {
           // User doesn't exist, create them first
           // console.log('Creating new user for phone:', formattedPhone);
           
@@ -241,12 +250,16 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             if (signUpError.code === 'UsernameExistsException') {
               // User was created between our attempts, try signin again
               cognitoUser = await signInWithPhone(formattedPhone);
-              
+
               if (cognitoUser.challengeName === 'CUSTOM_CHALLENGE') {
-                setCognitoUserForSms(cognitoUser);
-                setSmsCodeSent(true);
-                setIsNewUserConfirmation(false);
-                setSuccessMessage('auth.smsCodeSent');
+                if (cognitoUser.challengeParam?.error) {
+                  setError('auth.errorSendingCode');
+                } else {
+                  setCognitoUserForSms(cognitoUser);
+                  setSmsCodeSent(true);
+                  setIsNewUserConfirmation(false);
+                  setSuccessMessage('auth.smsCodeSent');
+                }
               } else {
                 login(cognitoUser);
                 handleSuccessfulAuthentication();
@@ -333,7 +346,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         try {
           const cognitoUser = await signInWithPhone(pendingPhoneNumber);
 
-          if (cognitoUser.challengeName === 'CUSTOM_CHALLENGE') {
+          if (cognitoUser.challengeName === 'CUSTOM_CHALLENGE' && !cognitoUser.challengeParam?.error) {
             // Switch to custom auth mode
             setCognitoUserForSms(cognitoUser);
             setIsNewUserConfirmation(false);
@@ -491,7 +504,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           
           const result = await signInWithPhone(phoneNumber);
 
-          if (result.challengeName === 'CUSTOM_CHALLENGE') {
+          if (result.challengeName === 'CUSTOM_CHALLENGE' && !result.challengeParam?.error) {
             setCognitoUserForSms(result);
             setSuccessMessage('auth.smsCodeResent');
             setSmsCode(''); // Clear previous code
