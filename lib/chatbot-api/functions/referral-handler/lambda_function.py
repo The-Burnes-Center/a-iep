@@ -1,0 +1,445 @@
+"""Referral system handler.
+
+One Lambda behind four kinds of routes:
+  POST /referral/click              public: count a link visit
+  GET  /referral/me                 caller's personal code + stats
+  POST /referral/attribute          stamp the caller's signup attribution
+  *    /referral/admin/...          campaign-link CRUD + metrics ('admin' group only)
+
+Data model (REFERRALS_TABLE, PK 'code', SK 'sk'):
+  sk 'META'                 the link: type 'campaign'|'user', ownerUserId,
+                            name/channel/notes, active, clicks, signups
+  sk 'EVT#CLICK#<ts>#<id>'  click event (ttl ~400 days)
+  sk 'EVT#SIGNUP#<ts>#<id>' signup event (kept; carries referredUserId)
+
+Privacy: no IP addresses or user agents are stored, click events expire via
+TTL, and referrers are shown join dates only, never who joined.
+"""
+
+import json
+import os
+import re
+import secrets
+import base64
+from datetime import datetime, timezone
+from decimal import Decimal
+
+import boto3
+from boto3.dynamodb.conditions import Key
+
+dynamodb = boto3.resource('dynamodb')
+referrals_table = dynamodb.Table(os.environ['REFERRALS_TABLE'])
+user_profiles_table = dynamodb.Table(os.environ['USER_PROFILES_TABLE'])
+
+META = 'META'
+ADMIN_GROUP = 'admin'
+
+# Campaign slugs are chosen by admins; personal codes are generated. Both live
+# in one namespace and must fit in a short shareable path (/r/<code>).
+CODE_PATTERN = re.compile(r'^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$')
+# Personal-code alphabet avoids ambiguous characters (0/o, 1/l).
+CODE_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz'
+CODE_LENGTH = 6
+
+# A signup can only be attributed while the profile is this young. Keeps a
+# stray old link (or a gamed request) from rewriting history months later.
+ATTRIBUTION_WINDOW_DAYS = 7
+CLICK_EVENT_TTL_DAYS = 400
+CHANNELS = ['social', 'conference', 'event', 'print', 'partner', 'other']
+
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return int(obj) if obj % 1 == 0 else float(obj)
+        return super().default(obj)
+
+
+def now_iso():
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
+
+def now_epoch_seconds():
+    return int(datetime.now(timezone.utc).timestamp())
+
+
+def create_response(event, status_code, body):
+    headers = event.get('headers') or {}
+    origin = next((headers[k] for k in headers if k.lower() == 'origin'), '*')
+    return {
+        'statusCode': status_code,
+        'headers': {
+            'Access-Control-Allow-Origin': origin,
+            'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+            'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
+            'Content-Type': 'application/json',
+        },
+        'body': json.dumps(body, cls=DecimalEncoder),
+    }
+
+
+def parse_body(event):
+    """Parse the request body as JSON. sendBeacon posts text/plain, so this
+    never trusts the Content-Type header."""
+    raw = event.get('body')
+    if raw is None:
+        return {}
+    if event.get('isBase64Encoded'):
+        raw = base64.b64decode(raw).decode('utf-8', errors='replace')
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def get_claims(event):
+    try:
+        return event['requestContext']['authorizer']['jwt']['claims']
+    except (KeyError, TypeError):
+        return None
+
+
+def is_admin(claims):
+    """True when the JWT carries the admin group. The HTTP API authorizer
+    serializes the cognito:groups claim as '[a b]' or 'a,b' depending on
+    shape, so accept lists and both string forms."""
+    groups = claims.get('cognito:groups') or []
+    if isinstance(groups, str):
+        stripped = groups.strip()
+        if stripped.startswith('[') and stripped.endswith(']'):
+            stripped = stripped[1:-1]
+        groups = [g for g in re.split(r'[,\s]+', stripped) if g]
+    return ADMIN_GROUP in groups
+
+
+def normalize_code(value):
+    """Lowercased, validated code or None."""
+    if not isinstance(value, str):
+        return None
+    code = value.strip().lower()
+    return code if CODE_PATTERN.match(code) else None
+
+
+def get_meta(code):
+    response = referrals_table.get_item(Key={'code': code, 'sk': META})
+    return response.get('Item')
+
+
+def put_event(code, kind, extra=None):
+    item = {
+        'code': code,
+        'sk': f"EVT#{kind.upper()}#{now_iso()}#{secrets.token_hex(4)}",
+        'kind': kind,
+        'at': now_iso(),
+    }
+    if kind == 'click':
+        item['ttl'] = now_epoch_seconds() + CLICK_EVENT_TTL_DAYS * 86400
+    if extra:
+        item.update(extra)
+    referrals_table.put_item(Item=item)
+
+
+def bump_counter(code, counter):
+    referrals_table.update_item(
+        Key={'code': code, 'sk': META},
+        UpdateExpression=f'ADD {counter} :one',
+        ExpressionAttributeValues={':one': 1},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public
+
+def handle_click(event):
+    """Count a link visit. Always answers 200 so callers can't probe which
+    codes exist; only known active codes are counted."""
+    code = normalize_code(parse_body(event).get('code'))
+    if code:
+        meta = get_meta(code)
+        if meta and meta.get('active'):
+            bump_counter(code, 'clicks')
+            put_event(code, 'click')
+    return create_response(event, 200, {'ok': True})
+
+
+# ---------------------------------------------------------------------------
+# Authenticated user
+
+def find_personal_code(user_id):
+    response = referrals_table.query(
+        IndexName='byOwner',
+        KeyConditionExpression=Key('ownerUserId').eq(user_id),
+        Limit=1,
+    )
+    items = response.get('Items') or []
+    return items[0]['code'] if items else None
+
+
+def create_personal_code(user_id):
+    for _ in range(8):
+        candidate = ''.join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
+        try:
+            referrals_table.put_item(
+                Item={
+                    'code': candidate,
+                    'sk': META,
+                    'type': 'user',
+                    'ownerUserId': user_id,
+                    'active': True,
+                    'clicks': 0,
+                    'signups': 0,
+                    'createdAt': now_iso(),
+                },
+                ConditionExpression='attribute_not_exists(code)',
+            )
+            return candidate
+        except referrals_table.meta.client.exceptions.ConditionalCheckFailedException:
+            continue
+    raise RuntimeError('could not allocate a personal referral code')
+
+
+def handle_me(event):
+    user_id = get_claims(event)['sub']
+
+    # Profile mirror first (strongly consistent), GSI as fallback, then mint.
+    profile = user_profiles_table.get_item(Key={'userId': user_id}).get('Item') or {}
+    code = normalize_code(profile.get('referralCode')) or find_personal_code(user_id)
+    if not code:
+        code = create_personal_code(user_id)
+        # Convenience mirror on the profile; the byOwner GSI stays the source
+        # of truth, so a missing profile row is fine to ignore here.
+        try:
+            user_profiles_table.update_item(
+                Key={'userId': user_id},
+                UpdateExpression='SET referralCode = :c',
+                ConditionExpression='attribute_exists(userId)',
+                ExpressionAttributeValues={':c': code},
+            )
+        except user_profiles_table.meta.client.exceptions.ConditionalCheckFailedException:
+            pass
+
+    meta = get_meta(code) or {}
+    joins = referrals_table.query(
+        KeyConditionExpression=Key('code').eq(code) & Key('sk').begins_with('EVT#SIGNUP#'),
+        ScanIndexForward=False,
+        Limit=50,
+    ).get('Items') or []
+
+    return create_response(event, 200, {
+        'code': code,
+        'clicks': meta.get('clicks', 0),
+        'signups': meta.get('signups', 0),
+        # Dates only, never identities: joining implies a child with an IEP,
+        # which is not the referrer's information to have.
+        'joins': [{'joinedAt': item.get('at')} for item in joins],
+    })
+
+
+def handle_attribute(event):
+    """Stamp the caller's profile with the referral code they arrived on.
+    Rejections return 200 with attributed=false so the client can clear its
+    pending code either way."""
+    user_id = get_claims(event)['sub']
+
+    def rejected(reason):
+        print(f"attribution rejected ({reason}) for user {user_id}")
+        return create_response(event, 200, {'attributed': False, 'reason': reason})
+
+    code = normalize_code(parse_body(event).get('code'))
+    if not code:
+        return rejected('invalid_code')
+
+    meta = get_meta(code)
+    if not meta or not meta.get('active'):
+        return rejected('invalid_code')
+    if meta.get('ownerUserId') == user_id:
+        return rejected('self_referral')
+
+    profile = user_profiles_table.get_item(Key={'userId': user_id}).get('Item')
+    if not profile:
+        return rejected('no_profile')
+    if profile.get('referredBy'):
+        return rejected('already_attributed')
+
+    created_ms = int(profile.get('createdAt') or 0)
+    if created_ms <= 0:
+        return rejected('window_expired')
+    if created_ms < 10**12:  # tolerate second-resolution timestamps
+        created_ms *= 1000
+    age_days = (now_epoch_seconds() * 1000 - created_ms) / 86400000
+    if age_days > ATTRIBUTION_WINDOW_DAYS:
+        return rejected('window_expired')
+
+    try:
+        user_profiles_table.update_item(
+            Key={'userId': user_id},
+            UpdateExpression='SET referredBy = :code, referredAt = :at',
+            ConditionExpression='attribute_exists(userId) AND attribute_not_exists(referredBy)',
+            ExpressionAttributeValues={':code': code, ':at': now_iso()},
+        )
+    except user_profiles_table.meta.client.exceptions.ConditionalCheckFailedException:
+        return rejected('already_attributed')
+
+    bump_counter(code, 'signups')
+    put_event(code, 'signup', {'referredUserId': user_id})
+    print(f"attribution recorded: code {code}")
+    return create_response(event, 200, {'attributed': True})
+
+
+# ---------------------------------------------------------------------------
+# Admin
+
+def strip_meta(item):
+    return {
+        'code': item.get('code'),
+        'type': item.get('type'),
+        'name': item.get('name'),
+        'channel': item.get('channel'),
+        'notes': item.get('notes'),
+        'active': bool(item.get('active')),
+        'clicks': item.get('clicks', 0),
+        'signups': item.get('signups', 0),
+        'createdAt': item.get('createdAt'),
+        'ownerUserId': item.get('ownerUserId'),
+    }
+
+
+def handle_admin_list(event):
+    from boto3.dynamodb.conditions import Attr
+    items, start_key = [], None
+    while True:
+        kwargs = {'FilterExpression': Attr('sk').eq(META)}
+        if start_key:
+            kwargs['ExclusiveStartKey'] = start_key
+        response = referrals_table.scan(**kwargs)
+        items.extend(response.get('Items') or [])
+        start_key = response.get('LastEvaluatedKey')
+        if not start_key:
+            break
+    links = sorted((strip_meta(i) for i in items),
+                   key=lambda x: x.get('createdAt') or '', reverse=True)
+    return create_response(event, 200, {'links': links})
+
+
+def handle_admin_create(event):
+    claims = get_claims(event)
+    body = parse_body(event)
+
+    code = normalize_code(body.get('code'))
+    if not code:
+        return create_response(event, 400, {
+            'message': 'code must be 1-32 chars: lowercase letters, digits, hyphens'})
+
+    channel = body.get('channel') if body.get('channel') in CHANNELS else 'other'
+    item = {
+        'code': code,
+        'sk': META,
+        'type': 'campaign',
+        'name': str(body.get('name') or '')[:120],
+        'channel': channel,
+        'notes': str(body.get('notes') or '')[:500],
+        'active': True,
+        'clicks': 0,
+        'signups': 0,
+        'createdAt': now_iso(),
+        'createdBy': claims['sub'],
+    }
+    try:
+        referrals_table.put_item(Item=item, ConditionExpression='attribute_not_exists(code)')
+    except referrals_table.meta.client.exceptions.ConditionalCheckFailedException:
+        return create_response(event, 409, {'message': f"code '{code}' is already taken"})
+    return create_response(event, 201, {'link': strip_meta(item)})
+
+
+def handle_admin_get(event, code):
+    code = normalize_code(code)
+    meta = get_meta(code) if code else None
+    if not meta:
+        return create_response(event, 404, {'message': 'not found'})
+    events = referrals_table.query(
+        KeyConditionExpression=Key('code').eq(code) & Key('sk').begins_with('EVT#'),
+        ScanIndexForward=False,
+        Limit=200,
+    ).get('Items') or []
+    # referredUserId stays out of the response: the console needs kinds and
+    # dates, not identities.
+    return create_response(event, 200, {
+        'link': strip_meta(meta),
+        'events': [{'kind': e.get('kind'), 'at': e.get('at')} for e in events],
+    })
+
+
+def handle_admin_update(event, code):
+    code = normalize_code(code)
+    if not code:
+        return create_response(event, 400, {'message': 'invalid code'})
+    body = parse_body(event)
+
+    parts, names, values = [], {}, {}
+    for field, max_len in (('name', 120), ('channel', 40), ('notes', 500)):
+        if field in body:
+            parts.append(f'#{field} = :{field}')
+            names[f'#{field}'] = field
+            values[f':{field}'] = str(body[field] or '')[:max_len]
+    if 'active' in body:
+        parts.append('#active = :active')
+        names['#active'] = 'active'
+        values[':active'] = bool(body['active'])
+    if not parts:
+        return create_response(event, 400, {'message': 'nothing to update'})
+
+    try:
+        referrals_table.update_item(
+            Key={'code': code, 'sk': META},
+            UpdateExpression='SET ' + ', '.join(parts),
+            ConditionExpression='attribute_exists(code)',
+            ExpressionAttributeNames=names,
+            ExpressionAttributeValues=values,
+        )
+    except referrals_table.meta.client.exceptions.ConditionalCheckFailedException:
+        return create_response(event, 404, {'message': 'not found'})
+    return create_response(event, 200, {'ok': True})
+
+
+# ---------------------------------------------------------------------------
+
+ADMIN_LINK_PATTERN = re.compile(r'^/referral/admin/links/([^/]+)$')
+
+
+def lambda_handler(event, context):
+    path = event.get('rawPath') or ''
+    method = (event.get('requestContext') or {}).get('http', {}).get('method', '')
+    print(f"{method} {path}")
+
+    try:
+        if path == '/referral/click' and method == 'POST':
+            return handle_click(event)
+
+        claims = get_claims(event)
+        if not claims:
+            return create_response(event, 401, {'message': 'unauthorized'})
+
+        if path == '/referral/me' and method == 'GET':
+            return handle_me(event)
+        if path == '/referral/attribute' and method == 'POST':
+            return handle_attribute(event)
+
+        if path.startswith('/referral/admin/'):
+            if not is_admin(claims):
+                return create_response(event, 403, {'message': 'forbidden'})
+            if path == '/referral/admin/links' and method == 'GET':
+                return handle_admin_list(event)
+            if path == '/referral/admin/links' and method == 'POST':
+                return handle_admin_create(event)
+            match = ADMIN_LINK_PATTERN.match(path)
+            if match and method == 'GET':
+                return handle_admin_get(event, match.group(1))
+            if match and method == 'PUT':
+                return handle_admin_update(event, match.group(1))
+
+        return create_response(event, 404, {'message': 'not found'})
+    except Exception as exc:  # pragma: no cover
+        # Never log the event: headers carry the bearer token.
+        print(f"Error handling {method} {path}: {exc}")
+        return create_response(event, 500, {'message': 'internal error'})

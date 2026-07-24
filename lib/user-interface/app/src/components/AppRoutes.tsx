@@ -42,6 +42,12 @@ import AboutTheProject from '../pages/profile/AboutTheProject';
 import ParentRights from '../pages/ParentRights';
 import PrivacyPolicy from '../pages/PrivacyPolicy';
 
+// Referral system
+import ReferralRedirect from './ReferralRedirect';
+import ReferralTracker from './ReferralTracker';
+import InvitePage from '../pages/profile/InvitePage';
+import AdminReferrals from '../pages/admin/AdminReferrals';
+
 // Route guard
 import { ProtectedRoute } from './ProtectedRoute';
 
@@ -54,10 +60,16 @@ export default function AppRoutes() {
   }, [location]);
 
   return (
+    <>
+    {/* Referral capture (?ref=) + post-login signup attribution */}
+    <ReferralTracker />
     <Routes>
       {/* ===== PUBLIC ROUTES ===== */}
       {/* Home/Landing page at root */}
       <Route path="/" element={<LandingPage />} />
+
+      {/* Shared referral links: a-iep.org/r/<code> */}
+      <Route path="/r/:code" element={<ReferralRedirect />} />
 
       {/* Login page */}
       <Route path="/login" element={<CustomLoginWrapper />} />
@@ -130,8 +142,14 @@ export default function AppRoutes() {
         <Route path="/survey-form" element={<SurveyForm />} />
         <Route path="/about-aiep" element={<AboutAIEP />} />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+
+        {/* Referral system */}
+        <Route path="/invite" element={<InvitePage />} />
+        {/* Internal admin console; unlinked, gated by the Cognito admin group */}
+        <Route path="/admin/referrals" element={<AdminReferrals />} />
       </Route>
     </Routes>
+    </>
   );
 }
 

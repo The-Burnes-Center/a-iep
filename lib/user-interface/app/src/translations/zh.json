@@ -646,5 +646,25 @@
     "update.profile.child": "孩子",
     "update.profile.name": "姓名",
     "update.profile.noChildrenAdded": "尚未添加孩子",
-    "update.profile.schoolCity": "学校所在城市"
+    "update.profile.schoolCity": "学校所在城市",
+
+    "welcome.invite.title": "邀请其他家长",
+    "welcome.invite.description": "把 AIEP 分享给可能需要的家庭",
+    "invite.breadcrumb.home": "首页",
+    "invite.breadcrumb.invite": "邀请",
+    "invite.title": "邀请其他家长",
+    "invite.description": "与其他家庭分享您的专属链接。当有家长通过您的链接加入时，会显示在这里。",
+    "invite.yourLink": "您的邀请链接",
+    "invite.copy": "复制",
+    "invite.copied": "已复制！",
+    "invite.share": "分享",
+    "invite.shareMessage": "我用 AIEP 来理解孩子的 IEP，完全免费：",
+    "invite.emailSubject": "试试 AIEP",
+    "invite.stats.clicks": "链接访问次数",
+    "invite.stats.joined": "已加入的家长",
+    "invite.joins.title": "最近加入",
+    "invite.joins.empty": "还没有人通过您的链接加入。快分享出去吧！",
+    "invite.joins.item": "一位家长加入了",
+    "invite.error": "无法加载您的邀请链接，请稍后再试。",
+    "invite.loading": "加载中..."
 }

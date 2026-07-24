@@ -53,6 +53,15 @@ export class NewAuthorizationStack extends Construct {
     });
     this.userPool = userPool;
 
+    // Internal admin group: gates the referral admin API and console.
+    // Membership is granted manually (console or admin-add-user-to-group);
+    // nothing in the app can add a user to it.
+    new cognito.CfnUserPoolGroup(this, 'AdminGroup', {
+      userPoolId: userPool.userPoolId,
+      groupName: 'admin',
+      description: 'A-IEP internal admins (referral console access)',
+    });
+
     // 2. Create the IAM Role for Cognito SMS via SNS
     const cognitoSmsRole = new iam.Role(this, 'CognitoSmsRole', {
       assumedBy: new iam.ServicePrincipal('cognito-idp.amazonaws.com'),

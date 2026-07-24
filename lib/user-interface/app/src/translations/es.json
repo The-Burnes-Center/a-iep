@@ -648,5 +648,25 @@
     "update.profile.child": "Hijo/a",
     "update.profile.name": "Nombre",
     "update.profile.noChildrenAdded": "Aún no se han agregado hijos",
-    "update.profile.schoolCity": "Ciudad de la escuela"
+    "update.profile.schoolCity": "Ciudad de la escuela",
+
+    "welcome.invite.title": "Invita a otros padres",
+    "welcome.invite.description": "Comparte AIEP con familias que puedan necesitarlo",
+    "invite.breadcrumb.home": "Inicio",
+    "invite.breadcrumb.invite": "Invitar",
+    "invite.title": "Invita a otros padres",
+    "invite.description": "Comparte tu enlace personal con otras familias. Cuando un padre se una usando tu enlace, aparecerá aquí.",
+    "invite.yourLink": "Tu enlace de invitación",
+    "invite.copy": "Copiar",
+    "invite.copied": "¡Copiado!",
+    "invite.share": "Compartir",
+    "invite.shareMessage": "Uso AIEP para entender el IEP de mi hijo. Es gratis:",
+    "invite.emailSubject": "Prueba AIEP",
+    "invite.stats.clicks": "Visitas al enlace",
+    "invite.stats.joined": "Padres que se unieron",
+    "invite.joins.title": "Uniones recientes",
+    "invite.joins.empty": "Nadie se ha unido con tu enlace todavía. ¡Compártelo para empezar!",
+    "invite.joins.item": "Un padre se unió",
+    "invite.error": "No pudimos cargar tu enlace de invitación. Inténtalo de nuevo más tarde.",
+    "invite.loading": "Cargando..."
   }

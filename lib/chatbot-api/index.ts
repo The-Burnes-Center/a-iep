@@ -80,6 +80,7 @@ export class ChatBotApi extends Construct {
         knowledgeBucket: this.buckets.knowledgeBucket,
         userProfilesTable: this.tables.userProfilesTable,
         iepDocumentsTable: this.tables.iepDocumentsTable,
+        referralsTable: this.tables.referralsTable,
         userPool: authentication.userPool,
         logGroup: this.logging.logGroup,
         logRole: this.logging.logRole,
@@ -168,6 +169,47 @@ export class ChatBotApi extends Construct {
       path: "/documents/{iepId}/audio",
       methods: [apigwv2.HttpMethod.POST],
       integration: ttsAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
+    const referralAPIIntegration = new HttpLambdaIntegration('ReferralAPIIntegration', this.lambdaFunctions.referralFunction);
+
+    // Click beacon is deliberately unauthenticated: visitors are not signed
+    // in yet. It only increments counters for known active codes and stores
+    // no PII, so exposure is limited to counter noise.
+    this.httpAPI.restAPI.addRoutes({
+      path: "/referral/click",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: referralAPIIntegration,
+    });
+
+    this.httpAPI.restAPI.addRoutes({
+      path: "/referral/me",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: referralAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
+    this.httpAPI.restAPI.addRoutes({
+      path: "/referral/attribute",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: referralAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
+    // Admin routes: JWT here, membership in the Cognito 'admin' group is
+    // enforced inside the Lambda (cognito:groups claim).
+    this.httpAPI.restAPI.addRoutes({
+      path: "/referral/admin/links",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
+      integration: referralAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
+    this.httpAPI.restAPI.addRoutes({
+      path: "/referral/admin/links/{code}",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PUT],
+      integration: referralAPIIntegration,
       authorizer: httpAuthorizer,
     });
 

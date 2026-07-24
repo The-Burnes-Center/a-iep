@@ -641,5 +641,25 @@
     "landing.howTo.card6.text": "أسفل عنوان كل نقطة من النقاط البارزة، ستجد رقم الصفحة التي أخذنا منها المعلومات. تحقق دائمًا بنفسك!",
     "partnerBanner.label": "اطّلع على مشاريع شركائنا",
     "sections.foundIn": "موجود في",
-    "sections.pages": "الصفحات"
+    "sections.pages": "الصفحات",
+
+    "welcome.invite.title": "ادعُ أولياء أمور آخرين",
+    "welcome.invite.description": "شارك AIEP مع العائلات التي قد تحتاج إليه",
+    "invite.breadcrumb.home": "الرئيسية",
+    "invite.breadcrumb.invite": "دعوة",
+    "invite.title": "ادعُ أولياء أمور آخرين",
+    "invite.description": "شارك رابطك الشخصي مع عائلات أخرى. عندما ينضم ولي أمر عبر رابطك، سيظهر ذلك هنا.",
+    "invite.yourLink": "رابط الدعوة الخاص بك",
+    "invite.copy": "نسخ",
+    "invite.copied": "تم النسخ!",
+    "invite.share": "مشاركة",
+    "invite.shareMessage": "أستخدم AIEP لفهم الخطة التعليمية الفردية (IEP) لطفلي. وهو مجاني:",
+    "invite.emailSubject": "جرّب AIEP",
+    "invite.stats.clicks": "زيارات الرابط",
+    "invite.stats.joined": "أولياء الأمور المنضمون",
+    "invite.joins.title": "الانضمامات الأخيرة",
+    "invite.joins.empty": "لم ينضم أحد عبر رابطك بعد. شاركه للبدء!",
+    "invite.joins.item": "انضم ولي أمر",
+    "invite.error": "تعذّر تحميل رابط الدعوة. حاول مرة أخرى لاحقًا.",
+    "invite.loading": "جارٍ التحميل..."
 }

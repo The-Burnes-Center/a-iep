@@ -22,6 +22,9 @@ export interface AppConfig {
       // build/deploy time (e.g. Arabic is enabled on dev but not prod).
       // Optional: when absent the UI falls back to all supported languages.
       enabledLanguages? : SupportedLanguage[],
+      // Deployment environment, set by CDK. Gates prod-only integrations
+      // (Google Analytics). Absent on local dev configs, which disables them.
+      environment? : "prod" | "dev",
 }
 
 export interface NavigationPanelState {
@@ -57,6 +60,34 @@ export interface UserProfile {
   updatedAt: number;
   consentGiven: Boolean;
   showOnboarding: Boolean;
+  // Referral system: this user's own shareable code, and the code they
+  // arrived on (stamped once at signup, never overwritten)
+  referralCode?: string;
+  referredBy?: string;
+}
+
+export interface ReferralJoin {
+  joinedAt: string;
+}
+
+export interface ReferralStats {
+  code: string;
+  clicks: number;
+  signups: number;
+  joins: ReferralJoin[];
+}
+
+export interface ReferralLink {
+  code: string;
+  type: 'campaign' | 'user';
+  name?: string;
+  channel?: string;
+  notes?: string;
+  active: boolean;
+  clicks: number;
+  signups: number;
+  createdAt?: string;
+  ownerUserId?: string;
 }
 
 export interface Language {

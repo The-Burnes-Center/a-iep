@@ -648,5 +648,25 @@
     "auth.pleaseEnterSmsCode": "Vui lòng nhập mã xác minh",
     "auth.resendFailed": "Không thể gửi lại mã xác minh. Vui lòng thử lại.",
     "auth.sessionExpired": "Phiên đã hết hạn. Vui lòng bắt đầu lại.",
-    "auth.verificationFailed": "Xác minh mã không thành công. Vui lòng thử lại."
+    "auth.verificationFailed": "Xác minh mã không thành công. Vui lòng thử lại.",
+
+    "welcome.invite.title": "Mời phụ huynh khác",
+    "welcome.invite.description": "Chia sẻ AIEP với những gia đình có thể cần",
+    "invite.breadcrumb.home": "Trang chủ",
+    "invite.breadcrumb.invite": "Mời",
+    "invite.title": "Mời phụ huynh khác",
+    "invite.description": "Chia sẻ liên kết cá nhân của bạn với các gia đình khác. Khi một phụ huynh tham gia bằng liên kết của bạn, thông tin sẽ hiển thị ở đây.",
+    "invite.yourLink": "Liên kết mời của bạn",
+    "invite.copy": "Sao chép",
+    "invite.copied": "Đã sao chép!",
+    "invite.share": "Chia sẻ",
+    "invite.shareMessage": "Tôi dùng AIEP để hiểu IEP của con mình. Hoàn toàn miễn phí:",
+    "invite.emailSubject": "Hãy thử AIEP",
+    "invite.stats.clicks": "Lượt truy cập liên kết",
+    "invite.stats.joined": "Phụ huynh đã tham gia",
+    "invite.joins.title": "Tham gia gần đây",
+    "invite.joins.empty": "Chưa có ai tham gia bằng liên kết của bạn. Hãy chia sẻ để bắt đầu!",
+    "invite.joins.item": "Một phụ huynh đã tham gia",
+    "invite.error": "Không thể tải liên kết mời của bạn. Vui lòng thử lại sau.",
+    "invite.loading": "Đang tải..."
 }

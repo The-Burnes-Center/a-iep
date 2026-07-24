@@ -24,6 +24,7 @@ export interface LambdaFunctionStackProps {
   readonly knowledgeBucket : s3.Bucket;
   readonly userProfilesTable : Table;
   readonly iepDocumentsTable : Table;
+  readonly referralsTable : Table;
   readonly userPool: cognito.UserPool;
   readonly logGroup: logs.LogGroup;
   readonly logRole: iam.Role;
@@ -36,6 +37,7 @@ export class LambdaFunctionStack extends cdk.Stack {
   public readonly uploadS3KnowledgeFunction : lambda.Function;
   public readonly userProfileFunction : lambda.Function;
   public readonly cognitoTriggerFunction : lambda.Function;
+  public readonly referralFunction : lambda.Function;
   public readonly pdfGeneratorFunction : lambda.Function;
   public readonly ttsFunction : lambda.Function;
   
@@ -692,6 +694,62 @@ export class LambdaFunctionStack extends cdk.Stack {
     );
 
     this.cognitoTriggerFunction = cognitoTriggerFunction;
+
+    // Referral system handler: public click counting plus authenticated
+    // invite stats, signup attribution, and admin campaign-link management.
+    const referralHandlerFunction = createTaggedLambda('ReferralHandlerFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      code: lambda.Code.fromAsset(path.join(__dirname, 'referral-handler')),
+      handler: 'lambda_function.lambda_handler',
+      environment: {
+        "REFERRALS_TABLE": props.referralsTable.tableName,
+        "USER_PROFILES_TABLE": props.userProfilesTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(30),
+      logRetention: logs.RetentionDays.ONE_YEAR,
+      ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
+    });
+
+    referralHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'dynamodb:GetItem',
+        'dynamodb:PutItem',
+        'dynamodb:UpdateItem',
+        'dynamodb:Query',
+        'dynamodb:Scan'
+      ],
+      resources: [
+        props.referralsTable.tableArn,
+        props.referralsTable.tableArn + "/index/*"
+      ]
+    }));
+
+    // Reads profile age for the attribution window and stamps
+    // referredBy / referralCode on the caller's own profile.
+    referralHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'dynamodb:GetItem',
+        'dynamodb:UpdateItem'
+      ],
+      resources: [props.userProfilesTable.tableArn]
+    }));
+
+    // Both tables are encrypted with the customer-managed key
+    if (props.kmsKey) {
+      referralHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'kms:Decrypt',
+          'kms:GenerateDataKey*',
+          'kms:DescribeKey'
+        ],
+        resources: [props.kmsKey.keyArn]
+      }));
+    }
+
+    this.referralFunction = referralHandlerFunction;
 
     // Common environment variables for all functions
     const commonEnvVars = {

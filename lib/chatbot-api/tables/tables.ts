@@ -15,6 +15,7 @@ export interface TableStackProps extends StackProps {
 export class TableStack extends Stack {
   public readonly userProfilesTable: dynamodb.Table;
   public readonly iepDocumentsTable: dynamodb.Table;
+  public readonly referralsTable: dynamodb.Table;
   constructor(scope: Construct, id: string, props?: TableStackProps) {
     super(scope, id, props);
 
@@ -73,6 +74,30 @@ export class TableStack extends Stack {
       indexName: 'byChildId',
       partitionKey: { name: 'childId', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'createdAt', type: dynamodb.AttributeType.NUMBER },
+    });
+
+    // Referral links and attribution events. One item collection per code:
+    // sk 'META' holds the link (type, owner, counters), 'EVT#...' items hold
+    // click/signup events (clicks carry a ttl; signups are kept). Not IEP
+    // content, but it references userIds in the same shared account, so it
+    // carries the same deny-outside-allowlist resource policy.
+    this.referralsTable = new dynamodb.Table(scope, 'ReferralsTable', {
+      partitionKey: { name: 'code', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      timeToLiveAttribute: 'ttl',
+      encryption: props?.kmsKey ? dynamodb.TableEncryption.CUSTOMER_MANAGED : dynamodb.TableEncryption.AWS_MANAGED,
+      ...(props?.kmsKey ? { encryptionKey: props.kmsKey } : {}),
+      resourcePolicy: iepDataResourcePolicy(),
+    });
+    tagTable(this.referralsTable, 'ReferralsTable');
+
+    // GSI to find a user's personal code without scanning
+    this.referralsTable.addGlobalSecondaryIndex({
+      indexName: 'byOwner',
+      partitionKey: { name: 'ownerUserId', type: dynamodb.AttributeType.STRING },
+      projectionType: ProjectionType.ALL,
     });
   }
 }
