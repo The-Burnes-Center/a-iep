@@ -726,12 +726,14 @@ export class LambdaFunctionStack extends cdk.Stack {
       ]
     }));
 
-    // Reads profile age for the attribution window and stamps
-    // referredBy / referralCode on the caller's own profile.
+    // Reads profile age for the attribution window, stamps referredBy /
+    // referralCode on the caller's own profile, and batch-resolves link
+    // owners to parent names for the admin console.
     referralHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         'dynamodb:GetItem',
+        'dynamodb:BatchGetItem',
         'dynamodb:UpdateItem'
       ],
       resources: [props.userProfilesTable.tableArn]

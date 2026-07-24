@@ -6,12 +6,14 @@ import {
   Form,
   Row,
   Col,
+  Card,
   Alert,
   Spinner,
   Modal,
   Badge,
+  Breadcrumb,
 } from 'react-bootstrap';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { saveAs } from 'file-saver';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -19,21 +21,26 @@ import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { AdminUser, ReferralLink } from '../../common/types';
 import { useAdminIdentity } from '../../common/helpers/use-admin-identity';
+import { useLanguage } from '../../common/language-context';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
+import AIEPFooter from '../../components/AIEPFooter';
+import './AdminReferrals.css';
 
 const CHANNELS = ['social', 'conference', 'event', 'print', 'partner', 'other'];
 const CODE_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
 
 /**
- * Internal referral console, deliberately English-only and unlinked from any
- * navigation: admins visit /admin/referrals directly. The backend enforces
- * the Cognito 'admin' group on every /referral/admin route; the client-side
- * gate below only keeps non-admins from staring at an empty shell.
+ * Internal referral console, deliberately English-only. Reached from the
+ * Account Center entry that only admin-group members see. The backend
+ * enforces the same admin-group check on every /referral/admin route; the
+ * client-side gate below only keeps non-admins from seeing an empty shell.
  */
 export default function AdminReferrals() {
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { t } = useLanguage();
 
   const { isAdmin, sub, username } = useAdminIdentity();
   const [typeFilter, setTypeFilter] = useState<'all' | 'campaign' | 'user'>('all');
@@ -144,7 +151,7 @@ export default function AdminReferrals() {
       setCopiedCode(code);
       setTimeout(() => setCopiedCode(null), 1500);
     } catch {
-      // ignore; row shows the code, admins can copy manually
+      // ignore; the row shows the code, admins can copy manually
     }
   };
 
@@ -163,7 +170,7 @@ export default function AdminReferrals() {
       [
         link.code,
         link.type,
-        escape(link.name),
+        escape(link.type === 'user' ? link.ownerName || 'parent invite link' : link.name),
         link.channel ?? '',
         link.active,
         link.clicks,
@@ -183,229 +190,261 @@ export default function AdminReferrals() {
   return (
     <>
       <MobileTopNavigation />
-      <Container className="py-4" style={{ maxWidth: 1000 }}>
-        <div className="d-flex justify-content-between align-items-center mb-3">
-          <h4 className="mb-0 text-start">Referral links</h4>
-          <Button variant="outline-secondary" size="sm" onClick={exportCsv} disabled={!links?.length}>
-            <i className="bi bi-download me-1"></i>Export CSV
-          </Button>
-        </div>
+      <div className="mt-3 text-start px-4 breadcrumb-container">
+        <Breadcrumb>
+          <Breadcrumb.Item onClick={() => navigate('/account-center')}>
+            {t('changeLanguage.breadcrumb.account')}
+          </Breadcrumb.Item>
+          <Breadcrumb.Item active>Admin Console</Breadcrumb.Item>
+        </Breadcrumb>
+      </div>
 
-        <Form onSubmit={handleCreate} className="border rounded p-3 mb-4 text-start">
-          <div className="fw-semibold mb-2">New campaign link</div>
-          {createError && <Alert variant="danger" className="py-2">{createError}</Alert>}
-          <Row className="g-2 align-items-end">
-            <Col xs={12} md={3}>
-              <Form.Label className="mb-1">Code</Form.Label>
-              <Form.Control
-                placeholder="conf-2026"
-                value={form.code}
-                onChange={(e) => setForm({ ...form, code: e.target.value })}
-                required
-              />
-            </Col>
-            <Col xs={12} md={3}>
-              <Form.Label className="mb-1">Name</Form.Label>
-              <Form.Control
-                placeholder="CEC conference booth"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </Col>
-            <Col xs={6} md={2}>
-              <Form.Label className="mb-1">Channel</Form.Label>
-              <Form.Select
-                value={form.channel}
-                onChange={(e) => setForm({ ...form, channel: e.target.value })}
+      <Container fluid className="admin-referrals-container">
+        <Card className="admin-referrals-card">
+          <Card.Body className="text-start">
+            <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+              <h4 className="admin-referrals-header mb-0">Referral Links</h4>
+              <Button
+                variant="outline-secondary"
+                size="sm"
+                className="button-text"
+                onClick={exportCsv}
+                disabled={!links?.length}
               >
-                {CHANNELS.map((channel) => (
-                  <option key={channel} value={channel}>{channel}</option>
-                ))}
-              </Form.Select>
-            </Col>
-            <Col xs={6} md={2}>
-              <Form.Label className="mb-1">Notes</Form.Label>
-              <Form.Control
-                value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              />
-            </Col>
-            <Col xs={12} md={2}>
-              <Button type="submit" className="w-100" disabled={createMutation.isPending}>
-                {createMutation.isPending ? 'Creating...' : 'Create'}
+                <i className="bi bi-download me-1"></i>Export CSV
               </Button>
-            </Col>
-          </Row>
-        </Form>
+            </div>
 
-        <div className="d-flex align-items-center gap-2 mb-2">
-          <Form.Select
-            size="sm"
-            style={{ width: 'auto' }}
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value as 'all' | 'campaign' | 'user')}
-          >
-            <option value="all">All links</option>
-            <option value="campaign">Campaign links</option>
-            <option value="user">Personal (parent) links</option>
-          </Form.Select>
-          {isLoading && <Spinner animation="border" size="sm" />}
-        </div>
-
-        {error ? (
-          <Alert variant="danger">Could not load links. Are you in the admin group?</Alert>
-        ) : (
-          <Table striped hover responsive size="sm" className="align-middle text-start">
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th>Channel</th>
-                <th>Type</th>
-                <th className="text-end">Clicks</th>
-                <th className="text-end">Signups</th>
-                <th className="text-end">Conv.</th>
-                <th>Active</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleLinks.map((link) => (
-                <tr key={link.code}>
-                  <td><code>{link.code}</code></td>
-                  <td>
-                    {link.type === 'user' ? (
-                      // Personal links are anonymous by design: no parent
-                      // identity in the console, only aggregate numbers
-                      <span className="text-muted fst-italic">parent invite link (anonymous)</span>
-                    ) : (
-                      link.name
-                    )}
-                  </td>
-                  <td>{link.channel && <Badge bg="light" text="dark">{link.channel}</Badge>}</td>
-                  <td>{link.type === 'user' ? 'parent' : link.type}</td>
-                  <td className="text-end">{link.clicks}</td>
-                  <td className="text-end">{link.signups}</td>
-                  <td className="text-end">{conversion(link)}</td>
-                  <td>
-                    <Form.Check
-                      type="switch"
-                      checked={link.active}
-                      onChange={(e) =>
-                        toggleMutation.mutate({ code: link.code, active: e.target.checked })
-                      }
-                      aria-label={`Toggle ${link.code}`}
-                    />
-                  </td>
-                  <td className="text-nowrap">
-                    <Button
-                      variant="link"
-                      size="sm"
-                      className="p-1"
-                      onClick={() => handleCopy(link.code)}
-                      title="Copy link"
-                    >
-                      <i className={`bi ${copiedCode === link.code ? 'bi-check-lg text-success' : 'bi-clipboard'}`}></i>
-                    </Button>
-                    <Button
-                      variant="link"
-                      size="sm"
-                      className="p-1"
-                      onClick={() => setQrLink(link)}
-                      title="QR code"
-                    >
-                      <i className="bi bi-qr-code"></i>
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-              {!isLoading && visibleLinks.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="text-center text-muted py-4">No links yet.</td>
-                </tr>
-              )}
-            </tbody>
-          </Table>
-        )}
-
-        <div className="d-flex justify-content-between align-items-center mt-5 mb-3">
-          <h4 className="mb-0 text-start">Admins</h4>
-          {adminsLoading && <Spinner animation="border" size="sm" />}
-        </div>
-
-        <Form
-          className="border rounded p-3 mb-3 text-start"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (adminIdentifier.trim()) addAdminMutation.mutate();
-          }}
-        >
-          <div className="fw-semibold mb-2">Add an admin</div>
-          {adminError && <Alert variant="danger" className="py-2">{adminError}</Alert>}
-          <Row className="g-2 align-items-end">
-            <Col xs={12} md={6}>
-              <Form.Label className="mb-1">Phone number or email</Form.Label>
-              <Form.Control
-                placeholder="+1 555 123 4567 or name@example.org"
-                value={adminIdentifier}
-                onChange={(e) => setAdminIdentifier(e.target.value)}
-                required
-              />
-            </Col>
-            <Col xs={12} md={2}>
-              <Button type="submit" className="w-100" disabled={addAdminMutation.isPending}>
-                {addAdminMutation.isPending ? 'Adding...' : 'Add'}
-              </Button>
-            </Col>
-          </Row>
-          <div className="form-text">
-            The account must already exist in the app. New admins pick up access
-            on their next sign-in.
-          </div>
-        </Form>
-
-        <Table striped hover responsive size="sm" className="align-middle text-start">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Phone</th>
-              <th>Email</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {(admins || []).map((admin) => (
-              <tr key={admin.username}>
-                <td>
-                  {admin.name || <span className="text-muted">-</span>}
-                  {isSelf(admin) && <Badge bg="secondary" className="ms-2">you</Badge>}
-                </td>
-                <td>{admin.phone || '-'}</td>
-                <td>{admin.email || '-'}</td>
-                <td>{admin.status}</td>
-                <td className="text-end">
-                  <Button
-                    variant="link"
-                    size="sm"
-                    className="p-1 text-danger"
-                    onClick={() => handleRemoveAdmin(admin)}
-                    disabled={isSelf(admin) || removeAdminMutation.isPending}
-                    title={isSelf(admin) ? 'You cannot remove yourself' : 'Remove admin'}
+            <Form onSubmit={handleCreate} className="admin-referrals-panel">
+              <div className="admin-referrals-panel-title mb-3">New campaign link</div>
+              {createError && <Alert variant="danger" className="py-2">{createError}</Alert>}
+              <Row className="g-2 align-items-end">
+                <Col xs={12} md={3}>
+                  <Form.Label className="form-label mb-1">Code</Form.Label>
+                  <Form.Control
+                    placeholder="conf-2026"
+                    value={form.code}
+                    onChange={(e) => setForm({ ...form, code: e.target.value })}
+                    required
+                  />
+                </Col>
+                <Col xs={12} md={3}>
+                  <Form.Label className="form-label mb-1">Name</Form.Label>
+                  <Form.Control
+                    placeholder="CEC conference booth"
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  />
+                </Col>
+                <Col xs={6} md={2}>
+                  <Form.Label className="form-label mb-1">Channel</Form.Label>
+                  <Form.Select
+                    value={form.channel}
+                    onChange={(e) => setForm({ ...form, channel: e.target.value })}
                   >
-                    <i className="bi bi-person-dash"></i>
+                    {CHANNELS.map((channel) => (
+                      <option key={channel} value={channel}>{channel}</option>
+                    ))}
+                  </Form.Select>
+                </Col>
+                <Col xs={6} md={2}>
+                  <Form.Label className="form-label mb-1">Notes</Form.Label>
+                  <Form.Control
+                    value={form.notes}
+                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  />
+                </Col>
+                <Col xs={12} md={2}>
+                  <Button
+                    type="submit"
+                    className="w-100 button-text"
+                    disabled={createMutation.isPending}
+                  >
+                    {createMutation.isPending ? 'Creating...' : 'Create'}
                   </Button>
-                </td>
-              </tr>
-            ))}
-            {!adminsLoading && (admins || []).length === 0 && (
-              <tr>
-                <td colSpan={5} className="text-center text-muted py-4">No admins found.</td>
-              </tr>
+                </Col>
+              </Row>
+            </Form>
+
+            <div className="d-flex align-items-center gap-2 mb-2">
+              <Form.Select
+                size="sm"
+                style={{ width: 'auto' }}
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value as 'all' | 'campaign' | 'user')}
+              >
+                <option value="all">All links</option>
+                <option value="campaign">Campaign links</option>
+                <option value="user">Parent links</option>
+              </Form.Select>
+              {isLoading && <Spinner animation="border" size="sm" />}
+            </div>
+
+            {error ? (
+              <Alert variant="danger">Could not load links. Are you in the admin group?</Alert>
+            ) : (
+              <Table hover responsive size="sm" className="align-middle">
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Channel</th>
+                    <th>Type</th>
+                    <th className="text-end">Clicks</th>
+                    <th className="text-end">Signups</th>
+                    <th className="text-end">Conv.</th>
+                    <th>Active</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleLinks.map((link) => (
+                    <tr key={link.code}>
+                      <td><code>{link.code}</code></td>
+                      <td>
+                        {link.type === 'user' ? (
+                          link.ownerName || (
+                            <span className="text-muted fst-italic">name not on profile</span>
+                          )
+                        ) : (
+                          link.name
+                        )}
+                      </td>
+                      <td>{link.channel && <Badge bg="light" text="dark">{link.channel}</Badge>}</td>
+                      <td>{link.type === 'user' ? 'parent' : link.type}</td>
+                      <td className="text-end">{link.clicks}</td>
+                      <td className="text-end">{link.signups}</td>
+                      <td className="text-end">{conversion(link)}</td>
+                      <td>
+                        <Form.Check
+                          type="switch"
+                          checked={link.active}
+                          onChange={(e) =>
+                            toggleMutation.mutate({ code: link.code, active: e.target.checked })
+                          }
+                          aria-label={`Toggle ${link.code}`}
+                        />
+                      </td>
+                      <td className="text-nowrap">
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="p-1"
+                          onClick={() => handleCopy(link.code)}
+                          title="Copy link"
+                        >
+                          <i className={`bi ${copiedCode === link.code ? 'bi-check-lg text-success' : 'bi-clipboard'}`}></i>
+                        </Button>
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="p-1"
+                          onClick={() => setQrLink(link)}
+                          title="QR code"
+                        >
+                          <i className="bi bi-qr-code"></i>
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!isLoading && visibleLinks.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="text-center text-muted py-4">No links yet.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </Table>
             )}
-          </tbody>
-        </Table>
+          </Card.Body>
+        </Card>
+
+        <Card className="admin-referrals-card mt-4">
+          <Card.Body className="text-start">
+            <div className="d-flex justify-content-between align-items-center mb-4">
+              <h4 className="admin-referrals-section-title mb-0">Admins</h4>
+              {adminsLoading && <Spinner animation="border" size="sm" />}
+            </div>
+
+            <Form
+              className="admin-referrals-panel"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (adminIdentifier.trim()) addAdminMutation.mutate();
+              }}
+            >
+              <div className="admin-referrals-panel-title mb-3">Add an admin</div>
+              {adminError && <Alert variant="danger" className="py-2">{adminError}</Alert>}
+              <Row className="g-2 align-items-end">
+                <Col xs={12} md={6}>
+                  <Form.Label className="form-label mb-1">Phone number or email</Form.Label>
+                  <Form.Control
+                    placeholder="+1 555 123 4567 or name@example.org"
+                    value={adminIdentifier}
+                    onChange={(e) => setAdminIdentifier(e.target.value)}
+                    required
+                  />
+                </Col>
+                <Col xs={12} md={2}>
+                  <Button
+                    type="submit"
+                    className="w-100 button-text"
+                    disabled={addAdminMutation.isPending}
+                  >
+                    {addAdminMutation.isPending ? 'Adding...' : 'Add'}
+                  </Button>
+                </Col>
+              </Row>
+              <div className="form-text">
+                The account must already exist in the app. New admins pick up access
+                on their next sign-in.
+              </div>
+            </Form>
+
+            <Table hover responsive size="sm" className="align-middle">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Phone</th>
+                  <th>Email</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {(admins || []).map((admin) => (
+                  <tr key={admin.username}>
+                    <td>
+                      {admin.name || <span className="text-muted">-</span>}
+                      {isSelf(admin) && <Badge bg="secondary" className="ms-2">you</Badge>}
+                    </td>
+                    <td>{admin.phone || '-'}</td>
+                    <td>{admin.email || '-'}</td>
+                    <td>{admin.status}</td>
+                    <td className="text-end">
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="p-1 text-danger"
+                        onClick={() => handleRemoveAdmin(admin)}
+                        disabled={isSelf(admin) || removeAdminMutation.isPending}
+                        title={isSelf(admin) ? 'You cannot remove yourself' : 'Remove admin'}
+                      >
+                        <i className="bi bi-person-dash"></i>
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {!adminsLoading && (admins || []).length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="text-center text-muted py-4">No admins found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </Table>
+          </Card.Body>
+        </Card>
       </Container>
+      <AIEPFooter />
 
       <Modal show={qrLink !== null} onHide={() => setQrLink(null)} centered>
         <Modal.Header closeButton>
@@ -420,7 +459,7 @@ export default function AdminReferrals() {
           )}
         </Modal.Body>
         <Modal.Footer>
-          <Button variant="outline-secondary" onClick={() => qrLink && downloadQr(qrLink.code)}>
+          <Button variant="outline-secondary" className="button-text" onClick={() => qrLink && downloadQr(qrLink.code)}>
             <i className="bi bi-download me-1"></i>Download PNG
           </Button>
         </Modal.Footer>

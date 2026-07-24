@@ -1,0 +1,55 @@
+.admin-referrals-container {
+  padding-top: 1rem;
+  padding-bottom: 2rem;
+}
+
+/* Cream, borderless cards matching AccountCenter.css */
+.admin-referrals-card {
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  background-color: #F5f3EE;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.admin-referrals-header {
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-size: 2rem;
+}
+
+.admin-referrals-section-title {
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-size: 1.5rem;
+}
+
+.admin-referrals-panel {
+  border: 1px solid rgba(30, 30, 30, 0.25);
+  border-radius: 10px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.admin-referrals-panel-title {
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-weight: 500;
+  font-size: 1.125rem;
+  color: #1E1E1E;
+}
+
+/* Tables sit directly on the cream card */
+.admin-referrals-card .table {
+  --bs-table-bg: transparent;
+}
+
+.admin-referrals-card .table th {
+  font-family: akzidenz-grotesk-next-conden, sans-serif;
+  font-weight: 500;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}

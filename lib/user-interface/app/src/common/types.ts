@@ -88,6 +88,8 @@ export interface ReferralLink {
   signups: number;
   createdAt?: string;
   ownerUserId?: string;
+  // Parent's name for user-type links, resolved server-side for admins only
+  ownerName?: string;
 }
 
 export interface AdminUser {

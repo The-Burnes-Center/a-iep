@@ -33,6 +33,7 @@ referrals_table = dynamodb.Table(os.environ['REFERRALS_TABLE'])
 user_profiles_table = dynamodb.Table(os.environ['USER_PROFILES_TABLE'])
 cognito = boto3.client('cognito-idp')
 USER_POOL_ID = os.environ.get('USER_POOL_ID', '')
+kms_client = boto3.client('kms')
 
 META = 'META'
 ADMIN_GROUP = 'admin'
@@ -293,6 +294,48 @@ def handle_attribute(event):
 # ---------------------------------------------------------------------------
 # Admin
 
+def kms_decrypt_string(ciphertext_b64):
+    """Decrypt an app-layer-encrypted profile field. Mirrors the helper in
+    user-profile-handler: values that are not valid ciphertext (legacy
+    plaintext rows, encryption disabled) are returned as-is."""
+    if not ciphertext_b64 or not isinstance(ciphertext_b64, str):
+        return ciphertext_b64
+    try:
+        blob = base64.b64decode(ciphertext_b64)
+    except Exception:
+        return ciphertext_b64
+    try:
+        return kms_client.decrypt(CiphertextBlob=blob)['Plaintext'].decode('utf-8')
+    except Exception as exc:
+        print(f"KMS decrypt failed, returning raw value: {exc}")
+        return ciphertext_b64
+
+
+def attach_owner_names(links):
+    """Resolve each personal link's owner to the parent's name so admins can
+    tell whose link is whose. parentName lives KMS-encrypted on the profile;
+    one decrypt call per distinct owner, fine at internal-console scale."""
+    owner_ids = list({
+        link['ownerUserId'] for link in links
+        if link.get('type') == 'user' and link.get('ownerUserId')
+    })
+    names = {}
+    for start in range(0, len(owner_ids), 100):
+        chunk = owner_ids[start:start + 100]
+        response = dynamodb.batch_get_item(RequestItems={
+            user_profiles_table.name: {
+                'Keys': [{'userId': uid} for uid in chunk],
+                'ProjectionExpression': 'userId, parentName',
+            }
+        })
+        for item in response.get('Responses', {}).get(user_profiles_table.name, []):
+            if item.get('parentName'):
+                names[item['userId']] = kms_decrypt_string(item['parentName'])
+    for link in links:
+        if link.get('type') == 'user':
+            link['ownerName'] = names.get(link.get('ownerUserId'))
+
+
 def strip_meta(item):
     return {
         'code': item.get('code'),
@@ -305,6 +348,7 @@ def strip_meta(item):
         'signups': item.get('signups', 0),
         'createdAt': item.get('createdAt'),
         'ownerUserId': item.get('ownerUserId'),
+        'ownerName': item.get('ownerName'),
     }
 
 
@@ -322,6 +366,7 @@ def handle_admin_list(event):
             break
     links = sorted((strip_meta(i) for i in items),
                    key=lambda x: x.get('createdAt') or '', reverse=True)
+    attach_owner_names(links)
     return create_response(event, 200, {'links': links})
 
 
@@ -367,8 +412,10 @@ def handle_admin_get(event, code):
     ).get('Items') or []
     # referredUserId stays out of the response: the console needs kinds and
     # dates, not identities.
+    link = strip_meta(meta)
+    attach_owner_names([link])
     return create_response(event, 200, {
-        'link': strip_meta(meta),
+        'link': link,
         'events': [{'kind': e.get('kind'), 'at': e.get('at')} for e in events],
     })
 
