@@ -91,6 +91,13 @@ export default function PreferredLanguage() {
         return;
       }
 
+      // Same for the parent's name: nothing else in the flow collects it,
+      // and referral links / the admin console display it
+      if (!(data && data.parentName)) {
+        navigate('/account-center/profile', { state: { onboardingContinue: true } });
+        return;
+      }
+
       // User doesn't need onboarding, go directly to welcome page
       // console.log('User has completed onboarding, going to welcome page');
       navigate('/summary-and-translations');

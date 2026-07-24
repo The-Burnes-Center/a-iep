@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Container, Form, Button, Row, Col, Alert, Spinner, Breadcrumb } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
@@ -14,7 +14,13 @@ export default function UpdateProfileName() {
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useLanguage();
+
+  // Set when the sign-in flow routes here because the profile has no name
+  // yet (consent form / login redirect); on save, continue into the app
+  // instead of returning to the Account Center
+  const onboardingContinue = (location.state as { onboardingContinue?: boolean } | null)?.onboardingContinue === true;
 
   const [parentName, setParentName] = useState<string>('');
   const [saving, setSaving] = useState(false);
@@ -68,7 +74,7 @@ export default function UpdateProfileName() {
         // Don't fail the flow if this update fails
       }
       
-      navigate('/account-center');
+      navigate(onboardingContinue ? '/iep-documents' : '/account-center');
 
     } catch (err) {
       console.error('Error saving parent name:', err);
@@ -107,13 +113,16 @@ export default function UpdateProfileName() {
     <>
     <MobileTopNavigation />
     <div>
-      {/* Breadcrumbs */}
-      <div className="mt-3 text-center px-4 breadcrumb-container">
-        <Breadcrumb>
-          <Breadcrumb.Item onClick={handleBackClick}>{t('updateProfile.breadcrumb.account')}</Breadcrumb.Item>
-          <Breadcrumb.Item active>{t('updateProfile.breadcrumb.updateProfile')}</Breadcrumb.Item>
-        </Breadcrumb>
-      </div>
+      {/* Breadcrumbs (hidden mid-flow: they lead back to the Account
+          Center, which makes no sense while finishing sign-in) */}
+      {!onboardingContinue && (
+        <div className="mt-3 text-center px-4 breadcrumb-container">
+          <Breadcrumb>
+            <Breadcrumb.Item onClick={handleBackClick}>{t('updateProfile.breadcrumb.account')}</Breadcrumb.Item>
+            <Breadcrumb.Item active>{t('updateProfile.breadcrumb.updateProfile')}</Breadcrumb.Item>
+          </Breadcrumb>
+        </div>
+      )}
       
       <Container 
         fluid 

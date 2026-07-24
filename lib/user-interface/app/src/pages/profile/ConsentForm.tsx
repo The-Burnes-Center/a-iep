@@ -59,9 +59,15 @@ export default function ConsentForm() {
       return;
     }
     
-    // If consent was already given, go directly to IEP documents
+    // If consent was already given, continue on; ask for the parent's name
+    // first if the profile still has none (referral links and the admin
+    // console show it, and nothing else in the flow collects it)
     if (profile?.consentGiven) {
-      navigate('/iep-documents');
+      if (!profile?.parentName) {
+        navigate('/account-center/profile', { state: { onboardingContinue: true } });
+      } else {
+        navigate('/iep-documents');
+      }
       return;
     }
     
@@ -89,8 +95,13 @@ export default function ConsentForm() {
         // Don't fail the flow if this update fails
       }
       
-      // After saving consent and creating child, go to IEP documents
-      navigate('/iep-documents');
+      // After saving consent: collect the parent's name if missing (nothing
+      // else in the flow asks for it), otherwise go to IEP documents
+      if (!profile?.parentName) {
+        navigate('/account-center/profile', { state: { onboardingContinue: true } });
+      } else {
+        navigate('/iep-documents');
+      }
     } catch (err) {
       addNotification('error', 'Failed to save consent');
       setError('Failed to save consent. Please try again.');
