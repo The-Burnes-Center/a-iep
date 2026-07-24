@@ -206,6 +206,7 @@
     "auth.errorSignUp": "注册过程中发生错误",
     "auth.errorVerification": "验证账号时出错",
     "auth.errorResendCode": "重新发送验证码时出错",
+    "auth.errorSendingCode": "验证码发送失败。请检查手机号码后重试。",
     "auth.errorRequestPasswordReset": "请求重置密码时出错",
     "auth.errorResetPassword": "重置密码时出错",
     "auth.errorPasswordChange": "更改密码时出错",

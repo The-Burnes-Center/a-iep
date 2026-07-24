@@ -209,6 +209,7 @@
     "auth.errorSignUp": "حدث خطأ أثناء إنشاء الحساب",
     "auth.errorVerification": "خطأ في التحقق من حسابك",
     "auth.errorResendCode": "خطأ في إعادة إرسال رمز التحقق",
+    "auth.errorSendingCode": "تعذّر إرسال رمز التحقق. يرجى التحقق من رقم الهاتف والمحاولة مرة أخرى.",
     "auth.errorRequestPasswordReset": "خطأ في طلب إعادة تعيين كلمة المرور",
     "auth.errorResetPassword": "خطأ في إعادة تعيين كلمة المرور",
     "auth.errorPasswordChange": "خطأ في تغيير كلمة المرور",

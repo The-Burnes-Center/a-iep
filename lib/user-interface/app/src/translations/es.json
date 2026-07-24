@@ -206,6 +206,7 @@
     "auth.errorSignUp": "Ha ocurrido un error durante el registro",
     "auth.errorVerification": "Error al verificar su cuenta",
     "auth.errorResendCode": "Error al reenviar el código de verificación",
+    "auth.errorSendingCode": "No se pudo enviar el código de verificación. Por favor, verifique el número de teléfono e intente de nuevo.",
     "auth.errorRequestPasswordReset": "Error al solicitar restablecimiento de contraseña",
     "auth.errorResetPassword": "Error al restablecer la contraseña",
     "auth.errorPasswordChange": "Error al cambiar la contraseña",

@@ -211,6 +211,7 @@
     "auth.errorSignUp": "Đã xảy ra lỗi trong quá trình đăng ký",
     "auth.errorVerification": "Lỗi xác minh tài khoản của bạn",
     "auth.errorResendCode": "Lỗi khi gửi lại mã xác nhận",
+    "auth.errorSendingCode": "Không thể gửi mã xác minh. Vui lòng kiểm tra số điện thoại và thử lại.",
     "auth.errorRequestPasswordReset": "Lỗi khi yêu cầu đặt lại mật khẩu",
     "auth.errorResetPassword": "Lỗi khi đặt lại mật khẩu",
     "auth.errorPasswordChange": "Lỗi khi thay đổi mật khẩu",

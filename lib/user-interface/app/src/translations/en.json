@@ -212,6 +212,7 @@
     "auth.errorSignUp": "An error occurred during sign up",
     "auth.errorVerification": "Error verifying your account",
     "auth.errorResendCode": "Error resending verification code",
+    "auth.errorSendingCode": "We couldn't send the verification code. Please check the phone number and try again.",
     "auth.errorRequestPasswordReset": "Error requesting password reset",
     "auth.errorResetPassword": "Error resetting password",
     "auth.errorPasswordChange": "Error changing password",
