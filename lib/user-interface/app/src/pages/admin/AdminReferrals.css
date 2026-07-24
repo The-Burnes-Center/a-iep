@@ -53,3 +53,53 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
+
+/* ===== Controls: brand greens instead of Bootstrap's default blue =====
+   Palette from the brand kit: ink #1E1E1E, warm gray #CBC6BC, cream
+   #F5F3EE, greens #014620 (primary) / #00682F (hover, accents). */
+
+/* Inputs and dropdowns: warm-gray borders on the cream card, green focus
+   ring. Also overrides the login page's .form-control:focus (blue + lift),
+   which is global because its stylesheet isn't scoped. */
+.admin-referrals-card .form-select,
+.admin-referrals-card .form-control {
+  color: #1E1E1E;
+  border-color: #CBC6BC;
+}
+
+.admin-referrals-card .form-select:focus,
+.admin-referrals-card .form-control:focus {
+  border-color: #00682F;
+  box-shadow: 0 0 0 0.25rem rgba(0, 104, 47, 0.15);
+  transform: none;
+}
+
+/* Submit buttons need no rules here: the app-wide .btn-primary override
+   (CustomLogin.css) already renders variant="primary" as the standard green
+   #00682F pill. */
+
+/* Icon action buttons (copy, QR): green instead of link blue; the
+   .text-danger remove-admin button keeps its red */
+.admin-referrals-card .btn-link:not(.text-danger) {
+  --bs-btn-color: #00682F;
+  --bs-btn-hover-color: #014620;
+  --bs-btn-active-color: #014620;
+  --bs-btn-focus-shadow-rgb: 0, 104, 47;
+}
+
+/* Active toggles in the links table: green when on */
+.admin-referrals-card .form-check-input:checked {
+  background-color: #00682F;
+  border-color: #00682F;
+}
+
+.admin-referrals-card .form-check-input:focus {
+  border-color: #00682F;
+  box-shadow: 0 0 0 0.25rem rgba(0, 104, 47, 0.15);
+}
+
+/* Bootstrap paints the unchecked switch thumb blue on focus via an inline
+   SVG; repaint it green */
+.admin-referrals-card .form-switch .form-check-input:focus:not(:checked) {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='rgba%280,104,47,0.5%29'/%3e%3c/svg%3e");
+}
