@@ -671,14 +671,13 @@ export class LambdaFunctionStack extends cdk.Stack {
       ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
     });
 
-    // Grant DynamoDB permissions to Cognito trigger
-    cognitoTriggerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'dynamodb:PutItem'
-      ],
-      resources: [props.userProfilesTable.tableArn]
-    }));
+    // grantReadWriteData (rather than a manual PutItem policy) also grants
+    // the KMS permissions for the table's customer-managed encryption key.
+    // With the previous manual policy the PostConfirmation profile write
+    // failed silently on every signup (GetItem denied, then kms:Decrypt
+    // denied on PutItem), so new users never got the showOnboarding /
+    // consentGiven defaults and skipped onboarding entirely.
+    props.userProfilesTable.grantReadWriteData(cognitoTriggerFunction);
 
     // Allow Cognito to invoke the Lambda
     cognitoTriggerFunction.addPermission('CognitoInvocation', {
