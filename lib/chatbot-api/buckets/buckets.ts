@@ -5,6 +5,7 @@ import { createBucketPolicy } from './bucket-policy';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import { getEnvironment } from '../../tags';
+import { createIepDataDenyStatement } from '../security';
 
 export interface S3BucketStackProps extends cdk.StackProps {
   encryptionKey?: kms.IKey;
@@ -31,9 +32,24 @@ export class S3BucketStack extends cdk.Stack {
       encryptionKey: props?.encryptionKey,
       cors: [{
         allowedMethods: [s3.HttpMethods.GET,s3.HttpMethods.POST,s3.HttpMethods.PUT,s3.HttpMethods.DELETE],
-        allowedOrigins: ['*'],      
+        allowedOrigins: ['*'],
         allowedHeaders: ["*"]
-      }]
+      }],
+      lifecycleRules: [
+        {
+          // Retention: the bucket is versioned, so deletes (original PDFs,
+          // raw OCR) only add delete markers — the data survives as
+          // noncurrent versions. Expire those quickly so deleted sensitive
+          // documents are actually gone.
+          id: 'ExpireNoncurrentVersions',
+          noncurrentVersionExpiration: cdk.Duration.days(1),
+        },
+        {
+          // Clean up delete markers whose versions have all expired
+          id: 'CleanupExpiredDeleteMarkers',
+          expiredObjectDeleteMarker: true,
+        }
+      ]
     });
 
     // Apply restrictive bucket policy to the knowledge bucket (which contains IEP documents)
@@ -50,16 +66,14 @@ export class S3BucketStack extends cdk.Stack {
       allowedUsers: allowedUsers
     });
     
-    // Add direct permissions for Lambda functions in the same stack
+    // Add direct permissions for the project owner. Lambda functions access
+    // the bucket through their execution roles (granted in functions.ts);
+    // no service-principal allows are needed.
     this.knowledgeBucket.addToResourcePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       principals: [
         new iam.ArnPrincipal(`arn:aws:iam::${accountId}:user/dhruv`),
-        new iam.ArnPrincipal(`arn:aws:iam::${accountId}:root`),
-        // Allow Lambda service principal (specific roles will be granted by CDK automatically)
-        new iam.ServicePrincipal('lambda.amazonaws.com'),
-        // Allow API Gateway service principal for the uploads via frontend
-        new iam.ServicePrincipal('apigateway.amazonaws.com')
+        new iam.ArnPrincipal(`arn:aws:iam::${accountId}:root`)
       ],
       actions: [
         's3:GetObject',
@@ -73,7 +87,20 @@ export class S3BucketStack extends cdk.Stack {
         `${this.knowledgeBucket.bucketArn}/*`
       ]
     }));
-    
+
+    // This account is shared with other projects/users: explicitly deny any
+    // principal outside the IEP-data allowlist, regardless of their IAM
+    // identity policies. AWS service principals stay exempt.
+    this.knowledgeBucket.addToResourcePolicy(createIepDataDenyStatement(
+      accountId,
+      ['s3:*'],
+      [
+        this.knowledgeBucket.bucketArn,
+        `${this.knowledgeBucket.bucketArn}/*`
+      ]
+    ));
+
+
     // Add back the deny statement for non-HTTPS requests
     this.knowledgeBucket.addToResourcePolicy(new iam.PolicyStatement({
       effect: iam.Effect.DENY,

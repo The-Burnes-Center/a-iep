@@ -22,6 +22,10 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '20'  # Use Node.js version 20.x, which is compatible with "@types/node": "20.12.7"
+        cache: 'npm'
+        cache-dependency-path: |
+          package-lock.json
+          lib/user-interface/app/package-lock.json
 
     # Step 3: Install backend dependencies (from the root folder)
     - name: Install backend dependencies
@@ -44,6 +48,17 @@ jobs:
     # Step 6: Bootstrap the AWS environment (from the root folder)
     - name: Bootstrap AWS environment
       run: npx cdk bootstrap
+
+    # Cache CDK bundled Lambda assets. Assets use assetHashType SOURCE, so cdk
+    # skips Docker bundling for any asset already staged in a restored cdk.out;
+    # only assets whose source actually changed are re-bundled.
+    - name: Cache CDK bundled assets
+      uses: actions/cache@v4
+      with:
+        path: cdk.out
+        key: cdk-out-${{ hashFiles('lib/chatbot-api/functions/**') }}
+        restore-keys: |
+          cdk-out-
 
     # Step 7: Deploy the CDK stack (from the root folder)
     - name: Deploy CDK stack
