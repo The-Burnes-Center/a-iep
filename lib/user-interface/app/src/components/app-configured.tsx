@@ -7,6 +7,7 @@ import { LanguageProvider } from "../common/language-context";
 import { AuthProvider } from "../common/auth-provider";
 import { Alert, StatusIndicator } from "@cloudscape-design/components";
 import { StorageHelper } from "../common/helpers/storage-helper";
+import { initAnalytics } from "../common/helpers/analytics-helper";
 import { Mode } from "@cloudscape-design/global-styles";
 import AppRoutes from "./AppRoutes";
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -36,6 +37,12 @@ export default function AppConfigured() {
 
         // Configure Amplify once
         Amplify.configure(awsExports);
+
+        // Analytics only on the prod deployment; staging and local dev
+        // stay out of the production GA property.
+        if (awsExports.environment === "prod") {
+          initAnalytics();
+        }
 
         setConfig(awsExports);
       } catch (e) {

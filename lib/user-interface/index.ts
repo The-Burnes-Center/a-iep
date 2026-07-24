@@ -88,7 +88,10 @@ export class UserInterface extends Construct {
       },
       httpEndpoint : props.api.httpAPI.restAPI.url,
       federatedSignInProvider : OIDCIntegrationName,
-      enabledLanguages : resolveEnabledLanguages()
+      enabledLanguages : resolveEnabledLanguages(),
+      // Gates prod-only frontend integrations (Google Analytics), since
+      // staging and prod are otherwise identical production builds.
+      environment : getEnvironment()
     });
 
     const asset = s3deploy.Source.asset(appPath, {
