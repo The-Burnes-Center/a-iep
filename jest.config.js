@@ -9,8 +9,15 @@
  * test/gen-ai-mvp.test.ts is the commented-out CDK scaffold; keep roots
  * narrowed so its compiled .js twin doesn't register as an empty suite.
  */
+/**
+ * Run via `npm test` (which passes --experimental-vm-modules to node): the
+ * knowledge-management handlers are ES modules, and jest can only load
+ * .test.mjs suites with vm-modules enabled. The flag is harmless for the
+ * CJS suites.
+ */
 module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/test/lambdas'],
+  testMatch: ['**/*.test.js', '**/*.test.mjs'],
   clearMocks: true,
 };

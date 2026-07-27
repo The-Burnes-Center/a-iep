@@ -35,9 +35,11 @@ jobs:
 
       # Guards the phone-OTP custom auth flow (define/create/verify triggers,
       # SMS localization, log redaction) — the layer behind the 2026-07
-      # silent-signup-outage incident.
+      # silent-signup-outage incident — plus the pdf-generator sanitizer and
+      # the ESM knowledge-management handlers. npm test wraps jest with
+      # --experimental-vm-modules, which the .mjs suites need.
       - name: Run jest suites
-        run: npx jest --silent
+        run: npm test -- --silent
 
   python-lambda-tests:
     name: Python lambda unit tests
