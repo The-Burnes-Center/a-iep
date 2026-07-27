@@ -82,6 +82,8 @@
     "immutable": "^5.1.5",
     "flatted": "^3.4.2",
     "ajv": "^8.18.0",
+    "eslint": { "ajv": "^6.12.6" },
+    "@eslint/eslintrc": { "ajv": "^6.12.6" },
     "picomatch": "^2.3.2",
     "rollup": "^4.59.0",
     "yaml": "^2.8.1"
