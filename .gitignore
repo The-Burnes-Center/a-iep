@@ -2,6 +2,8 @@
 !jest.config.js
 # phone-otp-auth lambdas are plain JS sources, not compiled TS twins
 !lib/chatbot-api/functions/phone-otp-auth/*.js
+# ...and so are their unit tests
+!test/lambdas/**/*.js
 *.d.ts
 !global.d.ts
 node_modules
