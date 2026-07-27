@@ -40,6 +40,7 @@ export default function PreferredLanguage() {
 
   useEffect(() => {
     loadProfile();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only onboarding gate: loadProfile decides the redirect once, on load
   }, []);
 
   const loadProfile = async () => {

@@ -1,6 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { Alert, Card, Spinner } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import './CurrentIEPDocument.css';
@@ -58,6 +57,7 @@ const CurrentIEPDocument: React.FC<CurrentIEPDocumentProps> = ({ onRefreshNeeded
     if (onRefreshNeeded) {
       onRefreshNeeded();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchDocument is recreated every render; refetch is keyed to onRefreshNeeded by design
   }, [onRefreshNeeded]);
 
   return (

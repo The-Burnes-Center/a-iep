@@ -47,39 +47,34 @@ export class IEPDocumentClient {
     fileName: string,
     operation: 'upload' | 'download',
     fileType?: string
-  ): Promise<any> {
+  ): Promise<{ signedUrl: string }> {
     if (operation === 'upload' && !fileType) {
       throw new Error('File type is required for upload');
     }
 
-    try {
-      const childId = await this.getDefaultChildId();
-      const auth = await Utils.authenticate();
-      
-      const response = await fetch(this.API + '/signed-url-knowledge', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + auth,
-        },
-        body: JSON.stringify({ 
-          fileName, 
-          fileType, 
-          operation,
-          childId 
-        }),
-      });
+    const childId = await this.getDefaultChildId();
+    const auth = await Utils.authenticate();
 
-      if (!response.ok) {
-        throw new Error('Failed to get signed URL');
-      }
+    const response = await fetch(this.API + '/signed-url-knowledge', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + auth,
+      },
+      body: JSON.stringify({
+        fileName,
+        fileType,
+        operation,
+        childId
+      }),
+    });
 
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      // console.error('Error:', error);
-      throw error;
+    if (!response.ok) {
+      throw new Error('Failed to get signed URL');
     }
+
+    const data = await response.json();
+    return data;
   }
 
   // Get URL for uploading a file
@@ -90,34 +85,29 @@ export class IEPDocumentClient {
 
   // Get most recent processed document with its summary and sections
   async getMostRecentDocumentWithSummary() {
-    try {
-      const childId = await this.getDefaultChildId();
-      const auth = await Utils.authenticate();
-      
-      const response = await fetch(`${this.API}/profile/children/${childId}/documents`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + auth
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to get documents');
+    const childId = await this.getDefaultChildId();
+    const auth = await Utils.authenticate();
+
+    const response = await fetch(`${this.API}/profile/children/${childId}/documents`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + auth
       }
-      
-      const result = await response.json();
-      
-      // If no document is found, return null
-      if (!result || Object.keys(result).length === 0) {
-        return null;
-      }
-      
-      return result;
-    } catch (error) {
-      // console.error('Error fetching most recent document with summary:', error);
-      throw error;
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to get documents');
     }
+
+    const result = await response.json();
+
+    // If no document is found, return null
+    if (!result || Object.keys(result).length === 0) {
+      return null;
+    }
+
+    return result;
   }
   
   // Get (generating if needed) text-to-speech audio for a document's summary or a section.
@@ -182,26 +172,21 @@ export class IEPDocumentClient {
 
   // Delete a document
   async deleteFile(iepId: string) {
-    try {
-      const childId = await this.getDefaultChildId();
-      const auth = await Utils.authenticate();
-      
-      const response = await fetch(`${this.API}/profile/children/${childId}/documents/${iepId}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + auth
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to delete document');
+    const childId = await this.getDefaultChildId();
+    const auth = await Utils.authenticate();
+
+    const response = await fetch(`${this.API}/profile/children/${childId}/documents/${iepId}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + auth
       }
-      
-      return await response.json();
-    } catch (error) {
-      // console.error('Error deleting document:', error);
-      throw error;
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to delete document');
     }
+
+    return await response.json();
   }
 }

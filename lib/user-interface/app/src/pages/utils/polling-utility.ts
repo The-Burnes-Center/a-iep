@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { IEPDocument } from '../../common/types';
 
 export class PollingManager {
   private pollingIntervalRef: React.MutableRefObject<NodeJS.Timeout | null>;
@@ -8,7 +9,7 @@ export class PollingManager {
   }
 
   // Function to start polling if document is processing
-  startPollingIfProcessing = (doc: any, onPoll: () => void) => {
+  startPollingIfProcessing = (doc: Pick<IEPDocument, 'status'> | null, onPoll: () => void) => {
     if (this.pollingIntervalRef.current) {
       clearInterval(this.pollingIntervalRef.current);
       this.pollingIntervalRef.current = null;

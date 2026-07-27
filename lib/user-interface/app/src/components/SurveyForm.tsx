@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import MobileTopNavigation from './MobileTopNavigation';
 import AIEPFooter from './AIEPFooter';
 import './SurveyForm.css';
@@ -12,8 +11,6 @@ declare global {
 }
 
 const SurveyForm: React.FC = () => {
-    const navigate = useNavigate();
-  
   useEffect(() => {
     // Load JotForm embed handler script
     const script = document.createElement('script');

@@ -14,12 +14,11 @@ import {
   Select
 } from "@cloudscape-design/components";
 import * as React from "react";
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import styles from "../../styles/chat.module.scss";
 import {
-  ChatBotConfiguration,
   ChatBotHistoryItem,
   ChatBotMessageType,
 } from "./types";
@@ -44,10 +43,16 @@ export interface ChatMessageProps {
   updateMessageConflictReport: (messageIndex: number, conflictReport: string) => void;
 }
 
+/** Shape of the source entries the API stores in message metadata */
+interface SourceItem {
+  title: string;
+  uri: string;
+}
+
 
 
 export default function ChatMessage(props: ChatMessageProps) {
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading] = useState<boolean>(false);
   const [selectedIcon, setSelectedIcon] = useState<1 | 0 | null>(null);
   const { addNotification, removeNotification } = useNotifications();
   const [modalVisible, setModalVisible] = useState(false);
@@ -140,7 +145,7 @@ export default function ChatMessage(props: ChatMessageProps) {
         });
       };
   
-  const showSources = props.message.metadata?.Sources && (props.message.metadata.Sources as any[]).length > 0;
+  const showSources = props.message.metadata?.Sources && (props.message.metadata.Sources as unknown as SourceItem[]).length > 0;
   
   // useEffect(() => {
   //   if (props.message.conflictReport) {
@@ -214,7 +219,7 @@ export default function ChatMessage(props: ChatMessageProps) {
           showSources && (
             <SpaceBetween direction="horizontal" size="s">
               <ButtonDropdown
-                items={(props.message.metadata.Sources as any[]).map((item) => {
+                items={(props.message.metadata.Sources as unknown as SourceItem[]).map((item) => {
                   return {
                     id: "id",
                     disabled: false,

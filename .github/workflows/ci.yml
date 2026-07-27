@@ -73,9 +73,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          # Full history so the changed-file lint can diff against the base
-          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -90,31 +87,8 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      # The full `npm run lint` still fails on ~136 pre-existing errors
-      # (tracked burn-down). Until that lands, lint blocks on the files a
-      # change touches so new code stays clean without freezing all work.
-      - name: Lint changed files
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          case "$BASE_SHA" in
-            ''|0000000000000000000000000000000000000000)
-              echo "No base commit to diff against; skipping changed-file lint."
-              exit 0 ;;
-          esac
-          if ! git -C "$GITHUB_WORKSPACE" cat-file -e "$BASE_SHA" 2>/dev/null; then
-            echo "Base commit $BASE_SHA unavailable; skipping changed-file lint."
-            exit 0
-          fi
-          changed=$(git -C "$GITHUB_WORKSPACE" diff --name-only --diff-filter=d "$BASE_SHA"...HEAD \
-            | grep -E '^lib/user-interface/app/src/.*\.(ts|tsx)$' \
-            | sed 's|^lib/user-interface/app/||' || true)
-          if [ -z "$changed" ]; then
-            echo "No frontend source changes to lint."
-            exit 0
-          fi
-          echo "Linting changed files:" && echo "$changed"
-          echo "$changed" | xargs npx eslint --max-warnings 0 --report-unused-disable-directives
+      - name: Lint
+        run: npm run lint
 
   infra-synth:
     name: CDK typecheck and synth

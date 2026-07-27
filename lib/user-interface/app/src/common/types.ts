@@ -1,5 +1,3 @@
-import { SelectProps } from "@cloudscape-design/components";
-import { CognitoHostedUIIdentityProvider } from "@aws-amplify/auth";
 import { SupportedLanguage } from "./languages";
 
 export interface AppConfig {
@@ -58,8 +56,8 @@ export interface UserProfile {
   children: Child[];
   createdAt: number;
   updatedAt: number;
-  consentGiven: Boolean;
-  showOnboarding: Boolean;
+  consentGiven: boolean;
+  showOnboarding: boolean;
   // Referral system: this user's own shareable code, and the code they
   // arrived on (stamped once at signup, never overwritten)
   referralCode?: string;
@@ -182,5 +180,5 @@ export interface IEPDocument {
   };
   
   // Raw data
-  ocrData?: any;
+  ocrData?: unknown;
 }

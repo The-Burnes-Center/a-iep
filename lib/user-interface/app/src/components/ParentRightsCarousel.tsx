@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Carousel } from 'react-bootstrap';
 import './ParentRightsCarousel.css';
 
+// eslint-disable-next-line react-refresh/only-export-components -- slide data belongs beside the carousel that renders it; moving exports is out of scope for this lint pass
 export const defaultSlideData = [
       {
         id: 'slide-1',

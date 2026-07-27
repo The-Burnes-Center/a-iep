@@ -3,7 +3,6 @@ import { Container, Form, Button, Row, Col, OverlayTrigger, Tooltip, Spinner } f
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
-import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { UserProfile } from '../../common/types';
 import { useNotifications } from '../../components/notif-manager';
 import { useLanguage } from '../../common/language-context'; 
@@ -12,7 +11,6 @@ import './ProfileForms.css';
 export default function ConsentForm() {
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
-  const iepDocumentClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
   const { addNotification } = useNotifications();
   const { t } = useLanguage();
@@ -27,6 +25,7 @@ export default function ConsentForm() {
   // Load profile on component mount
   useEffect(() => {
     loadProfile();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only profile load by design
   }, []);
 
   const loadProfile = async () => {

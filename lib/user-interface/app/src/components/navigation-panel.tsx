@@ -1,7 +1,6 @@
 import {
   SideNavigation,
   SideNavigationProps,
-  Header,
   Button,
   Box,
   SpaceBetween,
@@ -70,6 +69,7 @@ export default function NavigationPanel() {
   // to request a session refresh (such as if a chat has just been created)
   useEffect(() => {
     loadSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadSessions is recreated every render; this effect must fire only when needsRefresh flips
   }, [needsRefresh]);
 
 
@@ -81,7 +81,7 @@ export default function NavigationPanel() {
 
 
   const updateItems = async (sessions) => {
-    let newItems: SideNavigationProps.Item[] = [
+    const newItems: SideNavigationProps.Item[] = [
       {
         type: "section",
         text: "Session History",

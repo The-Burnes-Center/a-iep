@@ -26,6 +26,7 @@ export default function ViewAndAddParent() {
 
   useEffect(() => {
     loadProfileAndCheckDocument();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only load by design
   }, []);
 
   const loadProfileAndCheckDocument = async () => {

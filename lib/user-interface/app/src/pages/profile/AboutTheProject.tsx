@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Container, Form, Button, Row, Col, Alert, Spinner, Breadcrumb } from 'react-bootstrap';
+import { Container, Row, Col, Alert, Spinner, Breadcrumb } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
 import { ApiClient } from '../../common/api-client/api-client';
 import { UserProfile } from '../../common/types';
-import { useNotifications } from '../../components/notif-manager';
-import { useLanguage, SupportedLanguage } from '../../common/language-context'; 
+import { useLanguage } from '../../common/language-context';
 import './ChangeLanguage.css';
 import './ProfileForms.css';
 
@@ -15,17 +14,16 @@ export default function AboutTheProject() {
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
   const navigate = useNavigate();
-  const { addNotification } = useNotifications();
-  const { t, setLanguage } = useLanguage();
+  const { t } = useLanguage();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [originalProfile, setOriginalProfile] = useState<UserProfile | null>(null);
+  const [, setProfile] = useState<UserProfile | null>(null);
+  const [, setOriginalProfile] = useState<UserProfile | null>(null);
 
     useEffect(() => {
       loadProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only profile load by design
     }, []);
   
     const loadProfile = async () => {

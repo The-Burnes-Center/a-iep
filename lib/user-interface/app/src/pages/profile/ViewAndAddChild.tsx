@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
-import { UserProfile, Child } from '../../common/types';
+import { UserProfile } from '../../common/types';
 import { useNotifications } from '../../components/notif-manager';
 import { useLanguage } from '../../common/language-context'; 
 import './ProfileForms.css';
@@ -29,6 +29,7 @@ export default function ViewAndAddChild() {
 
   useEffect(() => {
     loadProfileAndCheckDocument();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only load by design
   }, []);
 
   const loadProfileAndCheckDocument = async () => {

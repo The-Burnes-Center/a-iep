@@ -2,22 +2,22 @@ import React, { useState, useEffect, useMemo, useContext } from 'react';
 import { Container, Row, Col, Card, Spinner, Alert, Button, Accordion, Tabs, Tab, Offcanvas, Dropdown} from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useNavigate } from 'react-router-dom';
-import { faLanguage, faDownload, faArrowsRotate, faForward } from '@fortawesome/free-solid-svg-icons';
+import { faLanguage, faDownload, faArrowsRotate } from '@fortawesome/free-solid-svg-icons';
 import './IEPSummarizationAndTranslation.css';
-import { IEPDocument, IEPSection, Language, UserProfile } from '../../common/types';
+import { IEPDocument, IEPSection, UserProfile } from '../../common/types';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { getDirForLanguage } from '../../common/direction';
 import { useDocumentFetch, processContentWithJargon } from '../utils';
+import { FetchedIEPDocument } from '../utils/useDocumentFetch';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import TTSPlayButton from '../../components/TTSPlayButton';
-import ParentRightsCarousel, { SlideData } from '../../components/ParentRightsCarousel';
+import { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
 import AIEPFooter from '../../components/AIEPFooter';
 import { ApiClient } from '../../common/api-client/api-client';
 import { AppContext } from '../../common/app-context';
 import { useNotifications } from '../../components/notif-manager';
-import LinearProgress from '@mui/material/LinearProgress';
 import { TextHelper } from '../../common/helpers/text-helper';
 
 const IEPSummarizationAndTranslation: React.FC = () => {
@@ -46,7 +46,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState<boolean>(true);
   const [originalProfile, setOriginalProfile] = useState<UserProfile | null>(null);
-  const [saving, setSaving] = useState<boolean>(false);
+  const [, setSaving] = useState<boolean>(false);
   
   // Tutorial flow state management
   const [tutorialPhase, setTutorialPhase] = useState< 'parent-rights' | 'completed'>('parent-rights');
@@ -86,7 +86,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // Add state for dropdown language selection (separate from global language preference)
   const [selectedLanguage, setSelectedLanguage] = useState<string>('en');
   // Track if user has manually selected a language (to prevent auto-reset)
-  const [hasUserSelectedLanguage, setHasUserSelectedLanguage] = useState<boolean>(false);
+  const [hasUserSelectedLanguage] = useState<boolean>(false);
   const navigate = useNavigate();
   
   // Get preferred language from profile API, fallback to context language, then to 'en'
@@ -114,6 +114,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     };
 
     loadProfile();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only profile load by design; apiClient/setLanguage are recreated every render
   }, []);
 
   // Initialize selectedLanguage and activeTab after document loads
@@ -131,6 +132,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
       setSelectedLanguage('en');
       setActiveTab('en');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- hasContent is recreated every render; the document fields it reads are already dependencies
   }, [preferredLanguage, initialLoading, document.summaries, document.sections, hasUserSelectedLanguage]);
 
   // Only show tabs for languages enabled in this environment AND actually
@@ -171,14 +173,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // Handle language change - updates tab content and app language
   const handleLanguageChange = (lang: SupportedLanguage) => {
     handlePreferredLanguageChange(lang);
-  };
-
-
-  // Unified skip handler for the external button
-  const handleSkip = () => {
-    if (tutorialPhase === 'parent-rights') {
-      setTutorialPhase('completed');
-    } 
   };
 
 
@@ -340,7 +334,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   };
 
   // Process document sections for a specific language
-  const processLanguageSections = (doc: any, lang: string) => {
+  const processLanguageSections = (doc: FetchedIEPDocument, lang: string) => {
     // Only process sections when document is fully PROCESSED
     if (!doc || doc.status !== "PROCESSED") return;
     
@@ -413,7 +407,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   };
 
   // Process all document sections
-  const processDocumentSections = (doc: any) => {
+  const processDocumentSections = (doc: FetchedIEPDocument) => {
     // Process English sections first
     processLanguageSections(doc, 'en');
     
@@ -479,6 +473,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
       setActiveTab('en');
       setSelectedLanguage('en');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- hasContent is recreated every render; the document fields it reads are already dependencies
   }, [selectedLanguage, document.summaries, document.sections, isProcessing]);
 
 

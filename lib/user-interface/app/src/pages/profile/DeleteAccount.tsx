@@ -15,7 +15,7 @@ import AIEPFooter from '../../components/AIEPFooter';
 
 export default function DeleteAccount() {
   const [processing, setProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);

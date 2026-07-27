@@ -2,7 +2,7 @@
 declare global {
   interface Window {
     dataLayer: unknown[];
-    gtag: (...args: any[]) => void;
+    gtag: (...args: unknown[]) => void;
   }
 }
 
@@ -20,6 +20,7 @@ export const initAnalytics = () => {
 
   window.dataLayer = window.dataLayer || [];
   window.gtag = function gtag() {
+    // eslint-disable-next-line prefer-rest-params -- gtag.js requires the live arguments object, not an array
     window.dataLayer.push(arguments);
   };
   window.gtag('js', new Date());
@@ -41,7 +42,7 @@ export const trackPageView = (page_path: string, page_title?: string) => {
   });
 };
 
-export const trackEvent = (action: string, parameters?: Record<string, any>) => {
+export const trackEvent = (action: string, parameters?: Record<string, unknown>) => {
   if (!analyticsEnabled) return;
   window.gtag('event', action, parameters);
 };

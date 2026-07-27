@@ -38,7 +38,6 @@ import AboutAIEP from '../components/AboutAIEP';
 import DeleteAccount from '../pages/profile/DeleteAccount';
 import ChangeLanguage from '../pages/profile/ChangeLanguage';
 import ViewResources from '../pages/profile/ViewResources';
-import AboutTheProject from '../pages/profile/AboutTheProject';
 import ParentRights from '../pages/ParentRights';
 import PrivacyPolicy from '../pages/PrivacyPolicy';
 

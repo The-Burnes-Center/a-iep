@@ -10,6 +10,14 @@ import {
 
 import { AppConfig } from "../types";
 
+// Shape of a single stored exchange returned by the user-session backend
+interface RawChatHistoryRecord {
+  user: string;
+  chatbot: string;
+  metadata?: string;
+  conflict_report?: string;
+}
+
 export class SessionsClient {
 
   private readonly API;
@@ -26,7 +34,7 @@ export class SessionsClient {
     let validData = false;
     let output = [];
     let runs = 0;
-    let limit = 3;
+    const limit = 3;
     let errorMessage = "Could not load sessions"
     while (!validData && runs < limit) {
       runs += 1;
@@ -40,7 +48,7 @@ export class SessionsClient {
       });
       if (response.status != 200) {
         validData = false;
-        let jsonResponse = await response.json()        
+        const jsonResponse = await response.json()        
         errorMessage = jsonResponse;        
         break;
       }      
@@ -67,9 +75,9 @@ export class SessionsClient {
   ): Promise<ChatBotHistoryItem[]> {
     const auth = await Utils.authenticate();
     let validData = false;
-    let output;
+    let output: RawChatHistoryRecord[] | undefined;
     let runs = 0;
-    let limit = 3;
+    const limit = 3;
     let errorMessage = "Could not load session";
 
     /** Attempt to load a session up to 3 times or until it is validated */
@@ -96,13 +104,14 @@ export class SessionsClient {
       let received = new Uint8Array(0);
 
       /** Read the response stream */
+      // eslint-disable-next-line no-constant-condition -- intentional stream read loop
       while (true) {
         const { value, done } = await reader.read();
         if (done) {
           break;
         }
         if (value) {
-          let temp = new Uint8Array(received.length + value.length);
+          const temp = new Uint8Array(received.length + value.length);
           temp.set(received);
           temp.set(value, received.length);
           received = temp;
@@ -112,7 +121,7 @@ export class SessionsClient {
       const decoder = new TextDecoder('utf-8');
       const decoded = decoder.decode(received);
       try {
-        output = JSON.parse(decoded).chat_history! as any[];
+        output = JSON.parse(decoded).chat_history! as RawChatHistoryRecord[];
         validData = true;
       } catch (e) {
         console.log(e);
@@ -121,7 +130,7 @@ export class SessionsClient {
     if (!validData) {
       throw new Error(errorMessage)
     }
-    let history: ChatBotHistoryItem[] = [];
+    const history: ChatBotHistoryItem[] = [];
     // console.log(output);
     if (output === undefined) {
       return history;
@@ -155,7 +164,7 @@ export class SessionsClient {
   ) {
     try {
       const auth = await Utils.authenticate();
-      const response = await fetch(this.API + '/user-session', {
+      await fetch(this.API + '/user-session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

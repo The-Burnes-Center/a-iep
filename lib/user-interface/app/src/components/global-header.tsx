@@ -4,7 +4,6 @@ import { Auth } from "aws-amplify";
 import { useAuth } from "../common/auth-provider";
 import { AppContext } from "../common/app-context";
 import { ApiClient } from "../common/api-client/api-client";
-import { CHATBOT_NAME } from "../common/constants";
 import { Link } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage, SupportedLanguage } from '../common/language-context';
@@ -14,7 +13,7 @@ import { useNotifications } from './notif-manager';
 import './global-header.css';
 
 export default function GlobalHeader() {
-  const [userName, setUserName] = useState<string | null>(null);
+  const [, setUserName] = useState<string | null>(null);
   const { setAuthenticated } = useAuth();
   const appContext = useContext(AppContext);
   const { language, setLanguage, enabledLanguages } = useLanguage();
@@ -56,7 +55,8 @@ export default function GlobalHeader() {
     return () => {
       document.removeEventListener('click', handleClickOutside);
     };
-  }, [showMenu]);
+    // setAuthenticated is a useState setter from AuthProvider, so its identity is stable
+  }, [showMenu, setAuthenticated]);
 
   // When user signs out Auth.signOut() clears out all the tokens
   const handleSignOut = async () => {
