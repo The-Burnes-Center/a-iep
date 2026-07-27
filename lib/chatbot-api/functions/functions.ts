@@ -778,11 +778,16 @@ export class LambdaFunctionStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       code: lambda.Code.fromAsset(path.join(__dirname, 'pdf-generator'), {
         assetHashType: cdk.AssetHashType.SOURCE,
+        // Local node_modules stays out of the asset so the SOURCE hash is
+        // identical between a laptop deploy and a clean CI checkout; npm ci
+        // then installs exactly the committed package-lock.json, so deploys
+        // are reproducible instead of resolving ranges fresh each time.
+        exclude: ['node_modules'],
         bundling: {
           image: lambda.Runtime.NODEJS_20_X.bundlingImage,
           command: [
             'bash', '-c',
-            'npm --cache /tmp/.npm install && cp -au . /asset-output'
+            'npm --cache /tmp/.npm ci && cp -au . /asset-output'
           ],
         },
       }),

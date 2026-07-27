@@ -83,7 +83,10 @@ amplifyxc.config
 
 # Dependencies
 package-lock.json
-yarn.locklib/chatbot-api/functions/metadata-handler/DocumentAI Lambda Access.json
+# ...but deploy-time-bundled lambdas must pin their deps (npm ci needs this)
+!lib/chatbot-api/functions/pdf-generator/package-lock.json
+yarn.lock
+lib/chatbot-api/functions/metadata-handler/DocumentAI Lambda Access.json
 
 # Custom ignores
 cryptography-layer.zip
