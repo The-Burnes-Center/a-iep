@@ -21,6 +21,11 @@ STACK_NAME="${1:?usage: smoke-test.sh <stack-name> <environment>}"
 ENV_NAME="${2:?usage: smoke-test.sh <stack-name> <environment>}"
 
 # A number in the SMS-reserved 555-01XX fictional range: never a real user.
+# The permanent smoke-test users (also fictional, created 2026-07-27 via
+# admin-create-user + permanent random password, phone_number_verified) are
+# +15555550101 (staging) and +15555550102 (production), stored in SSM at
+# /a-iep/<env>/smoke-test-phone. UNKNOWN_NUMBER must stay distinct from
+# them or check 1 would hit a real account.
 UNKNOWN_NUMBER="+15555550123"
 FAILURES=0
 
