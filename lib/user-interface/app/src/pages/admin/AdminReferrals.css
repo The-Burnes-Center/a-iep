@@ -103,3 +103,49 @@
 .admin-referrals-card .form-switch .form-check-input:focus:not(:checked) {
   background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='rgba%280,104,47,0.5%29'/%3e%3c/svg%3e");
 }
+
+/* ===== New Campaign Link modal =====
+   Renders in a portal outside .admin-referrals-card, so it needs its own
+   copy of the same control overrides. :not(.is-invalid) keeps the Code
+   field's red validation state from ever being repainted gray. */
+.admin-referrals-modal .form-control,
+.admin-referrals-modal .form-select {
+  color: #1E1E1E;
+}
+
+.admin-referrals-modal .form-control:not(.is-invalid),
+.admin-referrals-modal .form-select:not(.is-invalid) {
+  border-color: #CBC6BC;
+}
+
+.admin-referrals-modal .form-control:focus:not(.is-invalid),
+.admin-referrals-modal .form-select:focus:not(.is-invalid) {
+  border-color: #00682F;
+  box-shadow: 0 0 0 0.25rem rgba(0, 104, 47, 0.15);
+}
+
+.admin-referrals-cancel-btn.btn {
+  color: #1E1E1E;
+  text-decoration: none;
+}
+
+.admin-referrals-cancel-btn.btn:hover,
+.admin-referrals-cancel-btn.btn:focus {
+  color: #00682F;
+  text-decoration: underline;
+}
+
+/* Live preview of the resulting /r/<code> URL below the Code field */
+.admin-referrals-url-preview {
+  font-family: akzidenz-grotesk-next-conden, sans-serif;
+  font-size: 0.85rem;
+  color: #1E1E1E;
+  background-color: #F5F3EE;
+  border: 1px solid rgba(30, 30, 30, 0.15);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+}
+
+.admin-referrals-url-preview strong {
+  font-weight: 600;
+}

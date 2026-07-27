@@ -29,6 +29,19 @@ import './AdminReferrals.css';
 const CHANNELS = ['social', 'conference', 'event', 'print', 'partner', 'other'];
 const CODE_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
 
+// Mirrors the backend's code shape while typing, e.g. "CEC Conference
+// Booth" -> "cec-conference-booth". Editable afterward like a CMS
+// permalink field: manual edits detach it from further name changes.
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32)
+    .replace(/-+$/g, '');
+}
+
 /**
  * Internal referral console, deliberately English-only. Reached from the
  * Account Center entry that only admin-group members see. The backend
@@ -46,8 +59,13 @@ export default function AdminReferrals() {
   const [typeFilter, setTypeFilter] = useState<'all' | 'campaign' | 'user'>('all');
   const [qrLink, setQrLink] = useState<ReferralLink | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [form, setForm] = useState({ code: '', name: '', channel: 'social', notes: '' });
+  // Once the admin types directly into Code, it stops following Name;
+  // clearing Code back to empty re-links it (matches WordPress permalinks).
+  const [codeManuallyEdited, setCodeManuallyEdited] = useState(false);
+  const [codeTouched, setCodeTouched] = useState(false);
   const [adminIdentifier, setAdminIdentifier] = useState('');
   const [adminError, setAdminError] = useState<string | null>(null);
   const qrWrapRef = useRef<HTMLDivElement>(null);
@@ -58,6 +76,14 @@ export default function AdminReferrals() {
     enabled: isAdmin === true,
   });
 
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+    setCreateError(null);
+    setForm({ code: '', name: '', channel: 'social', notes: '' });
+    setCodeManuallyEdited(false);
+    setCodeTouched(false);
+  };
+
   const createMutation = useMutation({
     mutationFn: () =>
       apiClient.referral.adminCreateLink({
@@ -67,8 +93,7 @@ export default function AdminReferrals() {
         notes: form.notes,
       }),
     onSuccess: () => {
-      setForm({ code: '', name: '', channel: 'social', notes: '' });
-      setCreateError(null);
+      closeCreateModal();
       queryClient.invalidateQueries({ queryKey: ['referral', 'admin', 'links'] });
     },
     onError: (err: Error) => setCreateError(err.message),
@@ -127,6 +152,7 @@ export default function AdminReferrals() {
 
   const handleCreate = (event: React.FormEvent) => {
     event.preventDefault();
+    setCodeTouched(true);
     const code = form.code.trim().toLowerCase();
     if (!CODE_PATTERN.test(code)) {
       setCreateError('Code must be 1-32 characters: lowercase letters, digits, hyphens.');
@@ -204,67 +230,25 @@ export default function AdminReferrals() {
           <Card.Body className="text-start">
             <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
               <h4 className="admin-referrals-header mb-0">Referral Links</h4>
-              <Button
-                variant="outline-secondary"
-                size="sm"
-                className="button-text"
-                onClick={exportCsv}
-                disabled={!links?.length}
-              >
-                <i className="bi bi-download me-1"></i>Export CSV
-              </Button>
+              <div className="d-flex gap-2">
+                <Button
+                  variant="outline-secondary"
+                  size="sm"
+                  className="button-text"
+                  onClick={exportCsv}
+                  disabled={!links?.length}
+                >
+                  <i className="bi bi-download me-1"></i>Export CSV
+                </Button>
+                <Button
+                  size="sm"
+                  className="button-text"
+                  onClick={() => setShowCreateModal(true)}
+                >
+                  <i className="bi bi-plus-lg me-1"></i>New Campaign Link
+                </Button>
+              </div>
             </div>
-
-            <Form onSubmit={handleCreate} className="admin-referrals-panel">
-              <div className="admin-referrals-panel-title mb-3">New campaign link</div>
-              {createError && <Alert variant="danger" className="py-2">{createError}</Alert>}
-              <Row className="g-2 align-items-end">
-                <Col xs={12} md={3}>
-                  <Form.Label className="form-label mb-1">Code</Form.Label>
-                  <Form.Control
-                    placeholder="conf-2026"
-                    value={form.code}
-                    onChange={(e) => setForm({ ...form, code: e.target.value })}
-                    required
-                  />
-                </Col>
-                <Col xs={12} md={3}>
-                  <Form.Label className="form-label mb-1">Name</Form.Label>
-                  <Form.Control
-                    placeholder="CEC conference booth"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  />
-                </Col>
-                <Col xs={6} md={2}>
-                  <Form.Label className="form-label mb-1">Channel</Form.Label>
-                  <Form.Select
-                    value={form.channel}
-                    onChange={(e) => setForm({ ...form, channel: e.target.value })}
-                  >
-                    {CHANNELS.map((channel) => (
-                      <option key={channel} value={channel}>{channel}</option>
-                    ))}
-                  </Form.Select>
-                </Col>
-                <Col xs={6} md={2}>
-                  <Form.Label className="form-label mb-1">Notes</Form.Label>
-                  <Form.Control
-                    value={form.notes}
-                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                  />
-                </Col>
-                <Col xs={12} md={2}>
-                  <Button
-                    type="submit"
-                    className="w-100 button-text"
-                    disabled={createMutation.isPending}
-                  >
-                    {createMutation.isPending ? 'Creating...' : 'Create'}
-                  </Button>
-                </Col>
-              </Row>
-            </Form>
 
             <div className="d-flex align-items-center gap-2 mb-2">
               <Form.Select
@@ -445,6 +429,96 @@ export default function AdminReferrals() {
         </Card>
       </Container>
       <AIEPFooter />
+
+      <Modal show={showCreateModal} onHide={closeCreateModal} centered className="admin-referrals-modal">
+        <Form onSubmit={handleCreate}>
+          <Modal.Header closeButton>
+            <Modal.Title className="admin-referrals-section-title">New Campaign Link</Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            {createError && <Alert variant="danger" className="py-2">{createError}</Alert>}
+
+            <Form.Group className="mb-3">
+              <Form.Label className="form-label mb-1">Name</Form.Label>
+              <Form.Control
+                placeholder="e.g. CEC Conference Booth"
+                value={form.name}
+                onChange={(e) => {
+                  const name = e.target.value;
+                  setForm((prev) => ({
+                    ...prev,
+                    name,
+                    code: codeManuallyEdited ? prev.code : slugify(name),
+                  }));
+                }}
+                autoFocus
+              />
+              <Form.Text className="text-muted">
+                A friendly name so you (and other admins) recognize this link later.
+              </Form.Text>
+            </Form.Group>
+
+            <Form.Group className="mb-1">
+              <Form.Label className="form-label mb-1">Code</Form.Label>
+              <Form.Control
+                placeholder="conf-2026"
+                value={form.code}
+                isInvalid={codeTouched && form.code.length > 0 && !CODE_PATTERN.test(form.code)}
+                onChange={(e) => {
+                  const code = e.target.value.toLowerCase();
+                  setCodeManuallyEdited(code.length > 0);
+                  setForm((prev) => ({ ...prev, code }));
+                }}
+                onBlur={() => setCodeTouched(true)}
+                required
+              />
+              <Form.Control.Feedback type="invalid">
+                Lowercase letters, numbers, and hyphens only (1-32 characters).
+              </Form.Control.Feedback>
+            </Form.Group>
+            <div className="admin-referrals-url-preview mb-3">
+              {window.location.host}/r/<strong>{form.code || 'your-code'}</strong>
+            </div>
+
+            <Form.Group className="mb-3">
+              <Form.Label className="form-label mb-1">Channel</Form.Label>
+              <Form.Select
+                value={form.channel}
+                onChange={(e) => setForm({ ...form, channel: e.target.value })}
+              >
+                {CHANNELS.map((channel) => (
+                  <option key={channel} value={channel}>{channel}</option>
+                ))}
+              </Form.Select>
+            </Form.Group>
+
+            <Form.Group>
+              <Form.Label className="form-label mb-1">
+                Notes <span className="text-muted">(optional)</span>
+              </Form.Label>
+              <Form.Control
+                as="textarea"
+                rows={2}
+                placeholder="Any context for other admins"
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              />
+            </Form.Group>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button
+              variant="link"
+              className="admin-referrals-cancel-btn"
+              onClick={closeCreateModal}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" className="button-text" disabled={createMutation.isPending}>
+              {createMutation.isPending ? 'Creating...' : 'Create link'}
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
 
       <Modal show={qrLink !== null} onHide={() => setQrLink(null)} centered>
         <Modal.Header closeButton>
