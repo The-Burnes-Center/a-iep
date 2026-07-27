@@ -10,7 +10,7 @@
     "puppeteer-core": "^21.11.0",
     "@sparticuz/chromium": "^119.0.2",
     "marked": "^9.1.6",
-    "sanitize-html": "^2.13.0"
+    "sanitize-html": "2.17.4"
   },
   "keywords": ["pdf", "puppeteer", "lambda", "iep"],
   "author": "",
