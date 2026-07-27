@@ -420,8 +420,9 @@ def update_user_profile(event: Dict) -> Dict:
             update_parts.append('children = :children')
             expr_values[':children'] = body['children']
         
-        # If no fields to update
-        if len(update_parts) == 1:  # only updatedAt
+        # If no fields to update (the first two parts are always the
+        # updatedAt/updatedAtISO timestamps)
+        if len(update_parts) == 2:
             return create_response(event, 400, {'message': 'No fields to update provided'})
             
         # Construct final update expression
