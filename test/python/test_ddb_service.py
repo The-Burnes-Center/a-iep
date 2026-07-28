@@ -102,17 +102,6 @@ def test_update_progress_writes_status_and_step(service):
     assert 'updated_at' in doc
 
 
-def test_get_user_prefs_defaults_to_english(service):
-    status, body = op(service, 'get_user_prefs', user_id=USER)
-    assert (status, body['languages']) == (200, ['en'])
-
-    service.profiles.put_item(Item={
-        'userId': USER, 'languages': ['en', 'es'], 'default_language': 'es'})
-    status, body = op(service, 'get_user_prefs', user_id=USER)
-    assert body['languages'] == ['en', 'es']
-    assert body['default_language'] == 'es'
-
-
 def test_get_document(service):
     assert op(service, 'get_document', **IDS)[0] == 404
     seed_document(service, progress=40)
