@@ -17,10 +17,20 @@ import { REGION, TEST_OTP_PARAM_PREFIX, getUserPoolId } from './config';
 const ssm = new SSMClient({ region: REGION });
 const cognito = new CognitoIdentityProviderClient({ region: REGION });
 
+/**
+ * Two writers stash codes at the same parameter, with slightly different
+ * payloads: create-auth-challenge (our sign-in OTP) records the language it
+ * would have localized the SMS with, while the CustomSMSSender trigger
+ * (Cognito's own sign-up / verification codes) records which trigger source
+ * produced it. Only `code` and `issuedAt` are common to both.
+ */
 export interface OtpPayload {
   code: string;
-  language: string;
   issuedAt: string;
+  /** Present on sign-in OTPs from create-auth-challenge. */
+  language?: string;
+  /** `cognito-<triggerSource>`, present on CustomSMSSender stashes. */
+  source?: string;
 }
 
 /**

@@ -150,11 +150,14 @@ export default function UpdateProfileName() {
                 </Row>
 
                 <div className="d-grid">
-                  <Button 
-                    variant="primary" 
+                  <Button
+                    variant="primary"
                     onClick={handleSaveAndContinue}
                     disabled={!isFormValid() || saving}
                     className="consent-button aiep-button"
+                    // Stable E2E hook: the label is localized, the state
+                    // (disabled while the name is empty) is what is asserted
+                    data-testid="update-profile-submit"
                   >
                     {saving ? t('updateProfile.button.saving') : t('updateProfile.button.update')}
                   </Button>

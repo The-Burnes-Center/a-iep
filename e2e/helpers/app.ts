@@ -11,7 +11,7 @@
  */
 import { Page, expect } from '@playwright/test';
 import { appUrl } from './config';
-import { fetchOtp } from './aws';
+import { fetchOtp, OtpPayload } from './aws';
 
 /** The English copy the flows key on (single place to update when the
  * translation files change; values mirror src/translations/en.json). */
@@ -21,6 +21,9 @@ export const EN = {
   backToLogin: 'Back to Login',
   smsCodeSentExisting: 'SMS code sent. Please enter the verification code.',
   smsCodeSentNewUser: 'Account created and SMS code sent!',
+  // Sign-up confirmed; the app has already asked for the first login OTP
+  // (auth.accountConfirmedNewCode, matched on its distinctive tail).
+  signUpConfirmedNewCode: 'We will send you another code',
   wrongCodeInSession: 'An error occurred. Please try again.',
   sessionFailed: 'Invalid verification code. Please try again.',
   preferEnglish: 'I prefer English',
@@ -29,7 +32,6 @@ export const EN = {
   navigateToAccount: 'Navigate to Account',
   deleteYourAccount: 'Delete your account',
   deleteMyAccount: 'Delete My Account',
-  uploadDocument: 'Upload Document',
 } as const;
 
 /** Once one of these is reached, login + onboarding are behind us. */
@@ -69,6 +71,56 @@ export async function submitOtpCode(page: Page, code: string): Promise<void> {
 }
 
 /**
+ * A code stashed at the SSM backdoor parameter, from either writer:
+ *  - our create-auth-challenge login backdoor: {code, language, issuedAt}
+ *  - staging's CustomSMSSender trigger, which intercepts the SMS Cognito
+ *    itself sends (sign-up verification): {code, issuedAt, source:
+ *    "cognito-<triggerSource>"} and NO language field.
+ * fetchOtp judges freshness on issuedAt alone, so it reads both; this type
+ * just lets callers inspect the discriminator without casting.
+ */
+export type StashedOtp = OtpPayload & { source?: string };
+
+const NEXT_OTP_TIMEOUT_MS = 60_000;
+const NEXT_OTP_INTERVAL_MS = 1_000;
+
+/**
+ * Fetch the NEXT code stashed for `phone`: fresh (issuedAt after `sentAt`)
+ * *and* different from `previous`.
+ *
+ * Both writers use the same parameter, and the sign-up journey triggers two
+ * sends seconds apart (Cognito's verification code, then the login OTP the
+ * app requests the instant confirmSignUp returns). That gap is narrower than
+ * fetchOtp's 2s clock-skew allowance, so a plain fetchOtp can hand back the
+ * code we just consumed; comparing against the previous payload closes it.
+ *
+ * (Natural home is helpers/aws.ts, next to fetchOtp; move it there the next
+ * time that file is touched.)
+ */
+export async function fetchNextOtp(
+  phone: string,
+  sentAt: number,
+  previous: StashedOtp,
+): Promise<StashedOtp> {
+  const deadline = Date.now() + NEXT_OTP_TIMEOUT_MS;
+
+  for (;;) {
+    const payload: StashedOtp = await fetchOtp(phone, sentAt);
+    const isPrevious = payload.issuedAt === previous.issuedAt && payload.code === previous.code;
+    if (!isPrevious) return payload;
+
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Timed out after ${NEXT_OTP_TIMEOUT_MS / 1000}s waiting for a NEW code for ${phone}: ` +
+        `the stash still holds the payload already consumed (issuedAt=${previous.issuedAt}), ` +
+        'so the second send never reached SSM.'
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, NEXT_OTP_INTERVAL_MS));
+  }
+}
+
+/**
  * Full UI login via the OTP backdoor, ending inside the app (onboarding
  * completed if this account had not been through it yet).
  */
@@ -84,11 +136,17 @@ export async function loginWithOtp(page: Page, phone: string): Promise<void> {
 
   const otp = await fetchOtp(phone, sentAt);
   await submitOtpCode(page, otp.code);
+  await finishLoginAfterOtp(page);
+}
 
-  // On success the app parks on /login for ~1s (success flash) and then
-  // routes to /preferred-language, which decides where the user belongs.
+/**
+ * The tail of every successful OTP submit: the app parks on /login for ~1s
+ * (success flash), routes to /preferred-language, and that page decides
+ * where the user belongs. Returns the in-app path finally reached.
+ */
+export async function finishLoginAfterOtp(page: Page): Promise<string> {
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 60_000 });
-  await completeOnboardingIfShown(page);
+  return completeOnboardingIfShown(page);
 }
 
 const ONBOARDING_DEADLINE_MS = 120_000;
@@ -167,4 +225,22 @@ export async function completeOnboardingIfShown(page: Page): Promise<string> {
     `Onboarding never reached ${IN_APP_PATHS.join(' or ')} within ` +
     `${ONBOARDING_DEADLINE_MS / 1000}s (stuck at: ${lastPath})`
   );
+}
+
+/**
+ * Delete the signed-in account the way a parent would: app nav -> Account
+ * Center -> Delete your account -> Delete My Account.
+ *
+ * The backend deletes the S3 documents, the document rows, the profile row
+ * and the Cognito user, then the app signs out and lands on the public
+ * landing page. Reaching '/' proves the DELETE call resolved (the app only
+ * navigates after it returns), not just that time passed.
+ */
+export async function deleteAccountThroughUi(page: Page): Promise<void> {
+  await page.getByRole('button', { name: EN.navigateToAccount }).click();
+  await page.waitForURL((url) => url.pathname === '/account-center');
+  await page.getByRole('button', { name: EN.deleteYourAccount }).click();
+  await page.waitForURL((url) => url.pathname === '/account-center/delete-account');
+  await page.getByRole('button', { name: EN.deleteMyAccount }).click();
+  await page.waitForURL((url) => url.pathname === '/', { timeout: 60_000 });
 }

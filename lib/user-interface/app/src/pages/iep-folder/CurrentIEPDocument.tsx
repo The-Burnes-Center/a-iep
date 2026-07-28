@@ -74,14 +74,16 @@ const CurrentIEPDocument: React.FC<CurrentIEPDocumentProps> = ({ onRefreshNeeded
             </Spinner>
           </div>
         ) : documentName ? (
-        <div className='upload-info'>
+        // The two data-testids below are stable E2E hooks for "is a document
+        // on file?"; both messages are localized.
+        <div className='upload-info' data-testid="current-document-present">
           <h3>{t('current.header1')}</h3>
           <p>
             {t('current.paragraph1')}
           </p>
         </div>
         ) : (
-        <div className='upload-info'>
+        <div className='upload-info' data-testid="current-document-absent">
           <h3>{t('current.header2')}</h3>
           <p>
             {t('current.paragraph2')}

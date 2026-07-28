@@ -548,7 +548,9 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     // Content direction follows the CONTENT language, not the UI language
     // (e.g. Arabic UI viewing the English tab stays LTR, and vice versa)
     return (
-      <div dir={getDirForLanguage(lang)} lang={lang}>
+      // data-testid: stable E2E hook per language pane (the tab nav is
+      // CSS-hidden, so a spec cannot find these panes by their tab labels)
+      <div dir={getDirForLanguage(lang)} lang={lang} data-testid={`summary-tab-panel-${lang}`}>
         {/* Summary Section */}
         {hasSummary ? (
           <>
@@ -574,7 +576,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                   const contentToShow = needsTruncation && !isExpanded ? truncated : fullContent;
                   
                   return (
-                    <div className="markdown-content" onClick={handleContentClick}>
+                    <div
+                      className="markdown-content"
+                      onClick={handleContentClick}
+                      // Stable E2E hook: lets a spec compare the English and
+                      // translated summaries without scraping the whole page
+                      data-testid={`summary-text-${lang}`}
+                    >
                       <span
                         dangerouslySetInnerHTML={{ 
                           __html: processContentWithJargon(contentToShow, lang)
@@ -646,7 +654,9 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             </h4>
             <Accordion className="mb-3 summary-accordion">
               {document.sections[lang].map((section, index) => (
-                <Accordion.Item key={index} eventKey={index.toString()}>
+                // data-testid: stable E2E hook for "the Key Insights
+                // sections rendered" (the headings are localized content)
+                <Accordion.Item key={index} eventKey={index.toString()} data-testid="summary-section">
                   <Accordion.Header>
                     {section.displayName}
                   </Accordion.Header>
@@ -830,11 +840,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         <div className="mt-2 text-start button-container d-flex justify-content-between align-items-center">
           <div className="d-flex gap-2 align-items-center">
             {apiClient.pdf.canGeneratePDF(document) && (
-              <Button 
-                variant="primary" 
+              <Button
+                variant="primary"
                 onClick={handleDownloadPDF}
                 disabled={isGeneratingPDF || isProcessing}
                 className="download-button"
+                // Stable E2E hook: the label is localized
+                data-testid="download-pdf-button"
               >
                 {isGeneratingPDF ? (
                   <>
@@ -859,10 +871,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               </Dropdown.Toggle>
               <Dropdown.Menu>
                 {languageOptions.map(option => (
-                  <Dropdown.Item 
-                    key={option.value} 
+                  <Dropdown.Item
+                    key={option.value}
                     onClick={() => handleLanguageChange(option.value as SupportedLanguage)}
                     active={selectedLanguage === option.value}
+                    // Stable E2E hook: the items are labelled with each
+                    // language's own endonym
+                    data-testid={`summary-language-option-${option.value}`}
                   >
                     {option.label.toUpperCase()}
                   </Dropdown.Item>
@@ -888,7 +903,12 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                   <Col md={12} className="no-padding-inherit">
                     {document.status === "FAILED" ? (
                       <Alert variant="danger">
-                        <h5>{t('summary.failed.title')}</h5>
+                        {/* data-testid: stable E2E hook so the pipeline
+                            journey can fail fast instead of waiting out its
+                            budget. It sits on the heading, not on <Alert>,
+                            because Alert forwards unknown props to its Fade
+                            transition rather than to the rendered div. */}
+                        <h5 data-testid="summary-failed">{t('summary.failed.title')}</h5>
                         <p>{t('summary.failed.message')}</p>
                         <Button
                           variant="primary"
@@ -971,10 +991,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               </Card.Body>
             
               {document.status === "PROCESSED" && (
-                <Card.Header 
-                  className="summary-card-header d-flex justify-content-center align-items-center" 
+                <Card.Header
+                  className="summary-card-header d-flex justify-content-center align-items-center"
                   onClick={() => navigate('/iep-documents')}
                   style={{ cursor: 'pointer' }}
+                  // Stable E2E hook: the replace-document entry point, whose
+                  // label is localized
+                  data-testid="replace-document-link"
                 >
                   <div>
                     <FontAwesomeIcon icon={faArrowsRotate} className="me-2" />

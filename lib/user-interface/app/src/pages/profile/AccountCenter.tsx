@@ -66,30 +66,37 @@ const AccountCenter: React.FC = () => {
     }
   };
 
-  // FAQ data object
+  // FAQ data object.
+  // testId is the stable, language-independent hook the E2E suite navigates
+  // by (every visible title here is localized).
   const headers = [
     {
       id: "0",
       title: t("accountCenter.updateProfile"),
+      testId: "account-center-update-profile",
     },
     {
       id: "1",
       title: t("accountCenter.changeLanguage"),
+      testId: "account-center-change-language",
     },
     {
       id: "2",
       title: t("accountCenter.deleteAccount"),
+      testId: "account-center-delete-account",
     },
     {
       id: "3",
       title: t("invite.title"),
+      testId: "account-center-invite",
     },
     // Internal console entry, rendered only for members of the Cognito
     // admin group (the backend re-checks the claim on every admin API call)
-    ...(isAdmin ? [{ id: "5", title: "Admin Console" }] : []),
+    ...(isAdmin ? [{ id: "5", title: "Admin Console", testId: "account-center-admin-console" }] : []),
     {
       id: "4",
       title: t("accountCenter.logOut"),
+      testId: "account-center-log-out",
     }
   ];
 
@@ -108,7 +115,8 @@ const AccountCenter: React.FC = () => {
                     <Accordion className="account-center-accordion">
                       {headers.map((header) => (
                         <Accordion.Item key={header.id} eventKey={header.id}>
-                          <Accordion.Header 
+                          <Accordion.Header
+                            data-testid={header.testId}
                             onClick={() => handleAccordionClick(header.id)}
                             style={{ cursor: 'pointer' }}
                           >

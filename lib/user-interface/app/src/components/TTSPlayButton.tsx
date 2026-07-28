@@ -126,6 +126,11 @@ const TTSPlayButton: React.FC<TTSPlayButtonProps> = ({
       disabled={state === 'loading'}
       aria-label={label}
       title={label}
+      // Stable E2E hooks. The label is localized and the icon is an SVG, so
+      // the playback state needs a machine-readable mirror: tts.spec.ts pins
+      // the "only one button may say it is playing" rule with it.
+      data-testid="tts-play-button"
+      data-tts-state={state}
     >
       {state === 'loading' ? (
         <Spinner animation="border" size="sm" role="status" aria-hidden="true" />

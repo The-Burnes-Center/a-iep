@@ -216,10 +216,12 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
             )}
             
             <div className="d-grid gap-2 mt-3">
-              <Button 
-                variant="primary" 
+              <Button
+                variant="primary"
                 onClick={handleUpload}
                 disabled={!file || uploadStatus === 'uploading'}
+                // Stable E2E hook: the label is localized
+                data-testid="upload-submit-button"
               >
                 <FontAwesomeIcon icon={faUpload} className="me-2" />
                 {t('upload.button')}

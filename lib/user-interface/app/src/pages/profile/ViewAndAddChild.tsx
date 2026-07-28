@@ -201,11 +201,13 @@ export default function ViewAndAddChild() {
               </Row>
 
               <div className="d-grid">
-                <Button 
-                  variant="primary" 
+                <Button
+                  variant="primary"
                   onClick={handleSaveAndContinue}
                   disabled={!isFormValid() || saving}
                   className="button-text"
+                  // Stable E2E hook: the label is localized
+                  data-testid="child-save-button"
                 >
                   {saving ? t('child.button.saving') : t('child.button.save')}
                 </Button>

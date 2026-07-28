@@ -18,7 +18,7 @@ import {
 } from '@aws-sdk/client-cloudformation';
 import { REGION, STACK_NAME, stashResolvedConfig } from './helpers/config';
 import { ensureTestUser } from './helpers/aws';
-import { STABLE_USER, LOCKOUT_USER } from './helpers/phones';
+import { STABLE_USER, LOCKOUT_USER, PROFILE_USER, DOCUMENTS_USER } from './helpers/phones';
 
 async function resolveStackOutputs(): Promise<{ siteUrl: string; userPoolId: string }> {
   const cfn = new CloudFormationClient({ region: REGION });
@@ -71,11 +71,13 @@ export default async function globalSetup(): Promise<void> {
   console.log(`[e2e setup] site: ${siteUrl}`);
   console.log(`[e2e setup] user pool: ${userPoolId}`);
 
-  // The two persistent users must exist before their journeys run. The
-  // throwaway re-signup number is deliberately NOT healed here: its spec
-  // deletes the account mid-journey, so healing must happen per attempt
-  // (inside the spec) or the automatic retry would start user-less.
+  // Every persistent user must exist before its journey runs. The throwaway
+  // re-signup number is deliberately NOT healed here: its spec deletes the
+  // account mid-journey, so healing must happen per attempt (inside the
+  // spec) or the automatic retry would start user-less.
   await ensureTestUser(STABLE_USER);
   await ensureTestUser(LOCKOUT_USER);
+  await ensureTestUser(PROFILE_USER);
+  await ensureTestUser(DOCUMENTS_USER);
   console.log('[e2e setup] persistent test users ensured');
 }

@@ -23,11 +23,26 @@ export const STABLE_USER = '+15555550111';
  * account-level lock feature) can never strand the login spec. */
 export const LOCKOUT_USER = '+15555550112';
 
+/** Persistent user for the profile / account-center journey. Kept off the
+ * login users so a half-edited profile can never break them. */
+export const PROFILE_USER = '+15555550113';
+
+/** Persistent user for the documents journey (upload / replace / delete).
+ * Its documents are that spec's own churn; nothing else may sign it in. */
+export const DOCUMENTS_USER = '+15555550114';
+
 /**
- * The delete-account-then-re-signup journey burns this identity every run
- * (UI deletion removes the Cognito user; the re-signup attempt leaves an
- * UNCONFIRMED leftover). The spec heals it (delete + admin-create) at the
- * start of every attempt, so a fixed number from the 0120-0129 throwaway
- * pool is enough; the rest of the pool stays in reserve.
+ * The delete-account-then-re-signup journey burns this identity every run:
+ * it logs in, deletes the account through the UI, signs up again for real
+ * (Cognito's own verification SMS is diverted to SSM by staging's
+ * CustomSMSSender trigger), lands back in the app and deletes it once more.
+ *
+ * So this number is the only one that exercises Auth.signUp, confirmSignUp
+ * and the PostConfirmation profile trigger on a schedule: the path that was
+ * silently broken for a month in the 2026-07 incident.
+ *
+ * The spec heals it (delete + admin-create) at the start of every attempt
+ * and admin-deletes it in an afterEach, so a fixed number from the 0120-0129
+ * throwaway pool is enough; the rest of the pool stays in reserve.
  */
 export const THROWAWAY_USER = '+15555550120';
