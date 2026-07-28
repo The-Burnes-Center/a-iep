@@ -1,15 +1,16 @@
-boto3>=1.34.11
-requests>=2.31.0
-urllib3>=1.26.18
-certifi>=2024.7.4
-mistralai>=0.0.32
-openai>=1.2.0
-openai-agents>=0.0.6
-cryptography>=41.0.7
-fpdf2>=2.7.4
-protobuf>=4.22.3
-python-dotenv>=1.0.0
-pillow>=10.1.0
+# Pinned 2026-07-28 for reproducible deploys (SOURCE-based asset hashes; see metadata-handler/requirements.txt)
+boto3==1.43.58
+requests==2.34.2
+urllib3==2.7.0
+certifi==2026.7.22
+mistralai==1.12.4  # newest allowed by pydantic 2.10.6 (mistralai 2.x needs pydantic>=2.11.2)
+openai==2.49.0
+openai-agents==0.4.2  # newest allowed by pydantic 2.10.6 (0.19.x needs pydantic>=2.12.2)
+cryptography==49.0.0
+fpdf2==2.8.7
+protobuf==7.35.1
+python-dotenv==1.2.2
+pillow==12.2.0  # newest with manylinux2014 cp312 wheels
 
 # Data validation (compatible with openai-agents)
 pydantic==2.10.6
