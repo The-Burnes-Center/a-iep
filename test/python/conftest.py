@@ -7,9 +7,12 @@ file literally named lambda_function.py; loading by path under a unique
 alias keeps them from colliding in sys.modules.
 """
 import importlib.util
+import io
+import json
 import os
 import sys
 
+import boto3
 import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -50,3 +53,51 @@ def load_lambda_module(handler_dir, alias, module_name='lambda_function'):
 
 def unload(alias):
     sys.modules.pop(alias, None)
+
+
+class FakeLambdaClient:
+    """In-memory stand-in for boto3's Lambda client (cross-lambda invokes).
+
+    `handler` receives the parsed payload and returns the invoked lambda's
+    result. Wiring it to another handler module loaded by load_lambda_module
+    (e.g. the real ddb-service) turns a step's invoke into a contract test:
+    drift in the service's operations, params, or response shape fails here
+    instead of in production. Every call is recorded on `invocations` as
+    (function_name, payload).
+    """
+
+    def __init__(self, handler):
+        self.handler = handler
+        self.invocations = []
+
+    def invoke(self, FunctionName, Payload, InvocationType='RequestResponse'):
+        payload = json.loads(Payload)
+        self.invocations.append((FunctionName, payload))
+        result = self.handler(payload)
+        return {'Payload': io.BytesIO(json.dumps(result, default=str).encode('utf-8'))}
+
+    def payloads(self, operation):
+        return [p for _, p in self.invocations if p.get('operation') == operation]
+
+
+class ScopedBoto3:
+    """boto3 stand-in for a single handler module's namespace.
+
+    client('lambda') returns the given fake so cross-lambda invokes stay
+    in-process; every other service goes through the real boto3 (moto-backed
+    when the test runs under mock_aws). Install it with
+    monkeypatch.setattr(module, 'boto3', ScopedBoto3(fake)): that rebinds the
+    name only inside that module, unlike patching boto3.client itself, which
+    would hijack every client in the process.
+    """
+
+    def __init__(self, lambda_client):
+        self.lambda_client = lambda_client
+
+    def client(self, service_name, **kwargs):
+        if service_name == 'lambda':
+            return self.lambda_client
+        return boto3.client(service_name, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(boto3, name)
