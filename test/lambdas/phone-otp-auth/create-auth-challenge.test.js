@@ -13,15 +13,29 @@
  * language (GetCommand on the profiles table) and the handler counts SMS
  * sends against the hourly per-phone budget (UpdateCommand on the
  * OTP_RATE_LIMIT_TABLE counter).
+ *
+ * The SSM mock serves the staging-only E2E backdoor: allowlisted
+ * NANP-fictional numbers get their OTP written to Parameter Store instead
+ * of texted (see the 'staging test-number backdoor' describe).
  */
 const mockSnsSend = jest.fn();
 const mockDdbSend = jest.fn();
+const mockSsmSend = jest.fn();
 
 jest.mock('@aws-sdk/client-sns', () => ({
     SNSClient: class {
         send(...args) { return mockSnsSend(...args); }
     },
     PublishCommand: class {
+        constructor(input) { this.input = input; }
+    },
+}), { virtual: true });
+
+jest.mock('@aws-sdk/client-ssm', () => ({
+    SSMClient: class {
+        send(...args) { return mockSsmSend(...args); }
+    },
+    PutParameterCommand: class {
         constructor(input) { this.input = input; }
     },
 }), { virtual: true });
@@ -42,6 +56,7 @@ jest.mock('@aws-sdk/lib-dynamodb', () => {
 }, { virtual: true });
 
 const { UpdateCommand } = require('@aws-sdk/lib-dynamodb');
+const { PutParameterCommand } = require('@aws-sdk/client-ssm');
 const { handler } = require('../../../lib/chatbot-api/functions/phone-otp-auth/create-auth-challenge');
 const { getMessages } = require('../../../lib/chatbot-api/functions/phone-otp-auth/messages');
 
@@ -79,6 +94,7 @@ const updateCalls = () => mockDdbSend.mock.calls.filter(([cmd]) => cmd instanceo
 describe('create-auth-challenge', () => {
     beforeEach(() => {
         mockSnsSend.mockResolvedValue({ MessageId: 'msg-1' });
+        mockSsmSend.mockResolvedValue({ Version: 1 });
         // Profile lookups miss; the rate-limit counter reports a first send.
         mockDdbSend.mockImplementation(async (cmd) => {
             if (cmd instanceof UpdateCommand) return { Attributes: { smsCount: 1 } };
@@ -86,6 +102,9 @@ describe('create-auth-challenge', () => {
         });
         process.env.OTP_RATE_LIMIT_TABLE = 'test-otp-rate-limit';
         delete process.env.USER_PROFILES_TABLE;
+        // The backdoor must not exist unless a test opts in explicitly.
+        delete process.env.TEST_PHONE_NUMBERS;
+        delete process.env.TEST_OTP_PARAM_PREFIX;
     });
 
     test('round 1 is a language handshake and sends no SMS', async () => {
@@ -240,5 +259,110 @@ describe('create-auth-challenge', () => {
         expect(event.response.publicChallengeParameters).toEqual(ERROR_SHAPE);
         expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
         expect(mockSnsSend).not.toHaveBeenCalled();
+    });
+
+    describe('staging test-number backdoor', () => {
+        // Staging (lib/authorization/new-auth.ts) allowlists NANP-fictional
+        // numbers whose OTPs are stashed in SSM Parameter Store for the E2E
+        // runner instead of texted. Both locks are exercised here: the env
+        // var allowlist AND the hard-coded fictional-block regex. The
+        // allowlist below carries stray spaces on purpose (entries must be
+        // trimmed) and omits the smoke user +15555550101 (smoke asserts the
+        // real, non-backdoored SMS contract).
+        const TEST_PHONE = '+15555550111';
+        const PARAM_PREFIX = '/a-iep/staging/test-otp';
+
+        const armBackdoor = () => {
+            process.env.TEST_PHONE_NUMBERS = ' +15555550111 , +15555550112';
+            process.env.TEST_OTP_PARAM_PREFIX = PARAM_PREFIX;
+        };
+
+        const eventFor = (phone, extra = {}) =>
+            baseEvent([HANDSHAKE_PASS], { userAttributes: { phone_number: phone }, ...extra });
+
+        test('an allowlisted fictional number gets its OTP stashed in SSM, never texted', async () => {
+            armBackdoor();
+            const event = await handler(eventFor(TEST_PHONE, { clientMetadata: { language: 'es' } }));
+
+            // No SMS, and no draw on the hourly SMS budget: the rate-limit
+            // counter meters SMS spend and nothing was transmitted.
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(updateCalls()).toHaveLength(0);
+
+            expect(mockSsmSend).toHaveBeenCalledTimes(1);
+            const put = mockSsmSend.mock.calls[0][0];
+            expect(put).toBeInstanceOf(PutParameterCommand);
+            // SSM parameter names forbid '+', so the E.164 prefix is
+            // stripped; the E2E runner reads the same '+'-less name.
+            expect(put.input.Name).toBe(`${PARAM_PREFIX}/15555550111`);
+            expect(put.input.Type).toBe('String');
+            expect(put.input.Overwrite).toBe(true);
+
+            // The stash must carry the exact code the verify round will
+            // accept, plus the resolved language and the issuance stamp.
+            const payload = JSON.parse(put.input.Value);
+            expect(payload.code).toBe(event.response.privateChallengeParameters.secretLoginCode);
+            expect(payload.code).toMatch(/^\d{6}$/);
+            expect(payload.language).toBe('es');
+            expect(payload.issuedAt).toBe(event.response.privateChallengeParameters.issuedAt);
+        });
+
+        test('an allowlisted but NON-fictional number is still texted (the regex is the second lock)', async () => {
+            // A lying/compromised allowlist must never divert a real
+            // subscriber's OTP into Parameter Store.
+            process.env.TEST_PHONE_NUMBERS = '+15551234567';
+            process.env.TEST_OTP_PARAM_PREFIX = PARAM_PREFIX;
+            const event = await handler(eventFor('+15551234567'));
+
+            expect(mockSsmSend).not.toHaveBeenCalled();
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+            expect(mockSnsSend.mock.calls[0][0].input.PhoneNumber).toBe('+15551234567');
+            // The real send pays the SMS budget as usual.
+            expect(updateCalls()).toHaveLength(1);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        });
+
+        test('a fictional number outside the allowlist takes the normal SMS path (the smoke users)', async () => {
+            armBackdoor();
+            // +15555550101 is the permanent staging smoke user: fictional but
+            // deliberately not allowlisted, so smoke exercises the real path.
+            const event = await handler(eventFor('+15555550101'));
+
+            expect(mockSsmSend).not.toHaveBeenCalled();
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        });
+
+        test('with no backdoor env vars (production) even a fictional number is texted normally', async () => {
+            // beforeEach deleted both env vars; this is the production shape.
+            const event = await handler(eventFor(TEST_PHONE));
+
+            expect(mockSsmSend).not.toHaveBeenCalled();
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+            expect(updateCalls()).toHaveLength(1);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        });
+
+        test('an allowlisted number with no TEST_OTP_PARAM_PREFIX fails loud with the error shape', async () => {
+            process.env.TEST_PHONE_NUMBERS = TEST_PHONE;
+            // TEST_OTP_PARAM_PREFIX deliberately unset: misconfiguration must
+            // fail the round, not silently text a fictional number.
+            const event = await handler(eventFor(TEST_PHONE));
+
+            expect(event.response.publicChallengeParameters).toEqual(ERROR_SHAPE);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(mockSsmSend).not.toHaveBeenCalled();
+        });
+
+        test('an SSM write failure surfaces the same error shape as an SNS failure', async () => {
+            armBackdoor();
+            mockSsmSend.mockRejectedValue(new Error('SSM is down'));
+            const event = await handler(eventFor(TEST_PHONE));
+
+            expect(event.response.publicChallengeParameters).toEqual(ERROR_SHAPE);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+            expect(mockSnsSend).not.toHaveBeenCalled();
+        });
     });
 });

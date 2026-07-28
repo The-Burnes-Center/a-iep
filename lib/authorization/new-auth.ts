@@ -6,7 +6,7 @@ import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as path from 'path';
-import { getTagProps, tagResource } from '../tags';
+import { getEnvironment, getTagProps, tagResource } from '../tags';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { CfnUserPool } from 'aws-cdk-lib/aws-cognito';
 
@@ -225,6 +225,49 @@ export class NewAuthorizationStack extends Construct {
       ],
       resources: ['*'] // SNS publish requires * for phone numbers
     }));
+
+    // ── Staging-only E2E OTP backdoor ────────────────────────────────────
+    // The Playwright suite signs in as real Cognito users whose numbers are
+    // drawn from the NANP-fictional 555-01XX block (+1 555 555-01XX can
+    // never be assigned to a real handset). For allowlisted numbers,
+    // create-auth-challenge writes the OTP to SSM Parameter Store at
+    // TEST_OTP_PARAM_PREFIX/<phone> instead of texting it, and the E2E
+    // runner reads the parameter to complete login. The lambda double-guards
+    // the gate: a number must BOTH be in TEST_PHONE_NUMBERS AND match its
+    // hard-coded fictional-block regex, so even a misconfigured allowlist
+    // can never divert a real user's code.
+    //
+    // +15555550101 / +15555550102 are the permanent SMOKE-test users and are
+    // deliberately NOT in this allowlist: the smoke checks assert the real,
+    // non-backdoored contract.
+    //
+    // Allowlist roles: 0111 = stable E2E login user, 0112 = lockout-journey
+    // user, 0120-0129 = throwaway pool for the delete/re-signup journey.
+    //
+    // getEnvironment() distinguishes the stacks the same way resource naming
+    // does (ENVIRONMENT=production => AIEPStack => 'prod'); production gets
+    // none of this — no env vars, no ssm:PutParameter. The infra suite pins
+    // both sides (test/infra/gen-ai-mvp-stack.test.ts).
+    if (getEnvironment() !== 'prod') {
+      const testPhoneNumbers = [
+        '+15555550111',
+        '+15555550112',
+        // 0123 is deliberately absent: scripts/smoke-test.sh claims it as the
+        // guaranteed-unknown-number probe, so it must never gain a user (and
+        // keeping it out of the allowlist removes the foot-gun entirely).
+        '+15555550120', '+15555550121', '+15555550122', '+15555550124',
+        '+15555550125', '+15555550126', '+15555550127', '+15555550128', '+15555550129',
+      ];
+      createAuthChallengeFunction.addEnvironment('TEST_PHONE_NUMBERS', testPhoneNumbers.join(','));
+      createAuthChallengeFunction.addEnvironment('TEST_OTP_PARAM_PREFIX', '/a-iep/staging/test-otp');
+      createAuthChallengeFunction.addToRolePolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['ssm:PutParameter'],
+        resources: [
+          `arn:aws:ssm:us-east-1:${cdk.Aws.ACCOUNT_ID}:parameter/a-iep/staging/test-otp/*`
+        ]
+      }));
+    }
 
     // UpdateItem on the SMS rate-limit counter
     otpRateLimitTable.grantWriteData(createAuthChallengeFunction);

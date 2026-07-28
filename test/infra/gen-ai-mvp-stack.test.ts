@@ -12,6 +12,10 @@
  * the Template. Asset bundling is disabled via the 'aws:cdk:bundling-stacks'
  * context so the Docker/npm bundling of the pdf-generator, metadata-handler
  * steps, and frontend never runs here; synth stays ~20s.
+ *
+ * A second synth with ENVIRONMENT=production runs in the final describe: the
+ * staging-only OTP test backdoor must be provably absent from the production
+ * template, and only a production synth can prove that.
  */
 import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
@@ -177,6 +181,46 @@ describe('Cognito custom-auth wiring', () => {
       },
     }));
   });
+
+  // The staging-only E2E backdoor: create-auth-challenge stashes OTPs for
+  // allowlisted numbers in SSM instead of texting them. Every allowlisted
+  // number must sit inside the NANP-fictional 555-01XX block — the same
+  // regex the lambda hard-codes as its second lock — so the allowlist can
+  // never name a real phone. The smoke users (+15555550101/0102) must stay
+  // absent: smoke asserts the real, non-backdoored SMS contract.
+  test('staging allowlists only NANP-fictional numbers for the OTP test backdoor', () => {
+    const functions = Object.values(template.findResources('AWS::Lambda::Function'))
+      .filter((fn: any) => fn.Properties?.Handler === 'create-auth-challenge.handler');
+    expect(functions).toHaveLength(1);
+
+    const vars: any = (functions[0] as any).Properties.Environment.Variables;
+    expect(vars.TEST_OTP_PARAM_PREFIX).toBe('/a-iep/staging/test-otp');
+
+    const numbers = vars.TEST_PHONE_NUMBERS.split(',');
+    expect(numbers.length).toBeGreaterThanOrEqual(1);
+    for (const number of numbers) {
+      expect(number).toMatch(/^\+155555501\d{2}$/);
+    }
+    expect(numbers).not.toContain('+15555550101');
+    expect(numbers).not.toContain('+15555550102');
+  });
+
+  // The backdoor's write permission must stay pinned to the test-otp prefix;
+  // a widened resource would let the auth lambda scribble over real config
+  // (e.g. the /a-iep/* and /ai-iep/* app parameters).
+  test('staging scopes ssm:PutParameter to the test-otp prefix only', () => {
+    const policies = Object.values(template.findResources('AWS::IAM::Policy'));
+    const ssmPutStatements = policies.flatMap((policy: any) =>
+      (policy.Properties?.PolicyDocument?.Statement ?? []).filter((stmt: any) =>
+        JSON.stringify(stmt.Action).includes('ssm:PutParameter')));
+
+    expect(ssmPutStatements).toHaveLength(1);
+    // The resource is an Fn::Join around the AccountId pseudo-parameter; its
+    // serialized form must pin the region and the parameter prefix.
+    const resource = JSON.stringify(ssmPutStatements[0].Resource);
+    expect(resource).toContain('arn:aws:ssm:us-east-1:');
+    expect(resource).toContain('parameter/a-iep/staging/test-otp/*');
+  });
 });
 
 describe('S3 data protection', () => {
@@ -266,5 +310,60 @@ describe('Lambda runtimes', () => {
       .map(([logicalId, fn]: [string, any]) => `${logicalId}: ${JSON.stringify(fn.Properties.Runtime)}`);
 
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('production synth: the OTP test backdoor must not exist', () => {
+  // THE CROWN JEWEL OF THE BACKDOOR CHANGE. Staging diverts OTPs for
+  // allowlisted fictional numbers into SSM (see the staging pins above); the
+  // production template must carry no trace of that machinery. Only a
+  // production synth can prove the gate in lib/authorization/new-auth.ts
+  // actually holds, so this describe pays for a second full synth.
+  let prodTemplate: Template;
+
+  beforeAll(() => {
+    // Sharing the module registry with the staging synth above is safe
+    // because the backdoor gate (getEnvironment() in new-auth.ts) is
+    // evaluated at construct time, not import time — the same reason the
+    // real production pipeline (ENVIRONMENT=production, fresh process) gets
+    // the gate right. Import-time constants (stack/domain names) stay
+    // staging-flavored in this synth; none of them feed the assertions.
+    process.env.ENVIRONMENT = 'production';
+
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const { GenAiMvpStack } = require('../../lib/gen-ai-mvp-stack');
+    /* eslint-enable @typescript-eslint/no-var-requires */
+
+    const app = new App({ context: { 'aws:cdk:bundling-stacks': [] } });
+    const stack = new GenAiMvpStack(app, 'AIEPStack', {});
+    prodTemplate = Template.fromStack(stack);
+  }, 180_000);
+
+  afterAll(() => {
+    // Hand back the file-wide staging default; the top-level afterAll
+    // restores the caller's original value after that.
+    process.env.ENVIRONMENT = 'staging';
+  });
+
+  test('no production lambda carries TEST_PHONE_NUMBERS or TEST_OTP_PARAM_PREFIX', () => {
+    const functions = Object.entries(prodTemplate.findResources('AWS::Lambda::Function'));
+    // Vacuity floor, mirroring the runtime pin: a shrunken template must not
+    // pass this by having nothing to check.
+    expect(functions.length).toBeGreaterThanOrEqual(20);
+
+    const offenders = functions
+      .filter(([, fn]: [string, any]) => {
+        const vars = fn.Properties?.Environment?.Variables ?? {};
+        return 'TEST_PHONE_NUMBERS' in vars || 'TEST_OTP_PARAM_PREFIX' in vars;
+      })
+      .map(([logicalId]) => logicalId);
+
+    expect(offenders).toEqual([]);
+  });
+
+  test('no production resource references the test-otp SSM prefix', () => {
+    // Sweeps IAM policies and everything else in one pass: the string simply
+    // must not appear anywhere in the production template.
+    expect(JSON.stringify(prodTemplate.toJSON())).not.toContain('/a-iep/staging/test-otp');
   });
 });
