@@ -1,0 +1,5 @@
+# Playwright run artifacts (traces/screenshots/videos live under test-results,
+# the HTML report under playwright-report; CI uploads them only on failure)
+test-results/
+playwright-report/
+node_modules/

@@ -89,6 +89,8 @@ package-lock.json
 # a regenerated lockfile here is silently ignored and never gets committed
 !/package-lock.json
 !lib/user-interface/app/package-lock.json
+# ...and the E2E suite's lockfile (CI runs `npm ci` in e2e/)
+!e2e/package-lock.json
 yarn.lock
 lib/chatbot-api/functions/metadata-handler/DocumentAI Lambda Access.json
 

@@ -1,0 +1,56 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 779 >>
+stream
+BT
+/F1 11 Tf
+50 760 Td
+14 TL
+(SYNTHETIC TEST DOCUMENT - NOT A REAL IEP) Tj
+T*
+(Individualized Education Program \(IEP\) - E2E pipeline fixture) Tj
+T*
+(Student: Alex Example \(fictional\). Grade: 4. School: Example Elementary.) Tj
+T*
+(Eligibility: Specific Learning Disability \(fictional determination\).) Tj
+T*
+(Present Levels: Alex reads 60 words per minute and enjoys science topics.) Tj
+T*
+(Goals: By June, Alex will read grade-level text at 90 words per minute.) Tj
+T*
+(Services: 60 minutes per week of specialized academic instruction.) Tj
+T*
+(Accommodations: extended time on assessments and preferential seating.) Tj
+T*
+(Placement: general education classroom with push-in support.) Tj
+T*
+(This file exists only so automated tests can exercise the upload pipeline.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000247 00000 n 
+0000001077 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1147
+%%EOF

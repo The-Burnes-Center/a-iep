@@ -38,6 +38,9 @@ const VerificationCodeInput: React.FC<VerificationCodeInputProps> = ({
         required={required}
         className="sms-code-input"
         autoFocus={autoFocus}
+        // E2E hook (inert in production): the field has no associated label
+        // and its placeholder is localized, so tests need a stable handle
+        data-testid="sms-code-input"
       />
     </Form.Group>
   );
