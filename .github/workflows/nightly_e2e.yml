@@ -1,0 +1,25 @@
+name: Nightly E2E (staging)
+
+# Phase 5's "broken with no deploy" detector for the UI layer: the OTP
+# incident shipped silently and sat unnoticed for a month because nothing
+# exercised the journeys between deploys. Runs the full suite including the
+# slow @pipeline document spec once a night (09:00 UTC ~ 4-5am ET).
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+    inputs:
+      run_pipeline:
+        description: 'Include the @pipeline document-upload spec'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    uses: ./.github/workflows/e2e_staging.yml
+    secrets: inherit
+    with:
+      run_pipeline: ${{ github.event_name == 'schedule' || inputs.run_pipeline }}

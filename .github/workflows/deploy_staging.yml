@@ -112,3 +112,15 @@ jobs:
 
     - name: Run smoke tests
       run: bash scripts/smoke-test.sh AIEPStagingStack staging
+
+  # Phase 3: after the smoke contract checks pass, drive the real deployed
+  # UI through the critical journeys (login, lockout, language, and the
+  # delete-account-then-re-signup incident repro). The slow @pipeline spec
+  # stays off here to keep deploy feedback fast; the nightly runs it.
+  e2e:
+    name: E2E
+    needs: smoke-test
+    uses: ./.github/workflows/e2e_staging.yml
+    secrets: inherit
+    with:
+      run_pipeline: false
