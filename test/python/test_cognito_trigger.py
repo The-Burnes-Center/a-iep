@@ -65,6 +65,31 @@ def test_existing_profile_is_never_overwritten(trigger):
     assert profile['children'][0]['childId'] == 'kept'
 
 
+def test_losing_a_create_race_is_quietly_tolerated(trigger, monkeypatch):
+    # Two concurrent confirmations can both see no profile on the get_item
+    # check; the loser's conditional put then raises
+    # ConditionalCheckFailedException. That guard must swallow the error,
+    # hand the event back to Cognito, and never clobber the winner's write.
+    trigger.profiles.put_item(Item={
+        'userId': 'new-user-sub',
+        'consentGiven': True,
+        'children': [{'childId': 'winner', 'name': 'Winner Child'}],
+    })
+    real_table = trigger.module.user_profiles_table
+    racing_table = SimpleNamespace(
+        get_item=lambda **kwargs: {},       # the read raced: profile not seen
+        put_item=real_table.put_item,       # real conditional put -> fails
+    )
+    monkeypatch.setattr(trigger.module, 'user_profiles_table', racing_table)
+
+    event = confirm_event()
+    assert trigger.module.lambda_handler(event, None) is event
+
+    profile = trigger.profiles.get_item(Key={'userId': 'new-user-sub'})['Item']
+    assert profile['consentGiven'] is True
+    assert profile['children'][0]['childId'] == 'winner'
+
+
 def test_profile_failure_still_returns_event_to_cognito(trigger):
     # If the write blows up, user creation must not be blocked.
     trigger.profiles.delete()

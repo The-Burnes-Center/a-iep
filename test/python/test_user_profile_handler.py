@@ -27,8 +27,11 @@ def profile_module(monkeypatch):
     monkeypatch.setenv('IEP_DOCUMENTS_TABLE', 'documents-test')
     with mock_aws():
         module = load_lambda_module('user-profile-handler', 'user_profile_lambda')
-        yield module
-    unload('user_profile_lambda')
+        try:
+            yield module
+        finally:
+            unload('user_profile_lambda')
+            unload('router')  # imported as a sibling during module exec
 
 
 # ---------------------------------------------------------------------------
