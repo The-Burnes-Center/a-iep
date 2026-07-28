@@ -48,9 +48,12 @@ describe('pre-authentication', () => {
         expect(update.ExpressionAttributeValues).toEqual({ ':lang': 'zh' });
     });
 
-    test('falls back to clientMetadata for admin-initiated flows', async () => {
+    test('clientMetadata alone stamps nothing: PreAuthentication events never carry it', async () => {
+        // Cognito delivers InitiateAuth/AdminInitiateAuth ClientMetadata to
+        // this trigger as validationData; a clientMetadata field would be a
+        // fabricated event shape, so the handler must not read one.
         await handler(authEvent({ clientMetadata: { language: 'es' } }));
-        expect(mockDdbSend.mock.calls[0][0].input.ExpressionAttributeValues).toEqual({ ':lang': 'es' });
+        expect(mockDdbSend).not.toHaveBeenCalled();
     });
 
     test('an unsupported language writes nothing', async () => {
@@ -69,7 +72,11 @@ describe('pre-authentication', () => {
         conditionError.name = 'ConditionalCheckFailedException';
         mockDdbSend.mockRejectedValue(conditionError);
         const event = await handler(authEvent({ validationData: { language: 'es' } }));
-        expect(event).toBeDefined();
+        // The write was attempted, the condition rejected it, and the event
+        // still flows back to Cognito untouched.
+        expect(mockDdbSend).toHaveBeenCalledTimes(1);
+        expect(event.userName).toBe('user-1');
+        expect(event.response).toEqual({});
     });
 
     test('any other DynamoDB failure still returns the event to Cognito', async () => {

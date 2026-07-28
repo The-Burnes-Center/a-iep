@@ -4,6 +4,7 @@ import { cognitoDomainName } from '../constants'
 import { UserPool, UserPoolIdentityProviderOidc, UserPoolClient, UserPoolClientIdentityProvider, ProviderAttribute } from 'aws-cdk-lib/aws-cognito';
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as path from 'path';
 import { getTagProps, tagResource } from '../tags';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -115,6 +116,11 @@ export class NewAuthorizationStack extends Construct {
         userSrp: true,
         custom: true,  // Enable CUSTOM_AUTH flow for Phone OTP
       },
+      // The whole custom-auth flow (language handshake + OTP rounds) must
+      // finish inside this window. Align it with the 5-minute validity the
+      // OTP SMS promises; create/verify-auth-challenge enforce the same
+      // bound per code via privateChallengeParameters.issuedAt.
+      authSessionValidity: cdk.Duration.minutes(5),
       oAuth: {
         flows: {
           authorizationCodeGrant: true,
@@ -181,12 +187,29 @@ export class NewAuthorizationStack extends Construct {
       description: 'Define Auth Challenge for Phone OTP authentication'
     });
 
+    // Hourly per-phone SMS budget for the OTP flow. The counter must live
+    // outside the auth session (Cognito resets the session on every
+    // InitiateAuth, so in-session state can never rate-limit SMS sends).
+    // Keys are sha256(phone) + hour bucket, so no raw phone numbers are
+    // stored, and rows expire via TTL, keeping the table tiny.
+    const otpRateLimitTable = new dynamodb.Table(this, 'OtpRateLimitTable', {
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'expiresAt',
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+    tagResource(otpRateLimitTable, {
+      'Resource': 'OtpRateLimitTable',
+      'Module': 'Authentication'
+    });
+
     // Create Auth Challenge Function
     const createAuthChallengeFunction = new lambda.Function(this, 'CreateAuthChallengeFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'create-auth-challenge.handler',
       environment: {
+        OTP_RATE_LIMIT_TABLE: otpRateLimitTable.tableName,
         ...(userProfilesTable && { USER_PROFILES_TABLE: userProfilesTable.tableName })
       },
       timeout: cdk.Duration.seconds(30),
@@ -202,6 +225,9 @@ export class NewAuthorizationStack extends Construct {
       ],
       resources: ['*'] // SNS publish requires * for phone numbers
     }));
+
+    // UpdateItem on the SMS rate-limit counter
+    otpRateLimitTable.grantWriteData(createAuthChallengeFunction);
 
     // Allow reading user profiles to localize the OTP SMS. grantReadData
     // (rather than a manual GetItem policy) also grants kms:Decrypt on the

@@ -4,6 +4,13 @@
  * onboarding gate checks showOnboarding === true strictly, so a profile
  * created here without it would silently skip onboarding (and the consent
  * form). The AWS SDK modules are runtime-provided, hence virtual mocks.
+ *
+ * Event shape: the VerifyAuthChallengeResponse trigger receives ONLY
+ * userAttributes, privateChallengeParameters, challengeAnswer,
+ * clientMetadata and userNotFound — never a session array. OTP expiry
+ * therefore rides on privateChallengeParameters.issuedAt, stamped by
+ * create-auth-challenge at first issuance and preserved across in-session
+ * reuse rounds.
  */
 const mockDdbSend = jest.fn();
 
@@ -25,19 +32,16 @@ jest.mock('@aws-sdk/lib-dynamodb', () => {
 const { GetCommand, PutCommand } = require('@aws-sdk/lib-dynamodb');
 const { handler } = require('../../../lib/chatbot-api/functions/phone-otp-auth/verify-auth-challenge');
 
-const freshOtpSession = (code = '123456') => [{
-    challengeName: 'CUSTOM_CHALLENGE',
-    challengeResult: true,
-    challengeMetadata: JSON.stringify({ code, timestamp: new Date().toISOString() }),
-}];
-
 const otpEvent = (overrides = {}) => ({
     userName: 'new-user-sub',
     request: {
-        privateChallengeParameters: { secretLoginCode: '123456' },
+        userAttributes: { phone_number: '+15555550100' },
+        privateChallengeParameters: {
+            secretLoginCode: '123456',
+            issuedAt: new Date().toISOString(),
+        },
         challengeAnswer: '123456',
         clientMetadata: { language: 'es' },
-        session: freshOtpSession(),
         ...overrides,
     },
     response: {},
@@ -87,9 +91,9 @@ describe('verify-auth-challenge', () => {
         const event = await handler({
             userName: 'new-user-sub',
             request: {
+                userAttributes: { phone_number: '+15555550100' },
                 privateChallengeParameters: { secretLoginCode: 'LANGUAGE_HANDSHAKE' },
                 challengeAnswer: 'HANDSHAKE_ACK',
-                session: [],
             },
             response: {},
         });
@@ -109,17 +113,38 @@ describe('verify-auth-challenge', () => {
     });
 
     test('a correct but expired OTP fails', async () => {
-        const staleSession = [{
-            challengeName: 'CUSTOM_CHALLENGE',
-            challengeResult: true,
-            challengeMetadata: JSON.stringify({
-                code: '123456',
-                timestamp: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
-            }),
-        }];
-        const event = await handler(otpEvent({ session: staleSession }));
+        const event = await handler(otpEvent({
+            privateChallengeParameters: {
+                secretLoginCode: '123456',
+                issuedAt: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
+            },
+        }));
         expect(event.response.answerCorrect).toBe(false);
         expect(mockDdbSend).not.toHaveBeenCalled();
+    });
+
+    test('a code still inside the 5-minute window verifies', async () => {
+        const event = await handler(otpEvent({
+            privateChallengeParameters: {
+                secretLoginCode: '123456',
+                issuedAt: new Date(Date.now() - 4 * 60 * 1000).toISOString(),
+            },
+        }));
+        expect(event.response.answerCorrect).toBe(true);
+    });
+
+    test('a missing issuance stamp skips the expiry check (in-flight sessions from older deploys)', async () => {
+        const event = await handler(otpEvent({
+            privateChallengeParameters: { secretLoginCode: '123456' },
+        }));
+        expect(event.response.answerCorrect).toBe(true);
+    });
+
+    test('a garbled issuance stamp is skipped rather than treated as expired', async () => {
+        const event = await handler(otpEvent({
+            privateChallengeParameters: { secretLoginCode: '123456', issuedAt: 'not-a-date' },
+        }));
+        expect(event.response.answerCorrect).toBe(true);
     });
 
     test('the ERROR sentinel from a failed create round never verifies', async () => {
