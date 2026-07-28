@@ -44,6 +44,17 @@ describe('custom-message', () => {
             expect(event.response.emailMessage).toBe(es.signUpEmailBody);
         });
 
+    test.each(['CustomMessage_VerifyUserAttribute', 'CustomMessage_UpdateUserAttribute'])(
+        '%s reuses the verification SMS and signup email templates', async (triggerSource) => {
+            // Verifying or updating an email/phone attribute sends the same
+            // code copy as signup, localized the same way.
+            const event = await handler(messageEvent(triggerSource, { language: 'ar' }));
+            const ar = getMessages('ar');
+            expect(event.response.smsMessage).toBe(ar.verificationSms);
+            expect(event.response.emailSubject).toBe(ar.signUpEmailSubject);
+            expect(event.response.emailMessage).toBe(ar.signUpEmailBody);
+        });
+
     test('forgot password uses the reset templates', async () => {
         const event = await handler(messageEvent('CustomMessage_ForgotPassword', { language: 'zh' }));
         const zh = getMessages('zh');

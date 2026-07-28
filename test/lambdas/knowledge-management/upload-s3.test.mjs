@@ -9,8 +9,14 @@
  * both covered). getSignedUrl is the real presigner: it signs offline with
  * the fake env credentials, so assertions run against a genuine URL.
  */
+import { jest } from '@jest/globals';
 import { mockClient } from 'aws-sdk-client-mock';
-import { S3Client, ListObjectsV2Command, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import {
+    S3Client,
+    ListObjectsV2Command,
+    DeleteObjectCommand,
+    GetObjectCommand,
+} from '@aws-sdk/client-s3';
 import {
     DynamoDBDocumentClient,
     PutCommand,
@@ -79,6 +85,27 @@ describe('request validation', () => {
         const { status, body: response } = await call({ ...GOOD_UPLOAD, fileType: undefined });
         expect(status).toBe(400);
         expect(response.message).toContain('fileType');
+    });
+
+    // The upload fileName is the final S3 key segment: separators or '..'
+    // segments would mint keys the download branch's ownership guard can
+    // never serve, so they are rejected before any AWS work happens.
+    test.each([
+        ['nested/report.pdf'],
+        ['nested\\report.pdf'],
+        ['..'],
+        ['../report.pdf'],
+    ])('upload fileName with a separator or dot-dot segment -> 400 (%s)', async (fileName) => {
+        const { status, body: response } = await call({ ...GOOD_UPLOAD, fileName });
+        expect(status).toBe(400);
+        expect(response.message).toContain('fileName');
+        expect(s3Mock.calls()).toHaveLength(0);
+        expect(ddbMock.calls()).toHaveLength(0);
+    });
+
+    test('dots inside a name are not traversal: report..pdf still uploads', async () => {
+        const { status } = await call({ ...GOOD_UPLOAD, fileName: 'report..pdf' });
+        expect(status).toBe(200);
     });
 });
 
@@ -165,5 +192,25 @@ describe('download', () => {
     ])('foreign or traversal key -> 403 (%s)', async (key) => {
         const { status } = await call({ fileName: key, operation: 'download', childId: 'child-1' });
         expect(status).toBe(403);
+    });
+
+    test('a presigning failure is a 500 with the stock error body', async () => {
+        // getSignedUrl signs offline through command.resolveMiddleware and
+        // never touches Client.send, so the s3Mock cannot reject it; stub the
+        // command's middleware resolution instead (same prototype-level idea
+        // as mockClient).
+        const spy = jest.spyOn(GetObjectCommand.prototype, 'resolveMiddleware')
+            .mockReturnValue(() => Promise.reject(new Error('presign failed')));
+        try {
+            const { status, body } = await call({
+                fileName: `${USER}/child-1/iep-1/report.pdf`,
+                operation: 'download',
+                childId: 'child-1',
+            });
+            expect(status).toBe(500);
+            expect(body.error).toBe('Failed to generate signed URL');
+        } finally {
+            spy.mockRestore();
+        }
     });
 });

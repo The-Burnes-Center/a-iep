@@ -21,6 +21,7 @@ const {
     normalizeLanguage,
     resolveLanguage,
 } = require('../../../lib/chatbot-api/functions/phone-otp-auth/messages');
+const { GetCommand } = require('@aws-sdk/lib-dynamodb');
 
 const authEvent = ({ language, locale, userName = 'user-1' } = {}) => ({
     userName,
@@ -67,6 +68,15 @@ describe('message templates', () => {
         }
     });
 
+    test('non-English languages do not reuse the English OTP template', () => {
+        // Guards against a bad merge pasting the English copy into a
+        // translated block: the placeholder checks above would stay green.
+        const english = getMessages('en').otpLoginSms;
+        for (const lang of SUPPORTED_LANGUAGES.filter((l) => l !== 'en')) {
+            expect(getMessages(lang).otpLoginSms).not.toBe(english);
+        }
+    });
+
     test('an unknown language falls back to English', () => {
         expect(getMessages('fr')).toBe(getMessages('en'));
         expect(getMessages(undefined)).toBe(getMessages('en'));
@@ -83,6 +93,21 @@ describe('resolveLanguage', () => {
         const language = await resolveLanguage(authEvent({ language: 'vi', locale: 'es' }));
         expect(language).toBe('vi');
         expect(mockDdbSend).not.toHaveBeenCalled();
+    });
+
+    test('the profile lookup is a GetCommand on the configured table by userId', async () => {
+        // The send stub alone would stay green against a wrong table or key
+        // shape, so pin the actual command input.
+        mockDdbSend.mockResolvedValue({ Item: { secondaryLanguage: 'zh' } });
+        expect(await resolveLanguage(authEvent({ userName: 'user-42' }))).toBe('zh');
+
+        expect(mockDdbSend).toHaveBeenCalledTimes(1);
+        const command = mockDdbSend.mock.calls[0][0];
+        expect(command).toBeInstanceOf(GetCommand);
+        expect(command.input).toEqual({
+            TableName: 'test-profiles-table',
+            Key: { userId: 'user-42' },
+        });
     });
 
     test('profile loginLanguage beats secondaryLanguage and primaryLanguage', async () => {

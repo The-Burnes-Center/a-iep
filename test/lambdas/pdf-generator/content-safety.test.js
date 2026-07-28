@@ -70,6 +70,32 @@ describe('processContent', () => {
         expect(html).not.toContain('javascript:');
     });
 
+    test('strips data: URIs from links but keeps the link text', () => {
+        // base64 payload decodes to <script>alert(1)</script>; only http(s)
+        // and mailto survive the scheme allowlist.
+        const html = processContent('[click me](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==)');
+        expect(html).not.toContain('data:');
+        expect(html).not.toContain('href');
+        expect(html).toContain('<a>click me</a>');
+    });
+
+    test('strips protocol-relative //host links', () => {
+        // //evil.example would inherit https: inside the rendered document,
+        // so allowProtocolRelative: false must drop the href entirely.
+        const html = processContent('[our partner](//evil.example/steal)');
+        expect(html).not.toContain('evil.example');
+        expect(html).not.toContain('href');
+        expect(html).toContain('<a>our partner</a>');
+    });
+
+    test('drops markdown images entirely (img is a network-request vector)', () => {
+        const html = processContent('before ![x](https://tracker.example/p.png) after');
+        expect(html).not.toContain('<img');
+        expect(html).not.toContain('tracker.example');
+        expect(html).toContain('before');
+        expect(html).toContain('after');
+    });
+
     test('empty content renders to an empty string', () => {
         expect(processContent('')).toBe('');
         expect(processContent(null)).toBe('');
