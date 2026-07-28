@@ -203,23 +203,96 @@ describe('Cognito custom-auth wiring', () => {
     }
     expect(numbers).not.toContain('+15555550101');
     expect(numbers).not.toContain('+15555550102');
+    // The stable per-journey users the E2E specs sign in as. Dropping one
+    // silently turns that journey's OTP into a real (undeliverable) SMS.
+    expect(numbers).toEqual(expect.arrayContaining([
+      '+15555550111', '+15555550112', '+15555550113', '+15555550114',
+    ]));
   });
 
   // The backdoor's write permission must stay pinned to the test-otp prefix;
-  // a widened resource would let the auth lambda scribble over real config
-  // (e.g. the /a-iep/* and /ai-iep/* app parameters).
+  // a widened resource would let the auth lambdas scribble over real config
+  // (e.g. the /a-iep/* and /ai-iep/* app parameters). Two lambdas hold this
+  // grant: create-auth-challenge (our sign-in OTP) and the custom SMS sender
+  // (Cognito's signup code).
   test('staging scopes ssm:PutParameter to the test-otp prefix only', () => {
     const policies = Object.values(template.findResources('AWS::IAM::Policy'));
     const ssmPutStatements = policies.flatMap((policy: any) =>
       (policy.Properties?.PolicyDocument?.Statement ?? []).filter((stmt: any) =>
         JSON.stringify(stmt.Action).includes('ssm:PutParameter')));
 
-    expect(ssmPutStatements).toHaveLength(1);
-    // The resource is an Fn::Join around the AccountId pseudo-parameter; its
-    // serialized form must pin the region and the parameter prefix.
-    const resource = JSON.stringify(ssmPutStatements[0].Resource);
-    expect(resource).toContain('arn:aws:ssm:us-east-1:');
-    expect(resource).toContain('parameter/a-iep/staging/test-otp/*');
+    expect(ssmPutStatements).toHaveLength(2);
+    for (const statement of ssmPutStatements) {
+      // The resource is an Fn::Join around the AccountId pseudo-parameter; its
+      // serialized form must pin the region and the parameter prefix.
+      const resource = JSON.stringify(statement.Resource);
+      expect(resource).toContain('arn:aws:ssm:us-east-1:');
+      expect(resource).toContain('parameter/a-iep/staging/test-otp/*');
+    }
+  });
+});
+
+describe('Cognito custom SMS sender (staging only)', () => {
+  // The second half of the E2E backdoor. Cognito — not create-auth-challenge —
+  // mints the SIGN-UP verification code, so without this trigger no test can
+  // ever confirm a new user. Assigning it also means Cognito stops sending SMS
+  // for the whole staging pool, which is why the trigger, its key, and its
+  // allowlist are pinned together: a half-configured sender takes staging's
+  // SMS offline rather than failing loudly at synth.
+  test('the staging pool assigns a V1_0 CustomSMSSender against a KMS key', () => {
+    template.hasResourceProperties('AWS::Cognito::UserPool', Match.objectLike({
+      LambdaConfig: Match.objectLike({
+        // V1_0 is the only version custom senders support; CDK stamps it.
+        CustomSMSSender: Match.objectLike({
+          LambdaArn: Match.anyValue(),
+          LambdaVersion: 'V1_0',
+        }),
+        // Cognito refuses a custom sender without a customer-managed key, and
+        // the lambda cannot decrypt the code without the matching ARN.
+        KMSKeyID: Match.anyValue(),
+      }),
+    }));
+  });
+
+  // Both halves of the double gate plus the key ARN. Losing TEST_PHONE_NUMBERS
+  // sends every staging code as a real SMS (silently breaking E2E); losing
+  // KMS_KEY_ARN breaks decryption, i.e. all staging SMS.
+  test('the sender lambda carries the key ARN and the same allowlist', () => {
+    const functions = Object.entries(template.findResources('AWS::Lambda::Function'))
+      .filter(([logicalId]) => logicalId.includes('CustomSmsSenderFunction'));
+    expect(functions).toHaveLength(1);
+
+    const vars: any = (functions[0][1] as any).Properties.Environment.Variables;
+    expect(vars.KMS_KEY_ARN).toBeDefined();
+    expect(vars.TEST_OTP_PARAM_PREFIX).toBe('/a-iep/staging/test-otp');
+
+    const numbers = vars.TEST_PHONE_NUMBERS.split(',');
+    for (const number of numbers) {
+      expect(number).toMatch(/^\+155555501\d{2}$/);
+    }
+
+    // One allowlist, two lambdas: a number the sign-in backdoor knows but the
+    // signup backdoor doesn't (or vice versa) is a half-usable test user.
+    const createAuthChallenge = Object.values(template.findResources('AWS::Lambda::Function'))
+      .find((fn: any) => fn.Properties?.Handler === 'create-auth-challenge.handler');
+    expect(vars.TEST_PHONE_NUMBERS)
+      .toBe((createAuthChallenge as any).Properties.Environment.Variables.TEST_PHONE_NUMBERS);
+  });
+
+  // Also the anchor for the production pin below ("no alias contains
+  // custom-sender"): without this, that assertion could pass because the
+  // alias was renamed rather than because production is clean.
+  test('the sender key is a dedicated, destroyable staging key', () => {
+    const aliases = Object.values(template.findResources('AWS::KMS::Alias'))
+      .map((alias: any) => alias.Properties?.AliasName);
+    expect(aliases).toContain('alias/a-iep-staging-custom-sender');
+
+    const keys = Object.entries(template.findResources('AWS::KMS::Key'))
+      .filter(([logicalId]) => logicalId.includes('CustomSenderKey'));
+    expect(keys).toHaveLength(1);
+    // Nothing durable is encrypted with it (codes live for minutes), so a
+    // torn-down staging stack must not strand a key.
+    expect((keys[0][1] as any).DeletionPolicy).toBe('Delete');
   });
 });
 
@@ -365,5 +438,33 @@ describe('production synth: the OTP test backdoor must not exist', () => {
     // Sweeps IAM policies and everything else in one pass: the string simply
     // must not appear anywhere in the production template.
     expect(JSON.stringify(prodTemplate.toJSON())).not.toContain('/a-iep/staging/test-otp');
+  });
+
+  // A custom SMS sender takes over ALL of a pool's SMS delivery. On staging
+  // that is the point; in production it would put every parent's login and
+  // signup code behind a lambda that exists to divert codes into SSM. The
+  // production pool must keep Cognito's native delivery, so neither the
+  // trigger nor the key it requires may appear.
+  test('no production user pool assigns a CustomSMSSender or a sender KMS key', () => {
+    const pools = Object.values(prodTemplate.findResources('AWS::Cognito::UserPool'));
+    expect(pools.length).toBeGreaterThanOrEqual(1);
+
+    for (const pool of pools) {
+      const lambdaConfig = (pool as any).Properties?.LambdaConfig ?? {};
+      // The five custom-auth triggers must still be there; only the sender
+      // (and the key id it drags in) must be absent.
+      expect(lambdaConfig.DefineAuthChallenge).toBeDefined();
+      expect(lambdaConfig.CustomSMSSender).toBeUndefined();
+      expect(lambdaConfig.CustomEmailSender).toBeUndefined();
+      expect(lambdaConfig.KMSKeyID).toBeUndefined();
+    }
+  });
+
+  test('no production KMS alias belongs to the custom sender', () => {
+    const aliases = Object.values(prodTemplate.findResources('AWS::KMS::Alias'))
+      .map((alias: any) => alias.Properties?.AliasName)
+      .filter((name: any) => typeof name === 'string');
+
+    expect(aliases.filter((name: string) => name.includes('custom-sender'))).toEqual([]);
   });
 });
