@@ -39,6 +39,11 @@ const TTSPlayButton: React.FC<TTSPlayButtonProps> = ({
   useEffect(() => {
     return () => {
       if (audioRef.current) {
+        // Detach handlers first so the pause below can't setState on an
+        // unmounted component
+        audioRef.current.onpause = null;
+        audioRef.current.onended = null;
+        audioRef.current.onerror = null;
         audioRef.current.pause();
         if (activeAudio === audioRef.current) {
           activeAudio = null;
@@ -89,6 +94,15 @@ const TTSPlayButton: React.FC<TTSPlayButtonProps> = ({
       const audio = new Audio(response.url);
       audio.onended = () => setState('idle');
       audio.onerror = () => setState('error');
+      // Any pause that isn't the track ending must flip this button back to
+      // resumable. Without this, another button starting playback (which
+      // pauses this element via startPlayback), or an OS media-key pause,
+      // leaves this button stuck rendering "playing" alongside the new one.
+      audio.onpause = () => {
+        if (!audio.ended) {
+          setState('paused');
+        }
+      };
       audioRef.current = audio;
       fetchedAtRef.current = Date.now();
       startPlayback(audio);
