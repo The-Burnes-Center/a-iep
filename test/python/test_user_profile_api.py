@@ -101,6 +101,14 @@ def call(api, *args, **kwargs):
     return response['statusCode'], json.loads(response['body'])
 
 
+def call_raw_body(api, path, method, raw_body):
+    """Send a body exactly as given (api_event would json.dumps it)."""
+    event = api_event(path, method)
+    event['body'] = raw_body
+    response = api.module.lambda_handler(event, None)
+    return response['statusCode'], json.loads(response['body'])
+
+
 def encrypt(api, plaintext):
     blob = api.kms.encrypt(KeyId=KMS_ALIAS, Plaintext=plaintext.encode())['CiphertextBlob']
     return base64.b64encode(blob).decode()
@@ -220,6 +228,22 @@ def test_update_profile_kms_outage_returns_503_not_plaintext(api, monkeypatch):
     assert 'parentName' not in (stored_profile(api) or {})
 
 
+@pytest.mark.parametrize('raw_body', [
+    '{"parentName": "Jane P."',   # truncated JSON
+    'not json at all',
+    '[1, 2, 3]',                  # valid JSON but not an object
+])
+def test_update_profile_malformed_body_is_a_client_error(api, raw_body):
+    # A bad payload is the caller's fault: 400, never a 500 from the broad
+    # exception handler, and nothing may be written to the profile.
+    api.profiles.put_item(Item={'userId': USER, 'consentGiven': False})
+    before = stored_profile(api)
+    status, body = call_raw_body(api, '/profile', 'PUT', raw_body)
+    assert status == 400
+    assert 'Invalid JSON' in body['message']
+    assert stored_profile(api) == before
+
+
 def test_update_profile_language_sync_failure_is_non_blocking(api):
     # No USER_POOL_ID configured: the Cognito locale mirror fails, the
     # profile update itself must still succeed.
@@ -246,6 +270,15 @@ def test_add_child_requires_fields(api):
     profile_with_child(api)
     status, body = call(api, '/profile/children', 'POST', body={'name': 'Kid'})
     assert status == 400
+
+
+def test_add_child_malformed_body_is_a_client_error(api):
+    profile_with_child(api)
+    before = stored_profile(api)
+    status, body = call_raw_body(api, '/profile/children', 'POST', '{"name": ')
+    assert status == 400
+    assert 'Invalid JSON' in body['message']
+    assert stored_profile(api) == before  # no child appended
 
 
 # ---------------------------------------------------------------------------

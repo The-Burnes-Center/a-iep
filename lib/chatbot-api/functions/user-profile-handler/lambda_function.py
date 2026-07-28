@@ -351,9 +351,17 @@ def update_user_profile(event: Dict) -> Dict:
     """
     try:
         user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
-        body = json.loads(event['body'])
+        # A malformed (or missing) JSON body is the client's fault: catch it
+        # here so it maps to 400 instead of falling through to the broad
+        # except below as a 500 (same treatment as the tts/delete-s3 handlers).
+        try:
+            body = json.loads(event['body']) if event.get('body') else {}
+        except (TypeError, ValueError):
+            return create_response(event, 400, {'message': 'Invalid JSON body'})
+        if not isinstance(body, dict):
+            return create_response(event, 400, {'message': 'Invalid JSON body: expected a JSON object'})
         times = get_timestamps()
-        
+
         # Start building update expression and values
         update_parts = []
         expr_values = {
@@ -477,9 +485,15 @@ def add_child(event: Dict) -> Dict:
     """
     try:
         user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
-        body = json.loads(event['body'])
+        # Malformed JSON is a client error: 400, not the broad except's 500.
+        try:
+            body = json.loads(event['body']) if event.get('body') else {}
+        except (TypeError, ValueError):
+            return create_response(event, 400, {'message': 'Invalid JSON body'})
+        if not isinstance(body, dict):
+            return create_response(event, 400, {'message': 'Invalid JSON body: expected a JSON object'})
         times = get_timestamps()
-        
+
         # Validate required fields
         if 'name' not in body or 'schoolCity' not in body:
             return create_response(event, 400, {'message': 'Missing required fields: name and schoolCity required'})
