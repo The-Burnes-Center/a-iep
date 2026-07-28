@@ -75,6 +75,65 @@ jobs:
       - name: Run pytest suites
         run: pytest -q
 
+  # Unit tests mock the AI SDKs, so they cannot see two pinned packages that
+  # are each valid but incompatible with each other. That exact failure shipped
+  # on 2026-07-28: openai 2.45.0 made InputTokensDetails.cache_write_tokens
+  # required, openai-agents 0.4.2 does not pass it, and every document failed
+  # at the parsing step until the nightly E2E caught it. This job installs each
+  # distinct lambda requirements set on the runner (linux x86_64 / py3.12, same
+  # as the Lambda runtime) and imports the SDKs, which fails in about a minute
+  # instead of after a deploy.
+  lambda-deps:
+    name: Lambda dependency compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install and import each distinct requirements set
+        run: |
+          set -euo pipefail
+          # The step lambdas share a handful of identical files; install each
+          # unique one once, keyed by content hash.
+          declare -A seen
+          status=0
+          while IFS= read -r req; do
+            hash=$(sha256sum "$req" | cut -d' ' -f1)
+            if [[ -n "${seen[$hash]:-}" ]]; then
+              echo "== $req (same contents as ${seen[$hash]}, skipping)"
+              continue
+            fi
+            seen[$hash]="$req"
+            echo "== $req"
+            rm -rf /tmp/depcheck && python -m venv /tmp/depcheck
+            /tmp/depcheck/bin/pip install -q --disable-pip-version-check -r "$req"
+            # Import what the handlers import; constructing Usage() is the
+            # specific call that the openai/openai-agents mismatch broke.
+            /tmp/depcheck/bin/python - <<'PY' || status=1
+          import importlib
+          for mod in ("boto3", "openai", "pydantic", "mistralai", "agents"):
+              try:
+                  importlib.import_module(mod)
+              except ImportError:
+                  continue  # not every lambda pulls every SDK
+          try:
+              from agents.usage import Usage
+          except ImportError:
+              pass
+          else:
+              Usage()
+              print("  agents.Usage() OK")
+          print("  imports OK")
+          PY
+          done < <(find lib/chatbot-api/functions/metadata-handler -name requirements.txt | sort)
+          exit $status
+
   frontend:
     name: Frontend typecheck and lint
     runs-on: ubuntu-latest

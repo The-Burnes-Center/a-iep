@@ -4,7 +4,7 @@ requests==2.34.2
 urllib3==2.7.0
 certifi==2026.7.22
 mistralai==1.12.4  # newest allowed by pydantic 2.10.6 (mistralai 2.x needs pydantic>=2.11.2)
-openai==2.49.0
+openai==2.44.0  # ceiling: 2.45.0 made InputTokensDetails.cache_write_tokens required, which openai-agents 0.4.2 does not pass
 openai-agents==0.4.2  # newest allowed by pydantic 2.10.6 (0.19.x needs pydantic>=2.12.2)
 cryptography==49.0.0
 fpdf2==2.8.7
