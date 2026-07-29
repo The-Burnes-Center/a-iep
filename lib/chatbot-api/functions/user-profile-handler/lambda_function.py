@@ -333,7 +333,7 @@ def get_user_profile(event: Dict) -> Dict:
     except Exception as e:
         print(f"Error in get_user_profile: {str(e)}")
         print(f"Event data: {json.dumps(sanitize_event_for_logging(event), default=str)}")
-        return create_response(event, 500, {'message': f'Error getting user profile: {str(e)}'})
+        return create_response(event, 500, {'message': 'Could not load your profile. Please try again later.'})
 
 def update_user_profile(event: Dict) -> Dict:
     """
@@ -468,7 +468,8 @@ def update_user_profile(event: Dict) -> Dict:
             'message': 'Profile update temporarily unavailable: encryption service error. Please try again later.'
         })
     except Exception as e:
-        return create_response(event, 500, {'message': f'Error updating user profile: {str(e)}'})
+        print(f"Error in update_user_profile: {str(e)}")
+        return create_response(event, 500, {'message': 'Could not update your profile. Please try again later.'})
 
 def add_child(event: Dict) -> Dict:
     """
@@ -531,7 +532,8 @@ def add_child(event: Dict) -> Dict:
         })
         
     except Exception as e:
-        return create_response(event, 500, {'message': f'Error adding child: {str(e)}'})
+        print(f"Error in add_child: {str(e)}")
+        return create_response(event, 500, {'message': 'Could not add the child. Please try again later.'})
 
 def clean_dynamodb_json(data):
     """Recursively convert DynamoDB JSON to plain JSON."""
@@ -747,7 +749,7 @@ def get_child_documents(event: Dict) -> Dict:
         
     except Exception as e:
         print(f"Error retrieving documents: {str(e)}")
-        return create_response(event, 500, {'message': f'Error retrieving document: {str(e)}'})
+        return create_response(event, 500, {'message': 'Could not load your documents. Please try again later.'})
 
 def delete_child_documents(event: Dict) -> Dict:
     """
@@ -911,7 +913,7 @@ def delete_child_documents(event: Dict) -> Dict:
         
     except Exception as e:
         print(f"Error in delete_child_documents: {str(e)}")
-        return create_response(event, 500, {'message': f'Error deleting IEP documents: {str(e)}'})
+        return create_response(event, 500, {'message': 'Could not delete the documents. Please try again later.'})
 
 def delete_user_profile(event: Dict) -> Dict:
     """
@@ -1034,7 +1036,7 @@ def delete_user_profile(event: Dict) -> Dict:
         
     except Exception as e:
         print(f"Error in delete_user_profile: {str(e)}")
-        return create_response(event, 500, {'message': f'Error deleting user profile: {str(e)}'})
+        return create_response(event, 500, {'message': 'Could not delete your account. Please try again later.'})
 
 def lambda_handler(event: Dict, context) -> Dict:
     """
@@ -1091,4 +1093,4 @@ def lambda_handler(event: Dict, context) -> Dict:
         print(error_message)
         import traceback
         print(f"Traceback: {traceback.format_exc()}")
-        return create_response(event, 500, {'message': f'Internal server error: {str(e)}'}) 
+        return create_response(event, 500, {'message': 'Internal server error. Please try again later.'}) 

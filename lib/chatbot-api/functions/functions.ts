@@ -110,12 +110,18 @@ export class LambdaFunctionStack extends cdk.Stack {
       ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
     });
 
+    // Least privilege: this handler only lists a caller's own prefix
+    // (ListObjectsV2 -> s3:ListBucket, a bucket-level action, so no object
+    // ARN). It never reads, writes or deletes object contents, and the
+    // bucket holds every family's IEP documents, so a wildcard here would
+    // hand full read/write over all of them to anything that compromises
+    // this function. Pinned by the infra suite.
     getS3APIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
-        's3:*'
+        's3:ListBucket'
       ],
-      resources: [props.knowledgeBucket.bucketArn,props.knowledgeBucket.bucketArn+"/*"]
+      resources: [props.knowledgeBucket.bucketArn]
     }));
 
     this.getS3KnowledgeFunction = getS3APIHandlerFunction;
@@ -134,12 +140,30 @@ export class LambdaFunctionStack extends cdk.Stack {
       ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
     });
 
+    // Least privilege. Object-level actions cover the presigned upload URL
+    // (PutObject), the presigned download URL (GetObject) and the
+    // replace-before-put flow in utils/iep-document-utils.mjs, which clears
+    // the child's previous document (DeleteObject). Presigned URLs are
+    // evaluated against THIS role at request time, so the grants must cover
+    // what the URLs do, not just what the handler calls directly.
     uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
-        's3:*'
+        's3:PutObject',
+        's3:GetObject',
+        's3:DeleteObject'
       ],
-      resources: [props.knowledgeBucket.bucketArn, props.knowledgeBucket.bucketArn + "/*"]
+      resources: [props.knowledgeBucket.bucketArn + "/*"]
+    }));
+
+    // The same replace flow lists the child's existing objects first;
+    // ListBucket is bucket-level, hence the separate statement.
+    uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        's3:ListBucket'
+      ],
+      resources: [props.knowledgeBucket.bucketArn]
     }));
 
     // Add DynamoDB permissions for IEP documents table

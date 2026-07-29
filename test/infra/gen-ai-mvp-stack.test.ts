@@ -317,6 +317,64 @@ describe('S3 data protection', () => {
 
     expect(offenders).toEqual([]);
   });
+
+  // A 2026-07-28 security review found the knowledge-management lambdas
+  // holding s3:* on the whole bucket. That bucket is every family's IEP
+  // documents, so a wildcard turns any compromise of one function into
+  // read/write/delete over all of them. Allow statements must name the
+  // actions the handler actually performs.
+  //
+  // Deny statements are exempt on purpose: the bucket resource policy denies
+  // s3:* to non-allowlisted principals and to non-HTTPS callers, where a
+  // wildcard is what makes the guard strong.
+  test('no identity policy allows wildcard s3 actions', () => {
+    const policies = Object.entries(template.findResources('AWS::IAM::Policy'));
+    expect(policies.length).toBeGreaterThanOrEqual(5);
+
+    const offenders: string[] = [];
+    for (const [logicalId, policy] of policies) {
+      const statements = (policy as any).Properties?.PolicyDocument?.Statement ?? [];
+      for (const statement of statements) {
+        if (statement.Effect !== 'Allow') continue;
+        const actions = [statement.Action ?? []].flat();
+        if (actions.some((action: unknown) => action === 's3:*' || action === '*')) {
+          offenders.push(logicalId);
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
+
+  // The presigned URLs these two mint are evaluated against their own roles,
+  // so this pins the real upload/download/replace surface, not just the SDK
+  // calls in the handler files.
+  test('the knowledge-management lambdas hold only the S3 actions they use', () => {
+    const s3ActionsFor = (roleHint: string): string[] => {
+      const actions = new Set<string>();
+      for (const policy of Object.values(template.findResources('AWS::IAM::Policy'))) {
+        const props = (policy as any).Properties ?? {};
+        const attachedTo = JSON.stringify(props.Roles ?? []);
+        if (!attachedTo.includes(roleHint)) continue;
+        for (const statement of props.PolicyDocument?.Statement ?? []) {
+          if (statement.Effect !== 'Allow') continue;
+          for (const action of [statement.Action ?? []].flat()) {
+            if (typeof action === 'string' && action.startsWith('s3:')) actions.add(action);
+          }
+        }
+      }
+      return [...actions].sort();
+    };
+
+    // get-s3 only lists a caller's own prefix.
+    expect(s3ActionsFor('GetS3FilesHandlerFunctionServiceRole')).toEqual(['s3:ListBucket']);
+
+    // upload-s3 presigns a PUT and a GET, and clears the child's previous
+    // document (list + delete) before writing the new one.
+    expect(s3ActionsFor('UploadS3KnowledgeFilesHandlerFunctionServiceRole')).toEqual(
+      ['s3:DeleteObject', 's3:GetObject', 's3:ListBucket', 's3:PutObject']
+    );
+  });
 });
 
 describe('IEP processing state machine', () => {

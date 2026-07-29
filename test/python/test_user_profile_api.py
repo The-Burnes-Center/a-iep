@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 from moto import mock_aws
 
 from conftest import load_lambda_module, unload
@@ -242,6 +243,32 @@ def test_update_profile_malformed_body_is_a_client_error(api, raw_body):
     assert status == 400
     assert 'Invalid JSON' in body['message']
     assert stored_profile(api) == before
+
+
+def test_server_errors_do_not_leak_internals_to_the_caller(api, monkeypatch):
+    # A 2026-07-28 security review found handlers returning str(e) in the
+    # response body, which hands an authenticated caller real table names and
+    # AWS error codes. The detail belongs in CloudWatch, not in the payload:
+    # the body must stay generic while the operator still gets the cause.
+    secret = 'AIEPStagingStack-SecretTableName-XYZ'
+
+    def explode(*args, **kwargs):
+        raise ClientError(
+            {'Error': {'Code': 'ValidationException',
+                       'Message': f'Requested resource not found: {secret}'}},
+            'UpdateItem',
+        )
+
+    monkeypatch.setattr(api.module.user_profiles_table, 'update_item', explode)
+    monkeypatch.setattr(api.module.user_profiles_table, 'put_item', explode)
+    api.profiles.put_item(Item={'userId': USER, 'consentGiven': True})
+
+    status, body = call(api, '/profile', 'PUT', {'parentName': 'Jane P.'})
+
+    assert status == 500
+    assert secret not in json.dumps(body)
+    assert 'ValidationException' not in json.dumps(body)
+    assert body['message'] == 'Could not update your profile. Please try again later.'
 
 
 def test_update_profile_language_sync_failure_is_non_blocking(api):
