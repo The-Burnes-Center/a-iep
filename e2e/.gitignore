@@ -2,4 +2,6 @@
 # the HTML report under playwright-report; CI uploads them only on failure)
 test-results/
 playwright-report/
+# Machine-readable run summary; the nightly Slack digest reads it in CI
+results.json
 node_modules/
