@@ -123,7 +123,9 @@ incident.
 
 ## Deliberate scope cuts
 
-- **The onboarding survey (a third-party JotForm iframe) is bypassed**, not
-  submitted: nightly submissions would pollute the team's real survey data.
-  If it appears, `completeOnboardingIfShown` goes straight to
-  `/consent-form` and finishes the real onboarding steps from there.
+- **The onboarding survey is gone, and so is the bypass it needed.** The
+  third-party JotForm iframe that `/preferred-language` used to show first
+  (which CI had to route around, since submitting it nightly would have
+  polluted the team's real survey data) was removed from the product on
+  2026-07-29. `completeOnboardingIfShown` now walks only real app screens:
+  language pick -> consent -> parent name.

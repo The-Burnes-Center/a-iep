@@ -124,7 +124,8 @@ test('deleted account falls into the sign-up path and can sign up again', async 
 
   // ---- Act 1: an existing account, used and then deleted ----------------
 
-  // Fresh account: first login walks the real onboarding (consent + name).
+  // Fresh account: first login walks the real onboarding (language pick ->
+  // consent -> parent name).
   await loginWithOtp(page, THROWAWAY_USER);
   await expect(page.locator('.mobile-top-navigation')).toBeVisible();
 

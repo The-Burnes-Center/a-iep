@@ -33,7 +33,6 @@ import FrequentlyAskedQuestions from '../components/FrequentlyAskedQuestions';
 import AIEPHub from '../components/AIEPHub';
 import ParentRightsCarousel from '../components/ParentRightsCarousel';
 import AccountCenter from '../pages/profile/AccountCenter';
-import SurveyForm from '../components/SurveyForm';
 import AboutAIEP from '../components/AboutAIEP';
 import DeleteAccount from '../pages/profile/DeleteAccount';
 import ChangeLanguage from '../pages/profile/ChangeLanguage';
@@ -146,7 +145,6 @@ export default function AppRoutes() {
         {/* Other pages */}
         <Route path="/revoke-consent" element={<RevokeConsent />} />
         <Route path="/frequently-asked-questions" element={<FrequentlyAskedQuestions />} />
-        <Route path="/survey-form" element={<SurveyForm />} />
         <Route path="/about-aiep" element={<AboutAIEP />} />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 

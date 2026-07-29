@@ -160,13 +160,10 @@ const ONBOARDING_DEADLINE_MS = 120_000;
  * the stable user usually sees nothing, and an account that died mid-
  * onboarding on a previous run resumes somewhere in the middle.
  *
- * One deliberate bypass: when the profile has neither a language nor
- * consent, /preferred-language embeds a third-party JotForm survey with no
- * skip control. Submitting it from CI would pollute the team's real survey
- * data every night, so the helper navigates straight to /consent-form (a
- * real app route) and finishes onboarding from there. In practice the
- * survey should not appear at all for these users: verify-auth-challenge
- * seeds secondaryLanguage on first successful phone login.
+ * (Until 2026-07-29 this also had to bypass a third-party JotForm survey
+ * that /preferred-language showed to profiles with neither a language nor
+ * consent. That survey was removed from the product, so the language pick
+ * is now the unconditional first screen.)
  */
 export async function completeOnboardingIfShown(page: Page): Promise<string> {
   const deadline = Date.now() + ONBOARDING_DEADLINE_MS;
@@ -180,10 +177,6 @@ export async function completeOnboardingIfShown(page: Page): Promise<string> {
 
     try {
       if (path === '/preferred-language') {
-        if (await page.locator('.jotform-container').isVisible()) {
-          await page.goto(appUrl('/consent-form')); // survey bypass, see above
-          continue;
-        }
         const english = page.getByRole('button', { name: EN.preferEnglish });
         if (await english.isVisible()) {
           await english.click(); // saves the preference and routes to consent
