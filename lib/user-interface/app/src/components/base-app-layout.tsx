@@ -1,4 +1,4 @@
-import { AppLayout, AppLayoutProps, Flashbar } from "@cloudscape-design/components";
+import { AppLayout, AppLayoutProps } from "@cloudscape-design/components";
 import { useNavigationPanelState } from "../common/hooks/use-navigation-panel-state";
 import NavigationPanel from "./navigation-panel";
 import { ReactElement, useState } from "react";

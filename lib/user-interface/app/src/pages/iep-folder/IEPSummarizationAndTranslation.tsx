@@ -2,21 +2,22 @@ import React, { useState, useEffect, useMemo, useContext } from 'react';
 import { Container, Row, Col, Card, Spinner, Alert, Button, Accordion, Tabs, Tab, Offcanvas, Dropdown} from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useNavigate } from 'react-router-dom';
-import { faLanguage, faDownload, faArrowsRotate, faForward } from '@fortawesome/free-solid-svg-icons';
+import { faLanguage, faDownload, faArrowsRotate } from '@fortawesome/free-solid-svg-icons';
 import './IEPSummarizationAndTranslation.css';
-import { IEPDocument, IEPSection, Language, UserProfile } from '../../common/types';
+import { IEPDocument, IEPSection, UserProfile } from '../../common/types';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { getDirForLanguage } from '../../common/direction';
 import { useDocumentFetch, processContentWithJargon } from '../utils';
+import { FetchedIEPDocument } from '../utils/useDocumentFetch';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
-import ParentRightsCarousel, { SlideData } from '../../components/ParentRightsCarousel';
+import TTSPlayButton from '../../components/TTSPlayButton';
+import { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
 import AIEPFooter from '../../components/AIEPFooter';
 import { ApiClient } from '../../common/api-client/api-client';
 import { AppContext } from '../../common/app-context';
 import { useNotifications } from '../../components/notif-manager';
-import LinearProgress from '@mui/material/LinearProgress';
 import { TextHelper } from '../../common/helpers/text-helper';
 
 const IEPSummarizationAndTranslation: React.FC = () => {
@@ -45,7 +46,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState<boolean>(true);
   const [originalProfile, setOriginalProfile] = useState<UserProfile | null>(null);
-  const [saving, setSaving] = useState<boolean>(false);
+  const [, setSaving] = useState<boolean>(false);
   
   // Tutorial flow state management
   const [tutorialPhase, setTutorialPhase] = useState< 'parent-rights' | 'completed'>('parent-rights');
@@ -85,7 +86,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // Add state for dropdown language selection (separate from global language preference)
   const [selectedLanguage, setSelectedLanguage] = useState<string>('en');
   // Track if user has manually selected a language (to prevent auto-reset)
-  const [hasUserSelectedLanguage, setHasUserSelectedLanguage] = useState<boolean>(false);
+  const [hasUserSelectedLanguage] = useState<boolean>(false);
   const navigate = useNavigate();
   
   // Get preferred language from profile API, fallback to context language, then to 'en'
@@ -113,6 +114,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     };
 
     loadProfile();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only profile load by design; apiClient/setLanguage are recreated every render
   }, []);
 
   // Initialize selectedLanguage and activeTab after document loads
@@ -130,6 +132,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
       setSelectedLanguage('en');
       setActiveTab('en');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- hasContent is recreated every render; the document fields it reads are already dependencies
   }, [preferredLanguage, initialLoading, document.summaries, document.sections, hasUserSelectedLanguage]);
 
   // Only show tabs for languages enabled in this environment AND actually
@@ -170,14 +173,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // Handle language change - updates tab content and app language
   const handleLanguageChange = (lang: SupportedLanguage) => {
     handlePreferredLanguageChange(lang);
-  };
-
-
-  // Unified skip handler for the external button
-  const handleSkip = () => {
-    if (tutorialPhase === 'parent-rights') {
-      setTutorialPhase('completed');
-    } 
   };
 
 
@@ -339,7 +334,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   };
 
   // Process document sections for a specific language
-  const processLanguageSections = (doc: any, lang: string) => {
+  const processLanguageSections = (doc: FetchedIEPDocument, lang: string) => {
     // Only process sections when document is fully PROCESSED
     if (!doc || doc.status !== "PROCESSED") return;
     
@@ -412,13 +407,25 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   };
 
   // Process all document sections
-  const processDocumentSections = (doc: any) => {
-    // Process English sections first
-    processLanguageSections(doc, 'en');
-    
-    // Process preferred language if it's not English
-    if (preferredLanguage !== 'en') {
-      processLanguageSections(doc, preferredLanguage);
+  const processDocumentSections = (doc: FetchedIEPDocument) => {
+    // Normalize every language the document carries, not just English plus
+    // whatever preferredLanguage holds at this instant. The profile's language
+    // arrives asynchronously (the page syncs it from secondaryLanguage on
+    // mount), so keying off it raced the document fetch: on a fresh browser,
+    // where no stored preference short-circuits the sync, this ran while the
+    // value was still 'en' and the translated pane kept the raw API sections.
+    // Those lack the canonical section name, so the pane's audio buttons could
+    // never work. Normalizing every pane is an in-memory transform and removes
+    // the ordering dependency entirely.
+    const languages = Object.keys(doc?.sections ?? {});
+    if (!languages.includes('en')) {
+      // Preserved from the original: 'en' is normalized even when absent, which
+      // is what clears stale English sections out of state.
+      languages.unshift('en');
+    }
+
+    for (const lang of languages) {
+      processLanguageSections(doc, lang);
     }
   };
 
@@ -478,6 +485,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
       setActiveTab('en');
       setSelectedLanguage('en');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- hasContent is recreated every render; the document fields it reads are already dependencies
   }, [selectedLanguage, document.summaries, document.sections, isProcessing]);
 
 
@@ -552,7 +560,9 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     // Content direction follows the CONTENT language, not the UI language
     // (e.g. Arabic UI viewing the English tab stays LTR, and vice versa)
     return (
-      <div dir={getDirForLanguage(lang)} lang={lang}>
+      // data-testid: stable E2E hook per language pane (the tab nav is
+      // CSS-hidden, so a spec cannot find these panes by their tab labels)
+      <div dir={getDirForLanguage(lang)} lang={lang} data-testid={`summary-tab-panel-${lang}`}>
         {/* Summary Section */}
         {hasSummary ? (
           <>
@@ -561,8 +571,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               <span>{t('summary.lastUpdate')} {TextHelper.formatUnixTimestamp(document.updatedAt, lang)}</span>
             )}
           </div>
-            <h4 className="summary-header mt-4">
+            <h4 className="summary-header mt-4 d-flex align-items-center gap-2">
               {isEnglishTab ? 'IEP Summary' : t('summary.iepSummary')}
+              <TTSPlayButton
+                iepId={document.documentId}
+                language={lang}
+                target="summary"
+              />
             </h4>
             <Card className="summary-content mb-3">
               <Card.Body>
@@ -573,7 +588,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                   const contentToShow = needsTruncation && !isExpanded ? truncated : fullContent;
                   
                   return (
-                    <div className="markdown-content" onClick={handleContentClick}>
+                    <div
+                      className="markdown-content"
+                      onClick={handleContentClick}
+                      // Stable E2E hook: lets a spec compare the English and
+                      // translated summaries without scraping the whole page
+                      data-testid={`summary-text-${lang}`}
+                    >
                       <span
                         dangerouslySetInnerHTML={{ 
                           __html: processContentWithJargon(contentToShow, lang)
@@ -645,11 +666,30 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             </h4>
             <Accordion className="mb-3 summary-accordion">
               {document.sections[lang].map((section, index) => (
-                <Accordion.Item key={index} eventKey={index.toString()}>
+                // data-testid: stable E2E hook for "the Key Insights
+                // sections rendered" (the headings are localized content)
+                <Accordion.Item key={index} eventKey={index.toString()} data-testid="summary-section">
                   <Accordion.Header>
                     {section.displayName}
                   </Accordion.Header>
                   <Accordion.Body>
+                    {/* No audio for the client-fabricated Abbreviations table.
+                        Also wait for section.name: this accordion renders
+                        straight from document.sections[lang], which holds the
+                        raw API shape (title/content) until the effect above
+                        normalizes it into {name, displayName, ...}. Clicking in
+                        that window sent target=section with no sectionName, which
+                        the backend rejects with a 400 and which left the button
+                        stuck showing an error a parent had to notice and retry. */}
+                    {section.name && section.name !== 'Abbreviations' && (
+                      <TTSPlayButton
+                        iepId={document.documentId}
+                        language={lang}
+                        target="section"
+                        sectionName={section.name}
+                        className="mb-2"
+                      />
+                    )}
                     {section.pageNumbers && section.pageNumbers.length > 0 && (
                       <p className="text-muted mb-2 page-numbers-text">
                         <small>
@@ -819,11 +859,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         <div className="mt-2 text-start button-container d-flex justify-content-between align-items-center">
           <div className="d-flex gap-2 align-items-center">
             {apiClient.pdf.canGeneratePDF(document) && (
-              <Button 
-                variant="primary" 
+              <Button
+                variant="primary"
                 onClick={handleDownloadPDF}
                 disabled={isGeneratingPDF || isProcessing}
                 className="download-button"
+                // Stable E2E hook: the label is localized
+                data-testid="download-pdf-button"
               >
                 {isGeneratingPDF ? (
                   <>
@@ -848,10 +890,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               </Dropdown.Toggle>
               <Dropdown.Menu>
                 {languageOptions.map(option => (
-                  <Dropdown.Item 
-                    key={option.value} 
+                  <Dropdown.Item
+                    key={option.value}
                     onClick={() => handleLanguageChange(option.value as SupportedLanguage)}
                     active={selectedLanguage === option.value}
+                    // Stable E2E hook: the items are labelled with each
+                    // language's own endonym
+                    data-testid={`summary-language-option-${option.value}`}
                   >
                     {option.label.toUpperCase()}
                   </Dropdown.Item>
@@ -877,7 +922,12 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                   <Col md={12} className="no-padding-inherit">
                     {document.status === "FAILED" ? (
                       <Alert variant="danger">
-                        <h5>{t('summary.failed.title')}</h5>
+                        {/* data-testid: stable E2E hook so the pipeline
+                            journey can fail fast instead of waiting out its
+                            budget. It sits on the heading, not on <Alert>,
+                            because Alert forwards unknown props to its Fade
+                            transition rather than to the rendered div. */}
+                        <h5 data-testid="summary-failed">{t('summary.failed.title')}</h5>
                         <p>{t('summary.failed.message')}</p>
                         <Button
                           variant="primary"
@@ -960,10 +1010,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               </Card.Body>
             
               {document.status === "PROCESSED" && (
-                <Card.Header 
-                  className="summary-card-header d-flex justify-content-center align-items-center" 
+                <Card.Header
+                  className="summary-card-header d-flex justify-content-center align-items-center"
                   onClick={() => navigate('/iep-documents')}
                   style={{ cursor: 'pointer' }}
+                  // Stable E2E hook: the replace-document entry point, whose
+                  // label is localized
+                  data-testid="replace-document-link"
                 >
                   <div>
                     <FontAwesomeIcon icon={faArrowsRotate} className="me-2" />

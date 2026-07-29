@@ -1,0 +1,22 @@
+{
+  "name": "a-iep-e2e",
+  "private": true,
+  "description": "Phase 3 Playwright E2E journeys, run against the deployed staging site (see README.md)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:pipeline": "RUN_PIPELINE_E2E=1 playwright test",
+    "typecheck": "tsc --noEmit",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-cloudformation": "3.1097.0",
+    "@aws-sdk/client-cognito-identity-provider": "3.1097.0",
+    "@aws-sdk/client-ssm": "3.1097.0",
+    "@playwright/test": "1.62.0",
+    "@types/node": "20.19.43",
+    "typescript": "5.9.3"
+  }
+}

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
-import { UserProfile, Child } from '../../common/types';
+import { UserProfile } from '../../common/types';
 import { useNotifications } from '../../components/notif-manager';
 import { useLanguage } from '../../common/language-context'; 
 import './ProfileForms.css';
@@ -29,6 +29,7 @@ export default function ViewAndAddChild() {
 
   useEffect(() => {
     loadProfileAndCheckDocument();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only load by design
   }, []);
 
   const loadProfileAndCheckDocument = async () => {
@@ -124,7 +125,8 @@ export default function ViewAndAddChild() {
       
       // Navigate based on whether user has existing documents
       if (hasExistingDocument) {
-        navigate('/welcome-page');
+        // The legacy /welcome-page card hub is retired; Summary is the app home
+        navigate('/summary-and-translations');
       } else {
         navigate('/welcome-intro');
       }
@@ -199,11 +201,13 @@ export default function ViewAndAddChild() {
               </Row>
 
               <div className="d-grid">
-                <Button 
-                  variant="primary" 
+                <Button
+                  variant="primary"
                   onClick={handleSaveAndContinue}
                   disabled={!isFormValid() || saving}
                   className="button-text"
+                  // Stable E2E hook: the label is localized
+                  data-testid="child-save-button"
                 >
                   {saving ? t('child.button.saving') : t('child.button.save')}
                 </Button>

@@ -79,9 +79,10 @@ export class Utils {
     return null;
   }
 
-  static getErrorMessage(error: any) {
-    if (error.errors) {
-      return error.errors.map((e: any) => e.message).join(", ");
+  static getErrorMessage(error: unknown) {
+    const err = error as { errors?: { message: string }[] };
+    if (err.errors) {
+      return err.errors.map((e) => e.message).join(", ");
     }
 
     return "Unknown error";

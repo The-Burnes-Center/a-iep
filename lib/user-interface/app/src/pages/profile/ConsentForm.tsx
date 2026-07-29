@@ -3,7 +3,6 @@ import { Container, Form, Button, Row, Col, OverlayTrigger, Tooltip, Spinner } f
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
-import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { UserProfile } from '../../common/types';
 import { useNotifications } from '../../components/notif-manager';
 import { useLanguage } from '../../common/language-context'; 
@@ -12,7 +11,6 @@ import './ProfileForms.css';
 export default function ConsentForm() {
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
-  const iepDocumentClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
   const { addNotification } = useNotifications();
   const { t } = useLanguage();
@@ -27,6 +25,7 @@ export default function ConsentForm() {
   // Load profile on component mount
   useEffect(() => {
     loadProfile();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only profile load by design
   }, []);
 
   const loadProfile = async () => {
@@ -59,9 +58,15 @@ export default function ConsentForm() {
       return;
     }
     
-    // If consent was already given, go directly to IEP documents
+    // If consent was already given, continue on; ask for the parent's name
+    // first if the profile still has none (referral links and the admin
+    // console show it, and nothing else in the flow collects it)
     if (profile?.consentGiven) {
-      navigate('/iep-documents');
+      if (!profile?.parentName) {
+        navigate('/account-center/profile', { state: { onboardingContinue: true } });
+      } else {
+        navigate('/iep-documents');
+      }
       return;
     }
     
@@ -89,8 +94,13 @@ export default function ConsentForm() {
         // Don't fail the flow if this update fails
       }
       
-      // After saving consent and creating child, go to IEP documents
-      navigate('/iep-documents');
+      // After saving consent: collect the parent's name if missing (nothing
+      // else in the flow asks for it), otherwise go to IEP documents
+      if (!profile?.parentName) {
+        navigate('/account-center/profile', { state: { onboardingContinue: true } });
+      } else {
+        navigate('/iep-documents');
+      }
     } catch (err) {
       addNotification('error', 'Failed to save consent');
       setError('Failed to save consent. Please try again.');

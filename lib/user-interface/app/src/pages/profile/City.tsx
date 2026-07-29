@@ -20,6 +20,7 @@ export default function City() {
 
   useEffect(() => {
     loadProfile();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only profile load by design
   }, []);
 
   const loadProfile = async () => {

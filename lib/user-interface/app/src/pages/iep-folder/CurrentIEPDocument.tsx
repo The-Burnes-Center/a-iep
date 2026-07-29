@@ -1,6 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { Alert, Card, Spinner } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import './CurrentIEPDocument.css';
@@ -58,6 +57,7 @@ const CurrentIEPDocument: React.FC<CurrentIEPDocumentProps> = ({ onRefreshNeeded
     if (onRefreshNeeded) {
       onRefreshNeeded();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchDocument is recreated every render; refetch is keyed to onRefreshNeeded by design
   }, [onRefreshNeeded]);
 
   return (
@@ -74,14 +74,16 @@ const CurrentIEPDocument: React.FC<CurrentIEPDocumentProps> = ({ onRefreshNeeded
             </Spinner>
           </div>
         ) : documentName ? (
-        <div className='upload-info'>
+        // The two data-testids below are stable E2E hooks for "is a document
+        // on file?"; both messages are localized.
+        <div className='upload-info' data-testid="current-document-present">
           <h3>{t('current.header1')}</h3>
           <p>
             {t('current.paragraph1')}
           </p>
         </div>
         ) : (
-        <div className='upload-info'>
+        <div className='upload-info' data-testid="current-document-absent">
           <h3>{t('current.header2')}</h3>
           <p>
             {t('current.paragraph2')}

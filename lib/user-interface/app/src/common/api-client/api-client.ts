@@ -6,6 +6,7 @@ import { EvaluationsClient } from "./evaluations-client";
 import { ProfileClient } from "./profile-client";
 import { PDFClient } from "./pdf-client";
 import { TeamClient } from "./team-client";
+import { ReferralClient } from "./referral-client";
 
 export class ApiClient {
 
@@ -17,6 +18,7 @@ export class ApiClient {
   private _profileClient: ProfileClient | undefined;
   private _pdfClient: PDFClient | undefined;
   private _teamClient: TeamClient | undefined;
+  private _referralClient: ReferralClient | undefined;
  
 
   /** Construct the Knowledge Management sub-client */
@@ -70,6 +72,14 @@ export class ApiClient {
     }
 
     return this._pdfClient;
+  }
+
+  /** Construct the Referral sub-client */
+  public get referral() {
+    if (!this._referralClient) {
+      this._referralClient = new ReferralClient(this._appConfig);
+    }
+    return this._referralClient;
   }
 
   /** Construct the Team sub-client */

@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useLanguage, SupportedLanguage } from '../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../common/languages';
-import { IconFileDescription, IconHelpCircle, IconInfoCircle, IconHome, IconWorld } from '@tabler/icons-react';
+import { IconFileDescription, IconHelpCircle, IconInfoCircle, IconHome } from '@tabler/icons-react';
 import LanguageDropdown from './LanguageDropdown';
 import PartnerBanner from './PartnerBanner';
 import './LandingTopNavigation.css';

@@ -5,6 +5,19 @@ import { usePollingManager } from './polling-utility';
 import { AppContext } from '../../common/app-context';
 
 
+// Raw document payload returned by the documents API: sections arrive as
+// { title, content, page_numbers } and are reshaped into IEPSection objects
+// by the page-level processDocumentSections callback.
+export interface FetchedIEPDocument extends Partial<Omit<IEPDocument, 'sections'>> {
+  sections?: {
+    [lang: string]: Array<{
+      title?: string;
+      content?: string;
+      page_numbers?: number[];
+    }>;
+  };
+}
+
 interface UseDocumentFetchParams {
   translationsLoaded: boolean;
   document: IEPDocument;
@@ -12,12 +25,11 @@ interface UseDocumentFetchParams {
   setDocument: React.Dispatch<React.SetStateAction<IEPDocument>>;
   setError: React.Dispatch<React.SetStateAction<string | null>>;
   setInitialLoading: React.Dispatch<React.SetStateAction<boolean>>;
-  processDocumentSections: (doc: any) => void;
+  processDocumentSections: (doc: FetchedIEPDocument) => void;
 }
 
 export const useDocumentFetch = ({
   translationsLoaded,
-  document,
   initialLoading,
   setDocument,
   setError,
@@ -64,9 +76,6 @@ export const useDocumentFetch = ({
               // Log timing when status changes
               const uploadStartTime = localStorage.getItem('iep-upload-start-time');
               if (uploadStartTime) {
-                const currentTime = Date.now();
-                const elapsedSeconds = ((currentTime - parseInt(uploadStartTime)) / 1000).toFixed(1);
-                
                 if (retrievedDocument.status === 'PROCESSING' && prev.status !== 'PROCESSING') {
                   // console.log(`🔄 Document processing started after ${elapsedSeconds} seconds`);
                   // console.log(`⏱️ OCR and analysis began at ${new Date(currentTime).toLocaleTimeString()}`);
@@ -156,5 +165,6 @@ export const useDocumentFetch = ({
     return () => {
       pollingManager.stopPolling();
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch is driven by refreshCounter/translationsLoaded only; apiClient, pollingManager and the callbacks are recreated every render
   }, [refreshCounter, translationsLoaded]);
 };

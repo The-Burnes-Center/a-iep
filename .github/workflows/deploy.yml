@@ -6,9 +6,31 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+# One prod deploy at a time: the CloudFormation stack is the contended
+# resource, so the group is per-workflow rather than per-ref (this also
+# serializes workflow_dispatch runs). cancel-in-progress stays false: never
+# kill a CloudFormation update mid-flight. A newer queued run supersedes any
+# older queued run automatically.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
+  # Gate: the four CI jobs (jest, pytest, frontend, CDK synth) must pass on
+  # this exact commit before anything deploys. Running CI as a reusable
+  # workflow inside this run means same SHA by construction, with no cross-
+  # workflow race against the standalone CI run.
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
   deploy:
+    needs: ci
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     env:
       ENVIRONMENT: production
 
@@ -29,17 +51,17 @@ jobs:
 
     # Step 3: Install backend dependencies (from the root folder)
     - name: Install backend dependencies
-      run: npm install  # No need to cd into valorant-dotbot
+      run: npm ci
 
     # Step 4: Install frontend dependencies (in 'lib/user-interface/app')
     - name: Install frontend dependencies
       run: |
         cd lib/user-interface/app
-        npm install
+        npm ci
 
     # Step 5: Configure AWS credentials
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
+      uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -68,15 +90,25 @@ jobs:
         ACM_CERTIFICATE_ARN: ${{ secrets.ACM_CERTIFICATE_ARN_PROD }}
         DOMAIN: ${{ secrets.DOMAIN_PROD }}
 
-    # Step 8: Fetch CloudFormation outputs and save to a file
-    - name: Fetch CloudFormation Outputs
-      run: |
-        aws cloudformation describe-stacks --stack-name AIEPStack --query "Stacks[0].Outputs" > stack-outputs.json
-        cat stack-outputs.json  # Just to verify in logs if needed
+  # Phase 2 of the testing protocol: every deploy verifies itself. Read-only,
+  # SMS-free checks (auth contract, site bundle, API liveness) resolved from
+  # stack outputs; a failure turns this workflow red within minutes instead
+  # of shipping silently broken (see PR #51).
+  smoke-test:
+    name: Post-deploy smoke test
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-    # Step 9: Upload the output file as an artifact (optional)
-    - name: Upload Outputs as Artifact
-      uses: actions/upload-artifact@v4
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
       with:
-        name: stack-outputs
-        path: stack-outputs.json
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+
+    - name: Run smoke tests
+      run: bash scripts/smoke-test.sh AIEPStack production

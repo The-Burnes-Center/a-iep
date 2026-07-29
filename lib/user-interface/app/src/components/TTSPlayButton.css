@@ -1,0 +1,20 @@
+.tts-play-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tts-play-button .spinner-border {
+  width: 1rem;
+  height: 1rem;
+}
+
+.tts-play-button-error {
+  color: #dc3545;
+  border-color: #dc3545;
+}

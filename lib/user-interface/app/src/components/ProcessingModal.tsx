@@ -31,7 +31,10 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
   headerGreenTitle,
 }) => {
   return (
-    <div className="page processing-modal-wrapper">
+    // Stable E2E hook: "the pipeline is running" is a milestone the document
+    // journey must see before it may believe any summary, and every string on
+    // this screen is localized.
+    <div className="page processing-modal-wrapper" data-testid="processing-modal">
       <div className="processing-modal-overlay"></div>
       <div className="processing-modal-container">
         {error && <Alert variant="danger">{error}</Alert>}

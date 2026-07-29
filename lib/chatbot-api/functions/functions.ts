@@ -24,6 +24,7 @@ export interface LambdaFunctionStackProps {
   readonly knowledgeBucket : s3.Bucket;
   readonly userProfilesTable : Table;
   readonly iepDocumentsTable : Table;
+  readonly referralsTable : Table;
   readonly userPool: cognito.UserPool;
   readonly logGroup: logs.LogGroup;
   readonly logRole: iam.Role;
@@ -36,7 +37,9 @@ export class LambdaFunctionStack extends cdk.Stack {
   public readonly uploadS3KnowledgeFunction : lambda.Function;
   public readonly userProfileFunction : lambda.Function;
   public readonly cognitoTriggerFunction : lambda.Function;
+  public readonly referralFunction : lambda.Function;
   public readonly pdfGeneratorFunction : lambda.Function;
+  public readonly ttsFunction : lambda.Function;
   
   // Step Functions components
   public readonly orchestratorFunction : lambda.Function;
@@ -106,12 +109,18 @@ export class LambdaFunctionStack extends cdk.Stack {
       ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
     });
 
+    // Least privilege: this handler only lists a caller's own prefix
+    // (ListObjectsV2 -> s3:ListBucket, a bucket-level action, so no object
+    // ARN). It never reads, writes or deletes object contents, and the
+    // bucket holds every family's IEP documents, so a wildcard here would
+    // hand full read/write over all of them to anything that compromises
+    // this function. Pinned by the infra suite.
     getS3APIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
-        's3:*'
+        's3:ListBucket'
       ],
-      resources: [props.knowledgeBucket.bucketArn,props.knowledgeBucket.bucketArn+"/*"]
+      resources: [props.knowledgeBucket.bucketArn]
     }));
 
     this.getS3KnowledgeFunction = getS3APIHandlerFunction;
@@ -130,12 +139,30 @@ export class LambdaFunctionStack extends cdk.Stack {
       ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
     });
 
+    // Least privilege. Object-level actions cover the presigned upload URL
+    // (PutObject), the presigned download URL (GetObject) and the
+    // replace-before-put flow in utils/iep-document-utils.mjs, which clears
+    // the child's previous document (DeleteObject). Presigned URLs are
+    // evaluated against THIS role at request time, so the grants must cover
+    // what the URLs do, not just what the handler calls directly.
     uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
-        's3:*'
+        's3:PutObject',
+        's3:GetObject',
+        's3:DeleteObject'
       ],
-      resources: [props.knowledgeBucket.bucketArn, props.knowledgeBucket.bucketArn + "/*"]
+      resources: [props.knowledgeBucket.bucketArn + "/*"]
+    }));
+
+    // The same replace flow lists the child's existing objects first;
+    // ListBucket is bucket-level, hence the separate statement.
+    uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        's3:ListBucket'
+      ],
+      resources: [props.knowledgeBucket.bucketArn]
     }));
 
     // Add DynamoDB permissions for IEP documents table
@@ -565,6 +592,84 @@ export class LambdaFunctionStack extends cdk.Stack {
 
     this.userProfileFunction = userProfileHandlerFunction;
 
+    // Text-to-speech handler: on-demand synthesis of summaries/sections with
+    // S3 caching. Timeout intentionally exceeds the API Gateway 30s cap so a
+    // long cold-cache synthesis still finishes and caches; the client retries
+    // the idempotent request and lands on the warm cache.
+    const ttsHandlerFunction = createTaggedLambda('TTSHandlerFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      code: lambda.Code.fromAsset(path.join(__dirname, 'tts-handler')),
+      handler: 'lambda_function.lambda_handler',
+      environment: {
+        "BUCKET": props.knowledgeBucket.bucketName,
+        "USER_PROFILES_TABLE": props.userProfilesTable.tableName,
+        "IEP_DOCUMENTS_TABLE": props.iepDocumentsTable.tableName,
+        "TTS_PROVIDER_PARAMETER_NAME": "/a-iep/TTS_PROVIDER",
+        "TTS_VOICE_CONFIG_PARAMETER_NAME": "/a-iep/TTS_VOICE_CONFIG",
+        "ELEVENLABS_API_KEY_PARAMETER_NAME": "/a-iep/ELEVENLABS_API_KEY",
+        "OPENAI_API_KEY_PARAMETER_NAME": "/ai-iep/OPENAI_API_KEY"
+      },
+      timeout: cdk.Duration.seconds(120),
+      memorySize: 512,
+      logRetention: logs.RetentionDays.ONE_YEAR,
+      ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
+    });
+
+    ttsHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:GetObject'],
+      resources: [props.knowledgeBucket.bucketArn + "/iep-data/*"]
+    }));
+
+    ttsHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:GetObject', 's3:PutObject'],
+      resources: [props.knowledgeBucket.bucketArn + "/iep-audio/*"]
+    }));
+
+    // ListBucket makes head_object on a missing cache key a clean 404 (not 403)
+    ttsHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:ListBucket'],
+      resources: [props.knowledgeBucket.bucketArn]
+    }));
+
+    ttsHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:GetItem'],
+      resources: [
+        props.userProfilesTable.tableArn,
+        props.iepDocumentsTable.tableArn
+      ]
+    }));
+
+    ttsHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['ssm:GetParameter'],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/a-iep/TTS_PROVIDER`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/a-iep/TTS_VOICE_CONFIG`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/a-iep/ELEVENLABS_API_KEY`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/ai-iep/OPENAI_API_KEY`
+      ]
+    }));
+
+    if (props.kmsKey) {
+      ttsHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'kms:Encrypt',
+          'kms:Decrypt',
+          'kms:ReEncrypt*',
+          'kms:GenerateDataKey*',
+          'kms:DescribeKey'
+        ],
+        resources: [props.kmsKey.keyArn]
+      }));
+    }
+
+    this.ttsFunction = ttsHandlerFunction;
+
     // Add Cognito Post Confirmation Trigger Lambda
     const cognitoTriggerFunction = new lambda.Function(scope, 'CognitoTriggerFunction', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -578,14 +683,13 @@ export class LambdaFunctionStack extends cdk.Stack {
       ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
     });
 
-    // Grant DynamoDB permissions to Cognito trigger
-    cognitoTriggerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'dynamodb:PutItem'
-      ],
-      resources: [props.userProfilesTable.tableArn]
-    }));
+    // grantReadWriteData (rather than a manual PutItem policy) also grants
+    // the KMS permissions for the table's customer-managed encryption key.
+    // With the previous manual policy the PostConfirmation profile write
+    // failed silently on every signup (GetItem denied, then kms:Decrypt
+    // denied on PutItem), so new users never got the showOnboarding /
+    // consentGiven defaults and skipped onboarding entirely.
+    props.userProfilesTable.grantReadWriteData(cognitoTriggerFunction);
 
     // Allow Cognito to invoke the Lambda
     cognitoTriggerFunction.addPermission('CognitoInvocation', {
@@ -602,6 +706,79 @@ export class LambdaFunctionStack extends cdk.Stack {
 
     this.cognitoTriggerFunction = cognitoTriggerFunction;
 
+    // Referral system handler: public click counting plus authenticated
+    // invite stats, signup attribution, and admin campaign-link management.
+    const referralHandlerFunction = createTaggedLambda('ReferralHandlerFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      code: lambda.Code.fromAsset(path.join(__dirname, 'referral-handler')),
+      handler: 'lambda_function.lambda_handler',
+      environment: {
+        "REFERRALS_TABLE": props.referralsTable.tableName,
+        "USER_PROFILES_TABLE": props.userProfilesTable.tableName,
+        "USER_POOL_ID": props.userPool.userPoolId,
+      },
+      timeout: cdk.Duration.seconds(30),
+      logRetention: logs.RetentionDays.ONE_YEAR,
+      ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
+    });
+
+    referralHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'dynamodb:GetItem',
+        'dynamodb:PutItem',
+        'dynamodb:UpdateItem',
+        'dynamodb:Query',
+        'dynamodb:Scan'
+      ],
+      resources: [
+        props.referralsTable.tableArn,
+        props.referralsTable.tableArn + "/index/*"
+      ]
+    }));
+
+    // Reads profile age for the attribution window, stamps referredBy /
+    // referralCode on the caller's own profile, and batch-resolves link
+    // owners to parent names for the admin console.
+    referralHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'dynamodb:GetItem',
+        'dynamodb:BatchGetItem',
+        'dynamodb:UpdateItem'
+      ],
+      resources: [props.userProfilesTable.tableArn]
+    }));
+
+    // Both tables are encrypted with the customer-managed key
+    if (props.kmsKey) {
+      referralHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'kms:Decrypt',
+          'kms:GenerateDataKey*',
+          'kms:DescribeKey'
+        ],
+        resources: [props.kmsKey.keyArn]
+      }));
+    }
+
+    // Admin management: admins list/add/remove members of the 'admin' group
+    // from the console (self-removal is blocked in the handler).
+    referralHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'cognito-idp:ListUsers',
+        'cognito-idp:ListUsersInGroup',
+        'cognito-idp:AdminGetUser',
+        'cognito-idp:AdminAddUserToGroup',
+        'cognito-idp:AdminRemoveUserFromGroup'
+      ],
+      resources: [props.userPool.userPoolArn]
+    }));
+
+    this.referralFunction = referralHandlerFunction;
+
     // Common environment variables for all functions
     const commonEnvVars = {
       LOG_GROUP_NAME: props.logGroup.logGroupName,
@@ -613,11 +790,16 @@ export class LambdaFunctionStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       code: lambda.Code.fromAsset(path.join(__dirname, 'pdf-generator'), {
         assetHashType: cdk.AssetHashType.SOURCE,
+        // Local node_modules stays out of the asset so the SOURCE hash is
+        // identical between a laptop deploy and a clean CI checkout; npm ci
+        // then installs exactly the committed package-lock.json, so deploys
+        // are reproducible instead of resolving ranges fresh each time.
+        exclude: ['node_modules'],
         bundling: {
           image: lambda.Runtime.NODEJS_20_X.bundlingImage,
           command: [
             'bash', '-c',
-            'npm --cache /tmp/.npm install && cp -au . /asset-output'
+            'npm --cache /tmp/.npm ci && cp -au . /asset-output'
           ],
         },
       }),

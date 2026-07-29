@@ -30,6 +30,7 @@ export default function PreferredLanguage() {
 
   useEffect(() => {
     loadProfile();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only onboarding gate: loadProfile decides the redirect once, on load
   }, []);
 
   const loadProfile = async () => {
@@ -62,6 +63,21 @@ export default function PreferredLanguage() {
 
         // Otherwise, stay on language selection (current screen) to start onboarding
         setError(null);
+        return;
+      }
+
+      // Consent is mandatory even when onboarding is done or was skipped:
+      // profiles created by fallback paths never saw the consent form, so
+      // send them there instead of into the app
+      if (!(data && data.consentGiven === true)) {
+        navigate('/consent-form');
+        return;
+      }
+
+      // Same for the parent's name: nothing else in the flow collects it,
+      // and referral links / the admin console display it
+      if (!(data && data.parentName)) {
+        navigate('/account-center/profile', { state: { onboardingContinue: true } });
         return;
       }
 

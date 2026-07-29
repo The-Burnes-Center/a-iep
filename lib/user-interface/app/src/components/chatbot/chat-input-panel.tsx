@@ -2,11 +2,9 @@ import {
   Button,
   Container,
   Icon,
-  Select,
   SelectProps,
   SpaceBetween,
   Spinner,
-  StatusIndicator,
 } from "@cloudscape-design/components";
 import {
   Dispatch,
@@ -17,14 +15,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate } from "react-router-dom";
 import SpeechRecognition, {
   useSpeechRecognition,
 } from "react-speech-recognition";
 import { Auth } from "aws-amplify";
 import TextareaAutosize from "react-textarea-autosize";
 import { ReadyState } from "react-use-websocket";
-import { ApiClient } from "../../common/api-client/api-client";
 import { AppContext } from "../../common/app-context";
 import styles from "../../styles/chat.module.scss";
 
@@ -58,22 +54,21 @@ export abstract class ChatScrollState {
 
 export default function ChatInputPanel(props: ChatInputPanelProps) {
   const appContext = useContext(AppContext);
-  const {needsRefresh, setNeedsRefresh} = useContext(SessionRefreshContext);  
+  const {setNeedsRefresh} = useContext(SessionRefreshContext);
   const { transcript, listening, browserSupportsSpeechRecognition } =
     useSpeechRecognition();
   const [state, setState] = useState<ChatInputState>({
     value: "",
     
   });
-  const { notifications, addNotification } = useNotifications();
-  const [readyState, setReadyState] = useState<ReadyState>(
+  const { addNotification } = useNotifications();
+  const [readyState] = useState<ReadyState>(
     ReadyState.OPEN
-  );  
+  );
   const messageHistoryRef = useRef<ChatBotHistoryItem[]>([]);
 
   const [
-    selectedDataSource,
-    setSelectedDataSource
+    selectedDataSource
   ] = useState({ label: "Bedrock Knowledge Base", value: "kb" } as SelectProps.ChangeDetail["selectedOption"]);
 
   useEffect(() => {
@@ -305,14 +300,6 @@ export default function ChatInputPanel(props: ChatInputPanelProps) {
       props.setRunning(false);
     }     
   };
-
-  const connectionStatus = {
-    [ReadyState.CONNECTING]: "Connecting",
-    [ReadyState.OPEN]: "Open",
-    [ReadyState.CLOSING]: "Closing",
-    [ReadyState.CLOSED]: "Closed",
-    [ReadyState.UNINSTANTIATED]: "Uninstantiated",
-  }[readyState];
 
   return (
     <SpaceBetween direction="vertical" size="l">

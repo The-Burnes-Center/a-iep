@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Button } from 'react-bootstrap';
 import { Swiper, SwiperSlide } from 'swiper/react';
+import type { Swiper as SwiperClass } from 'swiper';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../../common/language-context';
 import 'swiper/css';
@@ -24,6 +25,7 @@ const OnboardingUser: React.FC = () => {
     t('onboarding.carousel.heading.summarize'), 
     t('onboarding.carousel.heading.translate'),
     t('onboarding.carousel.heading.advocate')
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- language intentionally retriggers translation of the onboarding copy
   ], [t, language]);
 
 
@@ -32,10 +34,12 @@ const OnboardingUser: React.FC = () => {
     t('onboarding.carousel.paragraph.summarize'),
     t('onboarding.carousel.paragraph.translate'),
     t('onboarding.carousel.paragraph.advocate')
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- language intentionally retriggers translation of the onboarding copy
   ], [t, language]);
 
-  const getStartedText = useMemo(() => 
+  const getStartedText = useMemo(() =>
     t('parent.button.save'),
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- language intentionally retriggers translation of the onboarding copy
   [t, language]);
 
   // Array of image data
@@ -63,7 +67,7 @@ const OnboardingUser: React.FC = () => {
   };
   
   // Create a ref to access Swiper instance
-  const swiperRef = React.useRef<any>(null);
+  const swiperRef = React.useRef<SwiperClass | null>(null);
   
   const handlePrevClick = () => {
     if (swiperRef.current && !isFirstSlide) {

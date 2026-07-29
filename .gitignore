@@ -2,6 +2,10 @@
 !jest.config.js
 # phone-otp-auth lambdas are plain JS sources, not compiled TS twins
 !lib/chatbot-api/functions/phone-otp-auth/*.js
+# ...and so is the staging-only custom SMS sender
+!lib/chatbot-api/functions/custom-sms-sender/*.js
+# ...and so are their unit tests
+!test/lambdas/**/*.js
 *.d.ts
 !global.d.ts
 node_modules
@@ -81,7 +85,17 @@ amplifyxc.config
 
 # Dependencies
 package-lock.json
-yarn.locklib/chatbot-api/functions/metadata-handler/DocumentAI Lambda Access.json
+# ...but deploy-time-bundled lambdas must pin their deps (npm ci needs this)
+!lib/chatbot-api/functions/pdf-generator/package-lock.json
+!lib/chatbot-api/functions/custom-sms-sender/package-lock.json
+# ...and the root and frontend lockfiles are tracked: without these negations,
+# a regenerated lockfile here is silently ignored and never gets committed
+!/package-lock.json
+!lib/user-interface/app/package-lock.json
+# ...and the E2E suite's lockfile (CI runs `npm ci` in e2e/)
+!e2e/package-lock.json
+yarn.lock
+lib/chatbot-api/functions/metadata-handler/DocumentAI Lambda Access.json
 
 # Custom ignores
 cryptography-layer.zip

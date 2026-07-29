@@ -7,7 +7,7 @@ import { useNotifications } from "./notif-manager";
 
 export default function NotificationBar() {
 
-  const { notifications, addNotification } = useNotifications();
+  const { notifications } = useNotifications();
   
 
   return (  
