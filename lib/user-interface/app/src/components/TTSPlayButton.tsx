@@ -51,9 +51,9 @@ const TTSPlayButton: React.FC<TTSPlayButtonProps> = ({
     }
   };
 
+  // Unmount-only cleanup.
   useEffect(() => {
     return releaseAudio;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount-only cleanup
   }, []);
 
   // These four props identify which clip this button plays. When any of them
@@ -62,11 +62,12 @@ const TTSPlayButton: React.FC<TTSPlayButtonProps> = ({
   // settling (sectionName arrives undefined on first render) stayed in the
   // error state even after the data it needed showed up, and only a manual
   // click could clear it.
+  // Deliberately keyed on the four props alone: releaseAudio is redefined every
+  // render, so depending on it would reset the button constantly.
   useEffect(() => {
     releaseAudio();
     fetchedAtRef.current = 0;
     setState('idle');
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- releaseAudio is stable enough; re-running on identity would defeat the reset
   }, [iepId, language, target, sectionName]);
 
   if (!iepId) {
