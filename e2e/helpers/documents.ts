@@ -287,6 +287,20 @@ export async function ttsState(button: Locator): Promise<string | null> {
  */
 export async function openFirstSectionWithAudio(panel: Locator): Promise<Locator> {
   const sections = panel.getByTestId(TESTID.section);
+
+  // Section audio buttons only mount once the summary page has normalized its
+  // sections (each section's canonical name arrives a render after the raw API
+  // shape, and the page withholds the button until then, because a request
+  // without it is rejected). Sampling the DOM once raced that, so wait for a
+  // section that actually has a button before picking one.
+  await expect(async () => {
+    const total = await sections.count();
+    for (let index = 0; index < total; index++) {
+      if ((await sections.nth(index).getByTestId(TESTID.ttsButton).count()) > 0) return;
+    }
+    throw new Error('no section audio button has mounted yet');
+  }).toPass({ timeout: 30_000 });
+
   const count = await sections.count();
   for (let index = 0; index < count; index++) {
     const section = sections.nth(index);

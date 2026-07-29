@@ -408,12 +408,24 @@ const IEPSummarizationAndTranslation: React.FC = () => {
 
   // Process all document sections
   const processDocumentSections = (doc: FetchedIEPDocument) => {
-    // Process English sections first
-    processLanguageSections(doc, 'en');
-    
-    // Process preferred language if it's not English
-    if (preferredLanguage !== 'en') {
-      processLanguageSections(doc, preferredLanguage);
+    // Normalize every language the document carries, not just English plus
+    // whatever preferredLanguage holds at this instant. The profile's language
+    // arrives asynchronously (the page syncs it from secondaryLanguage on
+    // mount), so keying off it raced the document fetch: on a fresh browser,
+    // where no stored preference short-circuits the sync, this ran while the
+    // value was still 'en' and the translated pane kept the raw API sections.
+    // Those lack the canonical section name, so the pane's audio buttons could
+    // never work. Normalizing every pane is an in-memory transform and removes
+    // the ordering dependency entirely.
+    const languages = Object.keys(doc?.sections ?? {});
+    if (!languages.includes('en')) {
+      // Preserved from the original: 'en' is normalized even when absent, which
+      // is what clears stale English sections out of state.
+      languages.unshift('en');
+    }
+
+    for (const lang of languages) {
+      processLanguageSections(doc, lang);
     }
   };
 
@@ -661,8 +673,15 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                     {section.displayName}
                   </Accordion.Header>
                   <Accordion.Body>
-                    {/* No audio for the client-fabricated Abbreviations table */}
-                    {section.name !== 'Abbreviations' && (
+                    {/* No audio for the client-fabricated Abbreviations table.
+                        Also wait for section.name: this accordion renders
+                        straight from document.sections[lang], which holds the
+                        raw API shape (title/content) until the effect above
+                        normalizes it into {name, displayName, ...}. Clicking in
+                        that window sent target=section with no sectionName, which
+                        the backend rejects with a 400 and which left the button
+                        stuck showing an error a parent had to notice and retry. */}
+                    {section.name && section.name !== 'Abbreviations' && (
                       <TTSPlayButton
                         iepId={document.documentId}
                         language={lang}

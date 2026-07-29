@@ -36,22 +36,38 @@ const TTSPlayButton: React.FC<TTSPlayButtonProps> = ({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fetchedAtRef = useRef<number>(0);
 
-  useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        // Detach handlers first so the pause below can't setState on an
-        // unmounted component
-        audioRef.current.onpause = null;
-        audioRef.current.onended = null;
-        audioRef.current.onerror = null;
-        audioRef.current.pause();
-        if (activeAudio === audioRef.current) {
-          activeAudio = null;
-        }
-        audioRef.current = null;
+  const releaseAudio = () => {
+    if (audioRef.current) {
+      // Detach handlers first so the pause below can't setState on an
+      // unmounted component
+      audioRef.current.onpause = null;
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+      audioRef.current.pause();
+      if (activeAudio === audioRef.current) {
+        activeAudio = null;
       }
-    };
+      audioRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return releaseAudio;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount-only cleanup
   }, []);
+
+  // These four props identify which clip this button plays. When any of them
+  // changes the previous outcome no longer describes the current one, so drop
+  // it: without this, a button that errored while its inputs were still
+  // settling (sectionName arrives undefined on first render) stayed in the
+  // error state even after the data it needed showed up, and only a manual
+  // click could clear it.
+  useEffect(() => {
+    releaseAudio();
+    fetchedAtRef.current = 0;
+    setState('idle');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- releaseAudio is stable enough; re-running on identity would defeat the reset
+  }, [iepId, language, target, sectionName]);
 
   if (!iepId) {
     return null;
