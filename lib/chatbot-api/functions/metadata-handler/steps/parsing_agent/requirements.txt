@@ -7,10 +7,8 @@ mistralai==1.12.4  # newest allowed by pydantic 2.10.6 (mistralai 2.x needs pyda
 openai==2.44.0  # ceiling: 2.45.0 made InputTokensDetails.cache_write_tokens required, which openai-agents 0.4.2 does not pass
 openai-agents==0.4.2  # newest allowed by pydantic 2.10.6 (0.19.x needs pydantic>=2.12.2)
 cryptography==49.0.0
-fpdf2==2.8.7
 protobuf==7.35.1
 python-dotenv==1.2.2
-pillow==12.2.0  # newest with manylinux2014 cp312 wheels
 
 # Data validation (compatible with openai-agents)
 pydantic==2.10.6
