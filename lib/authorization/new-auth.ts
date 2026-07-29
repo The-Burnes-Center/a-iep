@@ -107,7 +107,14 @@ export class NewAuthorizationStack extends Construct {
 
     // 1. Create the Cognito User Pool with self sign-up and email/phone support
     const userPool = new UserPool(this, 'NewUserPool', {
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      // RETAIN: this pool IS every family's login. Cognito cannot export or
+      // re-import password/phone credentials, so a replaced or destroyed pool
+      // locks every parent out permanently, with no restore path. It was
+      // DESTROY until 2026-07-29, in the same audit that found the knowledge
+      // bucket's DESTROY + autoDeleteObjects had let a 2026-06-22 rename
+      // (edc7d2d) delete 50 of 102 production IEP documents. Do not flip this
+      // back; pinned by test/infra/gen-ai-mvp-stack.test.ts.
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
       // Staging only; production keeps Cognito's native SMS delivery, so it
       // registers no key and no custom sender (pinned by the infra suite).
       ...(customSenderKey ? { customSenderKmsKey: customSenderKey } : {}),
@@ -278,6 +285,10 @@ export class NewAuthorizationStack extends Construct {
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'expiresAt',
+      // DESTROY on purpose, unlike the user-data tables: every row is a
+      // throwaway hourly counter that TTLs itself out within the hour, so
+      // losing the table costs one hour of rate-limit history and nothing
+      // else. Retaining it would just strand junk tables on every teardown.
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
     tagResource(otpRateLimitTable, {

@@ -17,15 +17,32 @@ export class S3BucketStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: S3BucketStackProps) {
     super(scope, id, props);
 
-    // Create a new S3 bucket with explicit name to support cross-environment usage
+    // Create a new S3 bucket with explicit name to support cross-environment usage.
+    //
+    // DO NOT CHANGE THIS NAME, and do not change how `environment` is spelled.
+    // The 2026-06/07 data-loss incident: e1df452 (2025-09-15) made this name
+    // interpolate getEnvironment(), then edc7d2d (2026-06-22), a tag cleanup,
+    // redefined Environment from 'production'|'staging' to 'prod'|'dev'. That
+    // renamed both buckets (-production -> -prod, -staging -> -dev). S3 names
+    // are immutable, so CloudFormation REPLACED the bucket, and because it was
+    // declared DESTROY + autoDeleteObjects it deleted the old bucket and every
+    // object in it: 50 of 102 production and 10 of 44 staging IEP documents
+    // lost their stored content. The deploy reported success.
+    // test/infra/gen-ai-mvp-stack.test.ts pins both the literal name per
+    // environment and the retention policy below.
     const environment = getEnvironment();
     const bucketName = `ai-iep-knowledge-source-${environment}`;
-    
-    this.knowledgeBucket = new s3.Bucket(scope, 'KnowledgeSourceBucket', {      
+
+    this.knowledgeBucket = new s3.Bucket(scope, 'KnowledgeSourceBucket', {
       bucketName: bucketName,
       versioned: true,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
+      // RETAIN, and no autoDeleteObjects: this bucket is families' IEP
+      // documents. Any future rename/replacement must strand the old bucket
+      // instead of emptying it, and a `cdk destroy` must never take the data
+      // with it. (CDK also throws at synth if autoDeleteObjects is set without
+      // removalPolicy DESTROY, so the two must stay removed together.)
+      // Deliberately not "cleaned up" to DESTROY: see the incident note above.
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
       encryption: props?.encryptionKey ? s3.BucketEncryption.KMS : s3.BucketEncryption.S3_MANAGED,

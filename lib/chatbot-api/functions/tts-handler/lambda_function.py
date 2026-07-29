@@ -130,6 +130,20 @@ def _presigned_url(key):
     )
 
 
+def _reject(status, message, **context):
+    """
+    Refuse a request AND say why in the log.
+
+    Every validation path here used to return silently, so a rejected request
+    was indistinguishable from a healthy one: a 2ms invocation with no output.
+    A staging E2E failure on 2026-07-29 could not be diagnosed for exactly that
+    reason. None of the logged fields carry document content: ids, the target,
+    and the language are safe, and presence flags avoid echoing anything else.
+    """
+    print(f"Rejected TTS request ({status}): {message} | {json.dumps(context)}")
+    return create_response(status, {'message': message})
+
+
 def lambda_handler(event, context):
     method = (
         event.get('requestContext', {}).get('http', {}).get('method')
@@ -138,33 +152,44 @@ def lambda_handler(event, context):
     if method == 'OPTIONS':
         return create_response(200, {})
 
+    iep_id = (event.get('pathParameters') or {}).get('iepId')
+
     try:
         user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
     except (KeyError, TypeError):
-        return create_response(401, {'message': 'Unauthorized'})
+        return _reject(401, 'Unauthorized', iep_id=iep_id)
 
-    iep_id = (event.get('pathParameters') or {}).get('iepId')
     if not iep_id:
-        return create_response(400, {'message': 'Missing iepId path parameter'})
+        return _reject(400, 'Missing iepId path parameter')
 
     try:
         body = _parse_body(event)
     except (ValueError, TypeError):
-        return create_response(400, {'message': 'Invalid JSON body'})
+        return _reject(400, 'Invalid JSON body', iep_id=iep_id)
 
     child_id = body.get('childId')
     language = body.get('language')
     target = body.get('target')
     section_name = body.get('sectionName')
 
+    # Shared context for the rejections below: enough to tell which field the
+    # caller got wrong without logging anything sensitive.
+    request_meta = {
+        'iep_id': iep_id,
+        'has_child_id': bool(child_id),
+        'language': language,
+        'target': target,
+        'has_section_name': bool(section_name),
+    }
+
     if not child_id:
-        return create_response(400, {'message': 'Missing childId'})
+        return _reject(400, 'Missing childId', **request_meta)
     if language not in SUPPORTED_LANGUAGES:
-        return create_response(400, {'message': f'Unsupported language: {language}'})
+        return _reject(400, f'Unsupported language: {language}', **request_meta)
     if target not in VALID_TARGETS:
-        return create_response(400, {'message': f'Invalid target: {target}'})
+        return _reject(400, f'Invalid target: {target}', **request_meta)
     if target == 'section' and not section_name:
-        return create_response(400, {'message': 'Missing sectionName for section target'})
+        return _reject(400, 'Missing sectionName for section target', **request_meta)
 
     # Authorization: user must own the child, and the document must belong to them
     if not _user_owns_child(user_id, child_id):

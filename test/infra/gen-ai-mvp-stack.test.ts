@@ -39,6 +39,160 @@ const CDK_HELPER_PREFIXES = [
 
 const APPROVED_RUNTIMES = ['python3.12', 'nodejs20.x'];
 
+// ── Durable-store retention pins ────────────────────────────────────────
+// WHY (2026-06/07 data-loss incident): e1df452 (2025-09-15) made the
+// knowledge bucket's name interpolate getEnvironment(). edc7d2d (2026-06-22),
+// a tag-standardization commit, then redefined the Environment type from
+// 'production'|'staging' to 'prod'|'dev'. That silently renamed both buckets;
+// S3 names are immutable, so CloudFormation REPLACED them, and because they
+// were declared removalPolicy DESTROY with autoDeleteObjects, it deleted the
+// old buckets and every object inside. 50 of 102 production and 10 of 44
+// staging IEP documents lost their stored content. The deploy reported
+// success and no test failed.
+//
+// The pins below close both halves of that hole for every store that holds
+// irreplaceable user data: the DeletionPolicy/UpdateReplacePolicy must be
+// Retain (a rename or teardown must strand the data, never delete it), no
+// auto-delete machinery may be armed on it, and the knowledge bucket's
+// literal name is pinned per environment so any future change to the env
+// label or the naming scheme fails here instead of relocating live data.
+//
+// Deliberately NOT pinned to Retain, because they are genuinely disposable:
+//   - WebsiteBucket / WebsiteLogsBucket (already Retain, but only assets and
+//     access logs; no user content)
+//   - DistributionLogsBucket (CloudFront access logs, DESTROY + autoDelete)
+//   - OtpRateLimitTable (hourly SMS counters that TTL themselves out; losing
+//     it costs at most one hour of rate-limit history)
+//   - CustomSenderKey (staging-only KMS key for Cognito codes that live for
+//     minutes; pinned as Delete by its own test above)
+const USER_DATA_TABLE_HINTS = ['UserProfilesTable', 'IepDocumentsTable', 'ReferralsTable'];
+
+// The live bucket names, per environment. These are the names the production
+// and staging documents in DynamoDB (contentS3Reference) already point at.
+// Changing either value relocates real data: do not "fix" this test to match
+// a new scheme without migrating the objects first.
+const KNOWLEDGE_BUCKET_NAMES = {
+  staging: 'ai-iep-knowledge-source-dev',
+  production: 'ai-iep-knowledge-source-prod',
+} as const;
+
+// The knowledge bucket and the user-data tables carry no explicit TableName,
+// so their identity is their logical ID: a changed construct path replaces
+// the resource (new, empty table) just as surely as a changed bucket name.
+const USER_DATA_LOGICAL_IDS = {
+  staging: [
+    'ChatbotAPIstagingKnowledgeSourceBucket6569EF05',
+    'ChatbotAPIstagingUserProfilesTable49F35014',
+    'ChatbotAPIstagingIepDocumentsTable38D1586F',
+    'ChatbotAPIstagingReferralsTableF8A5555D',
+  ],
+  production: [
+    'ChatbotAPIKnowledgeSourceBucketD704DDFD',
+    'ChatbotAPIUserProfilesTable3923A78F',
+    'ChatbotAPIIepDocumentsTable6A6A0420',
+    'ChatbotAPIReferralsTable4107EA6C',
+  ],
+} as const;
+
+type EnvLabel = keyof typeof KNOWLEDGE_BUCKET_NAMES;
+
+function resourcesMatching(t: Template, type: string, hint: string): [string, any][] {
+  return Object.entries(t.findResources(type)).filter(([logicalId]) => logicalId.includes(hint));
+}
+
+function retentionOffenders(entries: [string, any][]): string[] {
+  return entries
+    .filter(([, r]) => r.DeletionPolicy !== 'Retain' || r.UpdateReplacePolicy !== 'Retain')
+    .map(([logicalId, r]) =>
+      `${logicalId} (DeletionPolicy: ${r.DeletionPolicy}, UpdateReplacePolicy: ${r.UpdateReplacePolicy})`);
+}
+
+/**
+ * Registers the retention/naming pins against one synthesized template.
+ * Called once at the top level for staging and once inside the production
+ * describe below, so both environments are covered without a third synth.
+ */
+function describeDurableStoreRetention(envLabel: EnvLabel, getTemplate: () => Template) {
+  describe(`durable-store retention (${envLabel})`, () => {
+    test('the knowledge bucket retains on delete and on replace', () => {
+      const buckets = resourcesMatching(getTemplate(), 'AWS::S3::Bucket', 'KnowledgeSourceBucket');
+      // Vacuity floor: the pin is worthless if the bucket vanished.
+      expect(buckets).toHaveLength(1);
+      expect(retentionOffenders(buckets)).toEqual([]);
+    });
+
+    // THE ROOT-CAUSE PIN. The incident was a rename, not a bad policy: the
+    // env label moved and the bucket followed it. Retain alone would only
+    // downgrade that from "objects deleted" to "prod silently reading an
+    // empty bucket", so the literal name is pinned too.
+    test(`the knowledge bucket is named ${KNOWLEDGE_BUCKET_NAMES[envLabel]}`, () => {
+      const buckets = resourcesMatching(getTemplate(), 'AWS::S3::Bucket', 'KnowledgeSourceBucket');
+      expect(buckets).toHaveLength(1);
+      expect(buckets[0][1].Properties?.BucketName).toBe(KNOWLEDGE_BUCKET_NAMES[envLabel]);
+    });
+
+    // Both halves of the auto-delete machinery: the Custom::S3AutoDeleteObjects
+    // resource that empties a bucket on removal, and the
+    // 'aws-cdk:auto-delete-objects' tag that is what actually arms its handler.
+    // The CloudFront log bucket keeps its own auto-delete resource on purpose,
+    // so this checks the target rather than counting resources.
+    test('no auto-delete-objects machinery is armed on the knowledge bucket', () => {
+      const t = getTemplate();
+      const buckets = resourcesMatching(t, 'AWS::S3::Bucket', 'KnowledgeSourceBucket');
+      expect(buckets).toHaveLength(1);
+      const [bucketLogicalId, bucket] = buckets[0];
+
+      const offenders = Object.entries(t.findResources('Custom::S3AutoDeleteObjects'))
+        .filter(([, r]) => JSON.stringify(r.Properties ?? {}).includes(bucketLogicalId))
+        .map(([logicalId]) => logicalId);
+      expect(offenders).toEqual([]);
+
+      const tagKeys = (bucket.Properties?.Tags ?? []).map((tag: any) => tag.Key);
+      expect(tagKeys).not.toContain('aws-cdk:auto-delete-objects');
+    });
+
+    test('every user-data DynamoDB table retains on delete and on replace', () => {
+      const tables = Object.entries(getTemplate().findResources('AWS::DynamoDB::Table'));
+      // Three user-data tables plus the OTP rate limiter.
+      expect(tables.length).toBeGreaterThanOrEqual(4);
+
+      const userDataTables = tables.filter(([logicalId]) =>
+        USER_DATA_TABLE_HINTS.some((hint) => logicalId.includes(hint)));
+      // Vacuity floor: all three must be found, or a rename hollowed the pin out.
+      expect(userDataTables).toHaveLength(USER_DATA_TABLE_HINTS.length);
+
+      expect(retentionOffenders(userDataTables)).toEqual([]);
+    });
+
+    // Cognito cannot export or re-import credentials, so a replaced or
+    // destroyed pool locks every parent out permanently with no restore path.
+    test('the Cognito user pool retains on delete and on replace', () => {
+      const pools = resourcesMatching(getTemplate(), 'AWS::Cognito::UserPool', 'NewUserPool');
+      expect(pools).toHaveLength(1);
+      expect(retentionOffenders(pools)).toEqual([]);
+    });
+
+    // Losing the CMK is data loss by another route: the IEP objects and the
+    // profile/document tables it encrypts become permanently unreadable.
+    test('the application CMK retains on delete and on replace', () => {
+      const keys = resourcesMatching(getTemplate(), 'AWS::KMS::Key', 'AppKmsKey');
+      expect(keys).toHaveLength(1);
+      expect(retentionOffenders(keys)).toEqual([]);
+    });
+
+    // The other half of the root-cause guard: these resources have
+    // CloudFormation-generated physical names, so their logical ID IS their
+    // identity. Move the construct path and CloudFormation builds a new empty
+    // table (retaining the old one, invisible to the app). If you are here
+    // because a refactor changed a logical ID, migrate the data first.
+    test('the user-data stores keep their logical IDs', () => {
+      const resources = getTemplate().toJSON().Resources ?? {};
+      const missing = USER_DATA_LOGICAL_IDS[envLabel].filter((id) => !(id in resources));
+      expect(missing).toEqual([]);
+    });
+  });
+}
+
 let template: Template;
 let savedEnvironment: string | undefined;
 
@@ -377,6 +531,8 @@ describe('S3 data protection', () => {
   });
 });
 
+describeDurableStoreRetention('staging', () => template);
+
 describe('IEP processing state machine', () => {
   // The ASL definition reaches the template as an Fn::Join of JSON fragments
   // with lambda ARN tokens spliced inside string values; substituting a plain
@@ -524,4 +680,9 @@ describe('production synth: the OTP test backdoor must not exist', () => {
 
     expect(aliases.filter((name: string) => name.includes('custom-sender'))).toEqual([]);
   });
+
+  // Nested here to reuse this describe's production synth: the retention and
+  // naming pins matter most for production (that is where 50 of 102 documents
+  // were lost), and a second top-level synth would double the suite's runtime.
+  describeDurableStoreRetention('production', () => prodTemplate);
 });

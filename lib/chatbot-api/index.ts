@@ -36,6 +36,14 @@ export class ChatBotApi extends Construct {
     const appKmsKey = new kms.Key(this, 'AppKmsKey', {
       enableKeyRotation: true,
       description: 'Customer-managed CMK for S3, DynamoDB, Lambda env vars, and logs',
+      // Explicit RETAIN (also the CDK default for kms.Key, stated here so it
+      // survives a future refactor). This key encrypts the IEP documents in
+      // S3 and the profile/document tables at rest: schedule it for deletion
+      // and the data that outlives it becomes permanently unreadable, which is
+      // data loss by another route than the 2026-06-22 bucket rename that
+      // deleted 50 of 102 production documents. Pinned by
+      // test/infra/gen-ai-mvp-stack.test.ts.
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     const environment = getEnvironment();
     const kmsAliasName = environment === 'dev' ? 'alias/aiep/app' : 'alias/aiep/app-prod';
