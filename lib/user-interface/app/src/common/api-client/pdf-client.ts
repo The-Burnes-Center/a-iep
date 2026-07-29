@@ -19,58 +19,52 @@ export class PDFClient {
    * Generate and download a PDF from an IEP document
    */
   async generatePDF(options: PDFGenerationOptions): Promise<void> {
-    try {
-      const auth = await Utils.authenticate();
-      
-      const response = await fetch(this.API + '/generate-pdf', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': auth,
-        },
-        body: JSON.stringify(options),
-      });
+    const auth = await Utils.authenticate();
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to generate PDF');
-      }
+    const response = await fetch(this.API + '/generate-pdf', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': auth,
+      },
+      body: JSON.stringify(options),
+    });
 
-      // Get the filename from the response headers or use default
-      const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = options.fileName || 'IEP_Summary_and_Translations';
-      
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename=([^;]+)/);
-        if (filenameMatch) {
-          filename = decodeURIComponent(filenameMatch[1].replace(/"/g, ''));
-        }
-      }
-
-      // Ensure .pdf extension
-      if (!filename.toLowerCase().endsWith('.pdf')) {
-        filename += '.pdf';
-      }
-
-      // Convert response to blob and download
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      
-      // Create download link and trigger download
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      // Clean up the object URL
-      URL.revokeObjectURL(url);
-      
-    } catch (error) {
-      // console.error('Error generating PDF:', error);
-      throw error;
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to generate PDF');
     }
+
+    // Get the filename from the response headers or use default
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = options.fileName || 'IEP_Summary_and_Translations';
+
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename=([^;]+)/);
+      if (filenameMatch) {
+        filename = decodeURIComponent(filenameMatch[1].replace(/"/g, ''));
+      }
+    }
+
+    // Ensure .pdf extension
+    if (!filename.toLowerCase().endsWith('.pdf')) {
+      filename += '.pdf';
+    }
+
+    // Convert response to blob and download
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+
+    // Create download link and trigger download
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // Clean up the object URL
+    URL.revokeObjectURL(url);
   }
 
   /**

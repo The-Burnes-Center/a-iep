@@ -27,6 +27,7 @@
   "exclude": [
     "node_modules",
     "cdk.out",
-    "lib/user-interface"
+    "lib/user-interface",
+    "e2e"
   ]
 }

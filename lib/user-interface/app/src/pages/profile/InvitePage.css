@@ -1,0 +1,108 @@
+/* Brand kit: ink #1E1E1E, warm gray #CBC6BC, cream #F5F3EE, greens
+   #014620 (primary) / #00682F (hover, accents) — same palette as
+   AdminReferrals.css, scoped here under .invite-page. */
+
+.invite-page .invite-link-group .form-control {
+  background-color: #F5F3EE;
+  border-color: #CBC6BC;
+  color: #1E1E1E;
+}
+
+.invite-page .invite-link-group .btn {
+  border-color: #CBC6BC;
+  color: #1E1E1E;
+}
+
+.invite-page .invite-link-group .btn:hover {
+  background-color: #00682F;
+  border-color: #00682F;
+  color: #F5F3EE;
+}
+
+/* Primary Share pill already renders brand green via the app-wide
+   .btn-primary override; these secondary chips get the same green
+   language instead of Bootstrap's default outline colors (WhatsApp's
+   outline-success and SMS's outline-primary render off-brand otherwise).
+   ".btn" is appended to out-specificity Bootstrap's own same-weight
+   ".btn.btn-outline-secondary" rule, which otherwise wins on source order. */
+.invite-page .invite-share-chip.btn {
+  color: #00682F;
+  border-color: #00682F;
+  background-color: transparent;
+}
+
+.invite-page .invite-share-chip.btn:hover,
+.invite-page .invite-share-chip.btn:focus {
+  color: #F5F3EE;
+  background-color: #00682F;
+  border-color: #00682F;
+}
+
+.invite-page .invite-share-chip.btn:active {
+  color: #F5F3EE;
+  background-color: #014620;
+  border-color: #014620;
+}
+
+.invite-page .invite-stats-panel {
+  border: 1px solid rgba(30, 30, 30, 0.25);
+  border-radius: 10px;
+}
+
+.invite-page .invite-stat {
+  padding: 1.25rem 1rem;
+  text-align: center;
+}
+
+.invite-page .invite-stat + .invite-stat {
+  border-inline-start: 1px solid rgba(30, 30, 30, 0.15);
+}
+
+.invite-page .invite-stat-value {
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-size: 2rem;
+  color: #1E1E1E;
+  line-height: 1.2;
+}
+
+.invite-page .invite-stat-label {
+  font-family: akzidenz-grotesk-next-conden, sans-serif;
+  font-weight: 500;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #1E1E1E;
+  opacity: 0.7;
+}
+
+.invite-page .invite-section-title {
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-size: 1.25rem;
+}
+
+.invite-page .invite-joins-panel {
+  border: 1px solid rgba(30, 30, 30, 0.25);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.invite-page .invite-join-row {
+  padding: 0.85rem 1.25rem;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-weight: 400;
+}
+
+.invite-page .invite-join-row + .invite-join-row {
+  border-top: 1px solid rgba(30, 30, 30, 0.15);
+}
+
+.invite-page .invite-join-row .bi-person-check {
+  color: #00682F;
+}
+
+.invite-page .invite-joins-empty {
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+}

@@ -1,0 +1,12 @@
+{
+  "name": "custom-sms-sender",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Staging-only Cognito CustomSMSSender trigger: decrypts the pool's code and either stashes it in SSM (E2E test numbers) or texts it via SNS",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-crypto/client-node": "^4.2.4"
+  },
+  "keywords": ["cognito", "sms", "lambda", "staging", "e2e"],
+  "license": "CC-BY-NC-4.0"
+}

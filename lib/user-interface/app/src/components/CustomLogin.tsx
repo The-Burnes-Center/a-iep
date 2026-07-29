@@ -26,11 +26,16 @@ import LanguageDropdown from './LanguageDropdown';
 import LoginMethodToggle from './LoginMethodToggle';
 import FormLabel from './FormLabel';
 import VerificationCodeInput from './VerificationCodeInput';
-import LandingTopNavigation from './LandingTopNavigation';
 
 interface CustomLoginProps {
   showLogo?: boolean;
   showLanguageDropdown?: boolean;
+}
+
+/** The slice of the Cognito user object the phone custom-auth flow reads back */
+interface SmsChallengeUser {
+  username?: string;
+  challengeParam?: { USERNAME?: string };
 }
 
 const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguageDropdown = false }) => {
@@ -54,7 +59,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   const [resetEmail, setResetEmail] = useState('');
   const [resetSent, setResetSent] = useState(false);
   const [passwordChangeRequired, setPasswordChangeRequired] = useState(false);
-  const [cognitoUser, setCognitoUser] = useState<any>(null);
+  const [cognitoUser, setCognitoUser] = useState<unknown>(null);
   
   // Sign up state variables
   const [showSignUp, setShowSignUp] = useState(false);
@@ -71,10 +76,10 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   const [mobileLoading, setMobileLoading] = useState(false);
   const [smsCode, setSmsCode] = useState('');
   const [smsCodeSent, setSmsCodeSent] = useState(false);
-  const [cognitoUserForSms, setCognitoUserForSms] = useState<any>(null);
+  const [cognitoUserForSms, setCognitoUserForSms] = useState<SmsChallengeUser | null>(null);
   const [isNewUserConfirmation, setIsNewUserConfirmation] = useState(false); // Track if this is signup confirmation
   const [pendingPhoneNumber, setPendingPhoneNumber] = useState<string | null>(null);
-  const [isNewUserSignup, setIsNewUserSignup] = useState(false); // Track if this is a brand new user signup // Store phone for confirmation flow
+  const [, setIsNewUserSignup] = useState(false); // Track if this is a brand new user signup // Store phone for confirmation flow
   
   // State for toggling password visibility
   const [showMainPassword, setShowMainPassword] = useState(false);
@@ -209,7 +214,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           handleSuccessfulAuthentication();
         }
 
-      } catch (signInError: any) {
+      } catch (signInError) {
         // console.log('SignIn error:', signInError.code);
 
         // NotAuthorizedException is how "user does not exist" surfaces here:
@@ -224,7 +229,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           const tempPassword = 'TempPass123!' + Math.random().toString(36).substring(2, 15);
           
           try {
-            const signUpResult = await Auth.signUp({
+            await Auth.signUp({
               username: formattedPhone,
               password: tempPassword,
               attributes: {
@@ -245,7 +250,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             setSmsCodeSent(true);
             setSuccessMessage('auth.smsCodeSentNewUser');
             
-          } catch (signUpError: any) {
+          } catch (signUpError) {
             // console.error('SignUp error:', signUpError);
             if (signUpError.code === 'UsernameExistsException') {
               // User was created between our attempts, try signin again
@@ -276,7 +281,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           try {
             await Auth.resendSignUp(formattedPhone, { language });
             // console.log('Resent confirmation code for existing user');
-          } catch (resendError: any) {
+          } catch (resendError) {
             // console.log('Could not resend confirmation code:', resendError.code);
             // Continue anyway - user might still have valid code
           }
@@ -290,7 +295,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         }
       }
       
-    } catch (error: any) {
+    } catch (error) {
       // console.error('Phone authentication error:', error);
       
       // In this flow InvalidParameterException means the phone number was
@@ -374,7 +379,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             setPendingPhoneNumber(null);
             setSmsCode('');
           }
-        } catch (postConfirmError: any) {
+        } catch (postConfirmError) {
           // console.error('Error starting custom auth after confirmation:', postConfirmError);
           if (postConfirmError.code === 'UserNotConfirmedException') {
             setError('auth.errorVerification');
@@ -431,7 +436,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         }
       }
       
-    } catch (error: any) {
+    } catch (error) {
       // console.error('SMS verification error:', error);
       
       // Handle specific error cases. The message check catches custom-auth
@@ -511,13 +516,13 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           } else {
             setError('auth.errorResendCode');
           }
-        } catch (resendError: any) {
+        } catch (resendError) {
           // console.error('Resend custom auth error:', resendError);
           setError(cognitoErrorKey(resendError, undefined, 'auth.errorResendCode'));
         }
       }
       
-    } catch (error: any) {
+    } catch (error) {
       // console.error('Resend SMS error:', error);
       setError(cognitoErrorKey(error, undefined, 'auth.errorResendCode'));
     } finally {
@@ -617,7 +622,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     setSuccessMessage(null);
 
     try {
-      const { user } = await Auth.signUp({
+      await Auth.signUp({
         username: signUpEmail.toLowerCase(),
         password: signUpPassword,
         attributes: {

@@ -78,6 +78,11 @@
     "summary.noPreferredLanguageContent.title": "Content Not Available in Your Preferred Language",
     "summary.noPreferredLanguageContent.message": "This document was processed before your language preference was set. Re-upload your document to get it translated into your preferred language.",
     "summary.lastUpdate": "Last update:",
+
+    "tts.listen": "Listen",
+    "tts.pause": "Pause",
+    "tts.generating": "Preparing audio…",
+    "tts.error": "Audio unavailable. Tap to retry.",
     "summary.showLess": "Show Less",
     "summary.readMore": "Read More",
 
@@ -646,5 +651,25 @@
     "landing.howTo.card6.text": "Below the title of each key insight, you will find the page number where we took the information from. Always double check!",
     "partnerBanner.label": "See our partner projects",
     "sections.foundIn": "Found in",
-    "sections.pages": "pages"
+    "sections.pages": "pages",
+
+    "welcome.invite.title": "Invite Other Parents",
+    "welcome.invite.description": "Share AIEP with families who might need it",
+    "invite.breadcrumb.home": "Home",
+    "invite.breadcrumb.invite": "Invite",
+    "invite.title": "Invite Other Parents",
+    "invite.description": "Share your personal link with other families. When a parent joins using your link, it will show up here.",
+    "invite.yourLink": "Your invite link",
+    "invite.copy": "Copy",
+    "invite.copied": "Copied!",
+    "invite.share": "Share",
+    "invite.shareMessage": "I use AIEP to understand my child's IEP. It's free:",
+    "invite.emailSubject": "Try AIEP",
+    "invite.stats.clicks": "Link visits",
+    "invite.stats.joined": "Parents joined",
+    "invite.joins.title": "Recent joins",
+    "invite.joins.empty": "No one has joined with your link yet. Share it to get started!",
+    "invite.joins.item": "A parent joined",
+    "invite.error": "We could not load your invite link. Please try again later.",
+    "invite.loading": "Loading..."
   }

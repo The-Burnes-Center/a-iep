@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { trackPageView } from '../common/helpers/analytics-helper';
 
 // Auth components
@@ -19,7 +19,7 @@ import AboutApp from '../pages/profile/AboutApp';
 import PreferredLanguage from '../pages/profile/PreferredLanguage';
 import OnboardingUser from '../pages/profile/OnboardingUser';
 import UserProfileForm from '../pages/profile/UserProfileForm';
-import WelcomePage from '../pages/WelcomePage';
+// import WelcomePage from '../pages/WelcomePage'; // legacy card hub, route disabled below
 import IEPDocumentView from '../pages/iep-folder/IEPDocumentView';
 import SummaryAndTranslationsPage from '../pages/iep-folder/SummaryAndTranslationsPage';
 import ViewAndAddChild from '../pages/profile/ViewAndAddChild';
@@ -37,12 +37,18 @@ import AboutAIEP from '../components/AboutAIEP';
 import DeleteAccount from '../pages/profile/DeleteAccount';
 import ChangeLanguage from '../pages/profile/ChangeLanguage';
 import ViewResources from '../pages/profile/ViewResources';
-import AboutTheProject from '../pages/profile/AboutTheProject';
 import ParentRights from '../pages/ParentRights';
 import PrivacyPolicy from '../pages/PrivacyPolicy';
 
-// Route guard
+// Referral system
+import ReferralRedirect from './ReferralRedirect';
+import ReferralTracker from './ReferralTracker';
+import InvitePage from '../pages/profile/InvitePage';
+import AdminReferrals from '../pages/admin/AdminReferrals';
+
+// Route guards
 import { ProtectedRoute } from './ProtectedRoute';
+import { ConsentGate } from './ConsentGate';
 
 export default function AppRoutes() {
   const location = useLocation();
@@ -53,10 +59,16 @@ export default function AppRoutes() {
   }, [location]);
 
   return (
+    <>
+    {/* Referral capture (?ref=) + post-login signup attribution */}
+    <ReferralTracker />
     <Routes>
       {/* ===== PUBLIC ROUTES ===== */}
       {/* Home/Landing page at root */}
       <Route path="/" element={<LandingPage />} />
+
+      {/* Shared referral links: a-iep.org/r/<code> */}
+      <Route path="/r/:code" element={<ReferralRedirect />} />
 
       {/* Login page */}
       <Route path="/login" element={<CustomLoginWrapper />} />
@@ -101,9 +113,16 @@ export default function AppRoutes() {
         <Route path="/about-the-app" element={<AboutApp />} />
         
         {/* Main app pages */}
-        <Route path="/welcome-page" element={<WelcomePage />} />
-        <Route path="/iep-documents" element={<IEPDocumentView />} />
-        <Route path="/summary-and-translations" element={<SummaryAndTranslationsPage />} />
+        {/* Legacy card-hub home, superseded by the top navigation; nothing
+            links here anymore. Remove for good once we're sure. */}
+        {/* <Route path="/welcome-page" element={<WelcomePage />} /> */}
+        {/* Consent is required to use the IEP tool itself; onboarding and
+            account routes stay reachable because consent is collected as
+            the final onboarding step */}
+        <Route element={<ConsentGate />}>
+          <Route path="/iep-documents" element={<IEPDocumentView />} />
+          <Route path="/summary-and-translations" element={<SummaryAndTranslationsPage />} />
+        </Route>
         
         {/* Profile & Settings */}
         <Route path="/profile" element={<UserProfileForm />} />
@@ -128,8 +147,18 @@ export default function AppRoutes() {
         <Route path="/frequently-asked-questions" element={<FrequentlyAskedQuestions />} />
         <Route path="/about-aiep" element={<AboutAIEP />} />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+
+        {/* Referral system */}
+        <Route path="/invite" element={<InvitePage />} />
+        {/* Internal admin console; unlinked, gated by the Cognito admin group */}
+        <Route path="/admin/referrals" element={<AdminReferrals />} />
       </Route>
+
+      {/* Unknown URLs (including the retired /welcome-page) go home instead
+          of rendering a blank screen */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   );
 }
 

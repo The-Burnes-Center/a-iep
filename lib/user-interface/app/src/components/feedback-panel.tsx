@@ -1,13 +1,15 @@
-import React, { useRef, useState } from 'react';
+import React from 'react';
 import { useEffect } from 'react';
-import { Box, ColumnLayout, Container, ContentLayout, ExpandableSection, Header, Link, SpaceBetween, SplitPanel, TextContent, } from '@cloudscape-design/components';
-import { Auth } from 'aws-amplify';
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import styles from "../styles/chat.module.scss";
+import { Box, ColumnLayout, Container, ExpandableSection, Header, Link, SpaceBetween, SplitPanel, } from '@cloudscape-design/components';
 
 export interface FeedbackPanelProps {
-  selectedFeedback: any;
+  selectedFeedback: {
+    UserPrompt?: string;
+    FeedbackComments?: string;
+    ChatbotMessage?: string;
+    /** JSON-encoded array of { title, uri } source entries */
+    Sources?: string;
+  };
 }
 
 export default function EmailPanel(props: FeedbackPanelProps) {
@@ -64,7 +66,7 @@ export default function EmailPanel(props: FeedbackPanelProps) {
                       <Box variant="h3" padding="n">
                         Title
                       </Box>
-                      {(JSON.parse(props.selectedFeedback.Sources) as any[]).map((item) =>
+                      {(JSON.parse(props.selectedFeedback.Sources) as { title: string; uri: string }[]).map((item) =>
                         item.title)}
                     </SpaceBetween>
                     <SpaceBetween size="l">
@@ -72,7 +74,7 @@ export default function EmailPanel(props: FeedbackPanelProps) {
                         URL
                       </Box>
                       
-                      {(JSON.parse(props.selectedFeedback.Sources) as any[]).map((item) =>
+                      {(JSON.parse(props.selectedFeedback.Sources) as { title: string; uri: string }[]).map((item) =>
                         <Link href={item.uri} external={true} variant="primary">
                           {item.uri.match(/^(?:https?:\/\/)?([\w-]+(\.[\w-]+)+)/)[1]}
                         </Link>)}

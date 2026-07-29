@@ -16,7 +16,6 @@
   },
   "dependencies": {
     "@aws-amplify/ui-react": "^5.3.2",
-    "@tanstack/react-query": "^5.90.5",
     "@cloudscape-design/components": "^3.0.405",
     "@cloudscape-design/design-tokens": "^3.0.28",
     "@cloudscape-design/global-styles": "^1.0.13",
@@ -29,6 +28,7 @@
     "@mui/material": "^7.3.4",
     "@stagewise/toolbar-react": "^0.1.2",
     "@tabler/icons-react": "^3.35.0",
+    "@tanstack/react-query": "^5.90.5",
     "aws-amplify": "^5.3.12",
     "bootstrap": "^5.3.3",
     "bootstrap-icons": "^1.11.3",
@@ -37,6 +37,7 @@
     "html2pdf.js": "^0.14.0",
     "luxon": "^3.4.3",
     "marked": "^16.1.2",
+    "qrcode.react": "^4.2.0",
     "react": "^18.2.0",
     "react-bootstrap": "^2.10.9",
     "react-dom": "^18.2.0",
@@ -81,6 +82,8 @@
     "immutable": "^5.1.5",
     "flatted": "^3.4.2",
     "ajv": "^8.18.0",
+    "eslint": { "ajv": "^6.12.6" },
+    "@eslint/eslintrc": { "ajv": "^6.12.6" },
     "picomatch": "^2.3.2",
     "rollup": "^4.59.0",
     "yaml": "^2.8.1"

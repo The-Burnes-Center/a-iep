@@ -5,7 +5,7 @@ import {
   FeedbackData
 } from "./types";
 import { Auth } from "aws-amplify";
-import { SpaceBetween, StatusIndicator, Alert, Flashbar } from "@cloudscape-design/components";
+import { SpaceBetween, StatusIndicator, Alert } from "@cloudscape-design/components";
 import { v4 as uuidv4 } from "uuid";
 import { AppContext } from "../../common/app-context";
 import { ApiClient } from "../../common/api-client/api-client";
@@ -23,7 +23,7 @@ export default function Chat(props: { sessionId?: string}) {
     loading: typeof props.sessionId !== "undefined",
   });  
 
-  const { notifications, addNotification } = useNotifications();
+  const { addNotification } = useNotifications();
 
   const [messageHistory, setMessageHistory] = useState<ChatBotHistoryItem[]>(
     []
@@ -84,6 +84,7 @@ export default function Chat(props: { sessionId?: string}) {
         addNotification("info","Please refresh the page")
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- addNotification is recreated on every NotificationProvider render; this effect must only reload when the session or app context changes
   }, [appContext, props.sessionId]);
 
   /** Adds some metadata to the user's feedback */

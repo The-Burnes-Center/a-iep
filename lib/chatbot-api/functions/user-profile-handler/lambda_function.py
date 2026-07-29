@@ -333,7 +333,7 @@ def get_user_profile(event: Dict) -> Dict:
     except Exception as e:
         print(f"Error in get_user_profile: {str(e)}")
         print(f"Event data: {json.dumps(sanitize_event_for_logging(event), default=str)}")
-        return create_response(event, 500, {'message': f'Error getting user profile: {str(e)}'})
+        return create_response(event, 500, {'message': 'Could not load your profile. Please try again later.'})
 
 def update_user_profile(event: Dict) -> Dict:
     """
@@ -351,9 +351,17 @@ def update_user_profile(event: Dict) -> Dict:
     """
     try:
         user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
-        body = json.loads(event['body'])
+        # A malformed (or missing) JSON body is the client's fault: catch it
+        # here so it maps to 400 instead of falling through to the broad
+        # except below as a 500 (same treatment as the tts/delete-s3 handlers).
+        try:
+            body = json.loads(event['body']) if event.get('body') else {}
+        except (TypeError, ValueError):
+            return create_response(event, 400, {'message': 'Invalid JSON body'})
+        if not isinstance(body, dict):
+            return create_response(event, 400, {'message': 'Invalid JSON body: expected a JSON object'})
         times = get_timestamps()
-        
+
         # Start building update expression and values
         update_parts = []
         expr_values = {
@@ -420,8 +428,9 @@ def update_user_profile(event: Dict) -> Dict:
             update_parts.append('children = :children')
             expr_values[':children'] = body['children']
         
-        # If no fields to update
-        if len(update_parts) == 1:  # only updatedAt
+        # If no fields to update (the first two parts are always the
+        # updatedAt/updatedAtISO timestamps)
+        if len(update_parts) == 2:
             return create_response(event, 400, {'message': 'No fields to update provided'})
             
         # Construct final update expression
@@ -459,7 +468,8 @@ def update_user_profile(event: Dict) -> Dict:
             'message': 'Profile update temporarily unavailable: encryption service error. Please try again later.'
         })
     except Exception as e:
-        return create_response(event, 500, {'message': f'Error updating user profile: {str(e)}'})
+        print(f"Error in update_user_profile: {str(e)}")
+        return create_response(event, 500, {'message': 'Could not update your profile. Please try again later.'})
 
 def add_child(event: Dict) -> Dict:
     """
@@ -476,9 +486,15 @@ def add_child(event: Dict) -> Dict:
     """
     try:
         user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
-        body = json.loads(event['body'])
+        # Malformed JSON is a client error: 400, not the broad except's 500.
+        try:
+            body = json.loads(event['body']) if event.get('body') else {}
+        except (TypeError, ValueError):
+            return create_response(event, 400, {'message': 'Invalid JSON body'})
+        if not isinstance(body, dict):
+            return create_response(event, 400, {'message': 'Invalid JSON body: expected a JSON object'})
         times = get_timestamps()
-        
+
         # Validate required fields
         if 'name' not in body or 'schoolCity' not in body:
             return create_response(event, 400, {'message': 'Missing required fields: name and schoolCity required'})
@@ -516,7 +532,8 @@ def add_child(event: Dict) -> Dict:
         })
         
     except Exception as e:
-        return create_response(event, 500, {'message': f'Error adding child: {str(e)}'})
+        print(f"Error in add_child: {str(e)}")
+        return create_response(event, 500, {'message': 'Could not add the child. Please try again later.'})
 
 def clean_dynamodb_json(data):
     """Recursively convert DynamoDB JSON to plain JSON."""
@@ -718,7 +735,7 @@ def get_child_documents(event: Dict) -> Dict:
         
     except Exception as e:
         print(f"Error retrieving documents: {str(e)}")
-        return create_response(event, 500, {'message': f'Error retrieving document: {str(e)}'})
+        return create_response(event, 500, {'message': 'Could not load your documents. Please try again later.'})
 
 def delete_child_documents(event: Dict) -> Dict:
     """
@@ -882,7 +899,7 @@ def delete_child_documents(event: Dict) -> Dict:
         
     except Exception as e:
         print(f"Error in delete_child_documents: {str(e)}")
-        return create_response(event, 500, {'message': f'Error deleting IEP documents: {str(e)}'})
+        return create_response(event, 500, {'message': 'Could not delete the documents. Please try again later.'})
 
 def delete_user_profile(event: Dict) -> Dict:
     """
@@ -1005,7 +1022,7 @@ def delete_user_profile(event: Dict) -> Dict:
         
     except Exception as e:
         print(f"Error in delete_user_profile: {str(e)}")
-        return create_response(event, 500, {'message': f'Error deleting user profile: {str(e)}'})
+        return create_response(event, 500, {'message': 'Could not delete your account. Please try again later.'})
 
 def lambda_handler(event: Dict, context) -> Dict:
     """
@@ -1062,4 +1079,4 @@ def lambda_handler(event: Dict, context) -> Dict:
         print(error_message)
         import traceback
         print(f"Traceback: {traceback.format_exc()}")
-        return create_response(event, 500, {'message': f'Internal server error: {str(e)}'}) 
+        return create_response(event, 500, {'message': 'Internal server error. Please try again later.'}) 

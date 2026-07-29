@@ -1,5 +1,4 @@
-import { SelectProps } from "@cloudscape-design/components";
-import { CognitoHostedUIIdentityProvider } from "@aws-amplify/auth";
+import { Feature } from "./features";
 import { SupportedLanguage } from "./languages";
 
 export interface AppConfig {
@@ -22,6 +21,14 @@ export interface AppConfig {
       // build/deploy time (e.g. Arabic is enabled on dev but not prod).
       // Optional: when absent the UI falls back to all supported languages.
       enabledLanguages? : SupportedLanguage[],
+      // Optional features live in this environment. Set per environment at
+      // build/deploy time (e.g. TTS and referrals are enabled on dev/staging
+      // but dark on prod). Optional: when absent the UI falls back to all
+      // features; an explicit empty list means none (see common/features.ts).
+      enabledFeatures? : Feature[],
+      // Deployment environment, set by CDK. Gates prod-only integrations
+      // (Google Analytics). Absent on local dev configs, which disables them.
+      environment? : "prod" | "dev",
 }
 
 export interface NavigationPanelState {
@@ -55,8 +62,47 @@ export interface UserProfile {
   children: Child[];
   createdAt: number;
   updatedAt: number;
-  consentGiven: Boolean;
-  showOnboarding: Boolean;
+  consentGiven: boolean;
+  showOnboarding: boolean;
+  // Referral system: this user's own shareable code, and the code they
+  // arrived on (stamped once at signup, never overwritten)
+  referralCode?: string;
+  referredBy?: string;
+}
+
+export interface ReferralJoin {
+  joinedAt: string;
+}
+
+export interface ReferralStats {
+  code: string;
+  clicks: number;
+  signups: number;
+  joins: ReferralJoin[];
+}
+
+export interface ReferralLink {
+  code: string;
+  type: 'campaign' | 'user';
+  name?: string;
+  channel?: string;
+  notes?: string;
+  active: boolean;
+  clicks: number;
+  signups: number;
+  createdAt?: string;
+  ownerUserId?: string;
+  // Parent's name for user-type links, resolved server-side for admins only
+  ownerName?: string;
+}
+
+export interface AdminUser {
+  username: string;
+  sub?: string;
+  phone?: string;
+  email?: string;
+  name?: string;
+  status?: string;
 }
 
 export interface Language {
@@ -130,5 +176,5 @@ export interface IEPDocument {
   };
 
   // Raw data
-  ocrData?: any;
+  ocrData?: unknown;
 }

@@ -36,6 +36,14 @@ export class ChatBotApi extends Construct {
     const appKmsKey = new kms.Key(this, 'AppKmsKey', {
       enableKeyRotation: true,
       description: 'Customer-managed CMK for S3, DynamoDB, Lambda env vars, and logs',
+      // Explicit RETAIN (also the CDK default for kms.Key, stated here so it
+      // survives a future refactor). This key encrypts the IEP documents in
+      // S3 and the profile/document tables at rest: schedule it for deletion
+      // and the data that outlives it becomes permanently unreadable, which is
+      // data loss by another route than the 2026-06-22 bucket rename that
+      // deleted 50 of 102 production documents. Pinned by
+      // test/infra/gen-ai-mvp-stack.test.ts.
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     const environment = getEnvironment();
     const kmsAliasName = environment === 'dev' ? 'alias/aiep/app' : 'alias/aiep/app-prod';
@@ -80,6 +88,7 @@ export class ChatBotApi extends Construct {
         knowledgeBucket: this.buckets.knowledgeBucket,
         userProfilesTable: this.tables.userProfilesTable,
         iepDocumentsTable: this.tables.iepDocumentsTable,
+        referralsTable: this.tables.referralsTable,
         userPool: authentication.userPool,
         logGroup: this.logging.logGroup,
         logRole: this.logging.logRole,
@@ -160,6 +169,69 @@ export class ChatBotApi extends Construct {
       path: "/generate-pdf",
       methods: [apigwv2.HttpMethod.POST],
       integration: pdfGeneratorAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
+    const ttsAPIIntegration = new HttpLambdaIntegration('TTSAPIIntegration', this.lambdaFunctions.ttsFunction);
+    this.httpAPI.restAPI.addRoutes({
+      path: "/documents/{iepId}/audio",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: ttsAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
+    const referralAPIIntegration = new HttpLambdaIntegration('ReferralAPIIntegration', this.lambdaFunctions.referralFunction);
+
+    // Click beacon is deliberately unauthenticated: visitors are not signed
+    // in yet. It only increments counters for known active codes and stores
+    // no PII, so exposure is limited to counter noise.
+    this.httpAPI.restAPI.addRoutes({
+      path: "/referral/click",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: referralAPIIntegration,
+    });
+
+    this.httpAPI.restAPI.addRoutes({
+      path: "/referral/me",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: referralAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
+    this.httpAPI.restAPI.addRoutes({
+      path: "/referral/attribute",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: referralAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
+    // Admin routes: JWT here, membership in the Cognito 'admin' group is
+    // enforced inside the Lambda (cognito:groups claim).
+    this.httpAPI.restAPI.addRoutes({
+      path: "/referral/admin/links",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
+      integration: referralAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
+    this.httpAPI.restAPI.addRoutes({
+      path: "/referral/admin/links/{code}",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PUT],
+      integration: referralAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
+    this.httpAPI.restAPI.addRoutes({
+      path: "/referral/admin/admins",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
+      integration: referralAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
+    this.httpAPI.restAPI.addRoutes({
+      path: "/referral/admin/admins/{username}",
+      methods: [apigwv2.HttpMethod.DELETE],
+      integration: referralAPIIntegration,
       authorizer: httpAuthorizer,
     });
 

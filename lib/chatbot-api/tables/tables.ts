@@ -15,6 +15,7 @@ export interface TableStackProps extends StackProps {
 export class TableStack extends Stack {
   public readonly userProfilesTable: dynamodb.Table;
   public readonly iepDocumentsTable: dynamodb.Table;
+  public readonly referralsTable: dynamodb.Table;
   constructor(scope: Construct, id: string, props?: TableStackProps) {
     super(scope, id, props);
 
@@ -26,6 +27,19 @@ export class TableStack extends Stack {
         'Purpose': 'ApplicationData'
       });
     };
+
+    // RETENTION, not a style choice. On 2026-06-22 a tag-standardization
+    // commit (edc7d2d) changed the Environment label from 'production'/'staging'
+    // to 'prod'/'dev'. That silently renamed the knowledge S3 bucket, and
+    // because it was declared DESTROY + autoDeleteObjects, CloudFormation
+    // replaced it and deleted every object: 50 of 102 production IEP documents
+    // were lost and the deploy still reported success. These tables (child
+    // profiles, IEP document records, referral attribution) are the same class
+    // of irreplaceable user data, so every one of them is RETAIN: a rename, a
+    // logical-ID change, or a `cdk destroy` must strand the table rather than
+    // delete it. Do not "clean this up" to DESTROY. Pinned by
+    // test/infra/gen-ai-mvp-stack.test.ts.
+    const USER_DATA_REMOVAL_POLICY = cdk.RemovalPolicy.RETAIN;
 
     // Both tables hold FERPA-protected data in a shared AWS account: attach a
     // resource policy that explicitly denies every principal outside the
@@ -40,7 +54,7 @@ export class TableStack extends Stack {
     this.userProfilesTable = new dynamodb.Table(scope, 'UserProfilesTable', {
       partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      removalPolicy: USER_DATA_REMOVAL_POLICY,
       timeToLiveAttribute: 'ttl',
       encryption: props?.kmsKey ? dynamodb.TableEncryption.CUSTOMER_MANAGED : dynamodb.TableEncryption.AWS_MANAGED,
       ...(props?.kmsKey ? { encryptionKey: props.kmsKey } : {}),
@@ -53,7 +67,7 @@ export class TableStack extends Stack {
       partitionKey: { name: 'iepId', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'childId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      removalPolicy: USER_DATA_REMOVAL_POLICY,
       timeToLiveAttribute: 'ttl',
       encryption: props?.kmsKey ? dynamodb.TableEncryption.CUSTOMER_MANAGED : dynamodb.TableEncryption.AWS_MANAGED,
       ...(props?.kmsKey ? { encryptionKey: props.kmsKey } : {}),
@@ -73,6 +87,30 @@ export class TableStack extends Stack {
       indexName: 'byChildId',
       partitionKey: { name: 'childId', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'createdAt', type: dynamodb.AttributeType.NUMBER },
+    });
+
+    // Referral links and attribution events. One item collection per code:
+    // sk 'META' holds the link (type, owner, counters), 'EVT#...' items hold
+    // click/signup events (clicks carry a ttl; signups are kept). Not IEP
+    // content, but it references userIds in the same shared account, so it
+    // carries the same deny-outside-allowlist resource policy.
+    this.referralsTable = new dynamodb.Table(scope, 'ReferralsTable', {
+      partitionKey: { name: 'code', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: USER_DATA_REMOVAL_POLICY,
+      timeToLiveAttribute: 'ttl',
+      encryption: props?.kmsKey ? dynamodb.TableEncryption.CUSTOMER_MANAGED : dynamodb.TableEncryption.AWS_MANAGED,
+      ...(props?.kmsKey ? { encryptionKey: props.kmsKey } : {}),
+      resourcePolicy: iepDataResourcePolicy(),
+    });
+    tagTable(this.referralsTable, 'ReferralsTable');
+
+    // GSI to find a user's personal code without scanning
+    this.referralsTable.addGlobalSecondaryIndex({
+      indexName: 'byOwner',
+      partitionKey: { name: 'ownerUserId', type: dynamodb.AttributeType.STRING },
+      projectionType: ProjectionType.ALL,
     });
   }
 }

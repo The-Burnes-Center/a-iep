@@ -11,7 +11,7 @@ import './WelcomePage.css';
 export default function WelcomePage() {
   const { setAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const [userEmail, setUserEmail] = useState<string>('');
+  const [, setUserEmail] = useState<string>('');
   const { t } = useLanguage();
 
   useEffect(() => {
@@ -27,12 +27,8 @@ export default function WelcomePage() {
         else {
           // console.log("JWT Payload:", result?.signInUserSession?.idToken?.payload);
           
-          const { 
-            email,
-            name,
-            'custom:role': role,
-            sub,
-            exp
+          const {
+            email
           } = result.signInUserSession.idToken.payload;
           
           // Set the email in state

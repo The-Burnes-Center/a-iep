@@ -19,11 +19,14 @@ def redact_single_text(text, language_code="en"):
         language_code (str): Language code for Comprehend
     Returns:
         tuple: (redacted_text, entity_counter, redacted_counter)
+    Raises:
+        Any Comprehend error, so the step fails instead of passing
+        unredacted text downstream.
     """
     # Skip empty or whitespace-only text
     if not text or not text.strip():
         return text, Counter(), 0
-        
+
     try:
         response = comprehend.detect_pii_entities(Text=text, LanguageCode=language_code)
         entities = response.get("Entities", [])
@@ -52,8 +55,13 @@ def redact_single_text(text, language_code="en"):
             
         return redacted, entity_counter, redacted_counter
     except Exception as e:
+        # Fail closed. Returning the original text here would let the handler
+        # store unredacted PII as redacted_ocr_result while DeleteOriginal
+        # purges the raw copies right after. Raising fails the step instead:
+        # Step Functions retries it, and persistent failure routes to
+        # RecordFailure, which purges every unredacted artifact.
         print(f"Comprehend detect_pii_entities failed: {str(e)}")
-        return text, Counter(), 0
+        raise
 
 
 def redact_pii_from_texts(texts: List[str], language_code: str = "en") -> Tuple[List[str], Dict]:
@@ -115,9 +123,11 @@ def redact_pii_from_texts(texts: List[str], language_code: str = "en") -> Tuple[
                 total_redacted += redacted_count
                 
             except Exception as e:
-                print(f"Error in thread for page {idx}: {e}")
-                # Fall back to original text on error
-                redacted_texts[idx] = texts[idx]
+                # Fail closed (see redact_single_text): a page that cannot be
+                # redacted fails the whole step rather than falling back to
+                # the original unredacted text.
+                print(f"PII redaction failed for page {idx}: {e}")
+                raise
     
     elapsed_time = time.time() - start_time
     

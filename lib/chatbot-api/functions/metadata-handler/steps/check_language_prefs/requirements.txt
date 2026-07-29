@@ -1,1 +1,2 @@
-boto3
+# Pinned 2026-07-28 for reproducible deploys (SOURCE-based asset hashes; see metadata-handler/requirements.txt)
+boto3==1.43.58

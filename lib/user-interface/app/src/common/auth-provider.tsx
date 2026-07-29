@@ -5,8 +5,8 @@ interface AuthContextType {
   authenticated: boolean;
   setAuthenticated: React.Dispatch<React.SetStateAction<boolean>>;
   loading: boolean;
-  user: any | null;
-  login: (user: any) => void;
+  user: unknown | null;
+  login: (user: unknown) => void;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
@@ -21,12 +21,13 @@ const AuthContext = createContext<AuthContextType>({
   checkAuth: async () => {},
 });
 
+// eslint-disable-next-line react-refresh/only-export-components -- context/provider co-located by design
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authenticated, setAuthenticated] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
-  const [user, setUser] = useState<any | null>(null);
+  const [user, setUser] = useState<unknown | null>(null);
 
   // Check authentication status on mount
   useEffect(() => {
@@ -53,7 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const login = (user: any) => {
+  const login = (user: unknown) => {
     setUser(user);
     setAuthenticated(true);
   };

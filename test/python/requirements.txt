@@ -1,0 +1,6 @@
+# Test-only dependencies for the Python lambda suites (test/python/).
+# boto3 itself is provided by the Lambda runtime in production; it is listed
+# here so the handlers import cleanly under pytest.
+boto3==1.43.57
+moto[all]==5.2.2
+pytest==9.1.1

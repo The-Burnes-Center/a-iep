@@ -30,6 +30,25 @@ function resolveEnabledLanguages(): string[] {
   return getEnvironment() === "prod" ? PROD_LANGUAGES : ALL_LANGUAGES;
 }
 
+// Optional features offered in the UI per environment, same mechanism as the
+// languages above. TTS, referrals and the parent-name gate run on dev/staging
+// but are dark on prod: the code ships and the backend (audio lambda, referral
+// table and routes) stays deployed and unused, so prod and staging keep
+// building from one source and enabling a feature is a config flip rather than
+// a release. An explicit ENABLED_FEATURES env var (comma-separated names)
+// overrides the default. Kept in sync with the dev-build logic in
+// lib/user-interface/app/vite.config.ts, and with the feature list in
+// lib/user-interface/app/src/common/features.ts.
+const ALL_FEATURES = ["tts", "referrals", "parentNameGate"];
+const PROD_FEATURES: string[] = [];
+function resolveEnabledFeatures(): string[] {
+  const override = process.env.ENABLED_FEATURES;
+  if (override) {
+    return override.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  return getEnvironment() === "prod" ? PROD_FEATURES : ALL_FEATURES;
+}
+
 export interface UserInterfaceProps {
   readonly userPoolId: string;
   readonly userPoolClientId: string;
@@ -88,7 +107,11 @@ export class UserInterface extends Construct {
       },
       httpEndpoint : props.api.httpAPI.restAPI.url,
       federatedSignInProvider : OIDCIntegrationName,
-      enabledLanguages : resolveEnabledLanguages()
+      enabledLanguages : resolveEnabledLanguages(),
+      enabledFeatures : resolveEnabledFeatures(),
+      // Gates prod-only frontend integrations (Google Analytics), since
+      // staging and prod are otherwise identical production builds.
+      environment : getEnvironment()
     });
 
     const asset = s3deploy.Source.asset(appPath, {

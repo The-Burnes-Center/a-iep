@@ -1,0 +1,23 @@
+{
+  // Type-checking only (`npm run typecheck`); Playwright transpiles the specs
+  // itself at runtime, so nothing here ever emits.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "playwright.config.ts",
+    "global-setup.ts",
+    "helpers/**/*.ts",
+    "tests/**/*.ts"
+  ]
+}

@@ -160,11 +160,14 @@ export default function ChangeLanguage() {
                         We disable the select to prevent multiple rapid changes
                         while a save is in flight.
                       */}
-                      <Form.Select 
+                      <Form.Select
                         value={originalProfile?.secondaryLanguage || 'en'}
                         onChange={e => handlePreferredLanguageChange(e.target.value)}
                         disabled={updateProfileMutation.isPending}
                         className='language-select-dropdown'
+                        // Stable E2E hook: this control has no accessible name
+                        // and every option label is in its own language
+                        data-testid="language-select"
                       >
                         {languageOptions.map(option => (
                           <option key={option.value} value={option.value}>

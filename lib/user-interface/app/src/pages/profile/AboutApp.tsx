@@ -1,6 +1,6 @@
 import { useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Container, Row, Col, Breadcrumb, Spinner } from 'react-bootstrap';
+import { Container, Breadcrumb, Spinner } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -190,4 +190,4 @@ export default function AboutApp({
       <AIEPFooter {...(!showBreadcrumbs && { footerLinks: publicFooterLinks })} />
     </>
   );
-};
+}
