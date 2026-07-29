@@ -76,16 +76,7 @@ def lambda_handler(event, context):
         source_payload_response = source_response['Payload'].read()
         
         if not source_payload_response:
-            if content_type == 'meeting_notes':
-                print("Document not found, skipping translation")
-                event_copy = {k: v for k, v in event.items() if k not in ['progress', 'current_step']}
-                return {
-                    **event_copy,
-                    'meeting_notes_translations': {},
-                    f'{content_type}_translation_skipped': True
-                }
-            else:
-                raise Exception("Empty response from DDB service")
+            raise Exception("Empty response from DDB service")
         
         try:
             source_ddb_result = json.loads(source_payload_response)
@@ -93,16 +84,7 @@ def lambda_handler(event, context):
             raise Exception(f"Failed to parse DDB service response as JSON: {e}")
         
         if source_ddb_result.get('statusCode') != 200:
-            if content_type == 'meeting_notes':
-                print("Document not found, skipping translation")
-                event_copy = {k: v for k, v in event.items() if k not in ['progress', 'current_step']}
-                return {
-                    **event_copy,
-                    'meeting_notes_translations': {},
-                    f'{content_type}_translation_skipped': True
-                }
-            else:
-                raise Exception(f"Failed to get document from DDB: {source_ddb_result}")
+            raise Exception(f"Failed to get document from DDB: {source_ddb_result}")
         
         document = json.loads(source_ddb_result['body'])
         print(f"Retrieved document for {content_type} translation")
@@ -131,51 +113,6 @@ def lambda_handler(event, context):
                 'document_index': document_index.get('en', ''),
                 'abbreviations': abbreviations.get('en', [])
             }
-            
-        elif content_type == 'meeting_notes':
-            # Get English meeting notes from API fields: meetingNotes.en
-            meeting_notes_raw = document.get('meetingNotes')
-            
-            # Debug logging
-            print(f"meetingNotes type: {type(meeting_notes_raw)}")
-            print(f"meetingNotes keys: {list(meeting_notes_raw.keys()) if isinstance(meeting_notes_raw, dict) else 'not-a-dict'}")
-            
-            # Handle different data types
-            source_result = None
-            if meeting_notes_raw is None:
-                meeting_notes = {}
-            elif isinstance(meeting_notes_raw, dict):
-                meeting_notes = meeting_notes_raw
-            elif isinstance(meeting_notes_raw, str):
-                # If it's a string, treat it as English content
-                print("meetingNotes is a string, treating as English content")
-                source_result = {
-                    'meeting_notes': meeting_notes_raw
-                }
-            else:
-                print(f"Unexpected meetingNotes type: {type(meeting_notes_raw)}, defaulting to empty dict")
-                meeting_notes = {}
-            
-            # If we haven't set source_result yet (dict case), check for English content
-            if source_result is None:
-                # Check for English meeting notes in dict structure
-                if not isinstance(meeting_notes, dict) or 'en' not in meeting_notes or not meeting_notes.get('en'):
-                    print(f"English meeting notes not found. meetingNotes keys: {list(meeting_notes.keys()) if isinstance(meeting_notes, dict) else type(meeting_notes).__name__}")
-                    print(f"meetingNotes is dict: {isinstance(meeting_notes, dict)}")
-                    if isinstance(meeting_notes, dict):
-                        print(f"meetingNotes keys: {list(meeting_notes.keys())}")
-                        print(f"meetingNotes['en'] present: {'en' in meeting_notes}, length: {len(meeting_notes.get('en') or '')}")
-                    event_copy = {k: v for k, v in event.items() if k not in ['progress', 'current_step']}
-                    return {
-                        **event_copy,
-                        'meeting_notes_translations': {},
-                        f'{content_type}_translation_skipped': True
-                    }
-                
-                # Reconstruct the format expected by translation agent (simple string)
-                source_result = {
-                    'meeting_notes': meeting_notes.get('en', '')
-                }
         else:
             raise ValueError(f"Unsupported content_type: {content_type}")
         
@@ -259,8 +196,7 @@ def lambda_handler(event, context):
             'summaries': existing_doc.get('summaries', {}),
             'sections': existing_doc.get('sections', {}),
             'document_index': existing_doc.get('document_index', {}),
-            'abbreviations': existing_doc.get('abbreviations', {}),
-            'meetingNotes': existing_doc.get('meetingNotes', {})
+            'abbreviations': existing_doc.get('abbreviations', {})
         }
         
         # Merge new translations into content
@@ -281,16 +217,6 @@ def lambda_handler(event, context):
                 # Update abbreviations
                 if 'abbreviations' in translated_content:
                     content['abbreviations'][lang] = translated_content['abbreviations']
-        
-        elif content_type == 'meeting_notes':
-            for lang, translated_content in translations.items():
-                # Handle meeting notes structure (should be simple string)
-                if isinstance(translated_content, dict) and 'meeting_notes' in translated_content:
-                    content['meetingNotes'][lang] = translated_content['meeting_notes']
-                elif isinstance(translated_content, str):
-                    content['meetingNotes'][lang] = translated_content
-                else:
-                    content['meetingNotes'][lang] = ''
         
         # Save complete content to S3
         save_content_payload = {
@@ -330,8 +256,6 @@ def lambda_handler(event, context):
         # Set the result key based on content type
         if content_type == 'parsing_result':
             result_key = 'parsing_translations'
-        elif content_type == 'meeting_notes':
-            result_key = 'meeting_notes_translations'
         else:
             result_key = f'{content_type}_translations'
         

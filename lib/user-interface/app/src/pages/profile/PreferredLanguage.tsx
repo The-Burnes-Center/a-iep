@@ -8,14 +8,6 @@ import { useNotifications } from '../../components/notif-manager';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import './ProfileForms.css';
-import './SurveyForm.css';
-
-// Extend Window interface to include jotformEmbedHandler
-declare global {
-  interface Window {
-    jotformEmbedHandler: (selector: string, baseUrl: string) => void;
-  }
-}
 
 export default function PreferredLanguage() {
   const appContext = useContext(AppContext);
@@ -32,8 +24,6 @@ export default function PreferredLanguage() {
   const [error, setError] = useState<string | null>(null);
   const [profile, setProfile] = useState<Language | null>(null);
   const [saving, setSaving] = useState(false);
-  const [surveyCompleted, setSurveyCompleted] = useState(false);
-  const [showSurveyForm, setShowSurveyForm] = useState(false);
 
   // Check if user came from profile page to update language
   const isUpdatingFromProfile = location.state?.fromProfile === true;
@@ -63,14 +53,6 @@ export default function PreferredLanguage() {
         const hasLanguage = data && data.secondaryLanguage;
         const hasConsent = data && data.consentGiven === true;
 
-        // If all conditions are false, show survey form
-        if (!hasLanguage && !hasConsent) {
-          // console.log("Showing survey form - no language or consent");
-          setShowSurveyForm(true);
-          setError(null);
-          return;
-        }
-
         // If user has language and consent, go directly to IEP documents
         if (hasLanguage && hasConsent) {
           // console.log("hasLanguage && hasConsent - going to IEP documents");
@@ -92,60 +74,6 @@ export default function PreferredLanguage() {
       setLoading(false);
     }
   };
-
-  // Load JotForm embed handler script
-  useEffect(() => {
-    if (!showSurveyForm) return;
-
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jotfor.ms/s/umd/latest/for-form-embed-handler.js';
-    script.async = true;
-    document.head.appendChild(script);
-
-    script.onload = () => {
-      // Initialize JotForm embed handler after script loads
-      if (window.jotformEmbedHandler) {
-        window.jotformEmbedHandler("iframe[id='JotFormIFrame-250765400338050']", "https://form.jotform.com/");
-      }
-    };
-
-    return () => {
-      // Cleanup script on component unmount
-      if (document.head.contains(script)) {
-        document.head.removeChild(script);
-      }
-    };
-  }, [showSurveyForm]);
-
-  // Track form submission completion
-  useEffect(() => {
-    if (!showSurveyForm) return;
-
-    // Function to handle messages from JotForm iframe
-    const handleMessage = (event: MessageEvent) => {
-      // Check if the message is from JotForm
-      if (event.origin && event.origin.includes('jotform.com')) {
-        // Log ALL messages from JotForm for debugging
-        // console.log('📩 Message from JotForm:', event.data);
-        
-        // Check specifically for submission completed
-        if (event.data && event.data.action === 'submission-completed') {
-          // console.log('FORM SUBMITTED SUCCESSFULLY!');
-          // console.log('Form ID:', event.data.formID || 'No ID provided');
-          setSurveyCompleted(true);
-          setShowSurveyForm(false);
-        }
-      }
-    };
-
-    // Add the event listener
-    window.addEventListener('message', handleMessage);
-
-    // Cleanup function
-    return () => {
-      window.removeEventListener('message', handleMessage);
-    };
-  }, [showSurveyForm]);
 
   const handleLanguageSelect = async (languageValue: string) => {
     if (!profile) return;
@@ -201,29 +129,7 @@ export default function PreferredLanguage() {
     );
   }
 
-  // Show survey form if conditions are met and not completed
-  if (showSurveyForm && !surveyCompleted) {
-    return (
-      <div className="survey-form-container">
-        <h2 className="survey-form-title text-center">Survey Form:</h2>
-
-        <div className="jotform-container">
-          <iframe
-            id="JotFormIFrame-250765400338050"
-            title="The AIEP Project"
-            onLoad={() => window.parent.scrollTo(0,0)}
-            allowTransparency={true}
-            allow="geolocation; microphone; camera; fullscreen; payment"
-            src="https://form.jotform.com/253225624926156"
-            className="jotform-iframe"
-            scrolling="no"
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // Show language preference UI (default behavior or after survey completion)
+  // Show language preference UI
   return (
     <Container 
       fluid 
@@ -245,11 +151,6 @@ export default function PreferredLanguage() {
                   ← Back to Profile
                 </Button>
               </div>
-            )}
-            {surveyCompleted && (
-              <Alert variant="success" className="mb-3">
-                Thank you for completing the survey! Please select your preferred language.
-              </Alert>
             )}
             <Row className="g-3">
               {languageOptions.map(option => (

@@ -6,7 +6,7 @@ import logging
 import json
 from agents import Agent, Runner, function_tool, ModelSettings
 from config import get_language_context
-from data_model import TranslationSectionContent, AbbreviationLegend, MeetingNotesTranslation
+from data_model import TranslationSectionContent, AbbreviationLegend
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -110,22 +110,13 @@ class OptimizedTranslationAgent:
         language_context = get_language_context(target_language)
         
         # Content-specific guidance
-        if content_type == 'meeting_notes':
-            content_description = "IEP meeting notes that document what was discussed and decided during the meeting"
-            tone_guidance = """
-- Be supportive and informative
-- Preserve the exact meaning and tone of the original
-- Maintain all details and specifics from the original text
-- Keep the same structure and format"""
-            output_format = "Simple string with the translated meeting notes text"
-        else:  # parsing_result
-            content_description = "IEP document content including summaries, sections, document index, and abbreviations"
-            tone_guidance = """
+        content_description = "IEP document content including summaries, sections, document index, and abbreviations"
+        tone_guidance = """
 - Use warm, supportive tone appropriate for parents reading about their child's IEP
 - For abbreviations: translate full forms, keep abbreviation codes in English
 - Maintain educational accuracy while being parent-friendly
 - Use simple language while preserving legal/educational meaning"""
-            output_format = "Structured JSON with summaries, sections, document_index, and abbreviations"
+        output_format = "Structured JSON with summaries, sections, document_index, and abbreviations"
 
         return f'''
 You are an expert IEP translator using advanced tools for accuracy and consistency.
@@ -176,8 +167,6 @@ Remember: Use tools to ensure translation accuracy and consistency!
             # Validate based on content type
             if content_type == 'parsing_result':
                 return self._validate_parsing_result(translated_content)
-            elif content_type == 'meeting_notes':
-                return self._validate_meeting_notes(translated_content)
             else:
                 return translated_content
                 
@@ -220,14 +209,4 @@ Remember: Use tools to ensure translation accuracy and consistency!
             
         except Exception as e:
             logger.warning(f"Validation failed, returning original content: {e}")
-            return content
-
-    def _validate_meeting_notes(self, content):
-        """Validate meeting notes translation structure"""
-        try:
-            validated_meeting_notes = MeetingNotesTranslation.model_validate(content)
-            logger.info("Meeting notes translation validation completed")
-            return validated_meeting_notes.model_dump()
-        except Exception as e:
-            logger.warning(f"Meeting notes validation failed, returning original: {e}")
             return content

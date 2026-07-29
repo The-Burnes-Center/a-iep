@@ -483,12 +483,6 @@ Query Parameters:
     "zh": [...],
     "vi": [...]
   },
-  "meetingNotes": {
-    "en": "Verbatim text from IEP meeting notes section",
-    "es": "Texto textual de la sección de notas de la reunión del IEP",
-    "zh": "IEP会议记录部分的逐字文本",
-    "vi": "Văn bản nguyên văn từ phần ghi chú cuộc họp IEP"
-  },
   "sections": {
     "en": {
       "section1": "string",

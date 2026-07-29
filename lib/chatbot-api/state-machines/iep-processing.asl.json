@@ -258,49 +258,18 @@
         "current_step": "cleanup_complete",
         "status": "PROCESSING"
       },
-      "Next": "ParallelWork"
+      "Next": "ParsingAgent"
     },
-    "ParallelWork": {
-      "Type": "Parallel",
-      "Comment": "Run parsing and meeting notes extraction concurrently",
-      "Branches": [
+    "ParsingAgent": {
+      "Type": "Task",
+      "Resource": "${ParsingAgentArn}",
+      "Comment": "Generate English summary, sections, and document index using OpenAI",
+      "Retry": [
         {
-          "StartAt": "ParsingAgent",
-          "States": {
-            "ParsingAgent": {
-              "Type": "Task",
-              "Resource": "${ParsingAgentArn}",
-              "Comment": "Generate English summary, sections, and document index using OpenAI",
-              "Retry": [
-                {
-                  "ErrorEquals": ["States.ALL"],
-                  "MaxAttempts": 3,
-                  "IntervalSeconds": 2,
-                  "BackoffRate": 2
-                }
-              ],
-              "End": true
-            }
-          }
-        },
-        {
-          "StartAt": "MeetingNotesAgent",
-          "States": {
-            "MeetingNotesAgent": {
-              "Type": "Task",
-              "Resource": "${ExtractMeetingNotesArn}",
-              "Comment": "Extract IEP meeting notes verbatim",
-              "Retry": [
-                {
-                  "ErrorEquals": ["States.ALL"],
-                  "MaxAttempts": 3,
-                  "IntervalSeconds": 2,
-                  "BackoffRate": 2
-                }
-              ],
-              "End": true
-            }
-          }
+          "ErrorEquals": ["States.ALL"],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2
         }
       ],
       "Catch": [
@@ -310,13 +279,13 @@
           "ResultPath": "$.error"
         }
       ],
-      "Next": "UpdateAnalysisProgress", 
+      "Next": "UpdateAnalysisProgress",
       "ResultPath": null
     },
     "UpdateAnalysisProgress": {
       "Type": "Task",
       "Resource": "${DDBServiceArn}",
-      "Comment": "Update progress after parallel analysis completion",
+      "Comment": "Update progress after analysis completion",
       "Parameters": {
         "operation": "update_progress",
         "params": {
@@ -399,66 +368,28 @@
         {
           "Variable": "$.translation_needed",
           "BooleanEquals": true,
-          "Next": "ParallelTranslations"
+          "Next": "TranslateParsingResult"
         }
       ],
       "Default": "FinalizeResults"
     },
-    "ParallelTranslations": {
-      "Type": "Parallel",
-      "Comment": "Translate parsing and missing info results using unified translation function",
-      "Branches": [
+    "TranslateParsingResult": {
+      "Type": "Task",
+      "Resource": "${TranslateContentArn}",
+      "Comment": "Translate parsing agent results to target languages",
+      "Parameters": {
+        "iep_id.$": "$.iep_id",
+        "child_id.$": "$.child_id",
+        "user_id.$": "$.user_id",
+        "target_languages.$": "$.target_languages",
+        "content_type": "parsing_result"
+      },
+      "Retry": [
         {
-          "StartAt": "TranslateParsingResult",
-          "States": {
-            "TranslateParsingResult": {
-              "Type": "Task",
-              "Resource": "${TranslateContentArn}",
-              "Comment": "Translate parsing agent results to target languages",
-              "Parameters": {
-                "iep_id.$": "$.iep_id",
-                "child_id.$": "$.child_id", 
-                "user_id.$": "$.user_id",
-                "target_languages.$": "$.target_languages",
-                "content_type": "parsing_result"
-              },
-              "Retry": [
-                {
-                  "ErrorEquals": ["States.ALL"],
-                  "MaxAttempts": 3,
-                  "IntervalSeconds": 2,
-                  "BackoffRate": 2
-                }
-              ],
-              "End": true
-            }
-          }
-        },
-        {
-          "StartAt": "TranslateMeetingNotes",
-          "States": {
-            "TranslateMeetingNotes": {
-              "Type": "Task",
-              "Resource": "${TranslateContentArn}",
-              "Comment": "Translate meeting notes results to target languages",
-              "Parameters": {
-                "iep_id.$": "$.iep_id",
-                "child_id.$": "$.child_id", 
-                "user_id.$": "$.user_id",
-                "target_languages.$": "$.target_languages",
-                "content_type": "meeting_notes"
-              },
-              "Retry": [
-                {
-                  "ErrorEquals": ["States.ALL"],
-                  "MaxAttempts": 3,
-                  "IntervalSeconds": 2,
-                  "BackoffRate": 2
-                }
-              ],
-              "End": true
-            }
-          }
+          "ErrorEquals": ["States.ALL"],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2
         }
       ],
       "Catch": [

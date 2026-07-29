@@ -48,7 +48,6 @@ export class LambdaFunctionStack extends cdk.Stack {
   public readonly redactOCRFunction : lambda.Function;
   public readonly deleteOriginalFunction : lambda.Function;
   public readonly parsingAgentFunction : lambda.Function;
-  public readonly extractMeetingNotesFunction : lambda.Function;
   public readonly checkLanguagePrefsFunction : lambda.Function;
   public readonly translateContentFunction : lambda.Function;
   public readonly finalizeResultsFunction : lambda.Function;
@@ -338,12 +337,6 @@ export class LambdaFunctionStack extends cdk.Stack {
       900
     );
 
-    this.extractMeetingNotesFunction = createStepFunctionLambda(
-      'ExtractMeetingNotesFunction',
-      'metadata-handler/steps/extract_meeting_notes',
-      300
-    );
-
     // Note: Removed saveEnglishFunction, saveFinalFunction, recordFailureFunction - replaced by DDB service calls
 
 
@@ -375,7 +368,6 @@ export class LambdaFunctionStack extends cdk.Stack {
       this.redactOCRFunction,
       this.deleteOriginalFunction,
       this.parsingAgentFunction,
-      this.extractMeetingNotesFunction,
       this.translateContentFunction,
       this.finalizeResultsFunction
     ];
@@ -399,7 +391,6 @@ export class LambdaFunctionStack extends cdk.Stack {
       .replace(/\$\{RedactOCRArn\}/g, this.redactOCRFunction.functionArn)
       .replace(/\$\{DeleteOriginalArn\}/g, this.deleteOriginalFunction.functionArn)
       .replace(/\$\{ParsingAgentArn\}/g, this.parsingAgentFunction.functionArn)
-      .replace(/\$\{ExtractMeetingNotesArn\}/g, this.extractMeetingNotesFunction.functionArn)
       .replace(/\$\{CheckLanguagePrefsArn\}/g, this.checkLanguagePrefsFunction.functionArn)
       .replace(/\$\{TranslateContentArn\}/g, this.translateContentFunction.functionArn)
       .replace(/\$\{FinalizeResultsArn\}/g, this.finalizeResultsFunction.functionArn);
@@ -419,7 +410,6 @@ export class LambdaFunctionStack extends cdk.Stack {
     this.iepProcessingStateMachine.node.addDependency(this.redactOCRFunction);
     this.iepProcessingStateMachine.node.addDependency(this.deleteOriginalFunction);
     this.iepProcessingStateMachine.node.addDependency(this.parsingAgentFunction);
-    this.iepProcessingStateMachine.node.addDependency(this.extractMeetingNotesFunction);
     this.iepProcessingStateMachine.node.addDependency(this.checkLanguagePrefsFunction);
     this.iepProcessingStateMachine.node.addDependency(this.translateContentFunction);
     this.iepProcessingStateMachine.node.addDependency(this.finalizeResultsFunction);
@@ -431,7 +421,6 @@ export class LambdaFunctionStack extends cdk.Stack {
       this.redactOCRFunction,
       this.deleteOriginalFunction,
       this.parsingAgentFunction,
-      this.extractMeetingNotesFunction,
       this.checkLanguagePrefsFunction,
       this.translateContentFunction,
       this.finalizeResultsFunction
@@ -491,7 +480,6 @@ export class LambdaFunctionStack extends cdk.Stack {
         this.redactOCRFunction,
         this.deleteOriginalFunction,
         this.parsingAgentFunction,
-        this.extractMeetingNotesFunction,
         this.checkLanguagePrefsFunction,
         this.translateContentFunction,
         this.finalizeResultsFunction,

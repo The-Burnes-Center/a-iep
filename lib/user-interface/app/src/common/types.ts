@@ -129,16 +129,6 @@ export interface IEPDocument {
     // Add other languages as needed
   };
 
-  // Meeting notes by language (verbatim text string)
-  meetingNotes?: {
-    en?: string;
-    vi?: string;
-    es?: string;
-    zh?: string;
-    ar?: string;
-    // Add other languages as needed
-  };
-  
   // Raw data
   ocrData?: any;
 }
