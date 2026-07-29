@@ -20,15 +20,3 @@ class TranslationSectionContent(BaseModel):
     title: str
     content: str
     page_numbers: List[int]
-
-
- 
-
-
-# =============================================================================
-# MEETING NOTES TRANSLATION MODELS
-# =============================================================================
-
-class MeetingNotesTranslation(BaseModel):
-    """Meeting notes translation structure - simple string"""
-    meeting_notes: str = Field(..., description="Verbatim meeting notes text translated to target language")
