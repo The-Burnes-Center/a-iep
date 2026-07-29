@@ -22,7 +22,7 @@ def save_content_to_s3(iep_id: str, child_id: str, content: Dict) -> Dict:
     Args:
         iep_id: IEP document ID
         child_id: Child ID
-        content: Dictionary containing summaries, sections, document_index, abbreviations, meetingNotes
+        content: Dictionary containing summaries, sections, document_index, abbreviations
     
     Returns:
         Dict with s3Key, bucket, size, lastUpdated
@@ -144,8 +144,7 @@ def migrate_dynamodb_to_s3(iep_id: str, child_id: str, ddb_item: Dict, table) ->
         'summaries': ddb_item.get('summaries', {}),
         'sections': ddb_item.get('sections', {}),
         'document_index': ddb_item.get('document_index', {}),
-        'abbreviations': ddb_item.get('abbreviations', {}),
-        'meetingNotes': ddb_item.get('meetingNotes', {})
+        'abbreviations': ddb_item.get('abbreviations', {})
     }
     
     # Check if there's any content to migrate
@@ -153,8 +152,7 @@ def migrate_dynamodb_to_s3(iep_id: str, child_id: str, ddb_item: Dict, table) ->
         content.get('summaries') or 
         content.get('sections') or 
         content.get('document_index') or 
-        content.get('abbreviations') or 
-        content.get('meetingNotes')
+        content.get('abbreviations')
     )
     
     if not has_content:
@@ -171,6 +169,11 @@ def migrate_dynamodb_to_s3(iep_id: str, child_id: str, ddb_item: Dict, table) ->
                 'iepId': iep_id,
                 'childId': child_id
             },
+            # meetingNotes is listed purely as legacy cleanup: the feature was
+            # removed on 2026-07-29, but documents written before that still
+            # carry the attribute inline, and it holds verbatim IEP meeting
+            # content. Migrating an item is the one moment we can drop it, so
+            # keep removing it even though nothing writes it anymore.
             UpdateExpression="""
                 SET contentS3Reference = :s3_ref,
                     updated_at = :updated_at

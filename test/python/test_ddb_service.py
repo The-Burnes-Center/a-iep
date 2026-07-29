@@ -184,7 +184,7 @@ def test_save_content_merges_languages_without_clobbering(service):
 
     status, _ = op(service, 'save_content_to_s3', iep_id=IEP, child_id=CHILD,
                    content={'summaries': {'en': 'English summary'},
-                            'meetingNotes': {'en': 'Notes'}})
+                            'document_index': {'en': 'Table of contents'}})
     assert status == 200
     doc = item(service)
     assert 'summaries' not in doc  # inline content replaced by the S3 ref
@@ -193,13 +193,13 @@ def test_save_content_merges_languages_without_clobbering(service):
     # Second save (e.g. the translation step) merges instead of replacing:
     # new language keys land, empty dicts never clobber existing content.
     status, _ = op(service, 'save_content_to_s3', iep_id=IEP, child_id=CHILD,
-                   content={'summaries': {'es': 'Resumen'}, 'meetingNotes': {}})
+                   content={'summaries': {'es': 'Resumen'}, 'document_index': {}})
     assert status == 200
 
     content = json.loads(service.s3.get_object(
         Bucket=ref['bucket'], Key=ref['s3Key'])['Body'].read())
     assert content['summaries'] == {'en': 'English summary', 'es': 'Resumen'}
-    assert content['meetingNotes'] == {'en': 'Notes'}
+    assert content['document_index'] == {'en': 'Table of contents'}
 
 
 def test_get_document_with_content_merges_s3_content(service):

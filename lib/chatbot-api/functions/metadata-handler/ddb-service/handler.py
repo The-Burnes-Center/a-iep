@@ -27,7 +27,7 @@ table = dynamodb.Table(os.environ['IEP_DOCUMENTS_TABLE'])
 # could harvest it, so we log the operation plus only non-sensitive params.
 _SENSITIVE_PARAM_FIELDS = {
     'ocr_data',       # save_ocr_data: full (or redacted) OCR text
-    'content',        # save_content_to_s3: summaries/sections/meetingNotes/translations
+    'content',        # save_content_to_s3: summaries/sections/translations
     'results',        # save_results: processing results
     'final_result',   # save_final_results: combined final content
     'field_updates',  # save_api_fields: per-language content fields
@@ -483,22 +483,17 @@ def save_content_to_s3_operation(params):
                 s3_ref = item['contentS3Reference']
                 existing_content = get_content_from_s3(s3_ref['s3Key'], s3_ref['bucket']) or {}
                 print(f"Found existing content in S3, merging with new content")
-                print(f"Existing meetingNotes keys: {list(existing_content.get('meetingNotes', {}).keys())}")
         
         # Merge existing content with new content (new content takes precedence for non-empty values)
         merged_content = {
             'summaries': existing_content.get('summaries', {}),
             'sections': existing_content.get('sections', {}),
             'document_index': existing_content.get('document_index', {}),
-            'abbreviations': existing_content.get('abbreviations', {}),
-            'meetingNotes': existing_content.get('meetingNotes', {})
+            'abbreviations': existing_content.get('abbreviations', {})
         }
         
-        print(f"Before merge - existing meetingNotes keys: {list(merged_content.get('meetingNotes', {}).keys())}")
-        print(f"New content meetingNotes keys: {list(new_content.get('meetingNotes', {}).keys()) if isinstance(new_content.get('meetingNotes'), dict) else 'not-a-dict'}")
-        
         # Merge new content - only update non-empty values
-        for field in ['summaries', 'sections', 'document_index', 'abbreviations', 'meetingNotes']:
+        for field in ['summaries', 'sections', 'document_index', 'abbreviations']:
             if field in new_content:
                 if isinstance(new_content[field], dict):
                     # Merge dictionaries (e.g., {'en': '...', 'es': '...'})
@@ -514,11 +509,6 @@ def save_content_to_s3_operation(params):
                     if new_content[field]:
                         merged_content[field] = new_content[field]
         
-        print(f"After merge - meetingNotes keys: {list(merged_content.get('meetingNotes', {}).keys())}")
-        if 'en' in merged_content.get('meetingNotes', {}):
-            en_length = len(merged_content['meetingNotes']['en'])
-            print(f"English meeting notes length: {en_length} characters")
-        
         # Save merged content to S3
         s3_ref = save_content_to_s3(iep_id, child_id, merged_content)
         
@@ -528,6 +518,11 @@ def save_content_to_s3_operation(params):
                 'iepId': iep_id,
                 'childId': child_id
             },
+            # meetingNotes is listed purely as legacy cleanup: the feature was
+            # removed on 2026-07-29, but documents written before that still
+            # carry the attribute inline, and it holds verbatim IEP meeting
+            # content. Migrating an item is the one moment we can drop it, so
+            # keep removing it even though nothing writes it anymore.
             UpdateExpression="""
                 SET contentS3Reference = :s3_ref,
                     updated_at = :updated_at

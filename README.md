@@ -31,7 +31,7 @@ A-IEP is a comprehensive platform designed to make Individualized Education Prog
 - **Process IEP documents** using OCR and AI-powered analysis
 - **Translate content** into multiple languages (English, Spanish, Vietnamese, Chinese, Arabic)
 - **Simplify complex language** into parent-friendly summaries
-- **Extract key sections** including accommodations, goals, services, and meeting notes
+- **Extract key sections** including accommodations, goals, and services
 - **Provide educational resources** about parent rights and the IEP process
 - **Generate PDFs** of processed documents for easy sharing
 
@@ -45,7 +45,7 @@ The platform is built as a serverless application using AWS CDK, providing a sca
 - **Upload & Process**: Secure document upload with real-time processing status
 - **OCR Extraction**: Text extraction from PDF documents using Mistral OCR API
 - **PII Redaction**: Automatic removal of personally identifiable information using AWS Comprehend
-- **Multi-Agent Analysis**: AI-powered extraction of summaries, sections, abbreviations, and meeting notes
+- **Multi-Agent Analysis**: AI-powered extraction of summaries, sections, and abbreviations
 - **Progress Tracking**: Real-time progress updates during document processing
 
 ### Translation & Localization
@@ -163,9 +163,7 @@ The document processing workflow uses AWS Step Functions to orchestrate the foll
 2. **OCR Extraction** (15%): Extract text using Mistral OCR API
 3. **PII Redaction** (20%): Remove sensitive information using AWS Comprehend
 4. **File Cleanup** (22%): Delete original uploaded file
-5. **AI Analysis** (65%): Parallel processing of:
-   - Document parsing (summaries, sections, abbreviations, document index)
-   - Meeting notes extraction
+5. **AI Analysis** (65%): Document parsing (summaries, sections, abbreviations, document index)
 6. **Translation** (85%): Translate content to user's preferred languages (if needed)
 7. **Finalization** (100%): Store structured results in DynamoDB
 

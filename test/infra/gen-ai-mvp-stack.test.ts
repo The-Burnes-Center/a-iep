@@ -410,16 +410,15 @@ describe('IEP processing state machine', () => {
     expect(offenders).toEqual([]);
   });
 
-  // Guards the catch-all test against renames hollowing it out: the OCR and
-  // redaction tasks plus the Parallel wrapper that carries the parsing
-  // agent's Catch (branch states can't route outside their Parallel) must
-  // exist under these names.
+  // Guards the catch-all test against renames hollowing it out: the OCR,
+  // redaction, and parsing tasks must exist under these names, and each must
+  // be a top-level state so its Catch can route to RecordFailure (a state
+  // nested in a Parallel branch cannot).
   test('the OCR, redaction, and parsing stages are present by name', () => {
     const definition = stateMachineDefinition();
-    for (const name of ['MistralOCR', 'RedactOCR', 'ParallelWork']) {
-      expect(definition.States[name]).toBeDefined();
+    for (const name of ['MistralOCR', 'RedactOCR', 'ParsingAgent']) {
+      expect(definition.States[name]).toMatchObject({ Type: 'Task' });
     }
-    expect(definition.States.ParallelWork.Branches[0].States.ParsingAgent).toBeDefined();
   });
 });
 

@@ -123,8 +123,7 @@ def lambda_handler(event, context):
             'summaries': {'en': english_result.get('summary', '')},
             'sections': {'en': english_result.get('sections', [])},
             'document_index': {'en': english_result.get('document_index', '')},
-            'abbreviations': {'en': english_result.get('abbreviations', [])},
-            'meetingNotes': {}  # Empty for now, will be populated by meeting notes extraction
+            'abbreviations': {'en': english_result.get('abbreviations', [])}
         }
         
         save_payload = {

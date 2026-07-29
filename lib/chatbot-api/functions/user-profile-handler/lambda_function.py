@@ -661,8 +661,7 @@ def get_child_documents(event: Dict) -> Dict:
                                 'summaries': content.get('summaries', {}),
                                 'sections': content.get('sections', {}),
                                 'document_index': content.get('document_index', {}),
-                                'abbreviations': content.get('abbreviations', {}),
-                                'meetingNotes': content.get('meetingNotes', {})
+                                'abbreviations': content.get('abbreviations', {})
                             })
                             print(f"Successfully fetched content from S3 for {doc['iepId']}")
                         except Exception as e:
@@ -672,8 +671,7 @@ def get_child_documents(event: Dict) -> Dict:
                                 'summaries': {},
                                 'sections': {},
                                 'document_index': {},
-                                'abbreviations': {},
-                                'meetingNotes': {}
+                                'abbreviations': {}
                             })
                     else:
                         # Old format: migrate to S3 (lazy migration)
@@ -707,8 +705,7 @@ def get_child_documents(event: Dict) -> Dict:
                                     'summaries': migrated_doc.get('summaries', {}),
                                     'sections': migrated_doc.get('sections', {}),
                                     'document_index': migrated_doc.get('document_index', {}),
-                                    'abbreviations': migrated_doc.get('abbreviations', {}),
-                                    'meetingNotes': migrated_doc.get('meetingNotes', {})
+                                    'abbreviations': migrated_doc.get('abbreviations', {})
                                 })
                                 print(f"Successfully migrated {doc['iepId']} to S3")
                             else:
@@ -718,8 +715,7 @@ def get_child_documents(event: Dict) -> Dict:
                                     'summaries': clean_dynamodb_json(doc.get('summaries', {})),
                                     'sections': clean_dynamodb_json(doc.get('sections', {})),
                                     'document_index': clean_dynamodb_json(doc.get('document_index', {})),
-                                    'abbreviations': clean_dynamodb_json(doc.get('abbreviations', {})),
-                                    'meetingNotes': clean_dynamodb_json(doc.get('meetingNotes', {}))
+                                    'abbreviations': clean_dynamodb_json(doc.get('abbreviations', {}))
                                 })
                         except Exception as e:
                             print(f"Error migrating document {doc['iepId']}: {str(e)}")
@@ -728,18 +724,8 @@ def get_child_documents(event: Dict) -> Dict:
                                 'summaries': clean_dynamodb_json(doc.get('summaries', {})),
                                 'sections': clean_dynamodb_json(doc.get('sections', {})),
                                 'document_index': clean_dynamodb_json(doc.get('document_index', {})),
-                                'abbreviations': clean_dynamodb_json(doc.get('abbreviations', {})),
-                                'meetingNotes': clean_dynamodb_json(doc.get('meetingNotes', {}))
+                                'abbreviations': clean_dynamodb_json(doc.get('abbreviations', {}))
                             })
-                        
-                        # Ensure meetingNotes is in correct format
-                        if 'meetingNotes' in latest_doc:
-                            if isinstance(latest_doc['meetingNotes'], str):
-                                latest_doc['meetingNotes'] = {'en': latest_doc['meetingNotes']}
-                            elif not isinstance(latest_doc['meetingNotes'], dict):
-                                latest_doc['meetingNotes'] = {'en': ''}
-                        else:
-                            latest_doc['meetingNotes'] = {'en': ''}
         
         # If no document found
         if not latest_doc:

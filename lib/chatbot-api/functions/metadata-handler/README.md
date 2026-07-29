@@ -11,7 +11,7 @@ The document processing pipeline is orchestrated by AWS Step Functions via an `O
 - **Document Ingestion & OCR**: The document is downloaded from S3 and processed using the Mistral OCR API to extract text.
 - **PII Redaction**: The extracted text is scanned for PII (personally identifiable information) using AWS Comprehend, and sensitive data is redacted.
 - **S3 Cleanup**: The original file is deleted from S3 after successful OCR processing.
-- **Multi-Agent Analysis**: The redacted document is analyzed using OpenAI models to extract structured data (summaries, sections, document index, abbreviations) and IEP meeting notes verbatim.
+- **Multi-Agent Analysis**: The redacted document is analyzed using OpenAI models to extract structured data (summaries, sections, document index, abbreviations).
 - **Language Translation**: Content is translated to user's preferred languages (Spanish, Vietnamese, Chinese, Arabic) if needed.
 - **Structured Data Storage**: The final structured results are stored in DynamoDB.
 
@@ -27,14 +27,10 @@ The IEP processing workflow uses comprehensive status tracking with real-time pr
 | **MistralOCR** | 15% | `"ocr_complete"` | `PROCESSING` | Extract text using Mistral OCR API |
 | **RedactOCR** | 20% | `"pii_redaction_complete"` | `PROCESSING` | Remove PII using AWS Comprehend |
 | **DeleteOriginal** | 22% | `"cleanup_complete"` | `PROCESSING` | Delete uploaded S3 file |
-| **ParallelWork** | 65% | `"analysis_complete"` | `PROCESSING` | Run parsing and meeting notes extraction concurrently |
-| ├─ **ParsingAgent** | - | - | `PROCESSING` | Generate English summary/sections using OpenAI |
-| └─ **MeetingNotesAgent** | - | - | `PROCESSING` | Extract IEP meeting notes verbatim using OpenAI |
+| **ParsingAgent** | 65% | `"analysis_complete"` | `PROCESSING` | Generate English summary/sections using OpenAI |
 | **CheckLanguagePrefs** | - | - | `PROCESSING` | Check user language preferences |
 | **TranslationChoice** | - | - | `PROCESSING` | Decide if translations are needed |
-| **ParallelTranslations** | 85% | `"translation_complete"` | `PROCESSING` | Translate content (if needed) |
-| ├─ **TranslateParsingResult** | - | - | `PROCESSING` | Translate parsing results |
-| └─ **TranslateMeetingNotes** | - | - | `PROCESSING` | Translate meeting notes results |
+| **TranslateParsingResult** | 85% | `"translation_complete"` | `PROCESSING` | Translate parsing results (if needed) |
 | **FinalizeResults** | 100% | `"completed"` | `PROCESSED` | Mark document as completed |
 | **RecordFailure** | 0% | `"error"` | `FAILED` | Record failure state and error details |
 
@@ -44,7 +40,7 @@ The IEP processing workflow uses comprehensive status tracking with real-time pr
 2. **OCR Complete (15%)**: Text extraction finished
 3. **PII Redaction Complete (20%)**: Sensitive data removed
 4. **Cleanup Complete (22%)**: Original file deleted
-5. **Analysis Complete (65%)**: English analysis and meeting notes extraction done
+5. **Analysis Complete (65%)**: English analysis done
 6. **Translation Complete (85%)**: Multi-language translations finished (if needed)
 7. **Completed (100%)**: All processing finished successfully
 
@@ -101,7 +97,6 @@ The IEP processing workflow uses comprehensive status tracking with real-time pr
 - `steps/redact_ocr/`: Remove PII using AWS Comprehend
 - `steps/delete_original/`: Delete uploaded S3 file
 - `steps/parsing_agent/`: Generate English summary/sections using OpenAI
-- `steps/extract_meeting_notes/`: Extract IEP meeting notes verbatim using OpenAI
 - `steps/check_language_prefs/`: Check user language preferences
 - `steps/translate_content/`: Translate content to target languages
 - `steps/finalize_results/`: Combine results and mark as completed
@@ -118,7 +113,6 @@ The IEP processing workflow uses comprehensive status tracking with real-time pr
 - **Sections**: Detailed IEP sections in Markdown format for all languages
 - **Document Index**: Table of contents with page references for all languages  
 - **Abbreviations**: Centralized legend of all abbreviations and their full forms for all languages
-- **Meeting Notes**: Verbatim extraction of IEP meeting notes section from the document
 
 ---
 
@@ -224,10 +218,6 @@ lib/chatbot-api/
 │           │   ├── open_ai_agent.py
 │           │   ├── config.py
 │           │   ├── data_model.py
-│           │   └── requirements.txt
-│           ├── extract_meeting_notes/
-│           │   ├── handler.py
-│           │   ├── prompts.py
 │           │   └── requirements.txt
 │           ├── check_language_prefs/
 │           │   ├── handler.py
