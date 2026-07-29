@@ -7,6 +7,7 @@ import './IEPSummarizationAndTranslation.css';
 import { IEPDocument, IEPSection, UserProfile } from '../../common/types';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
+import { useFeatures } from '../../common/hooks/use-features';
 import { getDirForLanguage } from '../../common/direction';
 import { useDocumentFetch, processContentWithJargon } from '../utils';
 import { FetchedIEPDocument } from '../utils/useDocumentFetch';
@@ -22,6 +23,10 @@ import { TextHelper } from '../../common/helpers/text-helper';
 
 const IEPSummarizationAndTranslation: React.FC = () => {
   const { t, language, setLanguage, translationsLoaded, enabledLanguages } = useLanguage();
+  const { isFeatureEnabled } = useFeatures();
+  // Audio playback is dark on prod (see common/features.ts): the buttons are
+  // the only caller of the audio route, so hiding them is what makes it dark.
+  const ttsEnabled = isFeatureEnabled('tts');
   const appContext = useContext(AppContext);
   const { addNotification } = useNotifications();
   const apiClient = new ApiClient(appContext);
@@ -573,11 +578,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
           </div>
             <h4 className="summary-header mt-4 d-flex align-items-center gap-2">
               {isEnglishTab ? 'IEP Summary' : t('summary.iepSummary')}
-              <TTSPlayButton
-                iepId={document.documentId}
-                language={lang}
-                target="summary"
-              />
+              {ttsEnabled && (
+                <TTSPlayButton
+                  iepId={document.documentId}
+                  language={lang}
+                  target="summary"
+                />
+              )}
             </h4>
             <Card className="summary-content mb-3">
               <Card.Body>
@@ -673,7 +680,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                     {section.displayName}
                   </Accordion.Header>
                   <Accordion.Body>
-                    {/* No audio for the client-fabricated Abbreviations table.
+                    {/* No audio at all where TTS is dark (prod), and none for
+                        the client-fabricated Abbreviations table.
                         Also wait for section.name: this accordion renders
                         straight from document.sections[lang], which holds the
                         raw API shape (title/content) until the effect above
@@ -681,7 +689,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                         that window sent target=section with no sectionName, which
                         the backend rejects with a 400 and which left the button
                         stuck showing an error a parent had to notice and retry. */}
-                    {section.name && section.name !== 'Abbreviations' && (
+                    {ttsEnabled && section.name && section.name !== 'Abbreviations' && (
                       <TTSPlayButton
                         iepId={document.documentId}
                         language={lang}

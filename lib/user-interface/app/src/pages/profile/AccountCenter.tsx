@@ -7,6 +7,7 @@ import AIEPFooter from '../../components/AIEPFooter';
 import { Container, Row, Col, Card, Accordion, Spinner} from 'react-bootstrap';
 import { useLanguage } from '../../common/language-context';
 import { useAdminIdentity } from '../../common/helpers/use-admin-identity';
+import { useFeatures } from '../../common/hooks/use-features';
 import { IconArrowRight, IconLogout } from '@tabler/icons-react';
 import './AccountCenter.css';
 
@@ -15,6 +16,7 @@ const AccountCenter: React.FC = () => {
   const { t, translationsLoaded } = useLanguage();
   const { setAuthenticated } = useAuth();
   const { isAdmin } = useAdminIdentity();
+  const { isFeatureEnabled } = useFeatures();
   const navigate = useNavigate();
 
   // Return loading state if translations aren't ready
@@ -85,11 +87,17 @@ const AccountCenter: React.FC = () => {
       title: t("accountCenter.deleteAccount"),
       testId: "account-center-delete-account",
     },
-    {
-      id: "3",
-      title: t("invite.title"),
-      testId: "account-center-invite",
-    },
+    // The only in-app entry point to the referral flow, so this row is what
+    // keeps referrals dark where the feature is off (prod). The /invite route
+    // itself stays registered, and the ?ref= capture keeps running: neither is
+    // reachable by a parent while no codes are issued. See common/features.ts.
+    ...(isFeatureEnabled('referrals')
+      ? [{
+          id: "3",
+          title: t("invite.title"),
+          testId: "account-center-invite",
+        }]
+      : []),
     // Internal console entry, rendered only for members of the Cognito
     // admin group (the backend re-checks the claim on every admin API call)
     ...(isAdmin ? [{ id: "5", title: "Admin Console", testId: "account-center-admin-console" }] : []),
