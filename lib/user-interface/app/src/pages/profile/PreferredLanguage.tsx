@@ -7,6 +7,7 @@ import { Language } from '../../common/types';
 import { useNotifications } from '../../components/notif-manager';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
+import { useFeatures } from '../../common/hooks/use-features';
 import './ProfileForms.css';
 
 export default function PreferredLanguage() {
@@ -16,6 +17,7 @@ export default function PreferredLanguage() {
   const location = useLocation();
   const { addNotification } = useNotifications();
   const { setLanguage, enabledLanguages } = useLanguage();
+  const { isFeatureEnabled } = useFeatures();
 
   // Language options enabled for this environment
   const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
@@ -75,8 +77,13 @@ export default function PreferredLanguage() {
       }
 
       // Same for the parent's name: nothing else in the flow collects it,
-      // and referral links / the admin console display it
-      if (!(data && data.parentName)) {
+      // and referral links / the admin console display it.
+      //
+      // Gated (see common/features.ts): those two consumers are exactly what
+      // is dark on prod, so there the gate would interrupt every one of the
+      // ~110 existing parents to collect a value nothing in that environment
+      // reads. It turns back on with the referral features, in the same flip.
+      if (isFeatureEnabled('parentNameGate') && !(data && data.parentName)) {
         navigate('/account-center/profile', { state: { onboardingContinue: true } });
         return;
       }

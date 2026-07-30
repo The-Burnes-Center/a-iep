@@ -20,6 +20,23 @@ function resolveEnabledLanguages(): string[] {
   return env === "prod" || env === "production" ? PROD_LANGUAGES : ALL_LANGUAGES;
 }
 
+// Optional features offered in the UI, same mechanism as the languages above.
+// Defaults to every feature on dev/local and none on prod, where TTS,
+// referrals and the parent-name gate ship as code but stay dark; an explicit
+// ENABLED_FEATURES env var (comma-separated names) overrides both. Kept in
+// sync with the deploy-time logic in lib/user-interface/index.ts, and with the
+// feature list in src/common/features.ts.
+const ALL_FEATURES = ["tts", "referrals", "parentNameGate"];
+const PROD_FEATURES: string[] = [];
+function resolveEnabledFeatures(): string[] {
+  const override = process.env.ENABLED_FEATURES;
+  if (override) {
+    return override.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  const env = process.env.ENVIRONMENT || process.env.NODE_ENV;
+  return env === "prod" || env === "production" ? PROD_FEATURES : ALL_FEATURES;
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
   define: {
@@ -42,6 +59,7 @@ export default defineConfig({
               aws_user_pools_web_client_id:
                 process.env.AWS_USER_POOLS_WEB_CLIENT_ID,
               enabledLanguages: resolveEnabledLanguages(),
+              enabledFeatures: resolveEnabledFeatures(),
               config: {
                 api_endpoint: `https://${process.env.API_DISTRIBUTION_DOMAIN_NAME}/api`,
                 websocket_endpoint: `wss://${process.env.API_DISTRIBUTION_DOMAIN_NAME}/socket`,

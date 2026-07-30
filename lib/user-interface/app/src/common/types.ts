@@ -1,3 +1,4 @@
+import { Feature } from "./features";
 import { SupportedLanguage } from "./languages";
 
 export interface AppConfig {
@@ -20,6 +21,11 @@ export interface AppConfig {
       // build/deploy time (e.g. Arabic is enabled on dev but not prod).
       // Optional: when absent the UI falls back to all supported languages.
       enabledLanguages? : SupportedLanguage[],
+      // Optional features live in this environment. Set per environment at
+      // build/deploy time (e.g. TTS and referrals are enabled on dev/staging
+      // but dark on prod). Optional: when absent the UI falls back to all
+      // features; an explicit empty list means none (see common/features.ts).
+      enabledFeatures? : Feature[],
       // Deployment environment, set by CDK. Gates prod-only integrations
       // (Google Analytics). Absent on local dev configs, which disables them.
       environment? : "prod" | "dev",

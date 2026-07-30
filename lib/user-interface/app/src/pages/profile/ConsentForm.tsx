@@ -6,6 +6,7 @@ import { ApiClient } from '../../common/api-client/api-client';
 import { UserProfile } from '../../common/types';
 import { useNotifications } from '../../components/notif-manager';
 import { useLanguage } from '../../common/language-context'; 
+import { useFeatures } from '../../common/hooks/use-features';
 import './ProfileForms.css';
 
 export default function ConsentForm() {
@@ -14,6 +15,7 @@ export default function ConsentForm() {
   const navigate = useNavigate();
   const { addNotification } = useNotifications();
   const { t } = useLanguage();
+  const { isFeatureEnabled } = useFeatures();
 
   const [isChecked, setIsChecked] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
@@ -60,9 +62,12 @@ export default function ConsentForm() {
     
     // If consent was already given, continue on; ask for the parent's name
     // first if the profile still has none (referral links and the admin
-    // console show it, and nothing else in the flow collects it)
+    // console show it, and nothing else in the flow collects it). Skipped
+    // where the parentNameGate feature is off, which is production: the only
+    // consumers of the name are the referral features, and those are dark
+    // there, so asking would collect something nothing displays.
     if (profile?.consentGiven) {
-      if (!profile?.parentName) {
+      if (isFeatureEnabled('parentNameGate') && !profile?.parentName) {
         navigate('/account-center/profile', { state: { onboardingContinue: true } });
       } else {
         navigate('/iep-documents');
@@ -95,8 +100,9 @@ export default function ConsentForm() {
       }
       
       // After saving consent: collect the parent's name if missing (nothing
-      // else in the flow asks for it), otherwise go to IEP documents
-      if (!profile?.parentName) {
+      // else in the flow asks for it), otherwise go to IEP documents. Same
+      // parentNameGate caveat as above.
+      if (isFeatureEnabled('parentNameGate') && !profile?.parentName) {
         navigate('/account-center/profile', { state: { onboardingContinue: true } });
       } else {
         navigate('/iep-documents');
