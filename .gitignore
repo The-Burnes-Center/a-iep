@@ -108,3 +108,8 @@ lib/google-docai-layer/
 # Generated output files
 output.json
 output2.json
+
+# Personal Claude Code working agreements: local to whoever wrote them,
+# never shared. Team-wide conventions belong in README/docs instead.
+/CLAUDE.md
+/CLAUDE.local.md
