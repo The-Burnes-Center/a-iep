@@ -12,6 +12,10 @@ on:
         description: 'Also run the @pipeline document-upload spec (slow, costs LLM calls)'
         type: boolean
         default: false
+      notify_slack:
+        description: 'Post a result digest to Slack (needs the SLACK_WEBHOOK_URL secret)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -78,3 +82,74 @@ jobs:
             e2e/playwright-report
             e2e/test-results
           retention-days: 7
+
+      # Nightly digest. Runs on success AND failure, because "it passed again"
+      # is the message that makes a silent break noticeable: the 2026-07 signup
+      # outage went a month unnoticed precisely because nothing reported in.
+      #
+      # Deliberately a plain curl rather than a third-party action: this posts
+      # a credential-bearing URL, and the repo is public.
+      - name: Post result digest to Slack
+        if: always() && inputs.notify_slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RESULT: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PIPELINE: ${{ inputs.run_pipeline && 'included' || 'skipped' }}
+        run: |
+          set -uo pipefail
+          if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
+            echo "SLACK_WEBHOOK_URL is not set; skipping the digest."
+            echo "Add it as a repository secret to turn this on."
+            exit 0
+          fi
+
+          # Summarize from Playwright's own JSON so the message reflects the
+          # run rather than a parsed log. Missing/short file means the suite
+          # died before reporting, which the fallback text says plainly.
+          summary=$(node -e '
+            const fs = require("fs");
+            try {
+              const r = JSON.parse(fs.readFileSync("results.json", "utf8"));
+              const tests = [];
+              const walk = (suite) => {
+                for (const spec of suite.specs ?? []) {
+                  const status = spec.tests?.[0]?.results?.slice(-1)[0]?.status ?? "unknown";
+                  tests.push({ title: `${(spec.file ?? "").replace(/^.*\//, "")} › ${spec.title}`, status, ok: spec.ok });
+                }
+                for (const child of suite.suites ?? []) walk(child);
+              };
+              for (const suite of r.suites ?? []) walk(suite);
+              const passed = tests.filter((t) => t.ok && t.status !== "skipped").length;
+              const skipped = tests.filter((t) => t.status === "skipped").length;
+              const failed = tests.filter((t) => !t.ok && t.status !== "skipped");
+              let out = `${passed} passed, ${failed.length} failed, ${skipped} skipped`;
+              if (failed.length) {
+                out += "\n" + failed.map((t) => `• ${t.title}`).join("\n");
+              }
+              process.stdout.write(out);
+            } catch (err) {
+              process.stdout.write("could not read results.json (the suite may have failed before reporting)");
+            }
+          ')
+
+          if [ "$RESULT" = "success" ]; then
+            header=":white_check_mark: A-IEP nightly E2E passed"
+          else
+            header=":x: A-IEP nightly E2E failed"
+          fi
+
+          # jq -Rs builds a correctly escaped JSON string from arbitrary text.
+          payload=$(jq -n \
+            --arg text "$(printf '%s\n%s\n\nDocument pipeline: %s\n<%s|View run>' "$header" "$summary" "$PIPELINE" "$RUN_URL")" \
+            '{text: $text}')
+
+          # Never echo the URL: it is the credential.
+          code=$(curl -sS -o /tmp/slack_response -w '%{http_code}' \
+            -X POST -H 'Content-type: application/json' \
+            --data "$payload" "$SLACK_WEBHOOK_URL" || echo "000")
+          echo "Slack responded HTTP $code: $(cat /tmp/slack_response)"
+          # A broken notifier must not turn a green suite red.
+          if [ "$code" != "200" ]; then
+            echo "::warning::Slack digest failed to post (HTTP $code)"
+          fi

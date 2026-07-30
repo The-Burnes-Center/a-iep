@@ -23,3 +23,7 @@ jobs:
     secrets: inherit
     with:
       run_pipeline: ${{ github.event_name == 'schedule' || inputs.run_pipeline }}
+      # The daily report into #a-iep-dev, pass or fail. Needs the
+      # SLACK_WEBHOOK_URL repository secret; without it the step logs that it
+      # skipped and the run still passes.
+      notify_slack: true

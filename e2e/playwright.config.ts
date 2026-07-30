@@ -31,7 +31,14 @@ export default defineConfig({
   expect: { timeout: 15_000 },
 
   forbidOnly: !!process.env.CI,
-  reporter: [['list'], ['html', { open: 'never' }]],
+  // json feeds the nightly Slack digest (.github/workflows/e2e_staging.yml
+  // reads results.json); list is for humans reading CI logs, html for the
+  // artifact uploaded on failure.
+  reporter: [
+    ['list'],
+    ['html', { open: 'never' }],
+    ['json', { outputFile: 'results.json' }],
+  ],
 
   use: {
     trace: 'on-first-retry',
