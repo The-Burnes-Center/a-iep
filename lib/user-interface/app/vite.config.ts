@@ -21,13 +21,13 @@ function resolveEnabledLanguages(): string[] {
 }
 
 // Optional features offered in the UI, same mechanism as the languages above.
-// Defaults to every feature on dev/local and none on prod, where TTS,
-// referrals and the parent-name gate ship as code but stay dark; an explicit
+// Defaults to every feature on dev/local; prod runs referrals only, with TTS
+// and the parent-name gate shipping as code but staying dark. An explicit
 // ENABLED_FEATURES env var (comma-separated names) overrides both. Kept in
-// sync with the deploy-time logic in lib/user-interface/index.ts, and with the
-// feature list in src/common/features.ts.
+// sync with the deploy-time logic in lib/user-interface/index.ts (asserted by
+// test/infra/enabled-features.test.ts), and with src/common/features.ts.
 const ALL_FEATURES = ["tts", "referrals", "parentNameGate"];
-const PROD_FEATURES: string[] = [];
+const PROD_FEATURES: string[] = ["referrals"];
 function resolveEnabledFeatures(): string[] {
   const override = process.env.ENABLED_FEATURES;
   if (override) {

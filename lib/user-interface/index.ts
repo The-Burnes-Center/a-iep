@@ -39,8 +39,11 @@ function resolveEnabledLanguages(): string[] {
 // overrides the default. Kept in sync with the dev-build logic in
 // lib/user-interface/app/vite.config.ts, and with the feature list in
 // lib/user-interface/app/src/common/features.ts.
-const ALL_FEATURES = ["tts", "referrals", "parentNameGate"];
-const PROD_FEATURES: string[] = [];
+export const ALL_FEATURES = ["tts", "referrals", "parentNameGate"];
+// Referrals went live on prod 2026-08-04: the invite entry point in Account
+// Center is all the flag gates, and the referral table and routes were already
+// deployed and idle. TTS and the parent-name gate stay dark.
+export const PROD_FEATURES: string[] = ["referrals"];
 function resolveEnabledFeatures(): string[] {
   const override = process.env.ENABLED_FEATURES;
   if (override) {
