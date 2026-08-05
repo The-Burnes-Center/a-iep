@@ -56,7 +56,9 @@ All fictional (NANP 555-01XX), none can ever receive SMS.
 | +15555550113 | Profile / account-center user. Persists across runs. |
 | +15555550114 | Documents user (upload, translations, PDF export, replace) and the TTS spec's source of a processed document. Persists across runs; left holding a processed Spanish-preference document. |
 | +15555550120 | Re-signup journey burner: the only number that runs a real Cognito sign-up. Healed (delete + admin-create) inside the spec each attempt, admin-deleted in its `afterEach`. |
-| +15555550121-0129 | Rest of the throwaway pool, in reserve. |
+| +15555550121 | Referral journey's referrer: owns the personal invite code, stats accumulate across runs. Persists. |
+| +15555550122 | Referral journey's invited-parent burner: healed (delete + admin-create) each attempt, admin-deleted in `afterEach`. |
+| +15555550124-0129 | Rest of the throwaway pool, in reserve. |
 | +15555550123 | **Claimed by scripts/smoke-test.sh as its unknown-number probe**: excluded from the backdoor allowlist in CDK; never create a user for it. |
 
 Global setup idempotently ensures the persistent users exist
