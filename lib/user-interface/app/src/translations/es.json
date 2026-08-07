@@ -312,6 +312,11 @@
     "privacy.slide2.title": "Nos importa su privacidad",
     "privacy.slide2.content": "Estamos eliminando su información personal de los resúmenes. No almacenaremos ningún detalle personal suyo o de su hijo.",
 
+    "carousel.section.whatAiepDoes": "Lo que hace AIEP",
+    "carousel.section.yourRights": "Sus derechos",
+    "carousel.section.whatYouWillSeeNext": "Lo que verá a continuación",
+    "carousel.rights.indicator": "{number}. {title}",
+
     "appTutorial.slide1.title": "¿Qué estamos haciendo ahora?",
     "appTutorial.slide1.content": "Estamos resumiendo los aspectos clave de su IEP. Primero verá una descripción general del documento, y luego un resumen de cada una de las secciones clave.",
     "appTutorial.slide2.title": "¿Qué estamos haciendo ahora?",
@@ -427,6 +432,9 @@
     "changeLanguage.description": "El resumen original de su IEP siempre se generará en inglés. Podemos traducir este resumen al idioma de su elección.",
     "changeLanguage.label.translation": "TRADUCCIÓN",
     "changeLanguage.loading": "Cargando...",
+
+    "preferredLanguage.update.title": "Actualizar preferencias de idioma",
+    "preferredLanguage.update.description": "Seleccione su idioma preferido para las traducciones del IEP",
 
     "deleteAccount.breadcrumb.account": "CUENTA",
     "deleteAccount.breadcrumb.deleteAccount": "ELIMINAR CUENTA",
@@ -670,6 +678,14 @@
     "invite.yourLink": "Tu enlace de invitación",
     "invite.copy": "Copiar",
     "invite.copied": "¡Copiado!",
+    "invite.qr.show": "Código QR",
+    "invite.qr.title": "Escanee para unirse",
+    "invite.qr.description": "Apunte la cámara de otro teléfono a este código para abrir el enlace de invitación.",
+    "invite.qr.imageAlt": "Código QR de su enlace de invitación",
+    "invite.qr.close": "Cerrar código QR",
+    "invite.shareVia.whatsapp": "Compartir por WhatsApp",
+    "invite.shareVia.sms": "Compartir por mensaje de texto",
+    "invite.shareVia.email": "Compartir por correo electrónico",
     "invite.share": "Compartir",
     "invite.shareMessage": "Uso AIEP para entender el IEP de mi hijo. Es gratis:",
     "invite.emailSubject": "Prueba AIEP",

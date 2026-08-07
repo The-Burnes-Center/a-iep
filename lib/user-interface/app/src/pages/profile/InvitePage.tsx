@@ -17,6 +17,16 @@ import { ApiClient } from '../../common/api-client/api-client';
 import { useLanguage } from '../../common/language-context';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
+import {
+  ClipboardIcon,
+  EnvelopeIcon,
+  PersonCheckIcon,
+  QrCodeIcon,
+  ShareIcon,
+  SmsIcon,
+  WhatsAppIcon,
+} from './InviteIcons';
+import InviteQrOverlay from './InviteQrOverlay';
 import './ProfileForms.css';
 import './InvitePage.css';
 
@@ -26,6 +36,7 @@ export default function InvitePage() {
   const navigate = useNavigate();
   const { t, language } = useLanguage();
   const [copied, setCopied] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['referral', 'me'],
@@ -102,15 +113,15 @@ export default function InvitePage() {
                         aria-label={t('invite.yourLink')}
                       />
                       <Button variant="outline-secondary" onClick={handleCopy}>
-                        <i className="bi bi-clipboard me-1"></i>
+                        <ClipboardIcon className="me-1" />
                         {copied ? t('invite.copied') : t('invite.copy')}
                       </Button>
                     </InputGroup>
 
-                    <div className="d-flex flex-wrap gap-2 mb-4">
+                    <div className="d-flex flex-wrap gap-2 mb-4 invite-share-row">
                       {canNativeShare && (
                         <Button variant="primary" className="button-text" onClick={handleNativeShare}>
-                          <i className="bi bi-share me-2"></i>
+                          <ShareIcon className="me-2" />
                           {t('invite.share')}
                         </Button>
                       )}
@@ -121,8 +132,9 @@ export default function InvitePage() {
                         rel="noreferrer"
                         variant="outline-secondary"
                         className="button-text invite-share-chip"
+                        aria-label={t('invite.shareVia.whatsapp')}
                       >
-                        <i className="bi bi-whatsapp me-2"></i>
+                        <WhatsAppIcon className="me-2" />
                         WhatsApp
                       </Button>
                       <Button
@@ -132,8 +144,9 @@ export default function InvitePage() {
                         rel="noreferrer"
                         variant="outline-secondary"
                         className="button-text invite-share-chip"
+                        aria-label={t('invite.shareVia.sms')}
                       >
-                        <i className="bi bi-chat-dots me-2"></i>
+                        <SmsIcon className="me-2" />
                         SMS
                       </Button>
                       <Button
@@ -143,9 +156,18 @@ export default function InvitePage() {
                         rel="noreferrer"
                         variant="outline-secondary"
                         className="button-text invite-share-chip"
+                        aria-label={t('invite.shareVia.email')}
                       >
-                        <i className="bi bi-envelope me-2"></i>
+                        <EnvelopeIcon className="me-2" />
                         Email
+                      </Button>
+                      <Button
+                        variant="outline-secondary"
+                        className="button-text invite-share-chip"
+                        onClick={() => setQrOpen(true)}
+                      >
+                        <QrCodeIcon className="me-2" />
+                        {t('invite.qr.show')}
                       </Button>
                     </div>
 
@@ -165,7 +187,7 @@ export default function InvitePage() {
                       <div className="invite-joins-panel text-start">
                         {data.joins.map((join, index) => (
                           <div key={index} className="invite-join-row d-flex align-items-center">
-                            <i className="bi bi-person-check me-3"></i>
+                            <PersonCheckIcon className="me-3" />
                             {t('invite.joins.item')} · {formatJoinDate(join.joinedAt)}
                           </div>
                         ))}
@@ -181,6 +203,12 @@ export default function InvitePage() {
         </Container>
       </div>
       <AIEPFooter />
+      {/* `inviteUrl` is the same value every other share control sends, so the
+          code can never encode a different link. Empty until the referral
+          loads, and a QR of an empty string is meaningless, hence the guard. */}
+      {qrOpen && inviteUrl && (
+        <InviteQrOverlay url={inviteUrl} onClose={() => setQrOpen(false)} />
+      )}
     </>
   );
 }

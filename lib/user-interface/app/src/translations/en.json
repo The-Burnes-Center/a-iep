@@ -324,6 +324,11 @@
     "privacy.slide2.title": "We care about your privacy",
     "privacy.slide2.content": "We’re removing your personal information from the summaries. We will not store any of your or your child’s personal details.",
 
+    "carousel.section.whatAiepDoes": "What AIEP does",
+    "carousel.section.yourRights": "Your Rights",
+    "carousel.section.whatYouWillSeeNext": "What you'll see next",
+    "carousel.rights.indicator": "{number}. {title}",
+
     "appTutorial.slide1.title": "What are we doing right now?",
     "appTutorial.slide1.content": "We're summarizing the key aspects of your IEP. You'll first see a general overview of the document, and then a summary for each one of the key sections.",
     "appTutorial.slide2.title": "What are we doing right now?",
@@ -439,6 +444,9 @@
     "changeLanguage.description": "The original summary of your IEP will always be generated in English. We can translate this summary to the language of your choice.",
     "changeLanguage.label.translation": "TRANSLATION",
     "changeLanguage.loading": "Loading...",
+
+    "preferredLanguage.update.title": "Update Language Preferences",
+    "preferredLanguage.update.description": "Select your preferred language for IEP translations",
 
     "deleteAccount.breadcrumb.account": "ACCOUNT",
     "deleteAccount.breadcrumb.deleteAccount": "DELETE ACCOUNT",
@@ -673,6 +681,14 @@
     "invite.yourLink": "Your invite link",
     "invite.copy": "Copy",
     "invite.copied": "Copied!",
+    "invite.qr.show": "QR code",
+    "invite.qr.title": "Scan to join",
+    "invite.qr.description": "Point another phone's camera at this code to open the invite link.",
+    "invite.qr.imageAlt": "QR code for your invite link",
+    "invite.qr.close": "Close QR code",
+    "invite.shareVia.whatsapp": "Share by WhatsApp",
+    "invite.shareVia.sms": "Share by text message",
+    "invite.shareVia.email": "Share by email",
     "invite.share": "Share",
     "invite.shareMessage": "I use AIEP to understand my child's IEP. It's free:",
     "invite.emailSubject": "Try AIEP",

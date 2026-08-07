@@ -1,0 +1,104 @@
+/* Full-viewport QR overlay. Brand kit: ink #1E1E1E, cream #F5F3EE,
+   green #014620 — same palette as InvitePage.css. */
+
+.invite-qr-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1080; /* above Bootstrap's modal-backdrop (1050) */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1rem;
+  /* Near-black rather than the cream page background: the surround is what a
+     camera meters against, and a dark frame around a white card is the easiest
+     thing for another phone to lock onto. */
+  background-color: #0E1B2A;
+}
+
+.invite-qr-close {
+  position: absolute;
+  top: max(0.75rem, env(safe-area-inset-top));
+  inset-inline-end: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem; /* >= the 44px minimum touch target */
+  height: 2.75rem;
+  font-size: 1.25rem;
+  border: 1px solid rgba(245, 243, 238, 0.4);
+  border-radius: 50%;
+  background-color: transparent;
+  color: #F5F3EE;
+}
+
+.invite-qr-close:focus-visible {
+  outline: 3px solid #F5F3EE;
+  outline-offset: 2px;
+}
+
+.invite-qr-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 100%;
+}
+
+.invite-qr-title {
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-size: 1.25rem;
+  color: #F5F3EE;
+  text-align: center;
+  margin: 0;
+}
+
+/* The whole point of the feature: as large as the SHORTER viewport axis
+   allows, so it stays square and fully on screen in portrait or landscape
+   without a resize listener. Overrides the width/height attributes
+   QRCodeSVG renders (presentation attributes lose to any CSS rule). */
+.invite-qr-code {
+  width: min(90vw, 62vh);
+  height: auto;
+  max-width: 100%;
+  border-radius: 8px;
+  /* qrcode.react paints its own white background path across the quiet zone,
+     so the card needs no extra padding to preserve it. */
+  background-color: #FFFFFF;
+}
+
+.invite-qr-hint {
+  margin: 0;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 0.9rem;
+  color: rgba(245, 243, 238, 0.75);
+  text-align: center;
+  max-width: 30ch;
+}
+
+.invite-qr-url {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  color: #F5F3EE;
+  text-align: center;
+  /* Selectable and copyable by hand when a camera will not cooperate. */
+  user-select: all;
+  word-break: break-all;
+  max-width: 100%;
+}
+
+/* Landscape phones have very little vertical room; drop the supporting text
+   so the code itself keeps as much of it as possible. */
+@media (orientation: landscape) and (max-height: 480px) {
+  .invite-qr-title,
+  .invite-qr-hint {
+    display: none;
+  }
+
+  .invite-qr-code {
+    width: min(90vw, 78vh);
+  }
+}

@@ -2,6 +2,15 @@
    #014620 (primary) / #00682F (hover, accents) — same palette as
    AdminReferrals.css, scoped here under .invite-page. */
 
+/* Inline SVG icons (InviteIcons.tsx). They replaced bootstrap-icons glyphs,
+   which are a web font and so vanish wherever web fonts are blocked — iOS
+   Lockdown Mode, iOS content blockers, filtered school/public networks. The
+   -.125em nudge reproduces the optical baseline the .bi::before rule applied,
+   so the icons sit against their labels exactly as before. */
+.invite-page .invite-icon {
+  vertical-align: -0.125em;
+}
+
 .invite-page .invite-link-group .form-control {
   background-color: #F5F3EE;
   border-color: #CBC6BC;
@@ -99,8 +108,11 @@
   border-top: 1px solid rgba(30, 30, 30, 0.15);
 }
 
-.invite-page .invite-join-row .bi-person-check {
+.invite-page .invite-join-row .invite-icon {
   color: #00682F;
+  /* The row is a flex container, so keep the fixed-size icon from being
+     squeezed by the text beside it. */
+  flex-shrink: 0;
 }
 
 .invite-page .invite-joins-empty {

@@ -40,6 +40,9 @@ import ViewResources from '../pages/profile/ViewResources';
 import ParentRights from '../pages/ParentRights';
 import PrivacyPolicy from '../pages/PrivacyPolicy';
 
+// Navigation behaviour shared by every route
+import ScrollToTop from './ScrollToTop';
+
 // Referral system
 import ReferralRedirect from './ReferralRedirect';
 import ReferralTracker from './ReferralTracker';
@@ -60,6 +63,8 @@ export default function AppRoutes() {
 
   return (
     <>
+    {/* Every page change starts at the top of the page */}
+    <ScrollToTop />
     {/* Referral capture (?ref=) + post-login signup attribution */}
     <ReferralTracker />
     <Routes>

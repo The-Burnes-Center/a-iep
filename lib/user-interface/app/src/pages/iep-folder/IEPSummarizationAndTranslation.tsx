@@ -208,19 +208,25 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   };
 
 
-  // Handle when user reaches the last slide in app tutorial
-  // TODO : implement similar functionality in parent rights
-  const handleLastSlideReached = () => {
-    if (tutorialPhase === 'parent-rights') {
-      setTutorialPhase('completed');
-    }
-  };
-
-  // Parent Rights carousel data - internationalized using useLanguage hook
+  // Parent Rights carousel data - internationalized using useLanguage hook.
+  //
+  // Three dividers split the deck into the sections a parent is walked
+  // through: what the app is doing with their document, the rights they hold,
+  // and what the finished summary will look like. Reaching the end does NOT
+  // end the wait — the carousel wraps and keeps going until the document's
+  // status says it is done.
   const parentRightsSlideData = useMemo(() => {
     if (!translationsLoaded) return [];
-    
+
     return [
+      {
+        id: 'section-what-aiep-does',
+        type: 'section',
+        title: t('carousel.section.whatAiepDoes'),
+        content: '',
+        image: '/images/carousel/Summarize.png',
+        theme: 'green'
+      },
       {
         id: 'privacy-slide-1',
         type: 'privacy',
@@ -234,6 +240,14 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         title: t('privacy.slide2.title'),
         content: t('privacy.slide2.content'),
         image: '/images/carousel/joyful.png'
+      },
+      {
+        id: 'section-your-rights',
+        type: 'section',
+        title: t('carousel.section.yourRights'),
+        content: '',
+        image: '/images/carousel/Advocate.png',
+        theme: 'pink'
       },
       {
         id: 'rights-slide-1',
@@ -276,6 +290,14 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         title: t('rights.slide6.title'),
         content: t('rights.slide6.content'),
         image: '/images/carousel/blissful.png'
+      },
+      {
+        id: 'section-what-you-will-see-next',
+        type: 'section',
+        title: t('carousel.section.whatYouWillSeeNext'),
+        content: '',
+        image: '/images/carousel/Complex_IEP.png',
+        theme: 'blue'
       },
       {
         id: 'tutorial-slide-1',
@@ -617,14 +639,15 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     return () => clearTimeout(timer);
   }, [translationRequest.phase]);
 
-  // Reset tutorial phase when document status changes from processing
+  // The wait ends when the DOCUMENT says it does, never when the parent
+  // reaches the end of the carousel. Swiping through the slides used to flip
+  // this to 'completed', which replaced the carousel with a bare spinner and
+  // gave the parent no way back to it; now the deck loops and only the status
+  // moves this on. Once it does, `isProcessing` goes false, this screen
+  // unmounts, and the summary below renders in its place — the summary lives
+  // on this same route, so there is nothing to navigate to.
   useEffect(() => {
-    if (!isProcessing) {
-      setTutorialPhase('completed');
-    } else {
-      // Reset to app-tutorial when processing starts
-      setTutorialPhase('parent-rights');
-    }
+    setTutorialPhase(isProcessing ? 'parent-rights' : 'completed');
   }, [isProcessing]);
 
 
@@ -968,8 +991,14 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   }
 
 
+  // An unfinished profile belongs back in onboarding, NOT at '/'. That route
+  // is the public LandingPage, whose only way back into the app is an "Upload
+  // An IEP" link to /login — so tapping "Summary" in the bottom nav ejected an
+  // already-authenticated parent onto the marketing site staring at a sign-in
+  // form. Nothing signs them out; it only looks that way. /preferred-language
+  // is where the other onboarding redirects go, and it gates onward from there.
   if(profile.showOnboarding){
-    navigate('/');
+    navigate('/preferred-language');
     return null;
   }
 
@@ -983,14 +1012,14 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   if (isProcessing && !suppressProcessingTakeover) {
     // console.log("tutorialPhase", tutorialPhase);
     return (
-      <ProcessingModal 
+      <ProcessingModal
         error={error}
         tutorialPhase={tutorialPhase}
         t={t}
         parentRightsSlideData={parentRightsSlideData}
-        onLastSlideReached={handleLastSlideReached}
         headerPinkTitle={t('rights.header.title.pink')}
         headerGreenTitle={t('rights.header.title.green')}
+        rightsIndicatorTemplate={t('carousel.rights.indicator')}
       />
     );
   }

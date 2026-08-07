@@ -317,6 +317,11 @@
     "privacy.slide2.title": "Chúng tôi quan tâm đến quyền riêng tư của bạn",
     "privacy.slide2.content": "Chúng tôi đang loại bỏ thông tin cá nhân của bạn khỏi các bản tóm tắt. Chúng tôi sẽ không lưu trữ bất kỳ thông tin cá nhân nào của bạn hoặc con bạn.",
 
+    "carousel.section.whatAiepDoes": "AIEP làm gì",
+    "carousel.section.yourRights": "Quyền của bạn",
+    "carousel.section.whatYouWillSeeNext": "Những gì bạn sẽ thấy tiếp theo",
+    "carousel.rights.indicator": "{number}. {title}",
+
     "appTutorial.slide1.title": "Chúng tôi đang làm gì ngay bây giờ?",
     "appTutorial.slide1.content": "Chúng tôi đang tóm tắt các khía cạnh quan trọng của IEP của bạn. Trước tiên bạn sẽ thấy tổng quan về tài liệu, sau đó là tóm tắt cho từng phần quan trọng.",
     "appTutorial.slide2.title": "Chúng tôi đang làm gì ngay bây giờ?",
@@ -432,6 +437,9 @@
     "changeLanguage.description": "Bản tóm tắt gốc của IEP sẽ luôn được tạo bằng tiếng Anh. Chúng tôi có thể dịch bản tóm tắt này sang ngôn ngữ bạn chọn.",
     "changeLanguage.label.translation": "DỊCH THUẬT",
     "changeLanguage.loading": "Đang tải...",
+
+    "preferredLanguage.update.title": "Cập nhật tùy chọn ngôn ngữ",
+    "preferredLanguage.update.description": "Chọn ngôn ngữ bạn muốn dùng cho bản dịch IEP",
 
     "deleteAccount.breadcrumb.account": "TÀI KHOẢN",
     "deleteAccount.breadcrumb.deleteAccount": "XÓA TÀI KHOẢN",
@@ -670,6 +678,14 @@
     "invite.yourLink": "Liên kết mời của bạn",
     "invite.copy": "Sao chép",
     "invite.copied": "Đã sao chép!",
+    "invite.qr.show": "Mã QR",
+    "invite.qr.title": "Quét để tham gia",
+    "invite.qr.description": "Hướng camera của điện thoại khác vào mã này để mở liên kết mời.",
+    "invite.qr.imageAlt": "Mã QR cho liên kết mời của bạn",
+    "invite.qr.close": "Đóng mã QR",
+    "invite.shareVia.whatsapp": "Chia sẻ qua WhatsApp",
+    "invite.shareVia.sms": "Chia sẻ qua tin nhắn văn bản",
+    "invite.shareVia.email": "Chia sẻ qua email",
     "invite.share": "Chia sẻ",
     "invite.shareMessage": "Tôi dùng AIEP để hiểu IEP của con mình. Hoàn toàn miễn phí:",
     "invite.emailSubject": "Hãy thử AIEP",

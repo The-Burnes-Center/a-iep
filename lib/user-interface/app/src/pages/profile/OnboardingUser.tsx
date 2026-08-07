@@ -62,8 +62,11 @@ const OnboardingUser: React.FC = () => {
     }
   ];
 
+  // Back goes to the previous onboarding step, NOT to '/'. The landing page is
+  // the logged-out marketing site and its only door back into the app is the
+  // login form, so this used to look (and feel) like being signed out.
   const handleBackClick = () => {
-    navigate('/');
+    navigate('/preferred-language');
   };
   
   // Create a ref to access Swiper instance

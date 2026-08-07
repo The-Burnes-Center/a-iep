@@ -321,6 +321,11 @@
     "privacy.slide2.title": "نحن نهتم بخصوصيتك",
     "privacy.slide2.content": "نقوم بإزالة معلوماتك الشخصية من الملخصات، ولن نخزّن أي بيانات شخصية تخصك أو تخص طفلك.",
 
+    "carousel.section.whatAiepDoes": "ما يفعله AIEP",
+    "carousel.section.yourRights": "حقوقك",
+    "carousel.section.whatYouWillSeeNext": "ما ستراه بعد ذلك",
+    "carousel.rights.indicator": "{number}. {title}",
+
     "appTutorial.slide1.title": "ماذا نفعل الآن؟",
     "appTutorial.slide1.content": "نقوم بتلخيص الجوانب الأساسية في IEP الخاص بك. سترى أولًا نظرة عامة على المستند، ثم ملخصًا لكل قسم من الأقسام الرئيسية.",
     "appTutorial.slide2.title": "ماذا نفعل الآن؟",
@@ -436,6 +441,9 @@
     "changeLanguage.description": "سيتم دائمًا إنشاء الملخص الأصلي لبرنامج IEP الخاص بك باللغة الإنجليزية، ويمكننا ترجمة هذا الملخص إلى اللغة التي تختارها.",
     "changeLanguage.label.translation": "الترجمة",
     "changeLanguage.loading": "جارٍ التحميل...",
+
+    "preferredLanguage.update.title": "تحديث تفضيلات اللغة",
+    "preferredLanguage.update.description": "اختر لغتك المفضلة لترجمات IEP",
 
     "deleteAccount.breadcrumb.account": "الحساب",
     "deleteAccount.breadcrumb.deleteAccount": "حذف الحساب",
@@ -663,6 +671,14 @@
     "invite.yourLink": "رابط الدعوة الخاص بك",
     "invite.copy": "نسخ",
     "invite.copied": "تم النسخ!",
+    "invite.qr.show": "رمز QR",
+    "invite.qr.title": "امسح للانضمام",
+    "invite.qr.description": "وجّه كاميرا هاتف آخر إلى هذا الرمز لفتح رابط الدعوة.",
+    "invite.qr.imageAlt": "رمز QR لرابط الدعوة الخاص بك",
+    "invite.qr.close": "إغلاق رمز QR",
+    "invite.shareVia.whatsapp": "المشاركة عبر واتساب",
+    "invite.shareVia.sms": "المشاركة عبر رسالة نصية",
+    "invite.shareVia.email": "المشاركة عبر البريد الإلكتروني",
     "invite.share": "مشاركة",
     "invite.shareMessage": "أستخدم AIEP لفهم الخطة التعليمية الفردية (IEP) لطفلي. وهو مجاني:",
     "invite.emailSubject": "جرّب AIEP",

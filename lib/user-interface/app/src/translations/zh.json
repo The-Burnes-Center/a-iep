@@ -310,6 +310,11 @@
     "privacy.slide2.title": "我们关心您的隐私",
     "privacy.slide2.content": "我们正在从摘要中删除您的个人信息。我们不会存储您或您孩子的任何个人详细信息。",
 
+    "carousel.section.whatAiepDoes": "AIEP 的作用",
+    "carousel.section.yourRights": "您的权利",
+    "carousel.section.whatYouWillSeeNext": "接下来您会看到什么",
+    "carousel.rights.indicator": "{number}. {title}",
+
     "appTutorial.slide1.title": "我们现在在做什么？",
     "appTutorial.slide1.content": "我们正在总结您IEP的关键方面。您将首先看到文档的总体概述，然后是每个关键部分的摘要。",
     "appTutorial.slide2.title": "我们现在在做什么？",
@@ -424,6 +429,9 @@
     "changeLanguage.description": "您的IEP原始摘要将始终以英语生成。我们可以将此摘要翻译为您选择的语言。",
     "changeLanguage.label.translation": "翻译",
     "changeLanguage.loading": "加载中...",
+
+    "preferredLanguage.update.title": "更新语言偏好",
+    "preferredLanguage.update.description": "选择您希望用于 IEP 翻译的语言",
 
     "deleteAccount.breadcrumb.account": "账号",
     "deleteAccount.breadcrumb.deleteAccount": "删除账号",
@@ -668,6 +676,14 @@
     "invite.yourLink": "您的邀请链接",
     "invite.copy": "复制",
     "invite.copied": "已复制！",
+    "invite.qr.show": "二维码",
+    "invite.qr.title": "扫码加入",
+    "invite.qr.description": "用另一部手机的相机对准此二维码，即可打开邀请链接。",
+    "invite.qr.imageAlt": "您的邀请链接二维码",
+    "invite.qr.close": "关闭二维码",
+    "invite.shareVia.whatsapp": "通过 WhatsApp 分享",
+    "invite.shareVia.sms": "通过短信分享",
+    "invite.shareVia.email": "通过电子邮件分享",
     "invite.share": "分享",
     "invite.shareMessage": "我用 AIEP 来理解孩子的 IEP，完全免费：",
     "invite.emailSubject": "试试 AIEP",
