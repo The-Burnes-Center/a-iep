@@ -182,12 +182,30 @@ describe("the section dividers", () => {
     expect(screen.getByTestId("carousel-active-slide")).toHaveClass("parent-rights-card--blue");
   });
 
-  test("every divider's text block is empty", () => {
-    const { container } = renderCarousel();
+  test("every divider's text block carries the hint, not its repeated title", () => {
+    // The block has to hold its full height or the indicator dots move under
+    // the parent's thumb, so it shows the hint rather than sitting empty. It
+    // must NOT repeat the divider's title, which is already in the card above.
+    const { container } = renderCarousel({ sectionHint: "Swipe to learn more" });
 
     const dividerText = container.querySelectorAll(".slide-rights-content--section");
     expect(dividerText).toHaveLength(3);
-    dividerText.forEach((block) => expect(block).toBeEmptyDOMElement());
+    dividerText.forEach((block) => {
+      expect(block).toHaveTextContent("Swipe to learn more");
+      expect(block.querySelector("h1, h2")).toBeNull();
+    });
+  });
+
+  test("the hint never names a side, because RTL mirrors the arrows", () => {
+    // The app sets document.dir and this carousel flips its own buttons under
+    // RTL, so in Arabic "next" sits on the LEFT. Copy naming a side would send
+    // Arabic readers the wrong way; the shipped strings say "the arrows".
+    const sides = /\b(right|left|derecha|izquierda|phải|trái|右|左|يمين|يسار)\b/;
+    for (const [code, dict] of Object.entries({ en, es, zh, vi, ar })) {
+      const hint = (dict as Record<string, string>)["carousel.section.hint"];
+      expect(hint, `${code} hint must exist`).toBeTruthy();
+      expect(hint, `${code} hint must not name a side: ${hint}`).not.toMatch(sides);
+    }
   });
 });
 
