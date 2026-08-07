@@ -82,11 +82,6 @@ const AccountCenter: React.FC = () => {
       title: t("accountCenter.changeLanguage"),
       testId: "account-center-change-language",
     },
-    {
-      id: "2",
-      title: t("accountCenter.deleteAccount"),
-      testId: "account-center-delete-account",
-    },
     // The only in-app entry point to the referral flow, so this row is what
     // keeps referrals dark where the feature is off (prod). The /invite route
     // itself stays registered, and the ?ref= capture keeps running: neither is
@@ -101,6 +96,15 @@ const AccountCenter: React.FC = () => {
     // Internal console entry, rendered only for members of the Cognito
     // admin group (the backend re-checks the claim on every admin API call)
     ...(isAdmin ? [{ id: "5", title: "Admin Console", testId: "account-center-admin-console" }] : []),
+    // Deliberately last but one, directly above Log out. Deleting an account
+    // is irreversible and it used to sit above the everyday rows, where a
+    // mistap costs a parent their documents. Ids are unchanged so the E2E
+    // hooks and any stored accordion state still resolve.
+    {
+      id: "2",
+      title: t("accountCenter.deleteAccount"),
+      testId: "account-center-delete-account",
+    },
     {
       id: "4",
       title: t("accountCenter.logOut"),
