@@ -160,6 +160,37 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   };
 
   /**
+   * Route the outcome of a phone custom-auth sign-in: surface a failed SMS
+   * send, park the user on the OTP screen, or complete the login.
+   *
+   * Extracted because three paths now need identical handling — an existing
+   * user, a freshly auto-confirmed signup, and the UsernameExistsException
+   * race — and a third hand-copy of it was where a divergence would hide.
+   */
+  const applyPhoneSignInResult = (
+    cognitoUser: Awaited<ReturnType<typeof signInWithPhone>>,
+    sentMessageKey = 'auth.smsCodeSent'
+  ) => {
+    if (cognitoUser.challengeName !== 'CUSTOM_CHALLENGE') {
+      login(cognitoUser);
+      handleSuccessfulAuthentication();
+      return;
+    }
+
+    if (cognitoUser.challengeParam?.error) {
+      // The SMS lambda reports send failures through this challenge
+      // parameter; without this check the UI claims a code was sent.
+      setError('auth.errorSendingCode');
+      return;
+    }
+
+    setCognitoUserForSms(cognitoUser);
+    setSmsCodeSent(true);
+    setIsNewUserConfirmation(false);
+    setSuccessMessage(sentMessageKey);
+  };
+
+  /**
    * Clean Phone Authentication Flow (Frontend Only)
    * Handles both signup confirmation and custom auth properly
    */
@@ -197,22 +228,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         // console.log('SignIn result:', { challengeName: cognitoUser.challengeName, username: cognitoUser.username });
         
         // Handle the authentication response for existing users
-        if (cognitoUser.challengeName === 'CUSTOM_CHALLENGE') {
-          if (cognitoUser.challengeParam?.error) {
-            // The SMS lambda reports send failures through this challenge
-            // parameter; without this check the UI claims a code was sent
-            setError('auth.errorSendingCode');
-          } else {
-            setCognitoUserForSms(cognitoUser);
-            setSmsCodeSent(true);
-            setIsNewUserConfirmation(false);
-            setSuccessMessage('auth.smsCodeSent');
-          }
-        } else {
-          // console.log('User authenticated successfully');
-          login(cognitoUser);
-          handleSuccessfulAuthentication();
-        }
+        applyPhoneSignInResult(cognitoUser);
 
       } catch (signInError) {
         // console.log('SignIn error:', signInError.code);
@@ -229,7 +245,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           const tempPassword = 'TempPass123!' + Math.random().toString(36).substring(2, 15);
           
           try {
-            await Auth.signUp({
+            const signUpResult = await Auth.signUp({
               username: formattedPhone,
               password: tempPassword,
               attributes: {
@@ -240,35 +256,30 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
               },
               clientMetadata: { language }
             });
-            
-            // console.log('New user created:', signUpResult);
-            
-            // Set up for confirmation flow
-            setIsNewUserConfirmation(true);
-            setPendingPhoneNumber(formattedPhone);
-            setIsNewUserSignup(true); // Mark as new user signup
-            setSmsCodeSent(true);
-            setSuccessMessage('auth.smsCodeSentNewUser');
-            
+
+            if (signUpResult.userConfirmed) {
+              // The PreSignUp trigger auto-confirmed the account, so Cognito
+              // minted no signup code and there is nothing to collect here:
+              // go straight to the login OTP, which is now the ONLY SMS a new
+              // parent receives.
+              setIsNewUserSignup(true);
+              applyPhoneSignInResult(await signInWithPhone(formattedPhone), 'auth.smsCodeSentNewUser');
+            } else {
+              // userConfirmed === false means the trigger did not take effect.
+              // Fall back to the old two-code flow rather than stranding the
+              // parent on a screen waiting for a code that never comes.
+              setIsNewUserConfirmation(true);
+              setPendingPhoneNumber(formattedPhone);
+              setIsNewUserSignup(true); // Mark as new user signup
+              setSmsCodeSent(true);
+              setSuccessMessage('auth.smsCodeSentNewUser');
+            }
+
           } catch (signUpError) {
             // console.error('SignUp error:', signUpError);
             if (signUpError.code === 'UsernameExistsException') {
               // User was created between our attempts, try signin again
-              cognitoUser = await signInWithPhone(formattedPhone);
-
-              if (cognitoUser.challengeName === 'CUSTOM_CHALLENGE') {
-                if (cognitoUser.challengeParam?.error) {
-                  setError('auth.errorSendingCode');
-                } else {
-                  setCognitoUserForSms(cognitoUser);
-                  setSmsCodeSent(true);
-                  setIsNewUserConfirmation(false);
-                  setSuccessMessage('auth.smsCodeSent');
-                }
-              } else {
-                login(cognitoUser);
-                handleSuccessfulAuthentication();
-              }
+              applyPhoneSignInResult(await signInWithPhone(formattedPhone));
             } else {
               throw signUpError;
             }

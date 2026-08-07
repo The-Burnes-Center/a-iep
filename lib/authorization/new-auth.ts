@@ -266,6 +266,25 @@ export class NewAuthorizationStack extends Construct {
    * Create and configure Lambda triggers for Phone OTP authentication
    */
   private createPhoneOtpLambdaTriggers(userPool: UserPool, userProfilesTable?: any) {
+    // Pre Sign-up Function - collapses phone signup to a SINGLE SMS by
+    // auto-confirming phone-only accounts, so Cognito never mints its own
+    // signup verification code and the custom-auth login OTP is the only text.
+    // Wired in BOTH environments: the two-code flow was a usability bug
+    // everywhere, not a staging quirk.
+    //
+    // Safe only in combination with the password rotation in
+    // user-profile-handler/cognito_trigger.py — see the header comment in
+    // pre-sign-up.js. An auto-confirmed account whose client-chosen password
+    // still worked would be an account-takeover vector.
+    const preSignUpFunction = new lambda.Function(this, 'PreSignUpFunction', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
+      handler: 'pre-sign-up.handler',
+      timeout: cdk.Duration.seconds(30),
+      logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
+      description: 'Auto-confirm phone-only signups so only one OTP SMS is sent'
+    });
+
     // Define Auth Challenge Function
     const defineAuthChallengeFunction = new lambda.Function(this, 'DefineAuthChallengeFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -417,7 +436,7 @@ export class NewAuthorizationStack extends Construct {
     }
 
     // Allow Cognito to invoke the Lambda functions
-    [defineAuthChallengeFunction, createAuthChallengeFunction, verifyAuthChallengeFunction, customMessageFunction, preAuthenticationFunction].forEach(func => {
+    [preSignUpFunction, defineAuthChallengeFunction, createAuthChallengeFunction, verifyAuthChallengeFunction, customMessageFunction, preAuthenticationFunction].forEach(func => {
       func.addPermission('CognitoInvocation', {
         principal: new iam.ServicePrincipal('cognito-idp.amazonaws.com'),
         action: 'lambda:InvokeFunction',
@@ -426,6 +445,11 @@ export class NewAuthorizationStack extends Construct {
     });
 
     // Add the Lambda triggers to Cognito User Pool
+    userPool.addTrigger(
+      cognito.UserPoolOperation.PRE_SIGN_UP,
+      preSignUpFunction
+    );
+
     userPool.addTrigger(
       cognito.UserPoolOperation.DEFINE_AUTH_CHALLENGE,
       defineAuthChallengeFunction

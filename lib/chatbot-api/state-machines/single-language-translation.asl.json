@@ -1,0 +1,117 @@
+{
+  "Comment": "Adds ONE missing language to an already-processed IEP. Reuses the main pipeline's translation step unchanged (save_content_to_s3 merges per language, so existing translations are preserved) and then puts the document back to PROCESSED, which the main pipeline's FinalizeResults would otherwise own. Started by TranslationRequestFunction, never by S3. Only fields defined by the States language appear below: a stray key (a second comment, a note inside a Retry) is rejected at deploy time, not at synth.",
+  "TimeoutSeconds": 1800,
+  "StartAt": "TranslateRequestedLanguage",
+  "States": {
+    "TranslateRequestedLanguage": {
+      "Type": "Task",
+      "Resource": "${TranslateContentArn}",
+      "Comment": "The pipeline's own translate_content, with a single-element target_languages; its event shape is fixed by that handler. ResultSelector is load-bearing rather than tidiness: translate_content returns the full translated summary and sections, and Step Functions keeps every state's output in execution history for 90 days, so narrowing the result to languages_processed is what keeps FERPA-protected content out of the console. The main pipeline avoids the same leak with ResultPath: null; here the next state needs that one field. One retry, not the pipeline's three, because every attempt is a paid OpenAI run: enough to ride out a transient 5xx, not enough to triple the bill on a real outage.",
+      "Parameters": {
+        "iep_id.$": "$.iep_id",
+        "child_id.$": "$.child_id",
+        "user_id.$": "$.user_id",
+        "target_languages.$": "$.target_languages",
+        "content_type": "parsing_result"
+      },
+      "ResultSelector": {
+        "languages_processed.$": "$.languages_processed"
+      },
+      "ResultPath": "$.translation_result",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "MaxAttempts": 1,
+          "IntervalSeconds": 5,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "RecordTranslationFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "VerifyLanguageProduced"
+    },
+    "VerifyLanguageProduced": {
+      "Type": "Choice",
+      "Comment": "translate_content swallows a per-language translation error (it logs and continues), then saves the unchanged content and returns languages_processed: []. Without this check the document would be marked PROCESSED with the requested language still missing, so the parent would be sent back to the re-upload message and no failure would be recorded anywhere.",
+      "Choices": [
+        {
+          "Variable": "$.translation_result.languages_processed[0]",
+          "IsPresent": true,
+          "Next": "MarkTranslationComplete"
+        }
+      ],
+      "Default": "RecordTranslationFailure"
+    },
+    "MarkTranslationComplete": {
+      "Type": "Task",
+      "Resource": "${DDBServiceArn}",
+      "Comment": "translate_content does not reset status; without this the document would poll at PROCESSING_TRANSLATIONS forever.",
+      "Parameters": {
+        "operation": "update_progress",
+        "params": {
+          "iep_id.$": "$.iep_id",
+          "child_id.$": "$.child_id",
+          "user_id.$": "$.user_id",
+          "status": "PROCESSED",
+          "current_step": "completed",
+          "progress": 100
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "RecordTranslationFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "End": true
+    },
+    "RecordTranslationFailure": {
+      "Type": "Task",
+      "Resource": "${DDBServiceArn}",
+      "Comment": "This machine's RecordFailure, and it deliberately does NOT set status FAILED the way the main pipeline's does. The document here is already fully processed: the parent has readable English content in front of them and only an optional extra language failed. FAILED would hide that content behind the error screen and make the UI refuse to ever offer a retry, i.e. destroy working data because an add-on failed. So status returns to PROCESSED and the failure is recorded in last_error and current_step. last_error is a fixed string rather than $.error.Cause because the cause is an exception message from the translation step and an upstream provider error can echo prompt content; the full cause lives in the execution history and CloudWatch. The execution still ends in Fail below, so it shows red in the console and counts on the Step Functions failure metric.",
+      "Parameters": {
+        "operation": "update_progress",
+        "params": {
+          "iep_id.$": "$.iep_id",
+          "child_id.$": "$.child_id",
+          "user_id.$": "$.user_id",
+          "status": "PROCESSED",
+          "current_step": "translation_failed",
+          "progress": 100,
+          "last_error": "On-demand single-language translation did not complete; see this document's Step Functions execution history."
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "TranslationFailed"
+    },
+    "TranslationFailed": {
+      "Type": "Fail",
+      "Comment": "Fail the execution so a failed on-demand translation is visible in the console and countable as a Step Functions failure, even though the document itself is healthy.",
+      "Error": "SingleLanguageTranslationFailed",
+      "Cause": "The requested language was not produced. The document was left PROCESSED with its existing content intact."
+    }
+  }
+}

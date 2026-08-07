@@ -164,6 +164,21 @@ export class ChatBotApi extends Construct {
       authorizer: httpAuthorizer,
     });
 
+    // On-demand translation of an already-processed document into one more
+    // language. Its own lambda rather than the profile handler's: it is the
+    // only route that starts a Step Functions execution and spends OpenAI
+    // money, so it carries states:StartExecution and nothing else does.
+    const translationRequestAPIIntegration = new HttpLambdaIntegration(
+      'TranslationRequestAPIIntegration',
+      this.lambdaFunctions.translationRequestFunction
+    );
+    this.httpAPI.restAPI.addRoutes({
+      path: "/profile/children/{childId}/documents/{iepId}/translations",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: translationRequestAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
     const pdfGeneratorAPIIntegration = new HttpLambdaIntegration('PDFGeneratorAPIIntegration', this.lambdaFunctions.pdfGeneratorFunction);
     this.httpAPI.restAPI.addRoutes({
       path: "/generate-pdf",

@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { IEPDocument } from '../../common/types';
+import { shouldPollForUpdates } from './translation-flow.mjs';
 
 export class PollingManager {
   private pollingIntervalRef: React.MutableRefObject<NodeJS.Timeout | null>;
@@ -8,14 +9,23 @@ export class PollingManager {
     this.pollingIntervalRef = pollingIntervalRef;
   }
 
-  // Function to start polling if document is processing
-  startPollingIfProcessing = (doc: Pick<IEPDocument, 'status'> | null, onPoll: () => void) => {
+  // Function to start polling if document is processing.
+  //
+  // `forcePolling` keeps the same single interval running when the caller knows
+  // work is in flight that the fetched status has not caught up with yet (an
+  // on-demand translation request); the decision itself lives in
+  // ./translation-flow so it can be unit tested.
+  startPollingIfProcessing = (
+    doc: Pick<IEPDocument, 'status'> | null,
+    onPoll: () => void,
+    forcePolling = false
+  ) => {
     if (this.pollingIntervalRef.current) {
       clearInterval(this.pollingIntervalRef.current);
       this.pollingIntervalRef.current = null;
     }
-    
-    if (doc && (doc.status === "PROCESSING" || doc.status === "PROCESSING_TRANSLATIONS")) {
+
+    if (shouldPollForUpdates(doc?.status, forcePolling)) {
       // console.log(`Document is ${doc.status}. Starting polling...`);
       this.pollingIntervalRef.current = setInterval(() => {
         // console.log("Polling for updates...");

@@ -17,6 +17,8 @@
  * staging-only OTP test backdoor must be provably absent from the production
  * template, and only a production synth can prove that.
  */
+import * as fs from 'fs';
+import * as path from 'path';
 import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 
@@ -278,12 +280,21 @@ describe('HTTP API authorization', () => {
 
 describe('Cognito custom-auth wiring', () => {
   // Phone OTP sign-in is entirely trigger-driven; a pool that synths with any
-  // of the five missing breaks login in ways only visible at runtime (the
+  // of these missing breaks login in ways only visible at runtime (the
   // 2026-07 silent-signup outage was exactly this class of failure).
-  test('user pool wires all five custom-auth triggers', () => {
+  //
+  // PreSignUp is what makes a new parent receive ONE SMS instead of two: it
+  // auto-confirms phone-only signups so Cognito never mints its own signup
+  // verification code. PostConfirmation was wired all along but went unpinned
+  // until the same change; it now also carries the password rotation that
+  // makes that auto-confirm safe, so losing it is a security regression, not
+  // merely a missing profile.
+  test('user pool wires all seven auth triggers', () => {
     template.resourceCountIs('AWS::Cognito::UserPool', 1);
     template.hasResourceProperties('AWS::Cognito::UserPool', Match.objectLike({
       LambdaConfig: Match.objectLike({
+        PreSignUp: Match.anyValue(),
+        PostConfirmation: Match.anyValue(),
         DefineAuthChallenge: Match.anyValue(),
         CreateAuthChallenge: Match.anyValue(),
         VerifyAuthChallengeResponse: Match.anyValue(),
@@ -291,6 +302,58 @@ describe('Cognito custom-auth wiring', () => {
         PreAuthentication: Match.anyValue(),
       }),
     }));
+  });
+
+  test('the pre-sign-up trigger points at the auto-confirm handler', () => {
+    // Match.anyValue() above proves a trigger exists, not that it is THIS
+    // handler; a PreSignUp wired to the wrong file would still pass it.
+    template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
+      Handler: 'pre-sign-up.handler',
+      Runtime: 'nodejs20.x',
+    }));
+  });
+
+  // The single-SMS auto-confirm makes an account usable the moment SignUp
+  // returns, while it still carries the password the CLIENT chose. Without
+  // this grant cognito_trigger.py cannot rotate that password away, and
+  // anyone could sign up a phone number they do not own and then sign in to
+  // it with USER_PASSWORD_AUTH. Scope matters as much as presence: a wildcard
+  // resource here would let the trigger reset passwords in any pool.
+  test('the post-confirmation trigger may rotate passwords, scoped to this pool', () => {
+    const policies = Object.values(template.findResources('AWS::IAM::Policy'));
+    expect(policies.length).toBeGreaterThanOrEqual(10);
+
+    const rotationStatements = policies
+      .flatMap((policy: any) => policy.Properties?.PolicyDocument?.Statement ?? [])
+      .filter((statement: any) => [statement.Action].flat().includes('cognito-idp:AdminSetUserPassword'));
+
+    expect(rotationStatements).toHaveLength(1);
+    const statement: any = rotationStatements[0];
+    expect([statement.Action].flat()).toEqual(
+      expect.arrayContaining([
+        'cognito-idp:AdminSetUserPassword',
+        'cognito-idp:AdminDisableUser',
+        // Without this the best-effort session revocation fails and only logs,
+        // leaving the confirm-before-rotate race silently open.
+        'cognito-idp:AdminUserGlobalSignOut',
+      ])
+    );
+    // Scoped to this account's pools, never a bare '*'. It cannot be the
+    // pool's own ARN: this lambda is a trigger OF that pool, so a Ref to it
+    // closes a CloudFormation cycle (see the comment at the grant site). The
+    // assertion therefore pins the wildcard's SHAPE — an account/region-bound
+    // userpool ARN — so a lazy widening to '*' still fails.
+    const resources = [statement.Resource].flat();
+    expect(resources).toHaveLength(1);
+    expect(resources[0]).not.toBe('*');
+    const joinParts = resources[0]['Fn::Join'][1];
+    expect(joinParts).toEqual([
+      'arn:aws:cognito-idp:',
+      { Ref: 'AWS::Region' },
+      ':',
+      { Ref: 'AWS::AccountId' },
+      ':userpool/*',
+    ]);
   });
 
   test('user pool client keeps the custom-auth contract', () => {
@@ -533,18 +596,48 @@ describe('S3 data protection', () => {
 
 describeDurableStoreRetention('staging', () => template);
 
-describe('IEP processing state machine', () => {
-  // The ASL definition reaches the template as an Fn::Join of JSON fragments
-  // with lambda ARN tokens spliced inside string values; substituting a plain
-  // placeholder for each token yields parseable JSON again.
-  function stateMachineDefinition(): any {
-    const machines = template.findResources('AWS::StepFunctions::StateMachine');
-    expect(Object.keys(machines)).toHaveLength(1);
-    const ds: any = Object.values(machines)[0].Properties.DefinitionString;
-    if (typeof ds === 'string') return JSON.parse(ds);
-    const [separator, parts] = ds['Fn::Join'];
-    return JSON.parse(parts.map((p: any) => (typeof p === 'string' ? p : 'ARN')).join(separator));
+/**
+ * Parse one state machine's ASL out of the template, selected by logical ID.
+ *
+ * The definition reaches the template as an Fn::Join of JSON fragments with
+ * lambda ARN tokens spliced inside string values; substituting a plain
+ * placeholder for each token yields parseable JSON again.
+ *
+ * The `hint` argument used to be unnecessary — there was exactly one state
+ * machine and this helper asserted that count. The on-demand single-language
+ * translation machine made it two, so the pin became a selector rather than
+ * being dropped: each caller still proves its own machine exists exactly once,
+ * so a rename or a deletion fails here instead of passing vacuously.
+ */
+function parseStateMachineDefinition(t: Template, hint: string): any {
+  const machines = Object.entries(t.findResources('AWS::StepFunctions::StateMachine'))
+    .filter(([logicalId]) => logicalId.includes(hint));
+  expect(machines).toHaveLength(1);
+  const ds: any = machines[0][1].Properties.DefinitionString;
+  if (typeof ds === 'string') return JSON.parse(ds);
+  const [separator, parts] = ds['Fn::Join'];
+  return JSON.parse(parts.map((p: any) => (typeof p === 'string' ? p : 'ARN')).join(separator));
+}
+
+/** Every 'Allow' action a role's inline policies grant, deduped and sorted. */
+function allowedActionsFor(t: Template, roleHint: string, prefix: string): string[] {
+  const actions = new Set<string>();
+  for (const policy of Object.values(t.findResources('AWS::IAM::Policy'))) {
+    const props = (policy as any).Properties ?? {};
+    if (!JSON.stringify(props.Roles ?? []).includes(roleHint)) continue;
+    for (const statement of props.PolicyDocument?.Statement ?? []) {
+      if (statement.Effect !== 'Allow') continue;
+      for (const action of [statement.Action ?? []].flat()) {
+        if (typeof action === 'string' && action.startsWith(prefix)) actions.add(action);
+      }
+    }
   }
+  return [...actions].sort();
+}
+
+describe('IEP processing state machine', () => {
+  const stateMachineDefinition = () =>
+    parseStateMachineDefinition(template, 'IEPProcessingStateMachine');
 
   // A processing failure that never reaches RecordFailure leaves the document
   // stuck at PROCESSING forever — the parent sees an eternal spinner and the
@@ -576,6 +669,180 @@ describe('IEP processing state machine', () => {
       expect(definition.States[name]).toMatchObject({ Type: 'Task' });
     }
   });
+
+  // Longest legitimate run, in seconds: the translation branch with every task
+  // exhausting its retries. MaxAttempts 3 means 3 retries AFTER the initial
+  // attempt, so each task is 4 x (its lambda timeout) + 2+4+8s of backoff. That
+  // is 12902s across the 13 tasks on that path, plus a 254s RecordFailure tail.
+  const WORST_CASE_RUN_SECONDS = 13156;
+
+  // WHY: this machine carried `timeout: cdk.Duration.minutes(30)` on the CDK
+  // construct and it did nothing. CDK silently discards that prop when the
+  // definition comes from DefinitionBody.fromString, so the synthesized template
+  // held no TimeoutSeconds in the ASL and none among the state machine's
+  // CloudFormation properties: the main document pipeline had no execution
+  // timeout at all. A Standard execution with no bound survives up to a year, so
+  // a lambda that wedges instead of erroring pins the document at PROCESSING and
+  // the parent on a spinner for as long as it takes someone to notice by hand.
+  // The bound therefore lives in the ASL, where it takes effect, and is pinned
+  // here. The lower bound is the anti-hollowing half: 6h is a backstop, not a
+  // performance budget, and re-pinning it down to something that could kill a
+  // slow but succeeding run (30 minutes, or the sibling machine's 1800s) has to
+  // fail even if the exact number above is edited to match.
+  test('the state machine carries a real execution timeout', () => {
+    const timeout = stateMachineDefinition().TimeoutSeconds;
+    expect(timeout).toBe(21600);
+    expect(timeout).toBeGreaterThan(WORST_CASE_RUN_SECONDS);
+  });
+});
+
+describe('on-demand single-language translation', () => {
+  const TRANSLATIONS_ROUTE =
+    'POST /profile/children/{childId}/documents/{iepId}/translations';
+  const MACHINE_HINT = 'SingleLanguageTranslationStateMachine';
+  const ROLE_HINT = 'TranslationRequestFunctionServiceRole';
+
+  const definition = () => parseStateMachineDefinition(template, MACHINE_HINT);
+
+  // WHY: this route starts a paid OpenAI run against one family's IEP. The
+  // catch-all authorizer test above would notice a missing JWT, but only if the
+  // route is actually in the template — an integration wired to the wrong
+  // lambda, or a route quietly dropped, would leave the frontend's translate
+  // button returning 404 with nothing failing here. So the route is pinned by
+  // name, together with its authorizer.
+  test('the translations route exists and carries the JWT authorizer', () => {
+    const routes = Object.values(template.findResources('AWS::ApiGatewayV2::Route'))
+      .map((route: any) => route.Properties)
+      .filter((p: any) => p.RouteKey === TRANSLATIONS_ROUTE);
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0].AuthorizationType).toBe('JWT');
+    expect(routes[0].AuthorizerId).toBeDefined();
+  });
+
+  // WHY: an async lambda invoke would have been simpler and wrong — the
+  // translation step is a 600s function behind a 29s API Gateway cap, and
+  // nothing but this machine puts the document back to PROCESSED afterwards.
+  // If the machine disappears, every requested translation strands its document
+  // at PROCESSING_TRANSLATIONS and the parent watches a spinner forever.
+  test('the single-language translation state machine exists', () => {
+    const machines = Object.keys(template.findResources('AWS::StepFunctions::StateMachine'));
+    // Vacuity floor: the main pipeline plus this one.
+    expect(machines.length).toBeGreaterThanOrEqual(2);
+    expect(machines.filter((id) => id.includes(MACHINE_HINT))).toHaveLength(1);
+
+    expect(definition().StartAt).toBe('TranslateRequestedLanguage');
+  });
+
+  // WHY: the CDK `timeout` prop is silently ignored when the definition comes
+  // from DefinitionBody.fromString — the main pipeline's declared 30 minutes
+  // renders no TimeoutSeconds at all. An unbounded Standard execution can sit
+  // there for a year holding a document at PROCESSING_TRANSLATIONS, so the
+  // bound is declared in the ASL and pinned here rather than trusted to a prop
+  // that does nothing.
+  test('the state machine carries a real execution timeout', () => {
+    expect(definition().TimeoutSeconds).toBe(1800);
+  });
+
+  // WHY: same failure mode the main pipeline's catch-all pin guards. A task
+  // that throws with no Catch leaves the document at PROCESSING_TRANSLATIONS
+  // with no error recorded anywhere, which is indistinguishable from work still
+  // running.
+  test('every task catches States.ALL into RecordTranslationFailure', () => {
+    const states = definition().States;
+    expect(states.RecordTranslationFailure).toMatchObject({ Type: 'Task' });
+    expect(states.TranslationFailed).toMatchObject({ Type: 'Fail' });
+
+    const offenders = Object.entries(states)
+      .filter(([name, state]: [string, any]) =>
+        name !== 'RecordTranslationFailure' && state.Type === 'Task')
+      .filter(([, state]: [string, any]) =>
+        !(state.Catch ?? []).some((c: any) =>
+          (c.ErrorEquals ?? []).includes('States.ALL') &&
+          c.Next === 'RecordTranslationFailure'))
+      .map(([name]) => name);
+
+    // Vacuity floor: the translate task and the completion task.
+    expect(Object.keys(states).length).toBeGreaterThanOrEqual(4);
+    expect(offenders).toEqual([]);
+  });
+
+  // WHY: translate_content returns the whole translated summary and sections,
+  // and Step Functions stores every state's output in execution history for 90
+  // days. Without the ResultSelector, FERPA-protected document content lands in
+  // the console for anyone with states:DescribeExecution. The main pipeline
+  // avoids the same leak with ResultPath: null; here one field is needed, so the
+  // narrowing has to be explicit and must stay.
+  test('the translate result is narrowed to languages_processed only', () => {
+    const translate = definition().States.TranslateRequestedLanguage;
+    expect(Object.keys(translate.ResultSelector)).toEqual(['languages_processed.$']);
+    expect(translate.Parameters.content_type).toBe('parsing_result');
+    // Whatever the caller asked for, passed through verbatim — this is the
+    // single-element list that makes the run an append rather than a rewrite.
+    expect(translate.Parameters['target_languages.$']).toBe('$.target_languages');
+  });
+
+  // WHY: a failed optional translation must not mark an already-processed
+  // document FAILED. The parent has readable English content in front of them;
+  // FAILED would hide it behind the error screen and stop the UI ever offering
+  // a retry. Deliberate divergence from the main pipeline's RecordFailure, so
+  // it is pinned rather than left to be "fixed" into consistency later.
+  test('a failed translation leaves the document PROCESSED, not FAILED', () => {
+    const states = definition().States;
+    const statusesWritten = ['MarkTranslationComplete', 'RecordTranslationFailure']
+      .map((name) => states[name].Parameters.params.status);
+    expect(statusesWritten).toEqual(['PROCESSED', 'PROCESSED']);
+    expect(states.RecordTranslationFailure.Parameters.params.last_error).toBeDefined();
+    // The cause must not be piped into the document: it is an exception string
+    // from a step that handles document text, and a provider error can echo
+    // prompt content. Parameters only — the state's Comment explains this and
+    // naming $.error.Cause there must not fail the pin.
+    expect(JSON.stringify(states.RecordTranslationFailure.Parameters))
+      .not.toContain('$.error');
+  });
+
+  // WHY: this lambda is the only thing in the app that can start an execution.
+  // A wildcard resource would let a compromise of an unauthenticated-adjacent
+  // API lambda drive the full document pipeline (OCR, redaction, deletion of
+  // the original) instead of just one translation.
+  test('StartExecution is scoped to the translation machine alone', () => {
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .map((policy: any) => policy.Properties ?? {})
+      .filter((props: any) => JSON.stringify(props.Roles ?? []).includes(ROLE_HINT))
+      .flatMap((props: any) => props.PolicyDocument?.Statement ?? [])
+      .filter((statement: any) =>
+        [statement.Action ?? []].flat().some((a: any) =>
+          typeof a === 'string' && a.startsWith('states:')));
+
+    expect(statements).toHaveLength(1);
+    expect([statements[0].Action].flat()).toEqual(['states:StartExecution']);
+
+    const resource = JSON.stringify(statements[0].Resource);
+    expect(resource).toContain(MACHINE_HINT);
+    expect(resource).not.toContain('IEPProcessingStateMachine');
+    expect(resource).not.toBe('"*"');
+  });
+
+  // WHY: the handler reads a document and conditionally flips its status. It has
+  // no business deleting or replacing a document row, and PutItem on this table
+  // would let a bug overwrite a family's only IEP record. Pinned as an exact
+  // set so a widened grant (a copied grantReadWriteData) fails here.
+  test('the handler holds only the DynamoDB actions it uses', () => {
+    expect(allowedActionsFor(template, ROLE_HINT, 'dynamodb:')).toEqual([
+      'dynamodb:GetItem',
+      'dynamodb:UpdateItem',
+    ]);
+  });
+
+  // WHY: it only needs to see which languages content.json already has. Write
+  // access to iep-data/ would put the canonical content of every processed
+  // document one bug away from being overwritten by an API handler.
+  test('the handler holds only read access to S3', () => {
+    expect(allowedActionsFor(template, ROLE_HINT, 's3:')).toEqual([
+      's3:GetObject',
+      's3:ListBucket',
+    ]);
+  });
 });
 
 describe('Lambda runtimes', () => {
@@ -596,6 +863,87 @@ describe('Lambda runtimes', () => {
       .map(([logicalId, fn]: [string, any]) => `${logicalId}: ${JSON.stringify(fn.Properties.Runtime)}`);
 
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('Python lambda assets exclude __pycache__', () => {
+  const FUNCTIONS_DIR = path.join(__dirname, '../../lib/chatbot-api/functions');
+  const SOURCE = fs.readFileSync(path.join(FUNCTIONS_DIR, 'functions.ts'), 'utf8');
+  const CALL = "lambda.Code.fromAsset(path.join(__dirname, '";
+
+  /**
+   * Every fromAsset call site with a literal directory, paired with the text of
+   * its options object. The window for each site ends at the next fromAsset
+   * call, so an `exclude` belonging to a different site can never satisfy this
+   * one.
+   */
+  function assetCallSites(): { dir: string; options: string }[] {
+    const sites: { dir: string; options: string }[] = [];
+    for (let i = SOURCE.indexOf(CALL); i !== -1; i = SOURCE.indexOf(CALL, i + 1)) {
+      const start = i + CALL.length;
+      const dir = SOURCE.slice(start, SOURCE.indexOf("'", start));
+      const next = SOURCE.indexOf(CALL, i + 1);
+      sites.push({ dir, options: SOURCE.slice(start, next === -1 ? SOURCE.length : next) });
+    }
+    return sites;
+  }
+
+  const isPythonAsset = (dir: string) =>
+    fs.existsSync(path.join(FUNCTIONS_DIR, dir)) &&
+    fs.readdirSync(path.join(FUNCTIONS_DIR, dir)).some((f) => f.endsWith('.py'));
+
+  // WHY: the pytest suite imports these handlers by path, leaving a __pycache__
+  // in the source directory, and fromAsset fingerprints and zips the directory
+  // verbatim. Without an exclude, a laptop that has run pytest stages a
+  // different asset hash than a clean CI checkout: the deploy cache churns and
+  // .pyc files ship to production. Measured, not assumed — dropping the exclude
+  // from referral-handler moves its hash from b0798298 to c7124259 purely
+  // because a __pycache__ exists on disk.
+  //
+  // `assetHashType: SOURCE` does NOT cover this. It selects which content is
+  // hashed, not what is filtered out of it; the filtering is these fingerprint
+  // options. That is the assumption this pin exists to stop.
+  //
+  // This reads source rather than the template on purpose: an exclude leaves no
+  // trace in the synthesized template (it only shifts an opaque asset hash), so
+  // there is nothing in the template to assert against.
+  test('every Python lambda asset is staged with the __pycache__ exclude', () => {
+    const pythonSites = assetCallSites().filter((s) => isPythonAsset(s.dir));
+
+    // Vacuity floor: 8 literal-directory Python call sites today
+    // (user-profile-handler is staged twice). A large shrink means the parser
+    // broke and the loop below would pass by finding nothing. The step lambdas
+    // are staged through a shared helper with a variable path, so they are not
+    // literal sites and are pinned separately below.
+    expect(pythonSites.length).toBeGreaterThanOrEqual(8);
+
+    const offenders = pythonSites
+      .filter((s) => !s.options.includes('exclude: PYTHON_ASSET_EXCLUDES'))
+      .map((s) => s.dir);
+
+    expect(offenders).toEqual([]);
+  });
+
+  // WHY: the eight pipeline step lambdas are the ones pytest actually imports
+  // most (five carry a __pycache__ right now), and they are all staged through
+  // createStepFunctionLambda, whose asset path is the `handlerPath` variable
+  // rather than a literal. The parser above cannot see it, so without this the
+  // biggest group of affected functions would be silently uncovered.
+  test('the shared step-function lambda helper stages with the exclude too', () => {
+    const helperCall = "lambda.Code.fromAsset(path.join(__dirname, handlerPath), {";
+    const start = SOURCE.indexOf(helperCall);
+    expect(start).toBeGreaterThan(-1);
+
+    const options = SOURCE.slice(start, SOURCE.indexOf('handler:', start));
+    expect(options).toContain('exclude: PYTHON_ASSET_EXCLUDES');
+  });
+
+  // WHY: guards the constant the pin above matches on. If PYTHON_ASSET_EXCLUDES
+  // were edited to an empty list, every call site would still read
+  // `exclude: PYTHON_ASSET_EXCLUDES` and the test above would pass while
+  // excluding nothing.
+  test('the shared exclude constant actually lists __pycache__', () => {
+    expect(SOURCE).toContain("const PYTHON_ASSET_EXCLUDES = ['__pycache__'];");
   });
 });
 
@@ -664,9 +1012,15 @@ describe('production synth: the OTP test backdoor must not exist', () => {
 
     for (const pool of pools) {
       const lambdaConfig = (pool as any).Properties?.LambdaConfig ?? {};
-      // The five custom-auth triggers must still be there; only the sender
-      // (and the key id it drags in) must be absent.
+      // The real auth triggers must still be there; only the sender (and the
+      // key id it drags in) must be absent.
       expect(lambdaConfig.DefineAuthChallenge).toBeDefined();
+      // PreSignUp is deliberately NOT environment-gated: the two-SMS signup it
+      // fixes was a usability bug in production too. If a future change ever
+      // wraps it in a getEnvironment() check, this fails rather than quietly
+      // leaving production parents with two codes.
+      expect(lambdaConfig.PreSignUp).toBeDefined();
+      expect(lambdaConfig.PostConfirmation).toBeDefined();
       expect(lambdaConfig.CustomSMSSender).toBeUndefined();
       expect(lambdaConfig.CustomEmailSender).toBeUndefined();
       expect(lambdaConfig.KMSKeyID).toBeUndefined();

@@ -135,7 +135,7 @@ jobs:
           exit $status
 
   frontend:
-    name: Frontend typecheck and lint
+    name: Frontend typecheck, lint and unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -160,6 +160,14 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      # Vitest + jsdom, run from lib/user-interface/app (see vitest.config.ts
+      # for why these do not live in the root jest projects). Covers the React
+      # wiring the E2E journeys cannot reach — most importantly the
+      # userConfirmed=false two-code signup fallback, which a journey asserting
+      # a single SMS is structurally unable to exercise.
+      - name: Unit tests
+        run: npm test
 
   infra-synth:
     name: CDK typecheck and synth

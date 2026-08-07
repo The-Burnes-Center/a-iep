@@ -11,7 +11,7 @@
  */
 import { Page, expect } from '@playwright/test';
 import { appUrl } from './config';
-import { fetchOtp, OtpPayload } from './aws';
+import { fetchOtp } from './aws';
 
 /** The English copy the flows key on (single place to update when the
  * translation files change; values mirror src/translations/en.json). */
@@ -20,10 +20,10 @@ export const EN = {
   verifySmsCode: 'Verify Code',
   backToLogin: 'Back to Login',
   smsCodeSentExisting: 'SMS code sent. Please enter the verification code.',
+  // The new-account message. Note it is NOT evidence of the single-SMS flow:
+  // CustomLogin shows the same key on its two-code fallback, so proving "one
+  // text" needs the send-count assertions in resignup.spec.ts.
   smsCodeSentNewUser: 'Account created and SMS code sent!',
-  // Sign-up confirmed; the app has already asked for the first login OTP
-  // (auth.accountConfirmedNewCode, matched on its distinctive tail).
-  signUpConfirmedNewCode: 'We will send you another code',
   wrongCodeInSession: 'An error occurred. Please try again.',
   sessionFailed: 'Invalid verification code. Please try again.',
   preferEnglish: 'I prefer English',
@@ -68,56 +68,6 @@ export async function startPhoneLogin(page: Page, phone: string): Promise<number
 export async function submitOtpCode(page: Page, code: string): Promise<void> {
   await page.getByTestId('sms-code-input').fill(code);
   await page.getByRole('button', { name: EN.verifySmsCode }).click();
-}
-
-/**
- * A code stashed at the SSM backdoor parameter, from either writer:
- *  - our create-auth-challenge login backdoor: {code, language, issuedAt}
- *  - staging's CustomSMSSender trigger, which intercepts the SMS Cognito
- *    itself sends (sign-up verification): {code, issuedAt, source:
- *    "cognito-<triggerSource>"} and NO language field.
- * fetchOtp judges freshness on issuedAt alone, so it reads both; this type
- * just lets callers inspect the discriminator without casting.
- */
-export type StashedOtp = OtpPayload & { source?: string };
-
-const NEXT_OTP_TIMEOUT_MS = 60_000;
-const NEXT_OTP_INTERVAL_MS = 1_000;
-
-/**
- * Fetch the NEXT code stashed for `phone`: fresh (issuedAt after `sentAt`)
- * *and* different from `previous`.
- *
- * Both writers use the same parameter, and the sign-up journey triggers two
- * sends seconds apart (Cognito's verification code, then the login OTP the
- * app requests the instant confirmSignUp returns). That gap is narrower than
- * fetchOtp's 2s clock-skew allowance, so a plain fetchOtp can hand back the
- * code we just consumed; comparing against the previous payload closes it.
- *
- * (Natural home is helpers/aws.ts, next to fetchOtp; move it there the next
- * time that file is touched.)
- */
-export async function fetchNextOtp(
-  phone: string,
-  sentAt: number,
-  previous: StashedOtp,
-): Promise<StashedOtp> {
-  const deadline = Date.now() + NEXT_OTP_TIMEOUT_MS;
-
-  for (;;) {
-    const payload: StashedOtp = await fetchOtp(phone, sentAt);
-    const isPrevious = payload.issuedAt === previous.issuedAt && payload.code === previous.code;
-    if (!isPrevious) return payload;
-
-    if (Date.now() >= deadline) {
-      throw new Error(
-        `Timed out after ${NEXT_OTP_TIMEOUT_MS / 1000}s waiting for a NEW code for ${phone}: ` +
-        `the stash still holds the payload already consumed (issuedAt=${previous.issuedAt}), ` +
-        'so the second send never reached SSM.'
-      );
-    }
-    await new Promise((resolve) => setTimeout(resolve, NEXT_OTP_INTERVAL_MS));
-  }
 }
 
 /**
