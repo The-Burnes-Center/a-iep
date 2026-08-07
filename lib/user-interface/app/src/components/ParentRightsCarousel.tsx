@@ -135,6 +135,10 @@ export type SectionTheme = (typeof SECTION_THEMES)[number];
  */
 const DEFAULT_RIGHTS_INDICATOR_TEMPLATE = '{number}. {title}';
 
+// Fallback for the standalone /rights-of-parents route, which mounts this
+// component with no props and no translator.
+const DEFAULT_SECTION_HINT = 'Swipe or tap the arrows to learn more';
+
 export interface ParentRightsCarouselProps {
   slides?: SlideData[];
   className?: string;
@@ -153,6 +157,16 @@ export interface ParentRightsCarouselProps {
    */
   loop?: boolean;
   rightsIndicatorTemplate?: string;
+  /**
+   * Body copy for a section divider, which has no content of its own. It fills
+   * what would otherwise be an empty block and tells a parent how to move on.
+   *
+   * Deliberately says "the arrows" rather than naming a side: the app sets
+   * document.dir, and this carousel mirrors its own buttons under RTL, so in
+   * Arabic "next" sits on the LEFT. Naming a side would point Arabic readers
+   * the wrong way.
+   */
+  sectionHint?: string;
 }
 
 const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
@@ -162,6 +176,7 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
   headerGreenTitle = 'Your data is safe with us',
   loop = true,
   rightsIndicatorTemplate = DEFAULT_RIGHTS_INDICATOR_TEMPLATE,
+  sectionHint = DEFAULT_SECTION_HINT,
 }) => {
 
   const [activeIndex, setActiveIndex] = useState(0);
@@ -283,9 +298,14 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
             <Carousel.Item key={slide.id}>
               <div className={`carousel-slide slide-${index + 1}`}>
                 {slide.type === 'section' ? (
-                  // A divider is title + image only: its title is the card
-                  // above, and repeating it here would say the same thing twice.
-                  <div className="slide-rights-content slide-rights-content--section" />
+                  // A divider's title lives in the card above, so repeating it
+                  // here would say the same thing twice. The block still has to
+                  // hold its full height (anything shorter moves the indicator
+                  // dots under the parent's thumb), so it carries the hint
+                  // rather than sitting empty.
+                  <div className="slide-rights-content slide-rights-content--section">
+                    <p>{sectionHint}</p>
+                  </div>
                 ) : (
                   <div className="slide-rights-content">
                     {/* A right is headed by its own number and title — the one

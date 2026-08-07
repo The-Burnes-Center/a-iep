@@ -1025,6 +1025,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         headerPinkTitle={t('rights.header.title.pink')}
         headerGreenTitle={t('rights.header.title.green')}
         rightsIndicatorTemplate={t('carousel.rights.indicator')}
+        sectionHint={t('carousel.section.hint')}
       />
     );
   }

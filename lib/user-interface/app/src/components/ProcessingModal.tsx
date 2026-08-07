@@ -14,6 +14,7 @@ interface ProcessingModalProps {
   headerGreenTitle: string;
   /** e.g. "{number}. {title}", localized by the page that owns t(). */
   rightsIndicatorTemplate: string;
+  sectionHint: string;
 }
 
 const ProcessingModal: React.FC<ProcessingModalProps> = ({
@@ -24,6 +25,7 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
   headerPinkTitle,
   headerGreenTitle,
   rightsIndicatorTemplate,
+  sectionHint,
 }) => {
   return (
     // Stable E2E hook: "the pipeline is running" is a milestone the document
@@ -51,6 +53,7 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
                   headerPinkTitle={headerPinkTitle}
                   headerGreenTitle={headerGreenTitle}
                   rightsIndicatorTemplate={rightsIndicatorTemplate}
+                  sectionHint={sectionHint}
                 />
               </div>
             </Card.Body>
