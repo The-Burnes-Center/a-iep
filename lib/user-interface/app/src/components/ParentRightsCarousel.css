@@ -120,7 +120,11 @@
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  min-height: 240px;
+  /* Exactly the 200px of .parent-rights-card. This was min-height: 240px,
+     which made the deck 40px taller on the four tutorial slides and shifted
+     the indicator dots again on the way in and out of them. Every card type
+     is now the same height, so nothing below the carousel moves. */
+  height: 200px;
   border-radius: 12px;
   border: 1px solid #1E1E1E;
   margin-top: 20px;
@@ -208,11 +212,15 @@
   color: #6c757d;
 }
 
-/* A divider carries its title and image in the card above and no body copy,
-   so its text block collapses rather than leaving a 228px void above the
-   dots. Declared after .slide-rights-content so it wins the height. */
+/* A divider's text block stays EXACTLY as tall as every other slide's, even
+   though it is empty. It used to collapse to 3rem, which shortened the whole
+   slide by ~180px and made the indicator dots jump up and down as a parent
+   swiped past each of the three dividers. A carousel whose controls move under
+   the thumb is hard to use, and that costs more than the empty space this
+   leaves. The class is kept as a hook: the suite asserts a divider renders no
+   body copy through it. */
 .slide-rights-content--section {
-  height: 3rem;
+  height: 228px;
 }
 
 
