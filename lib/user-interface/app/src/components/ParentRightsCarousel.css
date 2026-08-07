@@ -99,8 +99,17 @@
 /* Section dividers ("What AIEP does", "Your Rights") wear the same card as the
    slides they introduce — same size, border and pattern — so they read as a
    breath in the deck rather than a different screen. */
+/* A divider carries its title and nothing else, so the title owns the whole
+   card instead of sharing it with an illustration. */
+.parent-rights-card--section {
+  justify-content: center;
+  align-items: center;
+}
+
 .parent-rights-card--section h1 {
   align-self: center;
+  text-align: center;
+  margin: 0;
 }
 
 .tutorial-card {

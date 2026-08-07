@@ -113,7 +113,8 @@ export interface SlideData {
   type: SlideType;
   title: string;
   content: string;
-  image: string;
+  /** Absent on `section` dividers, which carry their title alone. */
+  image?: string;
   /**
    * Only read for `section` dividers: one colour per section, so the three
    * dividers are told apart at a glance. Defaults to green.
@@ -206,12 +207,11 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
   const renderHeaderCard = () => {
     if (currentSlide.type === 'section') {
       const theme = SECTION_THEMES.includes(currentSlide.theme) ? currentSlide.theme : 'green';
+      // Title only. A divider's job is to mark a boundary, and an illustration
+      // reads as content rather than as a break.
       return (
         <div className={`parent-rights-card parent-rights-card--${theme} parent-rights-card--section`} {...activeSlideProps}>
           <h1>{currentSlide.title}</h1>
-          {/* alt="" on purpose: the title beside it already names the section,
-              so a description here would only be announced twice. */}
-          <img src={currentSlide.image} className="slide-rights-image" alt="" />
         </div>
       );
     }

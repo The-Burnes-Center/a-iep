@@ -377,3 +377,41 @@ describe("when the translation does not land", () => {
     expect(screen.getByTestId("translate-now-button")).toBeInTheDocument();
   });
 });
+
+describe("the English content stays readable while a translation runs", () => {
+  // REGRESSION. processLanguageSections used to bail unless the status was
+  // exactly PROCESSED, and it is what fills in each section's displayName.
+  // Requesting a translation moves an already-processed document to
+  // PROCESSING_TRANSLATIONS, so every Key Insights header rendered blank for
+  // the entire minutes-long wait -- a row of empty accordions above the
+  // English summary the parent was meant to keep reading.
+  test("Key Insights headers are still named during PROCESSING_TRANSLATIONS", async () => {
+    renderPage();
+    await settle();
+    // Exactly the reported journey: ask for a translation, which flips the
+    // already-processed document to PROCESSING_TRANSLATIONS while the parent
+    // stays on the page reading the English summary.
+    documentPayload = englishOnlyDocument({ status: "PROCESSING_TRANSLATIONS" });
+    await clickTranslate();
+    await settle();
+
+    const sections = screen.getAllByTestId("summary-section");
+    expect(sections.length).toBeGreaterThan(0);
+    for (const section of sections) {
+      // The accordion header must carry its localized name, not be empty.
+      expect(section.textContent?.trim()).not.toBe("");
+    }
+    expect(screen.getByText("Goals")).toBeInTheDocument();
+  });
+
+  test("a still-processing document has no sections to name", async () => {
+    // The guard must still hold where it was right: mid-pipeline the section
+    // content is half-written, so normalizing it would show a parent partial
+    // data. Only the already-processed states are safe.
+    documentPayload = englishOnlyDocument({ status: "PROCESSING" });
+    renderPage();
+    await settle();
+
+    expect(screen.queryAllByTestId("summary-section")).toHaveLength(0);
+  });
+});

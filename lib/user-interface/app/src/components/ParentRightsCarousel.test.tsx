@@ -26,14 +26,14 @@ const INDICATOR_TEMPLATE = "{number}. {title}";
 
 /** The real deck's shape: a divider, the app slides, a divider, the rights. */
 const deck: SlideData[] = [
-  { id: "section-what-aiep-does", type: "section", title: "What AIEP does", content: "", image: "/images/carousel/Summarize.png", theme: "green" },
+  { id: "section-what-aiep-does", type: "section", title: "What AIEP does", content: "", theme: "green" },
   { id: "privacy-slide-1", type: "privacy", title: "Your IEP won't be changed", content: "A separate document.", image: "/images/carousel/joyful.png" },
   { id: "privacy-slide-2", type: "privacy", title: "We care about your privacy", content: "We remove personal details.", image: "/images/carousel/joyful.png" },
-  { id: "section-your-rights", type: "section", title: "Your Rights", content: "", image: "/images/carousel/Advocate.png", theme: "pink" },
+  { id: "section-your-rights", type: "section", title: "Your Rights", content: "", theme: "pink" },
   { id: "rights-slide-1", type: "rights", title: "You can request a translator", content: "Ask for one.", image: "/images/carousel/blissful.png" },
   { id: "rights-slide-2", type: "rights", title: "You can take your time", content: "No rush.", image: "/images/carousel/blissful.png" },
   { id: "rights-slide-3", type: "rights", title: "You can consent or not", content: "All, some or none.", image: "/images/carousel/blissful.png" },
-  { id: "section-what-you-will-see-next", type: "section", title: "What you'll see next", content: "", image: "/images/carousel/Complex_IEP.png", theme: "blue" },
+  { id: "section-what-you-will-see-next", type: "section", title: "What you'll see next", content: "", theme: "blue" },
   { id: "tutorial-slide-1", type: "tutorial", title: "Where the summary lives", content: "At the top.", image: "/images/tutorial-01.jpg" },
 ];
 
@@ -157,13 +157,16 @@ describe("the section dividers", () => {
     ]);
   });
 
-  test("carry their title and their image, and no body text", () => {
+  test("carry their title alone, with no image and no body text", () => {
+    // A divider marks a boundary between sections. The illustrations read as
+    // content rather than as a break, so it is title-only by design; this pins
+    // that so one cannot drift back in.
     renderCarousel();
 
     const divider = screen.getByTestId("carousel-active-slide");
     expect(divider).toHaveAttribute("data-slide-type", "section");
     expect(within(divider).getByRole("heading", { level: 1 })).toHaveTextContent("What AIEP does");
-    expect(divider.querySelector("img")).toHaveAttribute("src", "/images/carousel/Summarize.png");
+    expect(divider.querySelector("img")).toBeNull();
   });
 
   test("wear one colour each, so three dividers are told apart", () => {

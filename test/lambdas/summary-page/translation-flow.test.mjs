@@ -205,13 +205,31 @@ describe('shouldSuppressProcessingTakeover', () => {
   });
 
   test('a first upload still gets the full-screen processing screen', () => {
+    // This test previously used PROCESSING_TRANSLATIONS to stand in for a first
+    // upload, which was never reachable: the pipeline writes PROCESSING then
+    // PROCESSED, and PROCESSING_TRANSLATIONS is written only by the on-demand
+    // endpoint, against a document that already has content. The invariant it
+    // meant to protect is the real one below -- a document still being parsed
+    // has nothing to show, so the takeover is correct.
     expect(
       shouldSuppressProcessingTakeover({
-        phase: 'idle',
+        documentStatus: 'PROCESSING',
+        hasEnglishContent: false,
+      }),
+    ).toBe(false);
+  });
+
+  test('a reload mid-translation keeps the English content on screen', () => {
+    // REGRESSION. Suppression used to require a request in flight in THIS tab,
+    // so reloading (or leaving and returning) during a translation dropped the
+    // parent back behind the full-screen spinner and hid the summary they were
+    // reading, for the rest of a minutes-long job.
+    expect(
+      shouldSuppressProcessingTakeover({
         documentStatus: 'PROCESSING_TRANSLATIONS',
         hasEnglishContent: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test('never suppresses the OCR phase, where there is nothing to read yet', () => {

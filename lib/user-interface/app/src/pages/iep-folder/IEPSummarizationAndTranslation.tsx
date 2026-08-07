@@ -224,7 +224,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         type: 'section',
         title: t('carousel.section.whatAiepDoes'),
         content: '',
-        image: '/images/carousel/Summarize.png',
         theme: 'green'
       },
       {
@@ -246,7 +245,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         type: 'section',
         title: t('carousel.section.yourRights'),
         content: '',
-        image: '/images/carousel/Advocate.png',
         theme: 'pink'
       },
       {
@@ -296,7 +294,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         type: 'section',
         title: t('carousel.section.whatYouWillSeeNext'),
         content: '',
-        image: '/images/carousel/Complex_IEP.png',
         theme: 'blue'
       },
       {
@@ -389,8 +386,16 @@ const IEPSummarizationAndTranslation: React.FC = () => {
 
   // Process document sections for a specific language
   const processLanguageSections = (doc: FetchedIEPDocument, lang: string) => {
-    // Only process sections when document is fully PROCESSED
-    if (!doc || doc.status !== "PROCESSED") return;
+    // Sections are normalizable as soon as the pipeline has produced them.
+    //
+    // PROCESSED is the end of the initial pipeline. PROCESSING_TRANSLATIONS is
+    // written only by the on-demand single-language translation of a document
+    // that is ALREADY processed: the English content is final and the backend
+    // merely appends a new language key (translate_content merges per language
+    // and never rewrites 'en'). Excluding it left displayName undefined, so
+    // every Key Insights header rendered blank for the whole minutes-long wait
+    // while the parent read the English summary underneath.
+    if (!doc || (doc.status !== "PROCESSED" && doc.status !== "PROCESSING_TRANSLATIONS")) return;
     
     if (doc.sections && doc.sections[lang]) {
       try {
