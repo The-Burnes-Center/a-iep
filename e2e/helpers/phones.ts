@@ -33,16 +33,31 @@ export const DOCUMENTS_USER = '+15555550114';
 
 /**
  * The delete-account-then-re-signup journey burns this identity every run:
- * it logs in, deletes the account through the UI, signs up again for real
- * (Cognito's own verification SMS is diverted to SSM by staging's
- * CustomSMSSender trigger), lands back in the app and deletes it once more.
+ * it logs in, deletes the account through the UI, signs up again for real,
+ * lands back in the app on the single login OTP, and deletes it once more.
  *
- * So this number is the only one that exercises Auth.signUp, confirmSignUp
- * and the PostConfirmation profile trigger on a schedule: the path that was
- * silently broken for a month in the 2026-07 incident.
+ * So this number is the only one that exercises Auth.signUp, the PreSignUp
+ * auto-confirm and the PostConfirmation trigger on a schedule: the path that
+ * was silently broken for a month in the 2026-07 incident. It is also the only
+ * number whose SMS count is asserted, which is why nothing else may send it a
+ * code: an extra send would read as the two-text regression.
  *
  * The spec heals it (delete + admin-create) at the start of every attempt
  * and admin-deletes it in an afterEach, so a fixed number from the 0120-0129
  * throwaway pool is enough; the rest of the pool stays in reserve.
  */
 export const THROWAWAY_USER = '+15555550120';
+
+/** Persistent referrer for the referral journey: owns a personal invite code
+ * whose click/signup counters accumulate across runs (the spec asserts
+ * deltas, never absolute values). Nothing else may sign it in. */
+export const REFERRER_USER = '+15555550121';
+
+/**
+ * The invited-parent burner for the referral journey. Healed (delete +
+ * admin-create) at the start of every attempt and admin-deleted in an
+ * afterEach, exactly like THROWAWAY_USER: attribution requires the profile
+ * row to be YOUNGER than the link click, so a leftover account from a dead
+ * run would poison the next one with 'click_after_signup' rejections.
+ */
+export const REFERRAL_SIGNUP_USER = '+15555550122';

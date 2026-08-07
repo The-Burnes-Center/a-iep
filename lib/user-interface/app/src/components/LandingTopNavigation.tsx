@@ -5,12 +5,14 @@ import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import { IconFileDescription, IconHelpCircle, IconInfoCircle, IconHome } from '@tabler/icons-react';
 import LanguageDropdown from './LanguageDropdown';
 import PartnerBanner from './PartnerBanner';
+import { useAuth } from '../common/auth-provider';
 import './LandingTopNavigation.css';
 
 const LandingTopNavigation: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t, language, setLanguage, enabledLanguages } = useLanguage();
+  const { authenticated } = useAuth();
 
   // Language options enabled for this environment
   const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
@@ -19,6 +21,14 @@ const LandingTopNavigation: React.FC = () => {
   const handleLanguageChange = (lang: SupportedLanguage) => {
     setLanguage(lang);
   };
+
+  // This header is the only navigation the public pages render, and its one
+  // entry into the app used to be the login form. A parent who reached '/'
+  // while still signed in — browser back, a bookmark, or an in-app redirect —
+  // was therefore shown a sign-in screen as their only way forward, which is
+  // what "the back button logged me out" looked like. Signed in, the same item
+  // goes straight to their documents instead.
+  const uploadRoute = authenticated ? '/iep-documents' : '/login';
 
   const navigationItems = [
     {
@@ -29,7 +39,7 @@ const LandingTopNavigation: React.FC = () => {
     {
       icon: IconFileDescription,
       label: t('navigation.uploadIEP') || 'Upload An IEP',
-      route: '/login'
+      route: uploadRoute
     },
     {
       icon: IconHelpCircle,

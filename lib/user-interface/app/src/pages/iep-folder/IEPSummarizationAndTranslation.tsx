@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useContext } from 'react';
 import { Container, Row, Col, Card, Spinner, Alert, Button, Accordion, Tabs, Tab, Offcanvas, Dropdown} from 'react-bootstrap';
+import LinearProgress from '@mui/material/LinearProgress';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useNavigate } from 'react-router-dom';
 import { faLanguage, faDownload, faArrowsRotate } from '@fortawesome/free-solid-svg-icons';
@@ -11,15 +12,35 @@ import { useFeatures } from '../../common/hooks/use-features';
 import { getDirForLanguage } from '../../common/direction';
 import { useDocumentFetch, processContentWithJargon } from '../utils';
 import { FetchedIEPDocument } from '../utils/useDocumentFetch';
+import {
+  buildLanguageMenuOptions,
+  idleTranslationRequest,
+  hasRequestedTranslationFailed,
+  isRequestedTranslationReady,
+  isTranslationInFlight,
+  mapTranslationResponse,
+  shouldOfferTranslation,
+  shouldSuppressProcessingTakeover,
+} from '../utils/translation-flow.mjs';
+import type { TranslationRequestState } from '../utils/translation-flow.mjs';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import TTSPlayButton from '../../components/TTSPlayButton';
 import { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
 import AIEPFooter from '../../components/AIEPFooter';
 import { ApiClient } from '../../common/api-client/api-client';
+import {
+  IEPDocumentClient,
+  TranslationRequestError,
+} from '../../common/api-client/iep-document-client';
 import { AppContext } from '../../common/app-context';
 import { useNotifications } from '../../components/notif-manager';
 import { TextHelper } from '../../common/helpers/text-helper';
+
+// How long an on-demand translation may run before the page calls it failed and
+// offers the button again. Whole-document translation is a multi-minute job, so
+// this is a backstop against a request that vanished, not a real deadline.
+const TRANSLATION_TIMEOUT_MS = 10 * 60 * 1000;
 
 const IEPSummarizationAndTranslation: React.FC = () => {
   const { t, language, setLanguage, translationsLoaded, enabledLanguages } = useLanguage();
@@ -30,7 +51,17 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   const appContext = useContext(AppContext);
   const { addNotification } = useNotifications();
   const apiClient = new ApiClient(appContext);
-  
+  // The documents client is not exposed on ApiClient; useDocumentFetch builds
+  // its own the same way.
+  const iepDocumentClient = useMemo(() => new IEPDocumentClient(appContext), [appContext]);
+
+  // An on-demand translation the parent asked for: which language, how far
+  // along, and which message to show. All transitions come from
+  // ../utils/translation-flow so they can be unit tested.
+  const [translationRequest, setTranslationRequest] =
+    useState<TranslationRequestState>(idleTranslationRequest);
+  const isTranslatingOnDemand = isTranslationInFlight(translationRequest.phase);
+
   const [initialLoading, setInitialLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [showJargonDrawer, setShowJargonDrawer] = useState(false);
@@ -140,13 +171,9 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- hasContent is recreated every render; the document fields it reads are already dependencies
   }, [preferredLanguage, initialLoading, document.summaries, document.sections, hasUserSelectedLanguage]);
 
-  // Only show tabs for languages enabled in this environment AND actually
-  // present in the document (a translation exists for them).
+  // Every language enabled in this environment. The picker offers all of them,
+  // translated or not — see languageMenuOptions below.
   const allLanguageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
-
-  const languageOptions = allLanguageOptions.filter(option =>
-    document.summaries && document.summaries[option.value]
-  );
 
   const handlePreferredLanguageChange = async (languageCode: string) => {
     if (!profile || languageCode === profile.secondaryLanguage) return;
@@ -181,19 +208,24 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   };
 
 
-  // Handle when user reaches the last slide in app tutorial
-  // TODO : implement similar functionality in parent rights
-  const handleLastSlideReached = () => {
-    if (tutorialPhase === 'parent-rights') {
-      setTutorialPhase('completed');
-    }
-  };
-
-  // Parent Rights carousel data - internationalized using useLanguage hook
+  // Parent Rights carousel data - internationalized using useLanguage hook.
+  //
+  // Three dividers split the deck into the sections a parent is walked
+  // through: what the app is doing with their document, the rights they hold,
+  // and what the finished summary will look like. Reaching the end does NOT
+  // end the wait — the carousel wraps and keeps going until the document's
+  // status says it is done.
   const parentRightsSlideData = useMemo(() => {
     if (!translationsLoaded) return [];
-    
+
     return [
+      {
+        id: 'section-what-aiep-does',
+        type: 'section',
+        title: t('carousel.section.whatAiepDoes'),
+        content: '',
+        theme: 'green'
+      },
       {
         id: 'privacy-slide-1',
         type: 'privacy',
@@ -207,6 +239,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         title: t('privacy.slide2.title'),
         content: t('privacy.slide2.content'),
         image: '/images/carousel/joyful.png'
+      },
+      {
+        id: 'section-your-rights',
+        type: 'section',
+        title: t('carousel.section.yourRights'),
+        content: '',
+        theme: 'pink'
       },
       {
         id: 'rights-slide-1',
@@ -249,6 +288,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         title: t('rights.slide6.title'),
         content: t('rights.slide6.content'),
         image: '/images/carousel/blissful.png'
+      },
+      {
+        id: 'section-what-you-will-see-next',
+        type: 'section',
+        title: t('carousel.section.whatYouWillSeeNext'),
+        content: '',
+        theme: 'blue'
       },
       {
         id: 'tutorial-slide-1',
@@ -340,8 +386,16 @@ const IEPSummarizationAndTranslation: React.FC = () => {
 
   // Process document sections for a specific language
   const processLanguageSections = (doc: FetchedIEPDocument, lang: string) => {
-    // Only process sections when document is fully PROCESSED
-    if (!doc || doc.status !== "PROCESSED") return;
+    // Sections are normalizable as soon as the pipeline has produced them.
+    //
+    // PROCESSED is the end of the initial pipeline. PROCESSING_TRANSLATIONS is
+    // written only by the on-demand single-language translation of a document
+    // that is ALREADY processed: the English content is final and the backend
+    // merely appends a new language key (translate_content merges per language
+    // and never rewrites 'en'). Excluding it left displayName undefined, so
+    // every Key Insights header rendered blank for the whole minutes-long wait
+    // while the parent read the English summary underneath.
+    if (!doc || (doc.status !== "PROCESSED" && doc.status !== "PROCESSING_TRANSLATIONS")) return;
     
     if (doc.sections && doc.sections[lang]) {
       try {
@@ -441,7 +495,10 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     setDocument,
     setError,
     setInitialLoading,
-    processDocumentSections
+    processDocumentSections,
+    // Refetch the moment a translation request starts, and keep the existing
+    // poller alive until it finishes, even if the status read lags behind.
+    forcePolling: isTranslatingOnDemand
   });
 
 
@@ -458,20 +515,144 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     return hasSummary || hasSections || hasDocumentIndex;
   };
 
+  // Every enabled language this document already carries. Drives the picker's
+  // "not translated yet" markers and the decision to offer generating one.
+  const translatedLanguages = allLanguageOptions
+    .map(option => option.value)
+    .filter(value => hasContent(value));
+
+  // The picker lists every enabled language, not only the translated ones: a
+  // parent has to be able to pick their language in order to be offered a
+  // translation of it.
+  const languageMenuOptions = buildLanguageMenuOptions(allLanguageOptions, translatedLanguages);
+
+  const canOfferTranslation = shouldOfferTranslation({
+    documentStatus: document.status,
+    preferredLanguage,
+    translatedLanguages
+  });
+
+  // Ask the backend for the missing translation. The response only tells us
+  // whether generation started; the document poller is what brings the content
+  // in, and the effect below is what moves the parent onto it.
+  const handleGenerateTranslation = async () => {
+    const iepId = document.documentId;
+    if (!iepId || preferredLanguage === 'en') {
+      // Unreachable from the UI (the banner only renders for a document with
+      // English content and a non-English preference), but a button that does
+      // nothing at all when clicked is undiagnosable — fail visibly instead.
+      setTranslationRequest({
+        phase: 'failed',
+        language: preferredLanguage,
+        messageKey: 'summary.translate.error.generic'
+      });
+      return;
+    }
+
+    setTranslationRequest({
+      phase: 'requesting',
+      language: preferredLanguage,
+      messageKey: 'summary.translate.starting'
+    });
+
+    try {
+      const result = await iepDocumentClient.requestTranslation(iepId, preferredLanguage);
+      setTranslationRequest({
+        ...mapTranslationResponse({ httpStatus: result.httpStatus }),
+        language: preferredLanguage
+      });
+    } catch (err) {
+      // Map the status code to one of our own messages: the endpoint's bodies
+      // are generic on purpose and must never be shown to a parent.
+      const httpStatus = err instanceof TranslationRequestError ? err.httpStatus : 0;
+      setTranslationRequest({
+        ...mapTranslationResponse({ httpStatus }),
+        language: preferredLanguage
+      });
+    }
+  };
+
   // Check if document is processing (includes both initial processing and translations)
   const isProcessing = document && (document.status === "PROCESSING" || document.status === "PROCESSING_TRANSLATIONS");
 
-  
-  // Remove the separate isTranslating check since we're treating translation as part of processing
+  // An on-demand translation puts the document back into
+  // PROCESSING_TRANSLATIONS, which would otherwise hide the page behind the
+  // full-screen ProcessingModal. The parent already has readable English
+  // content here, so the progress stays inline in the banner instead.
+  const suppressProcessingTakeover = shouldSuppressProcessingTakeover({
+    phase: translationRequest.phase,
+    documentStatus: document.status,
+    hasEnglishContent: hasContent('en')
+  });
 
-  // Reset tutorial phase when document status changes from processing
+  // Once the translation the parent asked for lands, take them to it. The
+  // switch waits for content in that language on a PROCESSED document: the
+  // preferred-language tab is not mounted before then, and the effect further
+  // down force-resets selectedLanguage to 'en' for a language with no content.
   useEffect(() => {
-    if (!isProcessing) {
-      setTutorialPhase('completed');
-    } else {
-      // Reset to app-tutorial when processing starts
-      setTutorialPhase('parent-rights');
-    }
+    if (!isRequestedTranslationReady({
+      phase: translationRequest.phase,
+      language: translationRequest.language,
+      documentStatus: document.status,
+      translatedLanguages
+    })) return;
+
+    const readyLanguage = translationRequest.language as string;
+    setSelectedLanguage(readyLanguage);
+    setActiveTab(readyLanguage);
+    setTranslationRequest(idleTranslationRequest());
+    addNotification('success', t('summary.translate.ready'));
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- translatedLanguages/t/addNotification are recreated every render; the document fields they read are already dependencies
+  }, [translationRequest, document.status, document.summaries, document.sections]);
+
+  // A translation that finished WITHOUT producing the language. The backend
+  // leaves such a document PROCESSED on purpose, so the parent keeps the English
+  // content they already had, and records the outcome in current_step instead.
+  // Reading it here is what turns a failure into an immediate, retryable message
+  // rather than a progress bar that runs until the timeout below.
+  useEffect(() => {
+    if (!hasRequestedTranslationFailed({
+      phase: translationRequest.phase,
+      language: translationRequest.language,
+      documentStatus: document.status,
+      currentStep: document.current_step,
+      translatedLanguages
+    })) return;
+
+    setTranslationRequest(prev => (
+      prev.phase === 'running'
+        ? { ...prev, phase: 'failed', messageKey: 'summary.translate.error.failed' }
+        : prev
+    ));
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- translatedLanguages is recreated every render; the document fields it reads are already dependencies
+  }, [translationRequest, document.status, document.current_step, document.summaries, document.sections]);
+
+  // Never leave a parent on a progress bar that cannot end. Translating a whole
+  // IEP takes minutes, so the cap is generous, but a request that silently went
+  // nowhere has to become a retryable error rather than an endless spinner.
+  useEffect(() => {
+    if (translationRequest.phase !== 'running') return;
+
+    const timer = setTimeout(() => {
+      setTranslationRequest(prev => (
+        prev.phase === 'running'
+          ? { ...prev, phase: 'failed', messageKey: 'summary.translate.error.generic' }
+          : prev
+      ));
+    }, TRANSLATION_TIMEOUT_MS);
+
+    return () => clearTimeout(timer);
+  }, [translationRequest.phase]);
+
+  // The wait ends when the DOCUMENT says it does, never when the parent
+  // reaches the end of the carousel. Swiping through the slides used to flip
+  // this to 'completed', which replaced the carousel with a bare spinner and
+  // gave the parent no way back to it; now the deck loops and only the status
+  // moves this on. Once it does, `isProcessing` goes false, this screen
+  // unmounts, and the summary below renders in its place — the summary lives
+  // on this same route, so there is nothing to navigate to.
+  useEffect(() => {
+    setTutorialPhase(isProcessing ? 'parent-rights' : 'completed');
   }, [isProcessing]);
 
 
@@ -650,21 +831,12 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                 >
                   {t('summary.reuploadButton')}
             </Button>
-            {!isEnglishTab && (
-              <div className="mt-3">
-                <p className="mb-2">{t('summary.reuploadSuggestion')}</p>
-                <Button 
-                  variant="primary" 
-                  size="sm"
-                  onClick={() => navigate('/iep-documents')}
-                >
-                  {t('summary.reuploadButton')}
-                </Button>
-              </div>
-            )}
+            {/* No second "re-upload to get a translation" prompt here: a missing
+                translation is now handled by the generate-translation banner at
+                the top of the page, not by throwing the document away. */}
           </Alert>
         )}
-        
+
         {/* Sections Accordion */}
         {hasSections ? (
           <>
@@ -747,18 +919,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                 >
                   {t('summary.reuploadButton')}
             </Button>
-            {!isEnglishTab && (
-              <div className="mt-3">
-                <p className="mb-2">{t('summary.reuploadSuggestion')}</p>
-                <Button 
-                  variant="primary" 
-                  size="sm"
-                  onClick={() => navigate('/iep-documents')}
-                >
-                  {t('summary.reuploadButton')}
-                </Button>
-              </div>
-            )}
+            {/* Same as above: missing translations are offered for generation in
+                the banner at the top, not fixed by re-uploading. */}
           </Alert>
         )}
       </div>
@@ -834,8 +996,14 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   }
 
 
+  // An unfinished profile belongs back in onboarding, NOT at '/'. That route
+  // is the public LandingPage, whose only way back into the app is an "Upload
+  // An IEP" link to /login — so tapping "Summary" in the bottom nav ejected an
+  // already-authenticated parent onto the marketing site staring at a sign-in
+  // form. Nothing signs them out; it only looks that way. /preferred-language
+  // is where the other onboarding redirects go, and it gates onward from there.
   if(profile.showOnboarding){
-    navigate('/');
+    navigate('/preferred-language');
     return null;
   }
 
@@ -843,18 +1011,20 @@ const IEPSummarizationAndTranslation: React.FC = () => {
       navigate('/iep-documents');
   }
 
-  // Processing Container - when document is being processed
-  if (isProcessing) {
+  // Processing Container - when document is being processed. A translation the
+  // parent requested from the banner is deliberately excluded: it reports its
+  // progress inline so the English content they are reading stays on screen.
+  if (isProcessing && !suppressProcessingTakeover) {
     // console.log("tutorialPhase", tutorialPhase);
     return (
-      <ProcessingModal 
+      <ProcessingModal
         error={error}
         tutorialPhase={tutorialPhase}
         t={t}
         parentRightsSlideData={parentRightsSlideData}
-        onLastSlideReached={handleLastSlideReached}
         headerPinkTitle={t('rights.header.title.pink')}
         headerGreenTitle={t('rights.header.title.green')}
+        rightsIndicatorTemplate={t('carousel.rights.indicator')}
       />
     );
   }
@@ -890,23 +1060,43 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             )}
           </div>
           
-          {/* Language Dropdown - Only show if more than one language available and not processing */}
-          {!isProcessing && document && document.status === "PROCESSED" && languageOptions.length > 1 && (
+          {/* Language Dropdown - every language enabled in this environment,
+              with the ones this document has no translation for marked as such:
+              picking one is how a parent gets offered a translation of it.
+              Disabled while a translation is being generated, because changing
+              the preference mid-flight would leave the running request pointing
+              at a language the parent no longer wants. */}
+          {document && (document.status === "PROCESSED" || suppressProcessingTakeover) && languageMenuOptions.length > 1 && (
             <Dropdown className='language-dropdown-toggle'>
-              <Dropdown.Toggle variant="outline-primary" id="language-dropdown" size="sm">
-                {(languageOptions.find(option => option.value === selectedLanguage)?.label || 'English').toUpperCase()}
+              <Dropdown.Toggle
+                variant="outline-primary"
+                id="language-dropdown"
+                size="sm"
+                disabled={isTranslatingOnDemand}
+              >
+                {(languageMenuOptions.find(option => option.value === selectedLanguage)?.label || 'English').toUpperCase()}
               </Dropdown.Toggle>
               <Dropdown.Menu>
-                {languageOptions.map(option => (
+                {languageMenuOptions.map(option => (
                   <Dropdown.Item
                     key={option.value}
                     onClick={() => handleLanguageChange(option.value as SupportedLanguage)}
                     active={selectedLanguage === option.value}
+                    className="d-flex justify-content-between align-items-center gap-3"
                     // Stable E2E hook: the items are labelled with each
                     // language's own endonym
                     data-testid={`summary-language-option-${option.value}`}
                   >
-                    {option.label.toUpperCase()}
+                    <span>{option.label.toUpperCase()}</span>
+                    {!option.isTranslated && (
+                      <small
+                        className="text-muted"
+                        // Stable E2E hook: "this language has no translation yet"
+                        data-testid={`summary-language-untranslated-${option.value}`}
+                      >
+                        {t('summary.translate.notTranslatedYet')}
+                      </small>
+                    )}
                   </Dropdown.Item>
                 ))}
               </Dropdown.Menu>
@@ -947,21 +1137,54 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                       </Alert>
                     ) :
                       <>
-                        {/* Show prominent alert when preferred language content is missing (shown at the top) */}
-                        {preferredLanguage !== 'en' && !hasContent(preferredLanguage) && hasContent('en') && (
-                          <Alert variant="warning" className="mb-3">
+                        {/* The preferred language has no translation yet: offer
+                            to generate one right here. This used to send the
+                            parent back to re-upload the document, which threw
+                            away a perfectly good record to get a translation the
+                            backend can produce on demand.
+                            The progress state stays INLINE on purpose — the
+                            English summary below is readable, and the
+                            full-screen ProcessingModal would hide it. */}
+                        {canOfferTranslation && (
+                          <Alert
+                            variant="warning"
+                            className="mb-3"
+                          >
                             <div className="d-flex align-items-start">
                               <FontAwesomeIcon icon={faLanguage} className="me-2 mt-1" />
                               <div className="flex-grow-1">
-                                <h6 className="mb-2">{t('summary.noPreferredLanguageContent.title')}</h6>
-                                <p className="mb-2">{t('summary.noPreferredLanguageContent.message')}</p>
-                                <Button
-                                  variant="primary"
-                                  size="sm"
-                                  onClick={() => navigate('/iep-documents')}
-                                >
-                                  {t('summary.reuploadButton')}
-                                </Button>
+                                {/* data-testid sits on the heading, not on <Alert>:
+                                    Alert forwards unknown props to its Fade
+                                    transition rather than to the rendered div. */}
+                                <h6 className="mb-2" data-testid="translate-preferred-language">
+                                  {t('summary.noPreferredLanguageContent.title')}
+                                </h6>
+                                {isTranslatingOnDemand ? (
+                                  <div data-testid="translation-progress">
+                                    <p className="mb-2">
+                                      {t(translationRequest.messageKey ?? 'summary.processing.almostThere')}
+                                    </p>
+                                    <LinearProgress color="success" />
+                                  </div>
+                                ) : (
+                                  <>
+                                    <p className="mb-2">{t('summary.translate.message')}</p>
+                                    {translationRequest.phase === 'failed' && translationRequest.messageKey && (
+                                      <p className="mb-2 text-danger" data-testid="translation-error">
+                                        {t(translationRequest.messageKey)}
+                                      </p>
+                                    )}
+                                    <Button
+                                      variant="primary"
+                                      size="sm"
+                                      onClick={handleGenerateTranslation}
+                                      // Stable E2E hook: the label is localized
+                                      data-testid="translate-now-button"
+                                    >
+                                      {t('summary.translate.button')}
+                                    </Button>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </Alert>

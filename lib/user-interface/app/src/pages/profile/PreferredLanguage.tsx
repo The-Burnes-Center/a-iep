@@ -16,7 +16,7 @@ export default function PreferredLanguage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { addNotification } = useNotifications();
-  const { setLanguage, enabledLanguages } = useLanguage();
+  const { setLanguage, enabledLanguages, t } = useLanguage();
   const { isFeatureEnabled } = useFeatures();
 
   // Language options enabled for this environment
@@ -163,15 +163,15 @@ export default function PreferredLanguage() {
           <div className="profile-form">
             {isUpdatingFromProfile && (
               <div className="text-center mb-4">
-                <h3>Update Language Preferences</h3>
-                <p className="text-muted">Select your preferred language for IEP translations</p>
-                <Button 
-                  variant="outline-secondary" 
+                <h3>{t('preferredLanguage.update.title')}</h3>
+                <p className="text-muted">{t('preferredLanguage.update.description')}</p>
+                <Button
+                  variant="outline-secondary"
                   size="sm"
                   onClick={() => navigate('/profile')}
                   className="mb-3"
                 >
-                  ← Back to Profile
+                  ← {t('common.back')}
                 </Button>
               </div>
             )}

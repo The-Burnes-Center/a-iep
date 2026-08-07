@@ -3,7 +3,7 @@ import { Carousel } from 'react-bootstrap';
 import './ParentRightsCarousel.css';
 
 // eslint-disable-next-line react-refresh/only-export-components -- slide data belongs beside the carousel that renders it; moving exports is out of scope for this lint pass
-export const defaultSlideData = [
+export const defaultSlideData: SlideData[] = [
       {
         id: 'slide-1',
         type: 'privacy',
@@ -98,82 +98,169 @@ defaultSlideData
     img.src = slide.image;
   });
 
+/**
+ * A slide's kind decides which card it wears above the text:
+ * - `privacy`  green pattern card under the "your data is safe" header
+ * - `rights`   pink pattern card under the "your rights" header
+ * - `tutorial` full-bleed screenshot card, no header
+ * - `section`  a divider that introduces the group of slides after it. It
+ *              carries only its own title and an image, no body copy.
+ */
+export type SlideType = 'privacy' | 'rights' | 'tutorial' | 'section';
+
 export interface SlideData {
   id: string;
-  type: 'privacy' | 'rights' | 'tutorial';
+  type: SlideType;
   title: string;
   content: string;
-  image: string;
+  /** Absent on `section` dividers, which carry their title alone. */
+  image?: string;
+  /**
+   * Only read for `section` dividers: one colour per section, so the three
+   * dividers are told apart at a glance. Defaults to green.
+   */
+  theme?: SectionTheme;
 }
+
+const SECTION_THEMES = ['green', 'pink', 'blue'] as const;
+
+export type SectionTheme = (typeof SECTION_THEMES)[number];
+
+/**
+ * How a right is labelled above its text, e.g. "1. You can request a
+ * translator". A template rather than string concatenation so each locale
+ * owns its own separator and word order; ProcessingModal passes the
+ * translated one. This default is the English fallback for the standalone
+ * /rights-of-parents route, which renders the untranslated defaultSlideData.
+ */
+const DEFAULT_RIGHTS_INDICATOR_TEMPLATE = '{number}. {title}';
 
 export interface ParentRightsCarouselProps {
   slides?: SlideData[];
   className?: string;
-  onLastSlideReached?: () => void;
   headerPinkTitle?: string;
   headerGreenTitle?: string;
+  /**
+   * Wrap past both ends instead of stopping there. On by default because the
+   * carousel's only job is to keep a waiting parent company: the deck has to
+   * outlast the document, and a parent who swipes to the end must be able to
+   * get back rather than be dropped somewhere else.
+   *
+   * Nothing about finishing the deck ends anything. Whatever renders this
+   * decides when to stop showing it (the processing screen does that from the
+   * document's status), so the standalone rights page can never inherit a
+   * navigation it has no document for.
+   */
+  loop?: boolean;
+  rightsIndicatorTemplate?: string;
 }
 
-const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({ slides = defaultSlideData, className = '', onLastSlideReached, headerPinkTitle = "Your rights as a parent", headerGreenTitle = "Your data is safe with us" }) => {
- 
+const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
+  slides = defaultSlideData,
+  className = '',
+  headerPinkTitle = 'Your rights as a parent',
+  headerGreenTitle = 'Your data is safe with us',
+  loop = true,
+  rightsIndicatorTemplate = DEFAULT_RIGHTS_INDICATOR_TEMPLATE,
+}) => {
+
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const handleSelect = (selectedIndex: number) => {
-    if(selectedIndex === 0 && activeIndex && slides.length -1){
-      onLastSlideReached();
-    }
+  const slideCount = slides.length;
 
-    setActiveIndex(selectedIndex);
+  // Nothing to show rather than crashing on slides[activeIndex]. The summary
+  // page hands over an empty deck until its translations load.
+  if (slideCount === 0) return null;
+
+  const clampIndex = (index: number) =>
+    loop
+      ? ((index % slideCount) + slideCount) % slideCount
+      : Math.min(Math.max(index, 0), slideCount - 1);
+
+  // Also re-clamps a stale activeIndex if the deck shrank under us.
+  const currentIndex = clampIndex(activeIndex);
+  const currentSlide = slides[currentIndex];
+
+  const goToSlide = (index: number) => setActiveIndex(clampIndex(index));
+
+  // The rights are numbered among THEMSELVES: the dividers, the app slides and
+  // the tutorial slides are not rights and are not counted, so "3." always
+  // means the third right no matter what else the deck carries.
+  const rightsIds = slides.filter(slide => slide.type === 'rights').map(slide => slide.id);
+
+  const rightsIndicator = (slide: SlideData): string | null => {
+    if (slide.type !== 'rights') return null;
+    return rightsIndicatorTemplate
+      .replace('{number}', String(rightsIds.indexOf(slide.id) + 1))
+      .replace('{title}', slide.title);
   };
 
-  const handlePrevious = () => {
-    if(activeIndex > 0){
-      setActiveIndex((prev) => prev - 1)
-    }
-  }
+  // Stable hook for "which slide is the carousel actually on": the header card
+  // is driven straight off activeIndex, whereas every slide's text stays in the
+  // DOM whether or not it is showing.
+  const activeSlideProps = {
+    'data-testid': 'carousel-active-slide',
+    'data-slide-id': currentSlide.id,
+    'data-slide-type': currentSlide.type,
+  };
 
-  const handleNext = () => {
-    if(activeIndex < slides.length){
-      setActiveIndex((prev) => prev + 1)
+  const renderHeaderCard = () => {
+    if (currentSlide.type === 'section') {
+      const theme = SECTION_THEMES.includes(currentSlide.theme) ? currentSlide.theme : 'green';
+      // Title only. A divider's job is to mark a boundary, and an illustration
+      // reads as content rather than as a break.
+      return (
+        <div className={`parent-rights-card parent-rights-card--${theme} parent-rights-card--section`} {...activeSlideProps}>
+          <h1>{currentSlide.title}</h1>
+        </div>
+      );
     }
 
-    if(activeIndex == slides.length - 1){
-      // console.log("Calling callback onLastSlideReached")
-      onLastSlideReached();
+    if (currentSlide.type === 'privacy') {
+      return (
+        <div className="parent-rights-card parent-rights-card--green" {...activeSlideProps}>
+          <h1>{headerGreenTitle}</h1>
+          <img src={currentSlide.image} className="slide-rights-image" alt={currentSlide.title} />
+        </div>
+      );
     }
-  }
+
+    if (currentSlide.type === 'rights') {
+      return (
+        <div className="parent-rights-card parent-rights-card--pink" {...activeSlideProps}>
+          <h1>{headerPinkTitle}</h1>
+          <img src={currentSlide.image} className="slide-rights-image" alt={currentSlide.title} />
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={currentSlide.id}
+        className="tutorial-card"
+        style={{ '--tutorial-bg': `url(${currentSlide.image})` } as React.CSSProperties}
+        {...activeSlideProps}
+      >
+      </div>
+    );
+  };
 
   return (
     <div className="parent-rights-container">
-      
 
-      {
-        slides[activeIndex].type === 'privacy' ? (
-          <div className="parent-rights-card parent-rights-card--green">
-            <h1>{headerGreenTitle}</h1>
-            <img src={slides[activeIndex].image} className="slide-rights-image" alt={slides[activeIndex].title} /> 
-          </div>
-        ) : slides[activeIndex].type === 'rights' ? (
-          <div className="parent-rights-card parent-rights-card--pink">
-          <h1>{headerPinkTitle}</h1>
-          <img src={slides[activeIndex].image} className="slide-rights-image" alt={slides[activeIndex].title} /> 
-        </div>
-        ) : (
-          <div key={slides[activeIndex].id} className="tutorial-card" style={{ '--tutorial-bg': `url(${slides[activeIndex].image})` } as React.CSSProperties}>
-          </div>
-        )
-      }
+      {renderHeaderCard()}
 
       <div className='parent-rights-carousel-buttons'>
-          <button 
-            onClick={handlePrevious}
-            disabled={activeIndex === 0}
+          <button
+            onClick={() => goToSlide(currentIndex - 1)}
+            disabled={!loop && currentIndex === 0}
             className='carousel-nav-button carousel-prev-button'
           >
             <img src="/images/arrow.svg" alt="Previous" className="arrow-icon-prev" />
           </button>
-          <button 
-            onClick={handleNext}
+          <button
+            onClick={() => goToSlide(currentIndex + 1)}
+            disabled={!loop && currentIndex === slideCount - 1}
             className='carousel-nav-button carousel-next-button'
           >
             <img src="/images/arrow.svg" alt="Next" className="arrow-icon-next" />
@@ -182,23 +269,34 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({ slides = de
 
       {/* Carousel*/}
       <div className="parent-rights-carousel-wrapper">
-        <Carousel 
-          activeIndex={activeIndex}
-          onSelect={handleSelect}       
-          controls={false} 
+        <Carousel
+          activeIndex={currentIndex}
+          onSelect={goToSlide}
+          controls={false}
           indicators={true}
           interval={null}
           pause="hover"
+          wrap={loop}
           className={`parent-rights-carousel ${className}`}
         >
           {slides.map((slide, index) => (
             <Carousel.Item key={slide.id}>
               <div className={`carousel-slide slide-${index + 1}`}>
-                <div className="slide-rights-content">
-                  {index > 1 && <h2>{index - 1 > 6 ? index - 7 : index - 1}/{index - 1 > 6 ? 4 : 6}</h2>}
-                  <h2>{slide.title}</h2>
-                  <p>{slide.content}</p>
-                </div>
+                {slide.type === 'section' ? (
+                  // A divider is title + image only: its title is the card
+                  // above, and repeating it here would say the same thing twice.
+                  <div className="slide-rights-content slide-rights-content--section" />
+                ) : (
+                  <div className="slide-rights-content">
+                    {/* A right is headed by its own number and title — the one
+                        the parent is on, not a list of all six. Everything else
+                        is headed by its plain title. */}
+                    <h2 data-testid={slide.type === 'rights' ? 'rights-indicator' : undefined}>
+                      {rightsIndicator(slide) ?? slide.title}
+                    </h2>
+                    <p>{slide.content}</p>
+                  </div>
+                )}
               </div>
             </Carousel.Item>
           ))}
@@ -208,4 +306,4 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({ slides = de
   );
 };
 
-export default ParentRightsCarousel; 
+export default ParentRightsCarousel;

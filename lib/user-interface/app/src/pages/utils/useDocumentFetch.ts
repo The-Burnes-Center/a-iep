@@ -26,6 +26,17 @@ interface UseDocumentFetchParams {
   setError: React.Dispatch<React.SetStateAction<string | null>>;
   setInitialLoading: React.Dispatch<React.SetStateAction<boolean>>;
   processDocumentSections: (doc: FetchedIEPDocument) => void;
+  /**
+   * Keep polling even when the fetched status looks terminal, and refetch as
+   * soon as this flips.
+   *
+   * Set while an on-demand translation is running: the request puts the
+   * document back into PROCESSING_TRANSLATIONS server-side, but the read that
+   * immediately follows can still come back PROCESSED, and without this the
+   * poller would never start — leaving the page waiting on an update that never
+   * arrives. Flipping it back to false makes the next cycle stop the interval.
+   */
+  forcePolling?: boolean;
 }
 
 export const useDocumentFetch = ({
@@ -34,7 +45,8 @@ export const useDocumentFetch = ({
   setDocument,
   setError,
   setInitialLoading,
-  processDocumentSections
+  processDocumentSections,
+  forcePolling = false
 }: UseDocumentFetchParams) => {
   const isFirstRender = useRef<boolean>(true);
 
@@ -103,7 +115,7 @@ export const useDocumentFetch = ({
           
           pollingManager.startPollingIfProcessing(retrievedDocument, () => {
             setRefreshCounter(prev => prev + 1);
-          });
+          }, forcePolling);
           
           if (retrievedDocument.status === "PROCESSING_TRANSLATIONS" || retrievedDocument.status === "PROCESSED") {
             
@@ -165,6 +177,6 @@ export const useDocumentFetch = ({
     return () => {
       pollingManager.stopPolling();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch is driven by refreshCounter/translationsLoaded only; apiClient, pollingManager and the callbacks are recreated every render
-  }, [refreshCounter, translationsLoaded]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch is driven by refreshCounter/translationsLoaded/forcePolling only; apiClient, pollingManager and the callbacks are recreated every render
+  }, [refreshCounter, translationsLoaded, forcePolling]);
 };

@@ -2,23 +2,18 @@ import React from 'react';
 import { Card, Alert } from 'react-bootstrap';
 import LinearProgress from '@mui/material/LinearProgress';
 import { ClipLoader } from 'react-spinners';
-import ParentRightsCarousel from './ParentRightsCarousel';
+import ParentRightsCarousel, { SlideData } from './ParentRightsCarousel';
 import './ProcessingModal.css';
 
 interface ProcessingModalProps {
   error: string | null;
   tutorialPhase: 'parent-rights' | 'completed';
   t: (key: string) => string;
-  parentRightsSlideData: Array<{
-    id: string;
-    type: 'privacy' | 'rights' | 'tutorial';
-    title: string;
-    content: string;
-    image: string;
-  }>;
-  onLastSlideReached: () => void;
+  parentRightsSlideData: SlideData[];
   headerPinkTitle: string;
   headerGreenTitle: string;
+  /** e.g. "{number}. {title}", localized by the page that owns t(). */
+  rightsIndicatorTemplate: string;
 }
 
 const ProcessingModal: React.FC<ProcessingModalProps> = ({
@@ -26,9 +21,9 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
   tutorialPhase,
   t,
   parentRightsSlideData,
-  onLastSlideReached,
   headerPinkTitle,
   headerGreenTitle,
+  rightsIndicatorTemplate,
 }) => {
   return (
     // Stable E2E hook: "the pipeline is running" is a milestone the document
@@ -48,11 +43,14 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
               </div>
               <LinearProgress color="success" /> 
               <div className="carousel-with-button">
-                <ParentRightsCarousel 
-                  slides={parentRightsSlideData} 
-                  onLastSlideReached={onLastSlideReached} 
-                  headerPinkTitle={headerPinkTitle} 
-                  headerGreenTitle={headerGreenTitle} 
+                {/* Loops for as long as this screen is up. Nothing the parent
+                    does inside the carousel ends the wait — the document's
+                    status does, by unmounting this whole screen. */}
+                <ParentRightsCarousel
+                  slides={parentRightsSlideData}
+                  headerPinkTitle={headerPinkTitle}
+                  headerGreenTitle={headerGreenTitle}
+                  rightsIndicatorTemplate={rightsIndicatorTemplate}
                 />
               </div>
             </Card.Body>

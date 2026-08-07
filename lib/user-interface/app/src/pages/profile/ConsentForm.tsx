@@ -121,8 +121,12 @@ export default function ConsentForm() {
     </Tooltip>
   );
 
+  // Back goes to the previous onboarding step, NOT to '/'. The landing page is
+  // the logged-out marketing site: its only way into the app is the login
+  // form, so sending a signed-in parent there was indistinguishable from being
+  // logged out and left them re-authenticating to get back.
   const handleBackClick = () => {
-    navigate('/');
+    navigate('/preferred-language');
   };
 
   if (loading) {

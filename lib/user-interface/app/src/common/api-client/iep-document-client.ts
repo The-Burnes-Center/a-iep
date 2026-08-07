@@ -11,6 +11,33 @@ export interface DocumentAudioResponse {
   provider: string;
 }
 
+export interface TranslationRequestResponse {
+  /** Document status after the call: PROCESSING_TRANSLATIONS (202) or PROCESSED (200). */
+  status: string;
+  language: string;
+  iepId: string;
+  /** True when the backend already held this translation and did no work (200). */
+  alreadyExists: boolean;
+  /** 202 (generation started) or 200 (nothing to do) — the caller reacts differently. */
+  httpStatus: number;
+}
+
+/**
+ * A non-2xx answer from the translations endpoint.
+ *
+ * The status code is carried separately so the caller can tell 403 (not your
+ * document) from 409 (nothing to translate yet, or a translation already in
+ * flight) and map each to its own message. The server's own body is
+ * deliberately NOT surfaced: those strings are generic by design and the repo
+ * does not leak causes to callers, so the UI must translate the code itself.
+ */
+export class TranslationRequestError extends Error {
+  constructor(readonly httpStatus: number) {
+    super(`Translation request failed with status ${httpStatus}`);
+    this.name = 'TranslationRequestError';
+  }
+}
+
 export class IEPDocumentClient {
   private readonly API;
   private profileClient: ProfileClient;
@@ -168,6 +195,51 @@ export class IEPDocumentClient {
     }
 
     throw new Error('Timed out generating document audio');
+  }
+
+  // Ask the backend to translate an already-processed document into `language`.
+  //
+  // Like the audio route, this kicks off expensive server-side generation: the
+  // 202 means the pipeline restarted at the translation step, and the document
+  // poller (not this call) is what tells the UI when the content has landed.
+  async requestTranslation(
+    iepId: string,
+    language: string
+  ): Promise<TranslationRequestResponse> {
+    const childId = await this.getDefaultChildId();
+    const auth = await Utils.authenticate();
+
+    const response = await fetch(
+      `${this.API}/profile/children/${childId}/documents/${iepId}/translations`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + auth
+        },
+        body: JSON.stringify({ language })
+      }
+    );
+
+    if (!response.ok) {
+      throw new TranslationRequestError(response.status);
+    }
+
+    let payload: Partial<TranslationRequestResponse> = {};
+    try {
+      payload = await response.json();
+    } catch {
+      // A 2xx with an unreadable body still means the request landed; fall back
+      // to what we asked for rather than failing a started translation.
+    }
+
+    return {
+      status: payload.status ?? '',
+      language: payload.language ?? language,
+      iepId: payload.iepId ?? iepId,
+      alreadyExists: payload.alreadyExists ?? false,
+      httpStatus: response.status
+    };
   }
 
   // Delete a document

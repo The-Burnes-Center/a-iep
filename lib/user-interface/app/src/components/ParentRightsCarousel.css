@@ -81,12 +81,35 @@
   background-image: url('/images/patterns-dark-green.jpg');
 }
 
+/* Divider-only: the third section has no slide colour of its own to borrow,
+   and this is the darkest of the remaining patterns, so the cream heading
+   still clears AA at the h1's size. */
+.parent-rights-card--blue {
+  background-image: url('/images/patterns-blue.jpg');
+}
+
 /* Single h1 style for both variants */
 .parent-rights-card h1 {
   width: 60%;
   font-size: 2.5rem;
   padding: 1rem;
   color: #F5F3EE;
+}
+
+/* Section dividers ("What AIEP does", "Your Rights") wear the same card as the
+   slides they introduce — same size, border and pattern — so they read as a
+   breath in the deck rather than a different screen. */
+/* A divider carries its title and nothing else, so the title owns the whole
+   card instead of sharing it with an illustration. */
+.parent-rights-card--section {
+  justify-content: center;
+  align-items: center;
+}
+
+.parent-rights-card--section h1 {
+  align-self: center;
+  text-align: center;
+  margin: 0;
 }
 
 .tutorial-card {
@@ -183,6 +206,13 @@
   line-height: 1.5;
   margin-bottom: 0;
   color: #6c757d;
+}
+
+/* A divider carries its title and image in the card above and no body copy,
+   so its text block collapses rather than leaving a 228px void above the
+   dots. Declared after .slide-rights-content so it wins the height. */
+.slide-rights-content--section {
+  height: 3rem;
 }
 
 

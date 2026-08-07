@@ -20,6 +20,25 @@ import { getEnvironment } from '../../tags';
 import * as stepfunctions from 'aws-cdk-lib/aws-stepfunctions';
 import * as stepfunctionsTasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
 
+// Every Python lambda asset in this file is staged with this exclude.
+//
+// The pytest suite imports these handlers by path (conftest.load_lambda_module),
+// which leaves a __pycache__ inside the source directory. fromAsset fingerprints
+// and zips the directory verbatim, so a laptop that has run `pytest test/python`
+// stages a different asset hash than a clean CI checkout: the deploy cache
+// churns, and a directory of .pyc files the runtime regenerates anyway ships to
+// production.
+//
+// `assetHashType: SOURCE` does NOT already cover this, which is easy to assume.
+// SOURCE only selects WHICH content is hashed (the source directory instead of
+// the bundling output); the filtering comes from the asset's fingerprint
+// options, i.e. from this `exclude`. Verified by measurement: removing
+// __pycache__ from metadata-handler/ddb-service changes its SOURCE hash, and
+// the bundling command (`cp -au . /asset-output`) would copy __pycache__ into
+// the deployed package as well. lib/authorization/new-auth.ts pairs SOURCE with
+// an exclude for exactly the same reason.
+const PYTHON_ASSET_EXCLUDES = ['__pycache__'];
+
 export interface LambdaFunctionStackProps {
   readonly knowledgeBucket : s3.Bucket;
   readonly userProfilesTable : Table;
@@ -40,10 +59,12 @@ export class LambdaFunctionStack extends cdk.Stack {
   public readonly referralFunction : lambda.Function;
   public readonly pdfGeneratorFunction : lambda.Function;
   public readonly ttsFunction : lambda.Function;
-  
+  public readonly translationRequestFunction : lambda.Function;
+
   // Step Functions components
   public readonly orchestratorFunction : lambda.Function;
   public readonly iepProcessingStateMachine : stepfunctions.StateMachine;
+  public readonly singleLanguageTranslationStateMachine : stepfunctions.StateMachine;
   
   // Step function Lambda handlers
   public readonly ddbServiceFunction : lambda.Function;
@@ -76,7 +97,9 @@ export class LambdaFunctionStack extends cdk.Stack {
     
     const deleteS3APIHandlerFunction = new lambda.Function(scope, 'DeleteS3FilesHandlerFunction', {
       runtime: lambda.Runtime.PYTHON_3_12, // Choose any supported Node.js runtime
-      code: lambda.Code.fromAsset(path.join(__dirname, 'knowledge-management/delete-s3')), // Points to the lambda directory
+      code: lambda.Code.fromAsset(path.join(__dirname, 'knowledge-management/delete-s3'), {
+        exclude: PYTHON_ASSET_EXCLUDES,
+      }), // Points to the lambda directory
       handler: 'lambda_function.lambda_handler', // Points to the 'hello' file in the lambda directory
       environment: {
         "BUCKET" : props.knowledgeBucket.bucketName,        
@@ -207,6 +230,7 @@ export class LambdaFunctionStack extends cdk.Stack {
         // SOURCE hashing lets CDK skip Docker bundling when the staged asset
         // already exists in cdk.out (restored from the CI cache)
         assetHashType: cdk.AssetHashType.SOURCE,
+        exclude: PYTHON_ASSET_EXCLUDES,
         bundling: {
           image: lambda.Runtime.PYTHON_3_12.bundlingImage,
           command: [
@@ -314,6 +338,7 @@ export class LambdaFunctionStack extends cdk.Stack {
         runtime: lambda.Runtime.PYTHON_3_12,
         code: lambda.Code.fromAsset(path.join(__dirname, handlerPath), {
           assetHashType: cdk.AssetHashType.SOURCE,
+          exclude: PYTHON_ASSET_EXCLUDES,
           bundling: {
             image: lambda.Runtime.PYTHON_3_12.bundlingImage,
             command: [
@@ -424,11 +449,20 @@ export class LambdaFunctionStack extends cdk.Stack {
     
     aslDefinition = JSON.parse(aslString);
 
-    // Create Step Functions state machine
+    // Create Step Functions state machine.
+    //
+    // No `timeout:` prop here on purpose. CDK silently drops it when the
+    // definition comes from DefinitionBody.fromString: this construct used to
+    // declare 30 minutes and the synthesized template carried no TimeoutSeconds
+    // whatsoever, neither in the ASL nor as a CloudFormation property, so the
+    // main document pipeline in fact had no execution timeout at all. Leaving
+    // the prop in place advertised a guarantee that did not exist, which is
+    // worse than declaring nothing. The real bound is TimeoutSeconds inside
+    // iep-processing.asl.json, where it takes effect, and it is pinned in
+    // test/infra. The on-demand translation machine below does the same.
     this.iepProcessingStateMachine = new stepfunctions.StateMachine(scope, 'IEPProcessingStateMachine', {
       definitionBody: stepfunctions.DefinitionBody.fromString(JSON.stringify(aslDefinition)),
-      stateMachineType: stepfunctions.StateMachineType.STANDARD,
-      timeout: cdk.Duration.minutes(30)
+      stateMachineType: stepfunctions.StateMachineType.STANDARD
     });
 
     // Add explicit dependencies to ensure all Lambda functions are created before state machine
@@ -462,6 +496,7 @@ export class LambdaFunctionStack extends cdk.Stack {
       runtime: lambda.Runtime.PYTHON_3_12,
       code: lambda.Code.fromAsset(path.join(__dirname, 'metadata-handler'), {
         assetHashType: cdk.AssetHashType.SOURCE,
+        exclude: PYTHON_ASSET_EXCLUDES,
         bundling: {
           image: lambda.Runtime.PYTHON_3_12.bundlingImage,
           command: [
@@ -487,6 +522,107 @@ export class LambdaFunctionStack extends cdk.Stack {
       events: [s3.EventType.OBJECT_CREATED],
     }));
 
+    // ==========================================
+    // ON-DEMAND SINGLE-LANGUAGE TRANSLATION
+    // ==========================================
+    // A parent whose preferred language has no translation used to be told to
+    // upload the whole document again: a second OCR + redaction + analysis pass
+    // for content we already hold. This short state machine re-runs ONLY the
+    // existing translation step, with one target language, then puts the
+    // document back to PROCESSED.
+    //
+    // Why a state machine rather than an async lambda invoke from the API:
+    // TranslateContentFunction has a 600s timeout, twenty times API Gateway's
+    // 29s cap, and translate_content does not reset status — FinalizeResults
+    // does. A fire-and-forget invoke would therefore strand every document at
+    // PROCESSING_TRANSLATIONS forever, which is the state the frontend polls.
+    const singleLanguageAslPath = path.join(
+      __dirname, '../state-machines/single-language-translation.asl.json');
+    // Same placeholder substitution as the main pipeline above: the ASL is
+    // authored with ${...Arn} tokens and the real ARNs are spliced in at synth.
+    const singleLanguageAsl = JSON.stringify(JSON.parse(fs.readFileSync(singleLanguageAslPath, 'utf8')))
+      .replace(/\$\{TranslateContentArn\}/g, this.translateContentFunction.functionArn)
+      .replace(/\$\{DDBServiceArn\}/g, this.ddbServiceFunction.functionArn);
+
+    // No `timeout:` prop here on purpose, for the same reason as the main
+    // pipeline above. With DefinitionBody.fromString, CDK drops it: the
+    // synthesized template carries no TimeoutSeconds, in the ASL or as a
+    // CloudFormation property. An unbounded Standard execution can linger for a
+    // year, so the real 30-minute bound is declared as TimeoutSeconds inside
+    // the ASL, where it takes effect, and pinned in test/infra.
+    this.singleLanguageTranslationStateMachine = new stepfunctions.StateMachine(scope, 'SingleLanguageTranslationStateMachine', {
+      definitionBody: stepfunctions.DefinitionBody.fromString(singleLanguageAsl),
+      stateMachineType: stepfunctions.StateMachineType.STANDARD
+    });
+
+    this.singleLanguageTranslationStateMachine.node.addDependency(this.translateContentFunction);
+    this.singleLanguageTranslationStateMachine.node.addDependency(this.ddbServiceFunction);
+    this.translateContentFunction.grantInvoke(this.singleLanguageTranslationStateMachine.role);
+    this.ddbServiceFunction.grantInvoke(this.singleLanguageTranslationStateMachine.role);
+
+    // The API half: validates, authorizes, claims the in-flight slot, and
+    // starts the machine. It holds no OpenAI key and no write access to
+    // content.json — all of that stays in the pipeline lambdas it delegates to.
+    this.translationRequestFunction = createTaggedLambda('TranslationRequestFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      code: lambda.Code.fromAsset(path.join(__dirname, 'translation-request-handler'), {
+        exclude: PYTHON_ASSET_EXCLUDES,
+      }),
+      handler: 'lambda_function.lambda_handler',
+      environment: {
+        "BUCKET": props.knowledgeBucket.bucketName,
+        "USER_PROFILES_TABLE": props.userProfilesTable.tableName,
+        "IEP_DOCUMENTS_TABLE": props.iepDocumentsTable.tableName,
+        "TRANSLATION_STATE_MACHINE_ARN": this.singleLanguageTranslationStateMachine.stateMachineArn
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 512,
+      logRetention: logs.RetentionDays.ONE_YEAR,
+      ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
+    });
+
+    // states:StartExecution on this one machine only. A wildcard here would let
+    // a compromised API lambda drive the full document pipeline.
+    this.singleLanguageTranslationStateMachine.grantStartExecution(this.translationRequestFunction);
+
+    // Ownership check reads the caller's profile; nothing here writes to it.
+    this.translationRequestFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:GetItem'],
+      resources: [props.userProfilesTable.tableArn]
+    }));
+
+    // GetItem for the ownership/status/budget read, UpdateItem for the
+    // conditional claim that flips status to PROCESSING_TRANSLATIONS and counts
+    // the attempt. No DeleteItem, no PutItem: this endpoint must never be able
+    // to replace a document row.
+    this.translationRequestFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'dynamodb:GetItem',
+        'dynamodb:UpdateItem'
+      ],
+      resources: [props.iepDocumentsTable.tableArn]
+    }));
+
+    // Reads content.json to see which languages already exist. Read-only, and
+    // scoped to the processed-content prefix rather than the whole bucket,
+    // which also holds the original uploads.
+    this.translationRequestFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:GetObject'],
+      resources: [props.knowledgeBucket.bucketArn + "/iep-data/*"]
+    }));
+
+    // ListBucket makes a missing content.json a NoSuchKey in the log instead of
+    // an AccessDenied, which is the difference between "not processed yet" and
+    // "our IAM is wrong" when diagnosing a 409.
+    this.translationRequestFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:ListBucket'],
+      resources: [props.knowledgeBucket.bucketArn]
+    }));
+
     // Apply KMS policies to new step function Lambdas if needed
     if (props.kmsKey) {
       const kmsPolicy = new iam.PolicyStatement({
@@ -510,7 +646,10 @@ export class LambdaFunctionStack extends cdk.Stack {
         this.checkLanguagePrefsFunction,
         this.translateContentFunction,
         this.finalizeResultsFunction,
-        this.orchestratorFunction
+        this.orchestratorFunction,
+        // Reads CMK-encrypted content.json and a CMK-encrypted table, and its
+        // own env vars are CMK-encrypted.
+        this.translationRequestFunction
       ].forEach(func => func.addToRolePolicy(kmsPolicy));
     }
 
@@ -520,7 +659,9 @@ export class LambdaFunctionStack extends cdk.Stack {
 
     const userProfileHandlerFunction = new lambda.Function(scope, 'UserProfileHandlerFunction', {
       runtime: lambda.Runtime.PYTHON_3_12,
-      code: lambda.Code.fromAsset(path.join(__dirname, 'user-profile-handler')),
+      code: lambda.Code.fromAsset(path.join(__dirname, 'user-profile-handler'), {
+        exclude: PYTHON_ASSET_EXCLUDES,
+      }),
       handler: 'lambda_function.lambda_handler',
       environment: {
         "USER_PROFILES_TABLE": props.userProfilesTable.tableName,
@@ -598,7 +739,9 @@ export class LambdaFunctionStack extends cdk.Stack {
     // the idempotent request and lands on the warm cache.
     const ttsHandlerFunction = createTaggedLambda('TTSHandlerFunction', {
       runtime: lambda.Runtime.PYTHON_3_12,
-      code: lambda.Code.fromAsset(path.join(__dirname, 'tts-handler')),
+      code: lambda.Code.fromAsset(path.join(__dirname, 'tts-handler'), {
+        exclude: PYTHON_ASSET_EXCLUDES,
+      }),
       handler: 'lambda_function.lambda_handler',
       environment: {
         "BUCKET": props.knowledgeBucket.bucketName,
@@ -673,7 +816,9 @@ export class LambdaFunctionStack extends cdk.Stack {
     // Add Cognito Post Confirmation Trigger Lambda
     const cognitoTriggerFunction = new lambda.Function(scope, 'CognitoTriggerFunction', {
       runtime: lambda.Runtime.PYTHON_3_12,
-      code: lambda.Code.fromAsset(path.join(__dirname, 'user-profile-handler')),
+      code: lambda.Code.fromAsset(path.join(__dirname, 'user-profile-handler'), {
+        exclude: PYTHON_ASSET_EXCLUDES,
+      }),
       handler: 'cognito_trigger.lambda_handler',
       environment: {
         "USER_PROFILES_TABLE": props.userProfilesTable.tableName
@@ -690,6 +835,34 @@ export class LambdaFunctionStack extends cdk.Stack {
     // denied on PutItem), so new users never got the showOnboarding /
     // consentGiven defaults and skipped onboarding entirely.
     props.userProfilesTable.grantReadWriteData(cognitoTriggerFunction);
+
+    // Lets the trigger rotate away the password a phone signup chose client-side,
+    // and disable the account if that rotation fails (see
+    // _neutralize_client_chosen_password in cognito_trigger.py). This is the
+    // half of the single-SMS change that stops an auto-confirmed account from
+    // being reachable with a caller-known password via USER_PASSWORD_AUTH.
+    //
+    // The resource is a region+account-scoped wildcard rather than
+    // props.userPool.userPoolArn, and it has to be: this lambda IS a trigger of
+    // that pool, so referencing the pool's ARN here closes a CloudFormation
+    // cycle (function -> its role policy -> pool -> LambdaConfig -> function).
+    // `cdk synth` accepts it and the deploy would fail; the cyclic check in
+    // test/infra caught it. AWS::Region / AWS::AccountId are pseudo-parameters,
+    // so they add no dependency edge. Still bounded to this account's pools —
+    // never widen this to '*'.
+    cognitoTriggerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'cognito-idp:AdminSetUserPassword',
+        'cognito-idp:AdminDisableUser',
+        // Revokes any session opened in the window between Cognito marking the
+        // account CONFIRMED and this trigger rotating the password. Without
+        // this action the sign-out call fails, and because it is best-effort
+        // the failure is only logged — the race would stay open silently.
+        'cognito-idp:AdminUserGlobalSignOut'
+      ],
+      resources: [`arn:aws:cognito-idp:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:userpool/*`]
+    }));
 
     // Allow Cognito to invoke the Lambda
     cognitoTriggerFunction.addPermission('CognitoInvocation', {
@@ -710,7 +883,9 @@ export class LambdaFunctionStack extends cdk.Stack {
     // invite stats, signup attribution, and admin campaign-link management.
     const referralHandlerFunction = createTaggedLambda('ReferralHandlerFunction', {
       runtime: lambda.Runtime.PYTHON_3_12,
-      code: lambda.Code.fromAsset(path.join(__dirname, 'referral-handler')),
+      code: lambda.Code.fromAsset(path.join(__dirname, 'referral-handler'), {
+        exclude: PYTHON_ASSET_EXCLUDES,
+      }),
       handler: 'lambda_function.lambda_handler',
       environment: {
         "REFERRALS_TABLE": props.referralsTable.tableName,

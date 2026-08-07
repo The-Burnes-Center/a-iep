@@ -26,23 +26,33 @@ by `language.spec.ts`). Production never gets the backdoor.
 
 ### The other writer: Cognito's own SMS
 
-Our lambda only sends the *login* OTP. The **sign-up verification** code is
-sent by Cognito itself, which is why the re-signup journey used to stop
-short. Staging now also has a **`CustomSMSSender` trigger** that intercepts
-every SMS Cognito sends to an allowlisted number and stashes it at the *same*
-parameter, tagged with its origin and with no `language` field:
+Our lambda only sends the *login* OTP. Codes Cognito itself mints (sign-up
+verification, resend, forgot-password) never reach it, which is why the
+re-signup journey used to stop short. Staging therefore also has a
+**`CustomSMSSender` trigger** that intercepts every SMS Cognito sends to an
+allowlisted number and stashes it at the *same* parameter, tagged with its
+origin and with no `language` field:
 
 ```
 value: {"code":"123456","issuedAt":"<ISO timestamp>","source":"cognito-<triggerSource>"}
 ```
 
-`fetchOtp` reads both shapes (it only judges `issuedAt`); `source` is how a
-spec tells them apart, and `resignup.spec.ts` asserts on it so a silently
-absent trigger cannot be mistaken for a passing sign-up. When two sends land
-seconds apart (sign-up code, then the login OTP the app requests the moment
-`confirmSignUp` returns) use `helpers/app.ts#fetchNextOtp`, which dedupes
-against the payload just consumed: the gap between them is narrower than
-`fetchOtp`'s clock-skew allowance.
+`fetchOtp` reads both shapes (it only judges `issuedAt`) and `source` is how a
+spec tells them apart. Since the **PreSignUp auto-confirm** landed, a phone
+signup must produce **no Cognito-minted code at all**, so for that flow a
+`source` payload is no longer something to read: it is the regression, and
+`resignup.spec.ts` fails on it.
+
+### Counting the codes
+
+Reading the parameter's *value* can only ever show the LAST code: every send
+overwrites it. To assert **how many** texts a number received, use
+`helpers/aws.ts#readOtpSendCount`, which returns the parameter's SSM
+**version**. Both writers `PutParameter(Overwrite)` on every send and the
+payload always differs (fresh `issuedAt`, random code), so the version is a
+running total; read it either side of a flow and the delta is the number of
+codes issued. `resignup.spec.ts` pins that delta at exactly 1 for a signup,
+which is what makes "one text, not two" a test rather than a claim.
 
 ## Reserved numbers
 
@@ -56,7 +66,9 @@ All fictional (NANP 555-01XX), none can ever receive SMS.
 | +15555550113 | Profile / account-center user. Persists across runs. |
 | +15555550114 | Documents user (upload, translations, PDF export, replace) and the TTS spec's source of a processed document. Persists across runs; left holding a processed Spanish-preference document. |
 | +15555550120 | Re-signup journey burner: the only number that runs a real Cognito sign-up. Healed (delete + admin-create) inside the spec each attempt, admin-deleted in its `afterEach`. |
-| +15555550121-0129 | Rest of the throwaway pool, in reserve. |
+| +15555550121 | Referral journey's referrer: owns the personal invite code, stats accumulate across runs. Persists. |
+| +15555550122 | Referral journey's invited-parent burner: healed (delete + admin-create) each attempt, admin-deleted in `afterEach`. |
+| +15555550124-0129 | Rest of the throwaway pool, in reserve. |
 | +15555550123 | **Claimed by scripts/smoke-test.sh as its unknown-number probe**: excluded from the backdoor allowlist in CDK; never create a user for it. |
 
 Global setup idempotently ensures the persistent users exist
@@ -99,8 +111,7 @@ throwing the error the frontend keyed on, so a returning deleted user was
 told "code sent" while nothing was sent, and **sign-up was silently dead for
 a month**. Nobody noticed because nothing could watch it.
 
-The spec now runs that whole loop on +15555550120, every deploy and every
-night:
+The spec runs that whole loop on +15555550120, every deploy and every night:
 
 1. heal the account (admin delete + admin create, so retries start clean);
 2. UI login with the backdoor OTP, walking real onboarding;
@@ -108,21 +119,44 @@ night:
 4. log in again and assert the app falls into the **sign-up path** ("Account
    created and SMS code sent!"): the original incident assertion, kept
    verbatim;
-5. finish that sign-up for real: read Cognito's verification code from the
-   `CustomSMSSender` stash (asserting `source` starts with `cognito-`),
-   submit it, then answer the login OTP the app requests the instant
-   `confirmSignUp` returns;
-6. land in the app after a second onboarding, which can only happen if the
-   **PostConfirmation** trigger wrote the new profile row;
+5. finish that sign-up for real, on **one code** (see below);
+6. land in the app after a second onboarding;
 7. delete the account again through the UI, with an `afterEach` admin delete
    as the backstop (it also runs when the test times out).
 
-So `Auth.signUp` -> `confirmSignUp` -> PostConfirmation -> first login now
-gets a pulse on every run instead of being the silent path it was during the
-incident.
+### The one-text contract
+
+`phone-otp-auth/pre-sign-up.js` auto-confirms phone-only self-service signups
+(`autoConfirmUser` + `autoVerifyPhone`), so Cognito mints no verification code
+and the custom-auth **login OTP is the only text a new parent gets**. The
+message on screen cannot prove that (`CustomLogin` shows the same "Account
+created and SMS code sent!" copy on its two-code fallback), so step 5 asserts
+it four ways, any one of which failing means two texts:
+
+- **the count**: `readOtpSendCount` either side of the sign-up shows exactly
+  one code issued, re-checked once the parent is inside the app so a late
+  second send is caught too;
+- **which writer sent it**: the payload has a `language` field and no
+  `source: cognito-...`, i.e. it came from `create-auth-challenge` and not from
+  a Cognito mint diverted through `CustomSMSSender`;
+- **Cognito's own view**: `readTestUserState` shows the fresh account
+  `CONFIRMED` with `phone_number_verified` true, which is invisible from the
+  browser (the confirmation screen and the OTP screen are the same screen);
+- **what the browser did**: no `ConfirmSignUp` call, asserted after a positive
+  `SignUp` assertion so the check cannot pass vacuously.
+
+So `Auth.signUp` -> PreSignUp auto-confirm -> PostConfirmation (default profile
+row, phone password rotated away) -> first login gets a pulse on every run,
+instead of being the silent path it was during the incident.
 
 ## Deliberate scope cuts
 
+- **The two-code signup fallback is not exercised.** `CustomLogin` still falls
+  back to the old confirmation screen when `Auth.signUp` returns
+  `userConfirmed === false`, but that only happens when the PreSignUp trigger
+  did not take effect, which is exactly what `resignup.spec.ts` must fail on. A
+  journey cannot assert both, so the fallback branch belongs to the frontend's
+  unit tests.
 - **The onboarding survey is gone, and so is the bypass it needed.** The
   third-party JotForm iframe that `/preferred-language` used to show first
   (which CI had to route around, since submitting it nightly would have
