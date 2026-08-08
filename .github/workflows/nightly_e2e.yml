@@ -27,3 +27,7 @@ jobs:
       # SLACK_WEBHOOK_URL repository secret; without it the step logs that it
       # skipped and the run still passes.
       notify_slack: true
+      # Residue the journeys cannot see: an unredacted original that outlived
+      # its run, a document wedged in flight, artifacts outliving their row.
+      # Read-only, and it never fails the nightly on its own.
+      audit_residue: true
