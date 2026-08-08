@@ -138,6 +138,24 @@ def profile_with_child(api, child_id='child-1', user=USER):
     })
 
 
+def put_audio(api, iep_id='iep-1', child_id='child-1', langs=('en', 'es')):
+    """Seed cached TTS mp3s the way tts-handler keys them."""
+    keys = []
+    for lang in langs:
+        key = f'iep-audio/{iep_id}/{child_id}/{lang}/summary-deadbeef.mp3'
+        api.s3.put_object(Bucket=BUCKET, Key=key, Body=b'ID3fake')
+        keys.append(key)
+    return keys
+
+
+def key_exists(api, key):
+    try:
+        api.s3.head_object(Bucket=BUCKET, Key=key)
+        return True
+    except ClientError:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # GET /profile
 
@@ -389,6 +407,94 @@ def test_delete_profile_wipes_user_data_even_without_cognito(api):
     # Documented quirk (plan section 9): Cognito deletion is best-effort;
     # with no pool configured the response is still 200 and the flag False.
     assert summary['cognitoUserDeleted'] is False
+    assert stored_profile(api) is None
+
+
+def test_delete_profile_purges_derived_artifacts_not_just_raw_uploads(api):
+    """Account deletion must not strand the summary or the cached audio.
+
+    Regression: the sweep only covered the userId/ prefix, which holds the raw
+    upload. iep-data/ and iep-audio/ live outside it, and the rows that point
+    at them were deleted first, so 17 orphaned content directories accumulated
+    in production. All three classes must be gone, and the row with them.
+    """
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}})
+    audio_keys = put_audio(api)
+    raw_key = f'{USER}/child-1/iep-1/original.pdf'
+    api.s3.put_object(Bucket=BUCKET, Key=raw_key, Body=b'pdf')
+
+    status, body = call(api, '/profile', 'DELETE')
+    assert status == 200
+
+    assert key_exists(api, raw_key) is False, 'raw upload survived'
+    assert key_exists(api, 'iep-data/iep-1/child-1/content.json') is False, \
+        'redacted summary orphaned in S3'
+    for key in audio_keys:
+        assert key_exists(api, key) is False, f'cached audio orphaned: {key}'
+
+    assert api.documents.get_item(
+        Key={'iepId': 'iep-1', 'childId': 'child-1'}).get('Item') is None
+    assert stored_profile(api) is None
+    # 1 raw + 1 content.json + 2 mp3s, counted only for keys that existed.
+    assert body['deletionSummary']['s3ObjectsDeleted'] == 4
+    assert body['deletionSummary']['documentsDeleted'] == 1
+
+
+def test_delete_profile_purges_every_document_across_query_pages(api, monkeypatch):
+    """A single query page caps at 1MB; the overflow rows must not survive."""
+    for n in range(3):
+        put_document(api, iep_id=f'iep-{n}', content={'summaries': {'en': 'S'}})
+        put_audio(api, iep_id=f'iep-{n}')
+
+    # Force the GSI read to hand back one row per page.
+    real_query = api.documents.query
+    pages = {'count': 0}
+
+    def paged_query(**kwargs):
+        kwargs['Limit'] = 1
+        pages['count'] += 1
+        return real_query(**kwargs)
+
+    monkeypatch.setattr(api.module.iep_documents_table, 'query', paged_query)
+
+    status, body = call(api, '/profile', 'DELETE')
+    assert status == 200
+    assert pages['count'] > 1, 'pagination never exercised; test proves nothing'
+    assert body['deletionSummary']['documentsDeleted'] == 3
+    for n in range(3):
+        assert api.documents.get_item(
+            Key={'iepId': f'iep-{n}', 'childId': 'child-1'}).get('Item') is None
+        assert key_exists(api, f'iep-data/iep-{n}/child-1/content.json') is False
+        assert key_exists(api, f'iep-audio/iep-{n}/child-1/en/summary-deadbeef.mp3') is False
+
+
+def test_delete_child_documents_purges_cached_audio(api):
+    """The per-child path purged content but left iep-audio/ behind."""
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}})
+    audio_keys = put_audio(api)
+
+    assert call(api, '/profile/children/child-1/documents', 'DELETE')[0] == 200
+
+    for key in audio_keys:
+        assert key_exists(api, key) is False, f'cached audio orphaned: {key}'
+    assert key_exists(api, 'iep-data/iep-1/child-1/content.json') is False
+
+
+def test_delete_profile_keeps_going_when_one_artifact_delete_fails(api, monkeypatch):
+    """An S3 failure must not abort the account deletion."""
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}})
+
+    def boom(*args, **kwargs):
+        raise ClientError({'Error': {'Code': 'InternalError'}}, 'HeadObject')
+
+    monkeypatch.setattr(api.module, '_delete_document_artifacts', boom)
+
+    status, body = call(api, '/profile', 'DELETE')
+    assert status == 200
+    assert body['deletionSummary']['documentsDeleted'] == 1
     assert stored_profile(api) is None
 
 
