@@ -194,14 +194,35 @@ def check_unredacted_originals(objects, findings):
     })
 
 
-def check_stale_noncurrent_originals(versions, findings, reference=None):
-    """Deleted originals whose bytes outlived the 1-day expiry rule."""
+def stamp_of(value):
+    """Normalize an S3 timestamp (str or datetime) to an ISO string."""
+    return value if isinstance(value, str) else value.isoformat()
+
+
+def check_stale_noncurrent_originals(versions, markers, findings, reference=None):
+    """Deleted originals whose bytes outlived the 1-day expiry rule.
+
+    The clock starts when the version became NONCURRENT, not when it was
+    uploaded. Measuring from the version's own LastModified reports a
+    just-deleted year-old document as a year overdue: purging prod on
+    2026-08-10 immediately produced a bogus '26.8 days' finding for an object
+    that had been noncurrent for seconds. The newest delete marker on the key
+    is when it stopped being current, so that is the reference.
+    """
+    newest_marker = {}
+    for m in markers or []:
+        key, when = m['Key'], stamp_of(m['LastModified'])
+        if when > newest_marker.get(key, ''):
+            newest_marker[key] = when
+
     stale = []
     for v in versions:
         if v['Key'].startswith(DERIVED_PREFIXES) or v.get('IsLatest'):
             continue
-        age = age_minutes(v['LastModified'] if isinstance(v['LastModified'], str)
-                          else v['LastModified'].isoformat(), reference)
+        # Fall back to the version's own timestamp only when no marker exists
+        # (superseded by a newer upload rather than deleted).
+        became_noncurrent = newest_marker.get(v['Key']) or stamp_of(v['LastModified'])
+        age = age_minutes(became_noncurrent, reference)
         if age is not None and age > NONCURRENT_GRACE_DAYS * 24 * 60:
             stale.append(round(age / 1440, 1))
     findings.append({
@@ -358,11 +379,11 @@ def audit(env, dynamodb=None, s3=None, sfn=None, reference=None):
     res = discover(env, dynamodb, sfn)
     docs = scan_documents(dynamodb, res['documents_table'])
     objects = list_objects(s3, res['bucket'])
-    versions, _markers = list_versions(s3, res['bucket'])
+    versions, markers = list_versions(s3, res['bucket'])
 
     findings = []
     check_unredacted_originals(objects, findings)
-    check_stale_noncurrent_originals(versions, findings, reference)
+    check_stale_noncurrent_originals(versions, markers, findings, reference)
     check_stuck_documents(docs, findings, reference)
     check_statusless_documents(docs, findings, reference)
     check_orphaned_artifacts(objects, docs, findings)

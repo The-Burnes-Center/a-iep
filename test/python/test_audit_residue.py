@@ -87,9 +87,10 @@ def test_no_originals_is_clean(audit_mod):
 
 def test_overdue_noncurrent_original_is_an_error(audit_mod):
     findings = []
-    audit_mod.check_stale_noncurrent_originals([
-        {'Key': 'u/c/iep-1/f.pdf', 'IsLatest': False, 'LastModified': iso(days_ago=14)},
-    ], findings, reference=NOW)
+    audit_mod.check_stale_noncurrent_originals(
+        [{'Key': 'u/c/iep-1/f.pdf', 'IsLatest': False, 'LastModified': iso(days_ago=40)}],
+        [{'Key': 'u/c/iep-1/f.pdf', 'LastModified': iso(days_ago=14)}],
+        findings, reference=NOW)
     f = only(findings, 'stale_noncurrent_originals')
     assert f['level'] == 'error' and f['count'] == 1
 
@@ -104,8 +105,32 @@ def test_recent_noncurrent_and_derived_versions_are_ignored(audit_mod):
          'LastModified': iso(days_ago=99)},
         # the live object is handled by check_unredacted_originals
         {'Key': 'u/c/iep-3/f.pdf', 'IsLatest': True, 'LastModified': iso(days_ago=99)},
-    ], findings, reference=NOW)
+    ], [], findings, reference=NOW)
     assert only(findings, 'stale_noncurrent_originals')['level'] is None
+
+
+def test_a_just_deleted_old_original_is_not_reported_as_overdue(audit_mod):
+    """The clock starts when the version became noncurrent, not at upload.
+
+    Purging prod on 2026-08-10 deleted an original uploaded on 2026-07-14 and
+    the check immediately called it '26.8 days' overdue, when it had been
+    noncurrent for seconds. The delete marker is the real reference.
+    """
+    findings = []
+    audit_mod.check_stale_noncurrent_originals(
+        [{'Key': 'u/c/iep-1/f.pdf', 'IsLatest': False, 'LastModified': iso(days_ago=27)}],
+        [{'Key': 'u/c/iep-1/f.pdf', 'LastModified': iso(minutes_ago=1)}],
+        findings, reference=NOW)
+    assert only(findings, 'stale_noncurrent_originals')['level'] is None
+
+
+def test_a_version_with_no_delete_marker_falls_back_to_its_own_age(audit_mod):
+    """Superseded by a newer upload rather than deleted: no marker exists."""
+    findings = []
+    audit_mod.check_stale_noncurrent_originals(
+        [{'Key': 'u/c/iep-1/f.pdf', 'IsLatest': False, 'LastModified': iso(days_ago=30)}],
+        [], findings, reference=NOW)
+    assert only(findings, 'stale_noncurrent_originals')['level'] == 'error'
 
 
 # ---------------------------------------------------------------------------
