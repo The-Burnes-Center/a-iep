@@ -16,10 +16,6 @@ on:
         description: 'Post a result digest to Slack (needs the SLACK_WEBHOOK_URL secret)'
         type: boolean
         default: false
-      audit_residue:
-        description: 'Audit staging for pipeline residue and include it in the digest'
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -87,33 +83,6 @@ jobs:
             e2e/test-results
           retention-days: 7
 
-      # Residue audit. Runs AFTER the journeys and on failure too, because a
-      # half-finished run is exactly when cleanup gets skipped. Read-only.
-      #
-      # Never fails the job: the E2E result is the pass/fail signal, and the
-      # orphan backlog would otherwise hold the nightly permanently red. Error
-      # findings become annotations and go into the digest.
-      - name: Audit staging for residue
-        id: audit
-        if: always() && inputs.audit_residue
-        working-directory: .
-        run: |
-          set -uo pipefail
-          python3 -m pip install --quiet 'boto3==1.43.58'
-          summary=$(python3 scripts/audit-residue.py --env staging 2>&1) || true
-          echo "$summary"
-          # Multi-line output needs a random delimiter, not a fixed one, or a
-          # crafted finding could close the block early.
-          delim="EOF_$(openssl rand -hex 8)"
-          {
-            echo "residue<<$delim"
-            echo "$summary"
-            echo "$delim"
-          } >> "$GITHUB_OUTPUT"
-          if printf '%s' "$summary" | grep -q 'rotating_light'; then
-            echo "::error::Residue audit found leftover data in staging"
-          fi
-
       # Nightly digest. Runs on success AND failure, because "it passed again"
       # is the message that makes a silent break noticeable: the 2026-07 signup
       # outage went a month unnoticed precisely because nothing reported in.
@@ -127,7 +96,6 @@ jobs:
           RESULT: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           PIPELINE: ${{ inputs.run_pipeline && 'included' || 'skipped' }}
-          RESIDUE: ${{ steps.audit.outputs.residue }}
         run: |
           set -uo pipefail
           if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
@@ -171,18 +139,9 @@ jobs:
             header=":x: A-IEP nightly E2E failed"
           fi
 
-          # The residue section only appears when the audit ran. A leftover
-          # unredacted original is a FERPA problem that no journey assertion
-          # covers, so it is reported next to the suite result rather than
-          # left for someone to notice in a bucket listing.
-          residue_block=""
-          if [ -n "${RESIDUE:-}" ]; then
-            residue_block=$(printf '\n\n*Residue audit (staging)*\n%s' "$RESIDUE")
-          fi
-
           # jq -n --arg builds a correctly escaped JSON string from arbitrary text.
           payload=$(jq -n \
-            --arg text "$(printf '%s\n%s\n\nDocument pipeline: %s%s\n<%s|View run>' "$header" "$summary" "$PIPELINE" "$residue_block" "$RUN_URL")" \
+            --arg text "$(printf '%s\n%s\n\nDocument pipeline: %s\n<%s|View run>' "$header" "$summary" "$PIPELINE" "$RUN_URL")" \
             '{text: $text}')
 
           # Never echo the URL: it is the credential.
