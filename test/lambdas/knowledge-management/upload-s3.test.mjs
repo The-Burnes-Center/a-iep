@@ -142,7 +142,11 @@ describe('upload', () => {
     });
 
     test("replaces the child's existing documents before writing the new record", async () => {
-        s3Mock.on(ListObjectsV2Command).resolves({
+        // Prefix-aware: the replace path sweeps three different prefixes (raw
+        // upload, iep-data, iep-audio), so a mock that answers every prefix
+        // with the same object would claim deletions that never happened.
+        s3Mock.on(ListObjectsV2Command).resolves({ Contents: [] });
+        s3Mock.on(ListObjectsV2Command, { Prefix: `${USER}/child-1/` }).resolves({
             Contents: [{ Key: `${USER}/child-1/iep-old/old.pdf` }],
         });
         ddbMock.on(QueryCommand, { TableName: DOCUMENTS_TABLE }).resolves({
@@ -168,6 +172,95 @@ describe('upload', () => {
 
         const ordered = ddbMock.calls().map((c) => c.args[0].constructor.name);
         expect(ordered.indexOf('DeleteCommand')).toBeLessThan(ordered.indexOf('PutCommand'));
+    });
+
+    // Every upload replaces the child's previous IEP, so this is the most
+    // travelled delete path in the app. It used to sweep only the raw-upload
+    // prefix, stranding the previous document's redacted summary and cached
+    // audio: 40 content and 18 audio directories in staging, 20 in prod, with
+    // no row pointing at any of them.
+    test('purges the replaced document\'s summary and cached audio', async () => {
+        s3Mock.on(ListObjectsV2Command).resolves({ Contents: [] });
+        s3Mock.on(ListObjectsV2Command, { Prefix: 'iep-data/iep-old/child-1/' }).resolves({
+            Contents: [{ Key: 'iep-data/iep-old/child-1/content.json' }],
+        });
+        s3Mock.on(ListObjectsV2Command, { Prefix: 'iep-audio/iep-old/child-1/' }).resolves({
+            Contents: [
+                { Key: 'iep-audio/iep-old/child-1/en/summary-abc.mp3' },
+                { Key: 'iep-audio/iep-old/child-1/es/summary-def.mp3' },
+            ],
+        });
+        ddbMock.on(QueryCommand, { TableName: DOCUMENTS_TABLE }).resolves({
+            Items: [{
+                iepId: 'iep-old', childId: 'child-1', userId: USER,
+                contentS3Reference: { bucket: BUCKET, s3Key: 'iep-data/iep-old/child-1/content.json' },
+            }],
+        });
+        ddbMock.on(QueryCommand, { TableName: PROFILES_TABLE }).resolves({ Items: [] });
+
+        expect((await call(GOOD_UPLOAD)).status).toBe(200);
+
+        const deletedKeys = s3Mock.commandCalls(DeleteObjectCommand)
+            .map((c) => c.args[0].input.Key);
+        expect(deletedKeys).toContain('iep-data/iep-old/child-1/content.json');
+        expect(deletedKeys).toContain('iep-audio/iep-old/child-1/en/summary-abc.mp3');
+        expect(deletedKeys).toContain('iep-audio/iep-old/child-1/es/summary-def.mp3');
+    });
+
+    test('purges artifacts before deleting the row that points at them', async () => {
+        // contentS3Reference is the only pointer to the summary object, so a
+        // row deleted first leaves it unreachable in S3 forever. The two
+        // deletes land on different mocks, so record a single interleaved
+        // order log rather than comparing per-mock indexes.
+        const order = [];
+        s3Mock.on(ListObjectsV2Command).resolves({ Contents: [] });
+        s3Mock.on(ListObjectsV2Command, { Prefix: 'iep-data/iep-old/child-1/' }).resolves({
+            Contents: [{ Key: 'iep-data/iep-old/child-1/content.json' }],
+        });
+        s3Mock.on(DeleteObjectCommand).callsFake((input) => {
+            order.push(`s3:${input.Key}`);
+            return {};
+        });
+        ddbMock.on(QueryCommand, { TableName: DOCUMENTS_TABLE }).resolves({
+            Items: [{ iepId: 'iep-old', childId: 'child-1', userId: USER }],
+        });
+        ddbMock.on(QueryCommand, { TableName: PROFILES_TABLE }).resolves({ Items: [] });
+        ddbMock.on(DeleteCommand).callsFake((input) => {
+            order.push(`row:${input.Key.iepId}`);
+            return {};
+        });
+
+        await call(GOOD_UPLOAD);
+
+        const contentAt = order.indexOf('s3:iep-data/iep-old/child-1/content.json');
+        const rowAt = order.indexOf('row:iep-old');
+        expect(contentAt).toBeGreaterThanOrEqual(0);
+        expect(rowAt).toBeGreaterThanOrEqual(0);
+        expect(contentAt).toBeLessThan(rowAt);
+    });
+
+    test('purges documents past the first query page', async () => {
+        s3Mock.on(ListObjectsV2Command).resolves({ Contents: [] });
+        s3Mock.on(ListObjectsV2Command, { Prefix: 'iep-data/iep-page2/child-1/' }).resolves({
+            Contents: [{ Key: 'iep-data/iep-page2/child-1/content.json' }],
+        });
+        ddbMock.on(QueryCommand, { TableName: DOCUMENTS_TABLE })
+            .resolvesOnce({
+                Items: [{ iepId: 'iep-page1', childId: 'child-1', userId: USER }],
+                LastEvaluatedKey: { iepId: 'iep-page1', childId: 'child-1' },
+            })
+            .resolves({
+                Items: [{ iepId: 'iep-page2', childId: 'child-1', userId: USER }],
+            });
+        ddbMock.on(QueryCommand, { TableName: PROFILES_TABLE }).resolves({ Items: [] });
+
+        expect((await call(GOOD_UPLOAD)).status).toBe(200);
+
+        const deletedIepIds = ddbMock.commandCalls(DeleteCommand)
+            .map((c) => c.args[0].input.Key.iepId);
+        expect(deletedIepIds).toEqual(['iep-page1', 'iep-page2']);
+        expect(s3Mock.commandCalls(DeleteObjectCommand).map((c) => c.args[0].input.Key))
+            .toContain('iep-data/iep-page2/child-1/content.json');
     });
 
     test('a failed record write is a 500, not a silent success', async () => {

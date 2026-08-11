@@ -139,7 +139,7 @@ jobs:
             header=":x: A-IEP nightly E2E failed"
           fi
 
-          # jq -Rs builds a correctly escaped JSON string from arbitrary text.
+          # jq -n --arg builds a correctly escaped JSON string from arbitrary text.
           payload=$(jq -n \
             --arg text "$(printf '%s\n%s\n\nDocument pipeline: %s\n<%s|View run>' "$header" "$summary" "$PIPELINE" "$RUN_URL")" \
             '{text: $text}')

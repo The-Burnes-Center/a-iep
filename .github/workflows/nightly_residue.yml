@@ -1,0 +1,137 @@
+name: Nightly residue audit (prod + staging)
+
+# Pipeline residue is data that should have been cleaned up and was not: an
+# unredacted original that outlived its run, a document wedged in flight, a
+# redacted summary outliving the account that owned it. Every incident of it
+# here was found by someone happening to list a bucket, which is why this
+# reports on a schedule instead.
+#
+# Deliberately NOT part of the E2E workflow. Prod has no journey coverage at
+# all (E2E targets staging only), so tying the only prod-side check to a suite
+# that never runs against prod would leave production unwatched. It also means
+# a red or skipped E2E cannot suppress the residue report.
+#
+# 10:30 UTC, after the 09:00 nightly E2E has finished (it can take 45 minutes),
+# so the report reflects the state the journeys left behind.
+on:
+  schedule:
+    - cron: '30 10 * * *'
+  workflow_dispatch:
+    inputs:
+      environments:
+        description: 'Which environments to audit'
+        type: choice
+        options: ['prod staging', 'prod', 'staging']
+        default: 'prod staging'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Residue audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install boto3
+        run: python3 -m pip install --quiet 'boto3==1.43.58'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # The audit is strictly read-only, so it is safe against prod. It never
+      # fails this job: a findings report that turns the run red every day for
+      # a known backlog gets muted, and then the one real finding is missed.
+      # Error findings become annotations and go to Slack.
+      - name: Audit for residue
+        id: audit
+        run: |
+          set -uo pipefail
+          envs="${{ github.event.inputs.environments || 'prod staging' }}"
+          report=""
+          had_error=0
+          had_warning=0
+          for env in $envs; do
+            echo "::group::$env"
+            out=$(python3 scripts/audit-residue.py --env "$env" 2>&1) || true
+            echo "$out"
+            echo "::endgroup::"
+            report="${report}"$'\n\n'"*${env}*"$'\n'"${out}"
+            # A completed audit always ends with "... checks clean". Without
+            # this sentinel a crashed audit reports as clean, and silence that
+            # looks like success is the whole failure mode this job exists to
+            # prevent. Treat a missing sentinel as louder than any finding.
+            if ! printf '%s' "$out" | grep -q 'checks clean'; then
+              had_error=1
+              echo "::error::Residue audit did not complete for $env"
+              report="${report}"$'\n'":x: the audit did not complete for ${env}; this report says nothing about it"
+            elif printf '%s' "$out" | grep -q 'rotating_light'; then
+              had_error=1
+              echo "::error::Residue audit found leftover data in $env"
+            elif printf '%s' "$out" | grep -q 'warning:'; then
+              had_warning=1
+            fi
+          done
+
+          # Random delimiter, not a fixed one: a crafted finding could
+          # otherwise close the heredoc block early.
+          delim="EOF_$(openssl rand -hex 8)"
+          {
+            echo "report<<$delim"
+            echo "$report"
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+          echo "had_error=$had_error" >> "$GITHUB_OUTPUT"
+          echo "had_warning=$had_warning" >> "$GITHUB_OUTPUT"
+
+      - name: Post digest to Slack
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          REPORT: ${{ steps.audit.outputs.report }}
+          HAD_ERROR: ${{ steps.audit.outputs.had_error }}
+          HAD_WARNING: ${{ steps.audit.outputs.had_warning }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
+            echo "SLACK_WEBHOOK_URL is not set; skipping the digest."
+            exit 0
+          fi
+          if [ -z "${REPORT:-}" ]; then
+            header=":x: A-IEP residue audit did not produce a report"
+            REPORT="The audit step failed before reporting. See the run log."
+          elif [ "${HAD_ERROR:-0}" = "1" ]; then
+            header=":rotating_light: A-IEP residue audit found leftover data"
+          elif [ "${HAD_WARNING:-0}" = "1" ]; then
+            # Distinct from clean on purpose: the header is the line people
+            # scan, so it must not claim clean while the body lists findings.
+            header=":warning: A-IEP residue audit: warnings only, no leftover data"
+          else
+            header=":white_check_mark: A-IEP residue audit clean"
+          fi
+
+          payload=$(jq -n \
+            --arg text "$(printf '%s\n%s\n\n<%s|View run>' "$header" "$REPORT" "$RUN_URL")" \
+            '{text: $text}')
+
+          # Never echo the URL: it is the credential.
+          code=$(curl -sS -o /tmp/slack_response -w '%{http_code}' \
+            -X POST -H 'Content-type: application/json' \
+            --data "$payload" "$SLACK_WEBHOOK_URL" || echo "000")
+          echo "Slack responded HTTP $code: $(cat /tmp/slack_response)"
+          if [ "$code" != "200" ]; then
+            echo "::warning::Slack digest failed to post (HTTP $code)"
+          fi

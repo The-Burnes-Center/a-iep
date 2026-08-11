@@ -737,6 +737,97 @@ def get_child_documents(event: Dict) -> Dict:
         print(f"Error retrieving documents: {str(e)}")
         return create_response(event, 500, {'message': 'Could not load your documents. Please try again later.'})
 
+def _delete_object_if_present(s3, bucket: str, key: str) -> int:
+    """Delete one key, reporting whether it was actually there.
+
+    S3 DeleteObject succeeds on a key that never existed, so counting every
+    call would report phantom deletions back to the client. head_object first
+    keeps the deletion summary honest.
+    """
+    try:
+        s3.head_object(Bucket=bucket, Key=key)
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        if code in ('404', 'NoSuchKey'):
+            return 0
+        # Never read an ambiguous head_object failure as "already gone". A 403
+        # from a missing ListBucket grant is indistinguishable from absent, and
+        # swallowing it would report a clean purge while FERPA content stayed
+        # in the bucket. Say so in the log, then delete anyway.
+        print(f"head_object on {key} failed ({code}); attempting delete anyway")
+    s3.delete_object(Bucket=bucket, Key=key)
+    print(f"Deleted S3 object: {key}")
+    return 1
+
+
+def _delete_prefix(s3, bucket: str, prefix: str) -> int:
+    """Delete every object under a prefix, returning the count removed."""
+    deleted = 0
+    paginator = s3.get_paginator('list_objects_v2')
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get('Contents', []):
+            s3.delete_object(Bucket=bucket, Key=obj['Key'])
+            print(f"Deleted S3 object: {obj['Key']}")
+            deleted += 1
+    return deleted
+
+
+def _delete_document_artifacts(s3, bucket_name: str, doc: Dict) -> int:
+    """Purge every S3 artifact derived from one IEP document record.
+
+    Must run BEFORE the DynamoDB row is deleted: contentS3Reference is the
+    only pointer to the summary object, so dropping the row first strands it
+    in S3 with nothing left to find it by. Deleting an account used to sweep
+    only the userId/ prefix, which covers the raw upload and nothing else,
+    and that left 17 orphaned content directories in production.
+
+    Three artifact shapes exist: contentS3Reference (current), the
+    iep-data/... key (legacy layout), and iep-audio/... holding the cached
+    TTS mp3s, one per language and section.
+    """
+    iep_id = doc.get('iepId')
+    child_id = doc.get('childId')
+    deleted = 0
+
+    s3_ref = doc.get('contentS3Reference') or {}
+    if s3_ref.get('s3Key'):
+        deleted += _delete_object_if_present(
+            s3, s3_ref.get('bucket') or bucket_name, s3_ref['s3Key'])
+
+    if iep_id and child_id:
+        # A no-op when contentS3Reference already pointed here: head_object
+        # 404s on the second pass, so the count stays accurate.
+        deleted += _delete_object_if_present(
+            s3, bucket_name, f"iep-data/{iep_id}/{child_id}/content.json")
+        deleted += _delete_prefix(s3, bucket_name, f"iep-audio/{iep_id}/{child_id}/")
+
+    return deleted
+
+
+def _query_all_documents(index_name: str, key_expression: str, values: Dict) -> List[Dict]:
+    """Every matching document row, following LastEvaluatedKey.
+
+    A single query page caps at 1MB. These rows can carry inline summaries, so
+    a family with enough documents overflows one page, and an unpaginated read
+    silently left the overflow rows (and their S3 artifacts) behind on delete.
+    """
+    items: List[Dict] = []
+    start_key = None
+    while True:
+        kwargs = {
+            'IndexName': index_name,
+            'KeyConditionExpression': key_expression,
+            'ExpressionAttributeValues': values,
+        }
+        if start_key:
+            kwargs['ExclusiveStartKey'] = start_key
+        response = iep_documents_table.query(**kwargs)
+        items.extend(response.get('Items', []))
+        start_key = response.get('LastEvaluatedKey')
+        if not start_key:
+            return items
+
+
 def delete_child_documents(event: Dict) -> Dict:
     """
     Delete all IEP-related data for a specific child.
@@ -798,40 +889,26 @@ def delete_child_documents(event: Dict) -> Dict:
             # 2. Delete records from IEP documents table
             try:
                 # Query documents by childId
-                response = iep_documents_table.query(
-                    IndexName='byChildId',
-                    KeyConditionExpression='childId = :childId',
-                    ExpressionAttributeValues={':childId': child_id}
-                )
-                
+                documents = _query_all_documents(
+                    'byChildId', 'childId = :childId', {':childId': child_id})
+
                 documents_deleted = 0
-                
+
                 # Delete each document record that belongs to this user.
                 # Strict ownership: require an explicit userId match.
-                for doc in response['Items']:
+                for doc in documents:
                     if doc.get('userId') == user_id:
-                        # Delete S3 content if it exists (new format)
-                        if 'contentS3Reference' in doc:
-                            s3_ref = doc['contentS3Reference']
-                            try:
-                                s3.delete_object(Bucket=s3_ref['bucket'], Key=s3_ref['s3Key'])
-                                print(f"Deleted S3 content: {s3_ref['s3Key']}")
-                            except Exception as e:
-                                print(f"Error deleting S3 content: {str(e)}")
-                        
-                        # Also delete the S3 key pattern for old format (if exists)
-                        s3_key_pattern = f"iep-data/{doc['iepId']}/{doc['childId']}/content.json"
+                        # Summary content and cached TTS audio, before the row
+                        # that points at them.
                         try:
-                            s3.delete_object(Bucket=bucket_name, Key=s3_key_pattern)
-                            print(f"Deleted potential S3 content: {s3_key_pattern}")
-                        except Exception as e:
-                            # Ignore if doesn't exist
-                            pass
-                        
+                            _delete_document_artifacts(s3, bucket_name, doc)
+                        except Exception as artifact_error:
+                            print(f"Error deleting S3 artifacts for {doc.get('iepId')}: {str(artifact_error)}")
+
                         # Check for document_index field before deletion
                         if 'document_index' in doc:
                             print(f"Deleting document with document_index field: {doc['iepId']}")
-                            
+
                         iep_documents_table.delete_item(
                             Key={
                                 'iepId': doc['iepId'],
@@ -932,11 +1009,14 @@ def delete_user_profile(event: Dict) -> Dict:
             'cognitoUserDeleted': False
         }
         
-        # 1. Delete ALL S3 files for the user
+        # Hoisted: step 2 purges S3 artifacts too, so these must exist even if
+        # the raw-upload sweep below raises.
+        s3 = boto3.client('s3')
+        bucket_name = os.environ.get('BUCKET', '')
+
+        # 1. Delete the user's raw uploads (originals live under userId/).
+        #    Derived artifacts are NOT under this prefix; step 2 handles those.
         try:
-            s3 = boto3.client('s3')
-            bucket_name = os.environ.get('BUCKET', '')
-            
             # Create the S3 key prefix for this user (all objects under userId/)
             prefix = f"{user_id}/"
             
@@ -958,17 +1038,23 @@ def delete_user_profile(event: Dict) -> Dict:
             print(f"Error deleting S3 objects: {str(s3_error)}")
             # Continue with other deletions even if S3 deletion fails
         
-        # 2. Delete ALL IEP document records for the user
+        # 2. Delete ALL IEP document records for the user, and the S3 artifacts
+        #    derived from each one. Order matters: contentS3Reference is the
+        #    only pointer to the summary object, so the row has to be read (and
+        #    its artifacts purged) before it is deleted.
         try:
             # Query documents by userId using the GSI
-            response = iep_documents_table.query(
-                IndexName='byUserId',
-                KeyConditionExpression='userId = :userId',
-                ExpressionAttributeValues={':userId': user_id}
-            )
-            
+            documents = _query_all_documents(
+                'byUserId', 'userId = :userId', {':userId': user_id})
+
             # Delete each document record
-            for doc in response['Items']:
+            for doc in documents:
+                try:
+                    result['s3ObjectsDeleted'] += _delete_document_artifacts(
+                        s3, bucket_name, doc)
+                except Exception as artifact_error:
+                    print(f"Error deleting S3 artifacts for {doc.get('iepId')}: {str(artifact_error)}")
+
                 iep_documents_table.delete_item(
                     Key={
                         'iepId': doc['iepId'],
