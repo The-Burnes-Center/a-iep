@@ -795,10 +795,16 @@ def _delete_document_artifacts(s3, bucket_name: str, doc: Dict) -> int:
             s3, s3_ref.get('bucket') or bucket_name, s3_ref['s3Key'])
 
     if iep_id and child_id:
-        # A no-op when contentS3Reference already pointed here: head_object
-        # 404s on the second pass, so the count stays accurate.
-        deleted += _delete_object_if_present(
-            s3, bucket_name, f"iep-data/{iep_id}/{child_id}/content.json")
+        # Sweep the whole iep-data prefix, not just content.json. Three file
+        # names live there and only one of them is the summary: production
+        # holds 138 content.json versions, 73 redacted_ocr_result.json, and 7
+        # ocr_result.json. Naming content.json alone left the redacted OCR
+        # text behind on every account deletion, and the raw unredacted OCR
+        # too whenever the pipeline died before DeleteOriginal ran. A prefix
+        # sweep also survives the next file type someone adds here.
+        # Any key already removed above is simply not listed, so the count
+        # stays accurate.
+        deleted += _delete_prefix(s3, bucket_name, f"iep-data/{iep_id}/{child_id}/")
         deleted += _delete_prefix(s3, bucket_name, f"iep-audio/{iep_id}/{child_id}/")
 
     return deleted

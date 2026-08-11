@@ -410,6 +410,45 @@ def test_delete_profile_wipes_user_data_even_without_cognito(api):
     assert stored_profile(api) is None
 
 
+def test_delete_profile_purges_every_file_under_iep_data(api):
+    """content.json is not the only file there.
+
+    Production holds three names under iep-data/{iepId}/{childId}/:
+    content.json, redacted_ocr_result.json and ocr_result.json. Deleting only
+    content.json by name left the redacted OCR text behind on every account
+    deletion, and the raw unredacted OCR too whenever the pipeline died before
+    DeleteOriginal ran. Found by reading the delete markers a real prod upload
+    left at 2026-08-11T17:35:06Z.
+    """
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}})
+    extra = {
+        'iep-data/iep-1/child-1/redacted_ocr_result.json': b'{"redacted": "text"}',
+        'iep-data/iep-1/child-1/ocr_result.json': b'{"raw": "unredacted text"}',
+    }
+    for key, body in extra.items():
+        api.s3.put_object(Bucket=BUCKET, Key=key, Body=body)
+
+    assert call(api, '/profile', 'DELETE')[0] == 200
+
+    for key in extra:
+        assert key_exists(api, key) is False, f'FERPA content left behind: {key}'
+    assert key_exists(api, 'iep-data/iep-1/child-1/content.json') is False
+
+
+def test_delete_child_documents_purges_every_file_under_iep_data(api):
+    """Same gap, same fix, on the per-child path."""
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}})
+    api.s3.put_object(Bucket=BUCKET,
+                      Key='iep-data/iep-1/child-1/redacted_ocr_result.json',
+                      Body=b'{"redacted": "text"}')
+
+    assert call(api, '/profile/children/child-1/documents', 'DELETE')[0] == 200
+
+    assert key_exists(api, 'iep-data/iep-1/child-1/redacted_ocr_result.json') is False
+
+
 def test_delete_profile_purges_derived_artifacts_not_just_raw_uploads(api):
     """Account deletion must not strand the summary or the cached audio.
 
