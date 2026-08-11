@@ -19,6 +19,7 @@ from conftest import load_lambda_module, unload
 PROFILES_TABLE = 'profiles-test'
 DOCUMENTS_TABLE = 'documents-test'
 BUCKET = 'iep-bucket-test'
+REFERRALS_TABLE = 'referrals-test'
 KMS_ALIAS = 'alias/aiep/app-test'
 USER = 'user-sub-1'
 
@@ -58,6 +59,24 @@ def api(monkeypatch):
             ],
             BillingMode='PAY_PER_REQUEST',
         )
+        referrals = dynamodb.create_table(
+            TableName=REFERRALS_TABLE,
+            KeySchema=[
+                {'AttributeName': 'code', 'KeyType': 'HASH'},
+                {'AttributeName': 'sk', 'KeyType': 'RANGE'},
+            ],
+            AttributeDefinitions=[
+                {'AttributeName': 'code', 'AttributeType': 'S'},
+                {'AttributeName': 'sk', 'AttributeType': 'S'},
+                {'AttributeName': 'ownerUserId', 'AttributeType': 'S'},
+            ],
+            GlobalSecondaryIndexes=[{
+                'IndexName': 'byOwner',
+                'KeySchema': [{'AttributeName': 'ownerUserId', 'KeyType': 'HASH'}],
+                'Projection': {'ProjectionType': 'ALL'},
+            }],
+            BillingMode='PAY_PER_REQUEST',
+        )
         s3 = boto3.client('s3', region_name='us-east-1')
         s3.create_bucket(Bucket=BUCKET)
         kms = boto3.client('kms', region_name='us-east-1')
@@ -66,6 +85,7 @@ def api(monkeypatch):
 
         monkeypatch.setenv('USER_PROFILES_TABLE', PROFILES_TABLE)
         monkeypatch.setenv('IEP_DOCUMENTS_TABLE', DOCUMENTS_TABLE)
+        monkeypatch.setenv('REFERRALS_TABLE', REFERRALS_TABLE)
         monkeypatch.setenv('BUCKET', BUCKET)
         monkeypatch.setenv('AIEP_KMS_KEY_ALIAS', KMS_ALIAS)
         monkeypatch.delenv('USER_POOL_ID', raising=False)
@@ -76,7 +96,8 @@ def api(monkeypatch):
         sys.modules['lambda_function'] = module
         try:
             yield SimpleNamespace(module=module, profiles=profiles,
-                                  documents=documents, s3=s3, kms=kms)
+                                  documents=documents, s3=s3, kms=kms,
+                                  referrals=referrals)
         finally:
             unload('lambda_function')
             unload('user_profile_api')
@@ -558,3 +579,75 @@ def test_options_and_unknown_routes(api):
     options_event = api_event('/profile', 'OPTIONS')
     assert api.module.lambda_handler(options_event, None)['statusCode'] == 200
     assert call(api, '/profile/unknown', 'GET')[0] == 404
+
+
+# ---------------------------------------------------------------------------
+# Account deletion and referral data
+#
+# Rule: deleting an account removes everything about them. A user's own link
+# is theirs and goes. A signup event under SOMEONE ELSE'S link records that
+# they joined, so deleting it would silently decrement that referrer's count;
+# the personal reference is redacted instead and the event survives to be
+# counted.
+
+def test_account_delete_removes_the_users_own_referral_link_and_events(api):
+    api.referrals.put_item(Item={'code': 'MINE', 'sk': 'META',
+                                 'ownerUserId': USER, 'type': 'user',
+                                 'clicks': 3, 'signups': 1})
+    api.referrals.put_item(Item={'code': 'MINE', 'sk': 'EVT#CLICK#1#a'})
+    api.referrals.put_item(Item={'code': 'MINE', 'sk': 'EVT#SIGNUP#2#b',
+                                 'referredUserId': 'someone-else'})
+    profile_with_child(api)
+
+    status, body = call(api, '/profile', 'DELETE')
+    assert status == 200
+
+    remaining = api.referrals.query(
+        KeyConditionExpression=boto3.dynamodb.conditions.Key('code').eq('MINE'))
+    assert remaining['Items'] == [], 'the user kept their referral link'
+    assert body['deletionSummary']['referrals']['linksDeleted'] == 1
+    assert body['deletionSummary']['referrals']['eventsDeleted'] == 2
+
+
+def test_account_delete_redacts_but_keeps_a_referrers_signup_event(api):
+    """The referrer's count must survive; the identifier must not."""
+    api.referrals.put_item(Item={'code': 'THEIRS', 'sk': 'META',
+                                 'ownerUserId': 'other-user', 'signups': 1})
+    api.referrals.put_item(Item={'code': 'THEIRS', 'sk': 'EVT#SIGNUP#9#z',
+                                 'referredUserId': USER})
+    profile_with_child(api)
+
+    status, body = call(api, '/profile', 'DELETE')
+    assert status == 200
+
+    event = api.referrals.get_item(
+        Key={'code': 'THEIRS', 'sk': 'EVT#SIGNUP#9#z'})['Item']
+    assert 'referredUserId' not in event, 'personal reference survived deletion'
+    assert 'redactedAt' in event
+    # The referrer's own link and counter are untouched
+    meta = api.referrals.get_item(Key={'code': 'THEIRS', 'sk': 'META'})['Item']
+    assert meta['ownerUserId'] == 'other-user' and meta['signups'] == 1
+    assert body['deletionSummary']['referrals']['referencesRedacted'] == 1
+
+
+def test_account_delete_leaves_other_users_referrals_alone(api):
+    api.referrals.put_item(Item={'code': 'OTHER', 'sk': 'META',
+                                 'ownerUserId': 'other-user'})
+    api.referrals.put_item(Item={'code': 'OTHER', 'sk': 'EVT#CLICK#1#q'})
+    profile_with_child(api)
+
+    assert call(api, '/profile', 'DELETE')[0] == 200
+
+    kept = api.referrals.query(
+        KeyConditionExpression=boto3.dynamodb.conditions.Key('code').eq('OTHER'))
+    assert len(kept['Items']) == 2, "another user's referral data was deleted"
+
+
+def test_account_delete_survives_referrals_table_not_being_configured(api, monkeypatch):
+    """Missing env must skip cleanup, not abort the account deletion."""
+    monkeypatch.delenv('REFERRALS_TABLE', raising=False)
+    profile_with_child(api)
+    status, body = call(api, '/profile', 'DELETE')
+    assert status == 200
+    assert body['deletionSummary']['profileDeleted'] is True
+    assert body['deletionSummary']['referrals']['linksDeleted'] == 0

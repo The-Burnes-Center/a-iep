@@ -387,6 +387,37 @@ describe('Cognito custom-auth wiring', () => {
   // create-auth-challenge fails open (or falls back to English SMS) when its
   // table wiring is missing, so the env vars are load-bearing: the rate-limit
   // counter and the profile lookup for OTP localization.
+  // Account deletion has to reach the referrals table: a user's personal link
+  // and the events under it are their data, and they used to outlive the
+  // deleted account entirely. Without the env var the handler silently skips
+  // the cleanup, and without the IAM actions it fails at runtime, so both are
+  // pinned. Scan is required because signup events name the deleted user under
+  // SOMEONE ELSE'S code and there is no GSI on referredUserId. UpdateItem is
+  // for redacting that reference instead of deleting the event, which would
+  // decrement the referrer's count.
+  test('user-profile-handler can purge referral data on account deletion', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
+      Handler: 'lambda_function.lambda_handler',
+      Environment: {
+        Variables: Match.objectLike({
+          REFERRALS_TABLE: { Ref: Match.stringLikeRegexp('ReferralsTable') },
+          USER_PROFILES_TABLE: { Ref: Match.stringLikeRegexp('UserProfilesTable') },
+          IEP_DOCUMENTS_TABLE: { Ref: Match.stringLikeRegexp('IepDocumentsTable') },
+        }),
+      },
+    }));
+
+    const referralActions = Object.values(template.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties?.PolicyDocument?.Statement ?? [])
+      .filter((st: any) => JSON.stringify(st.Resource ?? '').includes('ReferralsTable'))
+      .flatMap((st: any) => (Array.isArray(st.Action) ? st.Action : [st.Action]));
+
+    for (const action of ['dynamodb:Query', 'dynamodb:Scan',
+                          'dynamodb:DeleteItem', 'dynamodb:UpdateItem']) {
+      expect(referralActions).toContain(action);
+    }
+  });
+
   test('create-auth-challenge lambda is wired to the rate-limit and profiles tables', () => {
     template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
       Handler: 'create-auth-challenge.handler',
