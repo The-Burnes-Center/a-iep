@@ -20,8 +20,10 @@ import { getEnvironment } from "../tags";
 // not prod; an explicit ENABLED_LANGUAGES env var (comma-separated codes)
 // overrides the default. Kept in sync with the dev-build logic in
 // lib/user-interface/app/vite.config.ts.
-const ALL_LANGUAGES = ["en", "es", "zh", "vi", "ar"];
-const PROD_LANGUAGES = ["en", "es", "zh", "vi"];
+// Exported for test/infra/enabled-languages.test.ts, which asserts the real
+// values rather than regexing this file, exactly as the feature lists below do.
+export const ALL_LANGUAGES = ["en", "es", "zh", "vi", "ar"];
+export const PROD_LANGUAGES = ["en", "es", "zh", "vi"];
 function resolveEnabledLanguages(): string[] {
   const override = process.env.ENABLED_LANGUAGES;
   if (override) {
