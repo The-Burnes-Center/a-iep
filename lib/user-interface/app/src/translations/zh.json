@@ -4,6 +4,9 @@
     "consent.checkbox": "我同意",
     "consent.button": "同意并继续",
     "consent.tooltip": "请勾选此框继续",
+    "consent.success.saved": "同意已成功保存",
+    "consent.error.saveFailed": "保存同意失败",
+    "consent.error.saveFailedRetry": "保存同意失败。请重试。",
     
     "child.title": "关于您的孩子",
     "child.name.label": "姓名",
@@ -12,6 +15,10 @@
     "child.school.placeholder": "输入学校所在城市",
     "child.button.saving": "保存中...",
     "child.button.save": "保存并继续",
+    "child.success.updated": "孩子的信息已成功更新",
+    "child.success.added": "已成功添加孩子的信息",
+    "child.error.updateFailed": "更新孩子的信息失败",
+    "child.error.addFailed": "添加孩子的信息失败",
 
     "parent.title": "家长信息",
     "parent.name.label": "家长姓名",
@@ -26,6 +33,10 @@
     "welcome.rights.title": "您的权利",
     "welcome.rights.description": "了解您作为家长的权利和IEP流程",
     "welcome.update.profile": "更新个人资料",
+    "welcomeIntro.title": "您好！欢迎使用 AIEP",
+    "welcomeIntro.body1": "AIEP 通过简明易读的摘要和您所选语言的翻译，帮助您理解孩子的 IEP 文件。",
+    "welcomeIntro.body2": "再也不用在 IEP 会议上感到无所适从，AIEP 会把复杂的教育术语转换成简单易懂的表达。",
+    "welcomeIntro.button.continue": "继续",
   
     "common.back": "返回",
     "common.previous": "返回",
@@ -35,6 +46,9 @@
     "common.save": "保存",
     "common.generatingPdf": "正在生成 PDF…",
     "common.skip": "跳过",
+    "common.loading": "加载中...",
+    "common.saving": "保存中...",
+    "common.tryAgain": "重试",
 
     "tutorial.appTutorial.title": "我们现在在做什么？",
     "tutorial.parentRights.title": "您作为家长的权利:",
@@ -356,6 +370,7 @@
     "accountCenter.changeLanguage": "更改您的语言",
     "accountCenter.deleteAccount": "删除您的账号",
     "accountCenter.logOut": "退出登录",
+    "accountCenter.adminConsole": "管理控制台",
     
     "supportCenter.title": "支持中心",
     "supportCenter.frequentlyAskedQuestions": "常见问题",
@@ -433,14 +448,8 @@
 
     "preferredLanguage.update.title": "更新语言偏好",
     "preferredLanguage.update.description": "选择您希望用于 IEP 翻译的语言",
-
-    "deleteAccount.breadcrumb.account": "账号",
-    "deleteAccount.breadcrumb.deleteAccount": "删除账号",
-    "deleteAccount.title": "删除账号",
-    "deleteAccount.description": "此操作将删除您的账号，以及我们服务器上与其相关的任何信息。您无法撤销此操作，但您可以创建一个新账号。",
-    "deleteAccount.button.deleteMyAccount": "删除我的账号",
-    "deleteAccount.loading": "加载中...",
-    "deleteAccount.error.serviceUnavailable": "服务不可用",
+    "preferredLanguage.success.updated": "语言偏好已成功更新",
+    "preferredLanguage.error.updateFailed": "更新语言偏好失败",
 
     "deleteAccount.breadcrumb.account": "账号",
     "deleteAccount.breadcrumb.deleteAccount": "删除账号",
@@ -449,6 +458,7 @@
     "deleteAccount.warning": "您无法撤销此操作，",
     "deleteAccount.alternative": "但您可以创建一个新账号。",
     "deleteAccount.button.delete": "删除我的账号",
+    "deleteAccount.button.deleteMyAccount": "删除我的账号",
     "deleteAccount.loading": "加载中...",
     "deleteAccount.error.serviceUnavailable": "服务不可用",
 

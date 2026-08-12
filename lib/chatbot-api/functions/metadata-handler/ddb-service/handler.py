@@ -6,6 +6,7 @@ import json
 import os
 import boto3
 import traceback
+from botocore.exceptions import ClientError
 from datetime import datetime
 from decimal import Decimal
 from s3_content_handler import (
@@ -20,6 +21,43 @@ from s3_content_handler import (
 # Initialize DynamoDB client
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(os.environ['IEP_DOCUMENTS_TABLE'])
+
+
+class DocumentDeleted(Exception):
+    """The document row was deleted while the pipeline was still running."""
+
+
+def _guarded_update(**kwargs):
+    """update_item that refuses to recreate a row somebody deleted.
+
+    DynamoDB's update_item is an upsert, so every write in this module used to
+    resurrect a document that had already been deleted. That is not a rare
+    race: one active IEP per child means the upload path replaces (and deletes)
+    the previous document, so re-uploading while a run is still in flight hits
+    it directly.
+
+    A resurrected row carries only the attributes of the single write that
+    recreated it. It has no userId, and DynamoDB does not index items missing
+    the key, so the row is invisible to the byUserId GSI and therefore immune
+    to account deletion forever. Production holds exactly one:
+    iep-1779204464686-sphdqh6kagq, whose attributes are precisely the set
+    record_failure writes, with no userId, documentUrl or createdAt.
+
+    REMOVE-only updates need the guard just as much as SET: removing an
+    attribute from an absent item still creates it.
+    """
+    condition = 'attribute_exists(iepId)'
+    existing = kwargs.get('ConditionExpression')
+    kwargs['ConditionExpression'] = f'({existing}) AND {condition}' if existing else condition
+    try:
+        return table.update_item(**kwargs)
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+            raise DocumentDeleted(
+                f"document {kwargs.get('Key', {}).get('iepId')} was deleted while "
+                'the pipeline was running; refusing to recreate it'
+            ) from e
+        raise
 
 # The `params` block can carry FERPA-protected document content (OCR text,
 # parsed sections, translated content) under keys like `ocr_data`/`content`.
@@ -131,7 +169,7 @@ def update_progress(params):
         update_expression += ", last_error = :last_error"
         expression_values[':last_error'] = last_error
     
-    table.update_item(
+    _guarded_update(
         Key={
             'iepId': iep_id,
             'childId': child_id
@@ -173,7 +211,7 @@ def _cleanup_unredacted_artifacts(iep_id, child_id):
     s3_ref = item.get('ocr_result_s3_ref')
     if s3_ref:
         delete_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
-    table.update_item(
+    _guarded_update(
         Key={'iepId': iep_id, 'childId': child_id},
         UpdateExpression="REMOVE ocr_result, ocr_result_s3_ref"
     )
@@ -193,22 +231,38 @@ def record_failure(params):
     except Exception as cleanup_error:
         print(f"Cleanup of unredacted artifacts after failure did not complete: {str(cleanup_error)}")
 
-    table.update_item(
-        Key={
-            'iepId': iep_id,
-            'childId': child_id
-        },
-        UpdateExpression="SET #status = :status, error_message = :error_message, last_error = :last_error, failed_step = :failed_step, updated_at = :updated_at",
-        ExpressionAttributeNames={'#status': 'status'},
-        ExpressionAttributeValues={
-            ':status': 'FAILED',
-            ':error_message': error_message,
-            ':last_error': error_message,
-            ':failed_step': failed_step,
-            ':updated_at': datetime.utcnow().isoformat()
+    # A document deleted mid-run has no failure left to record, and writing one
+    # anyway is what created production's single phantom row. This is the one
+    # caller that treats a vanished document as success: it is the terminal
+    # state, so raising here would only fail the execution over a row the user
+    # deliberately removed.
+    try:
+        _guarded_update(
+            Key={
+                'iepId': iep_id,
+                'childId': child_id
+            },
+            UpdateExpression="SET #status = :status, error_message = :error_message, last_error = :last_error, failed_step = :failed_step, updated_at = :updated_at",
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'FAILED',
+                ':error_message': error_message,
+                ':last_error': error_message,
+                ':failed_step': failed_step,
+                ':updated_at': datetime.utcnow().isoformat()
+            }
+        )
+    except DocumentDeleted as deleted:
+        print(f"Not recording a failure: {deleted}")
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'message': 'Document was deleted mid-run; no failure recorded',
+                'iep_id': iep_id,
+                'documentDeleted': True
+            }, default=str)
         }
-    )
-    
+
     return {
         'statusCode': 200,
         'body': json.dumps({
@@ -271,17 +325,25 @@ def save_ocr_data(params):
 
     s3_ref = save_ocr_to_s3(iep_id, child_id, data_type, ocr_data)
 
-    table.update_item(
-        Key={
-            'iepId': iep_id,
-            'childId': child_id
-        },
-        UpdateExpression=f"SET {data_type}_s3_ref = :s3_ref, updated_at = :updated_at REMOVE {data_type}",
-        ExpressionAttributeValues={
-            ':s3_ref': {'bucket': s3_ref['bucket'], 's3Key': s3_ref['s3Key']},
-            ':updated_at': datetime.utcnow().isoformat()
-        }
-    )
+    # The S3 write lands before the row update, so a row deleted in between
+    # leaves the object with nothing pointing at it. Roll it back rather than
+    # strand OCR text (the unredacted variant included) in the bucket.
+    try:
+        _guarded_update(
+            Key={
+                'iepId': iep_id,
+                'childId': child_id
+            },
+            UpdateExpression=f"SET {data_type}_s3_ref = :s3_ref, updated_at = :updated_at REMOVE {data_type}",
+            ExpressionAttributeValues={
+                ':s3_ref': {'bucket': s3_ref['bucket'], 's3Key': s3_ref['s3Key']},
+                ':updated_at': datetime.utcnow().isoformat()
+            }
+        )
+    except DocumentDeleted:
+        delete_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
+        print(f"Rolled back {data_type} object for a document deleted mid-run")
+        raise
 
     return {
         'statusCode': 200,
@@ -363,7 +425,7 @@ def delete_ocr_data(params):
         # Delete the conventional key too in case the ref write was lost
         delete_content_from_s3(get_ocr_s3_key(iep_id, child_id, data_type), os.environ.get('BUCKET', ''))
 
-    table.update_item(
+    _guarded_update(
         Key={
             'iepId': iep_id,
             'childId': child_id
@@ -511,29 +573,15 @@ def save_content_to_s3_operation(params):
         
         # Save merged content to S3
         s3_ref = save_content_to_s3(iep_id, child_id, merged_content)
-        
+
+        # The object lands before the row update. If the row was deleted in
+        # between (a re-upload replaces the child's previous IEP, and a
+        # translation can still be running against it), this object would be
+        # left with nothing pointing at it, which is precisely how the orphaned
+        # summaries accumulated. Roll it back instead.
         # Update DynamoDB - remove old fields and add S3 reference
-        table.update_item(
-            Key={
-                'iepId': iep_id,
-                'childId': child_id
-            },
-            # meetingNotes is listed purely as legacy cleanup: the feature was
-            # removed on 2026-07-29, but documents written before that still
-            # carry the attribute inline, and it holds verbatim IEP meeting
-            # content. Migrating an item is the one moment we can drop it, so
-            # keep removing it even though nothing writes it anymore.
-            UpdateExpression="""
-                SET contentS3Reference = :s3_ref,
-                    updated_at = :updated_at
-                REMOVE summaries, sections, document_index, abbreviations, meetingNotes
-            """,
-            ExpressionAttributeValues={
-                ':s3_ref': s3_ref,
-                ':updated_at': datetime.utcnow().isoformat()
-            }
-        )
-        
+        _write_content_reference(iep_id, child_id, s3_ref)
+
         return {
             'statusCode': 200,
             'body': json.dumps({
@@ -553,3 +601,34 @@ def save_content_to_s3_operation(params):
                 'iep_id': iep_id
             }, default=str)
         }
+
+
+def _write_content_reference(iep_id, child_id, s3_ref):
+    """Point the row at the merged content object, or roll the object back."""
+    try:
+        _guarded_update(
+            Key={
+                'iepId': iep_id,
+                'childId': child_id
+            },
+            # meetingNotes is listed purely as legacy cleanup: the feature was
+            # removed on 2026-07-29, but documents written before that still
+            # carry the attribute inline, and it holds verbatim IEP meeting
+            # content. Migrating an item is the one moment we can drop it, so
+            # keep removing it even though nothing writes it anymore.
+            UpdateExpression="""
+                SET contentS3Reference = :s3_ref,
+                    updated_at = :updated_at
+                REMOVE summaries, sections, document_index, abbreviations, meetingNotes
+            """,
+            ExpressionAttributeValues={
+                ':s3_ref': s3_ref,
+                ':updated_at': datetime.utcnow().isoformat()
+            }
+        )
+    except DocumentDeleted:
+        # Nothing points at the object now, and nothing ever will. Leaving it
+        # is how the orphaned summaries accumulated in the first place.
+        delete_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
+        print('Rolled back the content object for a document deleted mid-run')
+        raise

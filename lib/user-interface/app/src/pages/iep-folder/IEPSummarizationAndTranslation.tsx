@@ -19,6 +19,7 @@ import {
   isRequestedTranslationReady,
   isTranslationInFlight,
   mapTranslationResponse,
+  resumeTranslationRequest,
   shouldOfferTranslation,
   shouldSuppressProcessingTakeover,
 } from '../utils/translation-flow.mjs';
@@ -579,11 +580,47 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // PROCESSING_TRANSLATIONS, which would otherwise hide the page behind the
   // full-screen ProcessingModal. The parent already has readable English
   // content here, so the progress stays inline in the banner instead.
+  // Deliberately not passed the phase: suppression is decided by the document
+  // alone, so that it survives an unmount. See the function's own comment.
   const suppressProcessingTakeover = shouldSuppressProcessingTakeover({
-    phase: translationRequest.phase,
     documentStatus: document.status,
     hasEnglishContent: hasContent('en')
   });
+
+  // Adopt the document's own view of a translation in flight, for a page that
+  // has no request of its own.
+  //
+  // The bottom nav is a ROUTE change (MobileTopNavigation calls navigate), so
+  // stepping over to Account and back unmounts this page and resets
+  // translationRequest to idle. Without this the progress bar vanished
+  // mid-translation and never came back, the button reappeared as if nothing
+  // had been pressed, and neither the arrival nor a failure was reported —
+  // every one of those reads the phase. Rebuilding it from the document is what
+  // makes the wait survive a tab change, a reload, or a second device.
+  //
+  // Only from 'idle', deliberately. A request this page is already running
+  // needs no help, and a 'failed' one must not be quietly resurrected into a
+  // spinner: that would undo the backstop below and loop for as long as the
+  // document sat at PROCESSING_TRANSLATIONS. A parent who was shown an error
+  // gets the button, and pressing it is what starts a new wait.
+  useEffect(() => {
+    if (translationRequest.phase !== 'idle') return;
+    // Wait for the profile. preferredLanguage falls back to the language
+    // CONTEXT until it lands, so adopting early can pin the resumed request to
+    // the wrong language, and the guard above then keeps that wrong answer for
+    // the rest of the run.
+    if (profileLoading) return;
+
+    const resumed = resumeTranslationRequest({
+      documentStatus: document.status,
+      preferredLanguage,
+      translatedLanguages
+    });
+    if (!resumed) return;
+
+    setTranslationRequest(resumed);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- translatedLanguages is recreated every render; the document fields it reads are already dependencies
+  }, [translationRequest.phase, profileLoading, document.status, preferredLanguage, document.summaries, document.sections]);
 
   // Once the translation the parent asked for lands, take them to it. The
   // switch waits for content in that language on a PROCESSED document: the

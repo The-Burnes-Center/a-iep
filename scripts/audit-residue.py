@@ -289,6 +289,32 @@ def check_statusless_documents(docs, findings, reference=None):
     })
 
 
+def check_unreachable_documents(docs, findings):
+    """Rows with no userId, which account deletion can never find.
+
+    DynamoDB does not index items missing a GSI key, so a row without userId is
+    invisible to the byUserId query that account deletion uses. It outlives its
+    owner permanently and no amount of deleting will reach it.
+
+    This is the signature of a resurrected row: update_item is an upsert, so a
+    pipeline step finishing after its row was deleted recreated the row with
+    only that write's attributes, userId not among them. Prod held exactly one,
+    iep-1779204464686-sphdqh6kagq, created 20 seconds before its child's real
+    document, and the audit called prod healthy the whole time because the row
+    had a status and nothing looked for a missing owner.
+    """
+    unreachable = [d['iepId'] for d in docs if not d.get('userId')]
+    findings.append({
+        'check': 'unreachable_documents',
+        'level': ERROR if unreachable else None,
+        'count': len(unreachable),
+        'detail': unreachable[:10],
+        'message': (f"{len(unreachable)} row(s) have no userId, so account "
+                    'deletion can never reach them'
+                    if unreachable else 'every row has an owner'),
+    })
+
+
 def check_orphaned_artifacts(objects, docs, findings):
     """Derived artifacts whose document row is gone.
 
@@ -386,6 +412,7 @@ def audit(env, dynamodb=None, s3=None, sfn=None, reference=None):
     check_stale_noncurrent_originals(versions, markers, findings, reference)
     check_stuck_documents(docs, findings, reference)
     check_statusless_documents(docs, findings, reference)
+    check_unreachable_documents(docs, findings)
     check_orphaned_artifacts(objects, docs, findings)
     check_recent_failures(docs, findings, reference)
     check_long_running_executions(sfn, res['state_machine'], findings, reference)

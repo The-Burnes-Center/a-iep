@@ -248,3 +248,78 @@ def test_sanitize_event_redacts_content_params(service):
     assert safe['params']['content'] == '[REDACTED]'
     assert safe['params']['iep_id'] == IEP
     assert safe['params']['data_type'] == 'ocr_result'
+
+
+# ---------------------------------------------------------------------------
+# A deleted document must never be resurrected
+#
+# update_item is an upsert, so every write here used to recreate a row that had
+# already been deleted. One active IEP per child means an upload replaces (and
+# deletes) the previous document, so re-uploading while a run is still in
+# flight hits this directly. The resurrected row carries only that one write's
+# attributes: no userId, which makes it invisible to the byUserId GSI and
+# therefore immune to account deletion forever. Production holds exactly one,
+# iep-1779204464686-sphdqh6kagq, whose attribute set is precisely what
+# record_failure writes.
+
+def call(service, operation, **params):
+    return service.module.lambda_handler(
+        {'operation': operation, 'params': {**IDS, **params}}, None)
+
+
+def test_update_progress_refuses_to_recreate_a_deleted_document(service):
+    response = call(service, 'update_progress', status='PROCESSING',
+                    current_step='ocr_complete', progress=15)
+    assert response['statusCode'] == 500  # the row never existed
+    assert service.documents.get_item(Key=KEY).get('Item') is None, \
+        'a deleted document was resurrected'
+
+
+def test_record_failure_on_a_deleted_document_is_a_no_op_success(service):
+    """The terminal state must not fail an execution over a row the user removed."""
+    response = call(service, 'record_failure', error_message='boom',
+                    failed_step='MistralOCR')
+    assert response['statusCode'] == 200
+    assert json.loads(response['body'])['documentDeleted'] is True
+    assert service.documents.get_item(Key=KEY).get('Item') is None, \
+        'record_failure resurrected the row it could not find'
+
+
+def test_save_ocr_data_rolls_back_its_object_when_the_row_is_gone(service):
+    response = call(service, 'save_ocr_data', ocr_data={'text': 'x'},
+                    data_type='ocr_result')
+    assert response['statusCode'] == 500
+    assert service.documents.get_item(Key=KEY).get('Item') is None
+    remaining = service.s3.list_objects_v2(Bucket=BUCKET, Prefix=f'iep-data/{IEP}/')
+    assert remaining.get('KeyCount', 0) == 0, \
+        'unredacted OCR left in the bucket with nothing pointing at it'
+
+
+def test_save_content_rolls_back_its_object_when_the_row_is_gone(service):
+    response = call(service, 'save_content_to_s3',
+                    content={'summaries': {'en': 'S'}})
+    assert response['statusCode'] == 500
+    assert service.documents.get_item(Key=KEY).get('Item') is None
+    remaining = service.s3.list_objects_v2(Bucket=BUCKET, Prefix=f'iep-data/{IEP}/')
+    assert remaining.get('KeyCount', 0) == 0, 'orphaned summary left in the bucket'
+
+
+def test_delete_ocr_data_does_not_recreate_a_deleted_document(service):
+    """A REMOVE-only update creates the item too, if it is absent."""
+    response = call(service, 'delete_ocr_data', data_type='ocr_result')
+    assert response['statusCode'] == 500
+    assert service.documents.get_item(Key=KEY).get('Item') is None
+
+
+def test_the_guard_does_not_break_the_normal_path(service):
+    """Mutation-safety: the condition must only reject ABSENT rows."""
+    service.documents.put_item(Item={**KEY, 'userId': USER, 'status': 'PROCESSING'})
+    assert call(service, 'update_progress', status='PROCESSING',
+                current_step='ocr_complete', progress=15)['statusCode'] == 200
+    assert call(service, 'save_ocr_data', ocr_data={'text': 'x'},
+                data_type='redacted_ocr_result')['statusCode'] == 200
+    assert call(service, 'save_content_to_s3',
+                content={'summaries': {'en': 'S'}})['statusCode'] == 200
+    item = service.documents.get_item(Key=KEY)['Item']
+    assert item['userId'] == USER, 'the guard must not disturb existing attributes'
+    assert 'contentS3Reference' in item

@@ -48,7 +48,7 @@ export default function ViewAndAddParent() {
       setError(null);
     } catch (err) {
       // console.error('Error loading profile or checking document:', err);
-      setError('Service unavailable');
+      setError(t('profile.error.serviceUnavailable'));
     } finally {
       setLoading(false);
     }
@@ -86,7 +86,8 @@ export default function ViewAndAddParent() {
       
       // Update the profile with parent name
       await apiClient.profile.updateProfile(updatedProfileData);
-      addNotification('success', 'Parent information saved successfully');
+      // Same wording as the Account Center's name form, so one key serves both
+      addNotification('success', t('updateProfile.success.saved'));
       
       // Check if user has any children - if not, create a default child
       if (!profile?.children || profile.children.length === 0) {
@@ -121,7 +122,7 @@ export default function ViewAndAddParent() {
       }
     } catch (err) {
       // console.error('Error saving parent name:', err);
-      addNotification('error', 'Failed to save parent information');
+      addNotification('error', t('updateProfile.error.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -139,7 +140,7 @@ export default function ViewAndAddParent() {
     return (
       <Container className="text-center">
         <Spinner animation="border" role="status">
-          <span className="visually-hidden">Loading...</span>
+          <span className="visually-hidden">{t('common.loading')}</span>
         </Spinner>
       </Container>
     );

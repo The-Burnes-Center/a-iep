@@ -4,6 +4,9 @@
     "consent.checkbox": "I Agree",
     "consent.button": "AGREE AND CONTINUE",
     "consent.tooltip": "Please check the box to continue",
+    "consent.success.saved": "Consent saved successfully",
+    "consent.error.saveFailed": "Failed to save consent",
+    "consent.error.saveFailedRetry": "Failed to save consent. Please try again.",
     
     "child.title": "About Your Child",
     "child.name.label": "Name",
@@ -12,6 +15,10 @@
     "child.school.placeholder": "Enter school city",
     "child.button.saving": "Saving...",
     "child.button.save": "Save & Continue",
+    "child.success.updated": "Child information updated successfully",
+    "child.success.added": "Child added successfully",
+    "child.error.updateFailed": "Failed to update child information",
+    "child.error.addFailed": "Failed to add child",
 
     "parent.title": "About You",
     "parent.name.label": "NAME",
@@ -26,6 +33,10 @@
     "welcome.rights.title": "Your Rights",
     "welcome.rights.description": "Learn about your rights and the IEP process",
     "welcome.update.profile": "Update Profile",
+    "welcomeIntro.title": "Hello! Welcome to AIEP",
+    "welcomeIntro.body1": "AIEP helps you understand your child's IEP documents with easy-to-read summaries and translations in your preferred language.",
+    "welcomeIntro.body2": "Never feel lost in IEP meetings again - AIEP breaks down complex education jargon into simple, understandable language.",
+    "welcomeIntro.button.continue": "Continue",
   
     "common.back": "Back",
     "common.previous": "Previous",
@@ -35,6 +46,9 @@
     "common.save": "Save",
     "common.generatingPdf": "Generating PDF...",
     "common.skip": "Skip",
+    "common.loading": "Loading...",
+    "common.saving": "Saving...",
+    "common.tryAgain": "Try Again",
 
     "tutorial.appTutorial.title": "What are we doing right now ?",
     "tutorial.parentRights.title": "Your rights as a parent:",
@@ -370,6 +384,7 @@
     "accountCenter.changeLanguage": "Change your Language",
     "accountCenter.deleteAccount": "Delete your account",
     "accountCenter.logOut": "Log out",
+    "accountCenter.adminConsole": "Admin Console",
 
     "supportCenter.title": "Support Center",
     "supportCenter.frequentlyAskedQuestions": "Frequently Asked Questions",
@@ -448,14 +463,8 @@
 
     "preferredLanguage.update.title": "Update Language Preferences",
     "preferredLanguage.update.description": "Select your preferred language for IEP translations",
-
-    "deleteAccount.breadcrumb.account": "ACCOUNT",
-    "deleteAccount.breadcrumb.deleteAccount": "DELETE ACCOUNT",
-    "deleteAccount.title": "Delete Account",
-    "deleteAccount.description": "This action will delete your account, as well as any information linked to it on our servers. You cannot undo this action, but you can create a new account.",
-    "deleteAccount.button.deleteMyAccount": "Delete My Account",
-    "deleteAccount.loading": "Loading...",
-    "deleteAccount.error.serviceUnavailable": "Service unavailable",
+    "preferredLanguage.success.updated": "Language preference updated successfully",
+    "preferredLanguage.error.updateFailed": "Failed to update language preference",
 
     "deleteAccount.breadcrumb.account": "ACCOUNT",
     "deleteAccount.breadcrumb.deleteAccount": "DELETE ACCOUNT",
@@ -464,6 +473,7 @@
     "deleteAccount.warning": "You cannot undo this action,",
     "deleteAccount.alternative": "but you can create a new account.",
     "deleteAccount.button.delete": "Delete My Account",
+    "deleteAccount.button.deleteMyAccount": "Delete My Account",
     "deleteAccount.loading": "Loading...",
     "deleteAccount.error.serviceUnavailable": "Service unavailable",
 

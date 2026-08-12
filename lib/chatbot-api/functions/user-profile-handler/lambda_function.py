@@ -795,13 +795,116 @@ def _delete_document_artifacts(s3, bucket_name: str, doc: Dict) -> int:
             s3, s3_ref.get('bucket') or bucket_name, s3_ref['s3Key'])
 
     if iep_id and child_id:
-        # A no-op when contentS3Reference already pointed here: head_object
-        # 404s on the second pass, so the count stays accurate.
-        deleted += _delete_object_if_present(
-            s3, bucket_name, f"iep-data/{iep_id}/{child_id}/content.json")
+        # Sweep the whole iep-data prefix, not just content.json. Three file
+        # names live there and only one of them is the summary: production
+        # holds 138 content.json versions, 73 redacted_ocr_result.json, and 7
+        # ocr_result.json. Naming content.json alone left the redacted OCR
+        # text behind on every account deletion, and the raw unredacted OCR
+        # too whenever the pipeline died before DeleteOriginal ran. A prefix
+        # sweep also survives the next file type someone adds here.
+        # Any key already removed above is simply not listed, so the count
+        # stays accurate.
+        deleted += _delete_prefix(s3, bucket_name, f"iep-data/{iep_id}/{child_id}/")
         deleted += _delete_prefix(s3, bucket_name, f"iep-audio/{iep_id}/{child_id}/")
 
     return deleted
+
+
+def _purge_referral_data(user_id: str) -> Dict:
+    """Remove a deleted user's referral footprint.
+
+    Two shapes, handled differently on purpose:
+
+    - Links the user OWNS (sk 'META' with ownerUserId, plus that code's event
+      items) are theirs outright and are deleted.
+    - Signup events recording that the user joined via SOMEONE ELSE'S link sit
+      under the referrer's code. Deleting them would silently decrement that
+      referrer's signup count, so the personal reference is redacted instead:
+      the event survives for counting, referredUserId does not.
+
+    The second case needs a Scan because there is no GSI on referredUserId.
+    The table is small (one item collection per link) and account deletion is
+    rare, so a scan here is cheaper than an index nobody else would use.
+
+    Best-effort: a failure here must not abort the rest of the deletion.
+    """
+    result = {'linksDeleted': 0, 'eventsDeleted': 0, 'referencesRedacted': 0}
+    table_name = os.environ.get('REFERRALS_TABLE')
+    if not table_name:
+        print('REFERRALS_TABLE is not configured; skipping referral cleanup')
+        return result
+
+    referrals_table = dynamodb.Table(table_name)
+
+    # 1. Links this user owns, found via the byOwner GSI.
+    owned_codes = set()
+    start_key = None
+    while True:
+        kwargs = {
+            'IndexName': 'byOwner',
+            'KeyConditionExpression': 'ownerUserId = :owner',
+            'ExpressionAttributeValues': {':owner': user_id},
+        }
+        if start_key:
+            kwargs['ExclusiveStartKey'] = start_key
+        page = referrals_table.query(**kwargs)
+        for item in page.get('Items', []):
+            owned_codes.add(item['code'])
+        start_key = page.get('LastEvaluatedKey')
+        if not start_key:
+            break
+
+    # Delete the whole item collection for each owned code: the META link and
+    # every event recorded against it.
+    for code in owned_codes:
+        start_key = None
+        while True:
+            kwargs = {
+                'KeyConditionExpression': 'code = :code',
+                'ExpressionAttributeValues': {':code': code},
+                'ProjectionExpression': 'code, sk',
+            }
+            if start_key:
+                kwargs['ExclusiveStartKey'] = start_key
+            page = referrals_table.query(**kwargs)
+            for item in page.get('Items', []):
+                referrals_table.delete_item(Key={'code': item['code'], 'sk': item['sk']})
+                if item['sk'] == 'META':
+                    result['linksDeleted'] += 1
+                else:
+                    result['eventsDeleted'] += 1
+            start_key = page.get('LastEvaluatedKey')
+            if not start_key:
+                break
+
+    # 2. Events elsewhere that name this user as the person referred.
+    start_key = None
+    while True:
+        kwargs = {
+            'FilterExpression': 'referredUserId = :uid',
+            'ExpressionAttributeValues': {':uid': user_id},
+            'ProjectionExpression': 'code, sk',
+        }
+        if start_key:
+            kwargs['ExclusiveStartKey'] = start_key
+        page = referrals_table.scan(**kwargs)
+        for item in page.get('Items', []):
+            if item['code'] in owned_codes:
+                continue  # already deleted with the owned collection
+            referrals_table.update_item(
+                Key={'code': item['code'], 'sk': item['sk']},
+                UpdateExpression='REMOVE referredUserId SET redactedAt = :now',
+                ExpressionAttributeValues={':now': get_timestamps()['datetime']},
+            )
+            result['referencesRedacted'] += 1
+        start_key = page.get('LastEvaluatedKey')
+        if not start_key:
+            break
+
+    print(f"Referral cleanup: {result['linksDeleted']} link(s), "
+          f"{result['eventsDeleted']} event(s) deleted, "
+          f"{result['referencesRedacted']} reference(s) redacted")
+    return result
 
 
 def _query_all_documents(index_name: str, key_expression: str, values: Dict) -> List[Dict]:
@@ -1070,7 +1173,16 @@ def delete_user_profile(event: Dict) -> Dict:
             print(f"Error deleting document records: {str(ddb_error)}")
             # Continue with profile deletion even if document deletion fails
         
-        # 3. Delete the user profile record
+        # 3. Remove their referral footprint. Before the profile goes, because
+        #    a failure here should still leave the account recoverable-looking
+        #    rather than half-deleted with no profile to explain it.
+        try:
+            result['referrals'] = _purge_referral_data(user_id)
+        except Exception as referral_error:
+            print(f"Error purging referral data: {str(referral_error)}")
+            # Continue: a stuck referral row must not block account deletion
+
+        # 4. Delete the user profile record
         try:
             user_profiles_table.delete_item(
                 Key={'userId': user_id}
@@ -1082,7 +1194,7 @@ def delete_user_profile(event: Dict) -> Dict:
             print(f"Error deleting user profile: {str(profile_error)}")
             # Continue with Cognito deletion even if profile deletion fails
         
-        # 4. Delete the Cognito user account
+        # 5. Delete the Cognito user account
         try:
             cognito = boto3.client('cognito-idp')
             user_pool_id = os.environ.get('USER_POOL_ID', '')

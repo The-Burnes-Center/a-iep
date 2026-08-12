@@ -666,6 +666,10 @@ export class LambdaFunctionStack extends cdk.Stack {
       environment: {
         "USER_PROFILES_TABLE": props.userProfilesTable.tableName,
         "IEP_DOCUMENTS_TABLE": props.iepDocumentsTable.tableName,
+        // Account deletion has to reach the referrals table: a user's personal
+        // link and its events are their data, and they used to outlive the
+        // account. Without the table name this handler silently skips them.
+        "REFERRALS_TABLE": props.referralsTable.tableName,
         "BUCKET": props.knowledgeBucket.bucketName,
         "USER_POOL_ID": props.userPool.userPoolId,
         "DDB_SERVICE_FUNCTION_NAME": this.ddbServiceFunction.functionName,
@@ -729,6 +733,25 @@ export class LambdaFunctionStack extends cdk.Stack {
         'lambda:InvokeFunction'
       ],
       resources: [this.ddbServiceFunction.functionArn]
+    }));
+
+    // Referral cleanup on account deletion. Scan is needed because signup
+    // events reference the deleted user under SOMEONE ELSE'S code and there is
+    // no GSI on referredUserId; the table is small and this path is rare.
+    // UpdateItem is for redacting that reference rather than deleting the
+    // event, which would decrement another user's signup count.
+    userProfileHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'dynamodb:Query',
+        'dynamodb:Scan',
+        'dynamodb:DeleteItem',
+        'dynamodb:UpdateItem'
+      ],
+      resources: [
+        props.referralsTable.tableArn,
+        props.referralsTable.tableArn + "/index/*"
+      ]
     }));
 
     this.userProfileFunction = userProfileHandlerFunction;
