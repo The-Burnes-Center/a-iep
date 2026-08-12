@@ -94,8 +94,10 @@ const AccountCenter: React.FC = () => {
         }]
       : []),
     // Internal console entry, rendered only for members of the Cognito
-    // admin group (the backend re-checks the claim on every admin API call)
-    ...(isAdmin ? [{ id: "5", title: "Admin Console", testId: "account-center-admin-console" }] : []),
+    // admin group (the backend re-checks the claim on every admin API call).
+    // The console it opens is English-only by design; this row is not, because
+    // it sits in a list a parent reads in their own language.
+    ...(isAdmin ? [{ id: "5", title: t("accountCenter.adminConsole"), testId: "account-center-admin-console" }] : []),
     // Deliberately last but one, directly above Log out. Deleting an account
     // is irreversible and it used to sit above the everyday rows, where a
     // mistap costs a parent their documents. Ids are unchanged so the E2E

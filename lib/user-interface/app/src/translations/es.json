@@ -4,6 +4,9 @@
     "consent.checkbox": "Estoy de acuerdo",
     "consent.button": "Aceptar y continuar",
     "consent.tooltip": "Por favor marque la casilla para continuar",
+    "consent.success.saved": "Consentimiento guardado con éxito",
+    "consent.error.saveFailed": "Error al guardar el consentimiento",
+    "consent.error.saveFailedRetry": "Error al guardar el consentimiento. Por favor, inténtelo de nuevo.",
     
     "child.title": "Sobre su hijo/a",
     "child.name.label": "Nombre",
@@ -12,6 +15,10 @@
     "child.school.placeholder": "Ingrese la ciudad de la escuela",
     "child.button.saving": "Guardando...",
     "child.button.save": "Guardar y continuar",
+    "child.success.updated": "Información de su hijo actualizada con éxito",
+    "child.success.added": "Su hijo se agregó con éxito",
+    "child.error.updateFailed": "Error al actualizar la información de su hijo",
+    "child.error.addFailed": "Error al agregar a su hijo",
 
     "parent.title": "Información del Padre/Madre",
     "parent.name.label": "Nombre del Padre/Madre",
@@ -26,6 +33,10 @@
     "welcome.rights.title": "Sus Derechos",
     "welcome.rights.description": "Conozca sus derechos y el proceso del IEP",
     "welcome.update.profile": "Actualizar Perfil",
+    "welcomeIntro.title": "¡Hola! Bienvenido a AIEP",
+    "welcomeIntro.body1": "AIEP le ayuda a entender los documentos del IEP de su hijo con resúmenes fáciles de leer y traducciones en el idioma que prefiera.",
+    "welcomeIntro.body2": "Nunca vuelva a sentirse perdido en una reunión del IEP: AIEP convierte el lenguaje técnico de la educación en palabras sencillas y claras.",
+    "welcomeIntro.button.continue": "Continuar",
   
     "common.back": "Atrás",
     "common.previous": "Anterior",
@@ -35,6 +46,9 @@
     "common.save": "Guardar",
     "common.generatingPdf": "Generando PDF...",
     "common.skip": "Omitir",
+    "common.loading": "Cargando...",
+    "common.saving": "Guardando...",
+    "common.tryAgain": "Intentar de nuevo",
 
     "tutorial.appTutorial.title": "¿Qué estamos haciendo ahora mismo?",
     "tutorial.parentRights.title": "Sus derechos como padre:",
@@ -358,6 +372,7 @@
     "accountCenter.changeLanguage": "Cambiar su idioma",
     "accountCenter.deleteAccount": "Eliminar su cuenta",
     "accountCenter.logOut": "Cerrar sesión",
+    "accountCenter.adminConsole": "Consola de administración",
     
     "supportCenter.title": "Centro de Soporte",
     "supportCenter.frequentlyAskedQuestions": "Preguntas Frecuentes",
@@ -436,14 +451,8 @@
 
     "preferredLanguage.update.title": "Actualizar preferencias de idioma",
     "preferredLanguage.update.description": "Seleccione su idioma preferido para las traducciones del IEP",
-
-    "deleteAccount.breadcrumb.account": "CUENTA",
-    "deleteAccount.breadcrumb.deleteAccount": "ELIMINAR CUENTA",
-    "deleteAccount.title": "Eliminar Cuenta",
-    "deleteAccount.description": "Esta acción eliminará su cuenta, así como cualquier información vinculada a ella en nuestros servidores. No puede deshacer esta acción, pero puede crear una nueva cuenta.",
-    "deleteAccount.button.deleteMyAccount": "Eliminar Mi Cuenta",
-    "deleteAccount.loading": "Cargando...",
-    "deleteAccount.error.serviceUnavailable": "Servicio no disponible",
+    "preferredLanguage.success.updated": "Preferencia de idioma actualizada con éxito",
+    "preferredLanguage.error.updateFailed": "Error al actualizar la preferencia de idioma",
 
     "deleteAccount.breadcrumb.account": "CUENTA",
     "deleteAccount.breadcrumb.deleteAccount": "ELIMINAR CUENTA",
@@ -452,6 +461,7 @@
     "deleteAccount.warning": "No puede deshacer esta acción,",
     "deleteAccount.alternative": "pero puede crear una nueva cuenta.",
     "deleteAccount.button.delete": "Eliminar Mi Cuenta",
+    "deleteAccount.button.deleteMyAccount": "Eliminar Mi Cuenta",
     "deleteAccount.loading": "Cargando...",
     "deleteAccount.error.serviceUnavailable": "Servicio no disponible",
 

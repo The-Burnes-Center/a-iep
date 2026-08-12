@@ -15,6 +15,9 @@ import React from "react";
 import { describe, expect, test } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import ParentRightsCarousel, { SlideData } from "./ParentRightsCarousel";
+import ProcessingModal from "./ProcessingModal";
+import { LanguageContext } from "../common/language-context";
+import type { SupportedLanguage } from "../common/languages";
 
 import en from "../translations/en.json";
 import es from "../translations/es.json";
@@ -62,6 +65,28 @@ const clickPrevious = (times = 1) => {
     fireEvent.click(screen.getByRole("button", { name: "Previous" }));
   }
 };
+
+const dictionaries = { en, es, zh, vi, ar } as Record<string, Record<string, string>>;
+
+/**
+ * The language context as the app supplies it: a real dictionary off disk and
+ * the real `translations[key] || key` lookup, so a key that is missing from a
+ * locale surfaces here as the raw key rather than as a pass.
+ */
+const inLanguage = (code: string, children: React.ReactNode) =>
+  render(
+    <LanguageContext.Provider
+      value={{
+        language: code as SupportedLanguage,
+        setLanguage: () => {},
+        t: (key: string) => dictionaries[code][key] || key,
+        translationsLoaded: true,
+        enabledLanguages: [code as SupportedLanguage],
+      }}
+    >
+      {children}
+    </LanguageContext.Provider>,
+  );
 
 describe("looping", () => {
   test("the last slide wraps forward to the first", () => {
@@ -275,6 +300,178 @@ describe("the rights indicator", () => {
     expect(indicators[0]).toHaveTextContent("1. يمكنك طلب مترجم");
     expect(indicators[1]).toHaveTextContent("2. يمكنك أخذ وقتك");
     expect(indicators[0].closest('[dir="rtl"]')).not.toBeNull();
+  });
+});
+
+describe("the standalone /rights-of-parents route", () => {
+  /**
+   * AppRoutes mounts `<ParentRightsCarousel />` bare, so the twelve slides used
+   * to be the hardcoded English ones no matter what language the parent had
+   * chosen. The component reads the dictionary itself now; these pin that it
+   * reads ALL of it, not just the parts that were easy.
+   */
+  const bare = () => <ParentRightsCarousel />;
+
+  test("shows the whole deck in the parent's language", () => {
+    const { container } = inLanguage("es", bare());
+
+    const text = container.textContent ?? "";
+    // One of each kind of slide: the privacy pair, the six rights, the
+    // tutorial slides. Each is a different key namespace, and each was
+    // English before.
+    expect(text).toContain(es["privacy.slide2.content"]);
+    expect(text).toContain(es["privacy.slide1.content"]);
+    expect(text).toContain(es["rights.slide1.content"]);
+    expect(text).toContain(es["rights.slide6.content"]);
+    expect(text).toContain(es["rights.slide7.content"]);
+    expect(text).toContain(es["rights.slide10.content"]);
+  });
+
+  test("leaves no English and no raw translation key behind", () => {
+    const { container } = inLanguage("vi", bare());
+
+    const text = container.textContent ?? "";
+    expect(text).not.toContain(en["rights.slide1.content"]);
+    expect(text).not.toContain(en["privacy.slide1.content"]);
+    // t() renders the key itself on a miss, so a slide wired to a key that
+    // does not exist would print "rights.slide7.content" at the parent.
+    expect(text).not.toMatch(/\b(rights|privacy|carousel)\.[a-zA-Z0-9.]+/);
+  });
+
+  test("translates the header cards, the numbering and the arrows too", () => {
+    inLanguage("es", bare());
+
+    // The green privacy header is what slide 1 wears.
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      es["rights.header.title.green"],
+    );
+    expect(screen.getByRole("button", { name: es["common.previous"] })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: es["common.next"] })).toBeInTheDocument();
+    expect(screen.getAllByTestId("rights-indicator")[0]).toHaveTextContent(
+      es["carousel.rights.indicator"]
+        .replace("{number}", "1")
+        .replace("{title}", es["rights.slide1.title"]),
+    );
+  });
+
+  test("numbers the rights 1 to 6, and nothing else", () => {
+    inLanguage("ar", bare());
+
+    const indicators = screen.getAllByTestId("rights-indicator");
+    expect(indicators).toHaveLength(6);
+    expect(indicators[0]).toHaveTextContent(ar["rights.slide1.title"]);
+    expect(indicators[5]).toHaveTextContent(ar["rights.slide6.title"]);
+  });
+
+  test("still shows English rather than raw keys when no dictionary is loaded", () => {
+    // The documented fallback: this is the only reason the English literals
+    // are still in the file, and a t() call with no guard would have replaced
+    // them with "rights.slide1.title" on screen.
+    const { container } = render(<ParentRightsCarousel />);
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("You can request a translator");
+    expect(text).not.toMatch(/\b(rights|privacy|carousel)\.[a-zA-Z0-9.]+/);
+    expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument();
+  });
+
+  test("falls back per string, so one missing key does not print itself", () => {
+    // t() answers a miss with the key, so a locale that never got
+    // `rights.slide1.content` would show a parent the dot-separated key in the
+    // middle of an otherwise Spanish deck. English is the worse-but-readable
+    // answer; the raw key is not an answer at all.
+    const holey = { ...es };
+    delete holey["rights.slide1.content"];
+    delete holey["common.next"];
+
+    render(
+      <LanguageContext.Provider
+        value={{
+          language: "es" as SupportedLanguage,
+          setLanguage: () => {},
+          t: (key: string) => holey[key] || key,
+          translationsLoaded: true,
+          enabledLanguages: ["es"] as SupportedLanguage[],
+        }}
+      >
+        <ParentRightsCarousel />
+      </LanguageContext.Provider>,
+    );
+
+    expect(screen.getByText(en["rights.slide1.content"])).toBeInTheDocument();
+    expect(screen.queryByText("rights.slide1.content")).toBeNull();
+    expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument();
+    // Everything the dictionary DOES have is still Spanish.
+    expect(screen.getByText(es["rights.slide2.content"])).toBeInTheDocument();
+  });
+});
+
+describe("the processing screen's own slides", () => {
+  /**
+   * ProcessingModal is rendered by a page that already owns a translator and
+   * hands over a finished deck. Now that the carousel has a deck of its own,
+   * the caller's has to keep winning: the two are not the same length and the
+   * processing one carries the section dividers.
+   */
+  const callerDeck: SlideData[] = [
+    { id: "caller-section", type: "section", title: "Lo que hace AIEP", content: "", theme: "green" },
+    { id: "caller-right", type: "rights", title: "Derecho del interlocutor", content: "Texto del interlocutor.", image: "/images/carousel/blissful.png" },
+  ];
+
+  test("an explicit deck replaces the component's own, it does not merge with it", () => {
+    const { container } = inLanguage(
+      "es",
+      <ParentRightsCarousel slides={callerDeck} rightsIndicatorTemplate="[{number}] {title}" />,
+    );
+
+    expect(container.querySelectorAll(".carousel-slide")).toHaveLength(callerDeck.length);
+    expect(container.textContent).toContain("Texto del interlocutor.");
+    // Nothing from the carousel's own deck leaked in alongside it.
+    expect(container.textContent).not.toContain(es["rights.slide1.content"]);
+  });
+
+  test("every explicit string wins over the dictionary's", () => {
+    inLanguage(
+      "es",
+      <ParentRightsCarousel
+        slides={callerDeck}
+        headerPinkTitle="Encabezado del interlocutor"
+        headerGreenTitle="Encabezado verde del interlocutor"
+        rightsIndicatorTemplate="[{number}] {title}"
+        sectionHint="Pista del interlocutor"
+      />,
+    );
+
+    // On the divider: its hint, and its green header, not the dictionary's.
+    expect(screen.getAllByText("Pista del interlocutor").length).toBeGreaterThan(0);
+    expect(screen.queryByText(es["carousel.section.hint"])).toBeNull();
+    expect(screen.getByTestId("rights-indicator")).toHaveTextContent(
+      "[1] Derecho del interlocutor",
+    );
+  });
+
+  test("through the real ProcessingModal, the page's deck is what a parent reads", () => {
+    // The actual caller, wired the way the summary page wires it.
+    const t = (key: string) => dictionaries.es[key] || key;
+
+    const { container } = inLanguage(
+      "es",
+      <ProcessingModal
+        error={null}
+        tutorialPhase="parent-rights"
+        t={t}
+        parentRightsSlideData={callerDeck}
+        headerPinkTitle={t("rights.header.title.pink")}
+        headerGreenTitle={t("rights.header.title.green")}
+        rightsIndicatorTemplate={t("carousel.rights.indicator")}
+        sectionHint={t("carousel.section.hint")}
+      />,
+    );
+
+    expect(screen.getByTestId("processing-modal")).toBeInTheDocument();
+    expect(container.querySelectorAll(".carousel-slide")).toHaveLength(callerDeck.length);
+    expect(container.textContent).toContain("Texto del interlocutor.");
+    expect(container.textContent).not.toContain(es["rights.slide1.content"]);
   });
 });
 

@@ -57,7 +57,7 @@ export default function ViewAndAddChild() {
       setError(null);
     } catch (err) {
       // console.error('Error loading profile or checking document:', err);
-      setError('Service unavailable');
+      setError(t('profile.error.serviceUnavailable'));
     } finally {
       setLoading(false);
     }
@@ -103,12 +103,12 @@ export default function ViewAndAddChild() {
           const updatedChildInfo = {children: [updatedProfile.children[0]]};
           
           await apiClient.profile.updateProfile(updatedChildInfo);
-          addNotification('success', 'Child information updated successfully');
+          addNotification('success', t('child.success.updated'));
         }
       } else {
         // Add new child
         await apiClient.profile.addChild(childName, schoolCity);
-        addNotification('success', 'Child added successfully');
+        addNotification('success', t('child.success.added'));
         
         // After adding a new child, check for documents again
         await checkForExistingDocument();
@@ -131,7 +131,7 @@ export default function ViewAndAddChild() {
         navigate('/welcome-intro');
       }
     } catch (err) {
-      addNotification('error', hasExistingChild ? 'Failed to update child information' : 'Failed to add child');
+      addNotification('error', hasExistingChild ? t('child.error.updateFailed') : t('child.error.addFailed'));
     } finally {
       setSaving(false);
     }
@@ -145,7 +145,7 @@ export default function ViewAndAddChild() {
     return (
       <Container className="text-center">
         <Spinner animation="border" role="status">
-          <span className="visually-hidden">Loading...</span>
+          <span className="visually-hidden">{t('common.loading')}</span>
         </Spinner>
       </Container>
     );

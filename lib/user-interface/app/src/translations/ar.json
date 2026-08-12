@@ -4,6 +4,9 @@
     "consent.checkbox": "أوافق",
     "consent.button": "الموافقة والمتابعة",
     "consent.tooltip": "يرجى تحديد المربع للمتابعة",
+    "consent.success.saved": "تم حفظ الموافقة بنجاح",
+    "consent.error.saveFailed": "فشل حفظ الموافقة",
+    "consent.error.saveFailedRetry": "فشل حفظ الموافقة. يرجى المحاولة مرة أخرى.",
 
     "child.title": "عن طفلك",
     "child.name.label": "الاسم",
@@ -12,6 +15,10 @@
     "child.school.placeholder": "أدخل مدينة المدرسة",
     "child.button.saving": "جارٍ الحفظ...",
     "child.button.save": "حفظ ومتابعة",
+    "child.success.updated": "تم تحديث معلومات طفلك بنجاح",
+    "child.success.added": "تمت إضافة طفلك بنجاح",
+    "child.error.updateFailed": "فشل تحديث معلومات طفلك",
+    "child.error.addFailed": "فشلت إضافة طفلك",
 
     "parent.title": "عنك",
     "parent.name.label": "الاسم",
@@ -26,6 +33,10 @@
     "welcome.rights.title": "حقوقك",
     "welcome.rights.description": "تعرّف على حقوقك وعلى عملية IEP",
     "welcome.update.profile": "تحديث الملف الشخصي",
+    "welcomeIntro.title": "مرحبًا! أهلًا بك في AIEP",
+    "welcomeIntro.body1": "يساعدك AIEP على فهم مستندات IEP الخاصة بطفلك من خلال ملخصات سهلة القراءة وترجمات باللغة التي تفضّلها.",
+    "welcomeIntro.body2": "لن تشعر بعد الآن بالضياع في اجتماعات IEP، إذ يبسّط AIEP المصطلحات التعليمية المعقّدة إلى لغة واضحة وسهلة الفهم.",
+    "welcomeIntro.button.continue": "متابعة",
 
     "common.back": "رجوع",
     "common.previous": "السابق",
@@ -35,6 +46,9 @@
     "common.save": "حفظ",
     "common.generatingPdf": "جارٍ إنشاء ملف PDF...",
     "common.skip": "تخطّي",
+    "common.loading": "جارٍ التحميل...",
+    "common.saving": "جارٍ الحفظ...",
+    "common.tryAgain": "حاول مرة أخرى",
 
     "tutorial.appTutorial.title": "ماذا نفعل الآن؟",
     "tutorial.parentRights.title": "حقوقك كولي أمر:",
@@ -367,6 +381,7 @@
     "accountCenter.changeLanguage": "تغيير لغتك",
     "accountCenter.deleteAccount": "حذف حسابك",
     "accountCenter.logOut": "تسجيل الخروج",
+    "accountCenter.adminConsole": "وحدة تحكم المشرف",
 
     "supportCenter.title": "مركز الدعم",
     "supportCenter.frequentlyAskedQuestions": "الأسئلة الشائعة",
@@ -445,6 +460,8 @@
 
     "preferredLanguage.update.title": "تحديث تفضيلات اللغة",
     "preferredLanguage.update.description": "اختر لغتك المفضلة لترجمات IEP",
+    "preferredLanguage.success.updated": "تم تحديث تفضيل اللغة بنجاح",
+    "preferredLanguage.error.updateFailed": "فشل تحديث تفضيل اللغة",
 
     "deleteAccount.breadcrumb.account": "الحساب",
     "deleteAccount.breadcrumb.deleteAccount": "حذف الحساب",

@@ -43,7 +43,7 @@ export default function ConsentForm() {
       
       setError(null);
     } catch (err) {
-      setError('Service unavailable');
+      setError(t('profile.error.serviceUnavailable'));
     } finally {
       setLoading(false);
     }
@@ -79,7 +79,7 @@ export default function ConsentForm() {
     try {
       setSaving(true);
       await apiClient.profile.updateProfile({ consentGiven: true });
-      addNotification('success', 'Consent saved successfully');
+      addNotification('success', t('consent.success.saved'));
       
       // Check if user has any children - if not, create a default child
       if (!profile?.children || profile.children.length === 0) {
@@ -108,8 +108,8 @@ export default function ConsentForm() {
         navigate('/iep-documents');
       }
     } catch (err) {
-      addNotification('error', 'Failed to save consent');
-      setError('Failed to save consent. Please try again.');
+      addNotification('error', t('consent.error.saveFailed'));
+      setError(t('consent.error.saveFailedRetry'));
     } finally {
       setSaving(false);
     }
@@ -133,7 +133,7 @@ export default function ConsentForm() {
     return (
       <Container className="text-center profile-form-container">
         <Spinner animation="border" role="status">
-          <span className="visually-hidden">Loading...</span>
+          <span className="visually-hidden">{t('common.loading')}</span>
         </Spinner>
       </Container>
     );
@@ -145,7 +145,7 @@ export default function ConsentForm() {
         <Row style={{ width: '100%', justifyContent: 'center' }}>
           <Col xs={12} md={8} lg={6}>
             <div className="alert alert-danger">{error}</div>
-            <Button onClick={loadProfile} variant="primary" className="aiep-button">Try Again</Button>
+            <Button onClick={loadProfile} variant="primary" className="aiep-button">{t('common.tryAgain')}</Button>
           </Col>
         </Row>
       </Container>
@@ -200,7 +200,7 @@ export default function ConsentForm() {
                   {saving ? (
                     <>
                       <Spinner as="span" animation="border" size="sm" role="status" aria-hidden="true" className="me-2" />
-                      Saving...
+                      {t('common.saving')}
                     </>
                   ) : (
                     t('consent.button')

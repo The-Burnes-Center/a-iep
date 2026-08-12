@@ -92,7 +92,7 @@ export default function PreferredLanguage() {
       // console.log('User has completed onboarding, going to welcome page');
       navigate('/summary-and-translations');
     } catch (err) {
-      setError('Service unavailable');
+      setError(t('profile.error.serviceUnavailable'));
     } finally {
       setLoading(false);
     }
@@ -118,7 +118,7 @@ export default function PreferredLanguage() {
       // Only update if there are changes to save
       if (profile.secondaryLanguage !== languageValue) {
         await apiClient.profile.updateProfile(preferredLanguage);
-        addNotification('success', 'Language preference updated successfully');
+        addNotification('success', t('preferredLanguage.success.updated'));
       }
       
       // Navigate back to appropriate page
@@ -128,7 +128,7 @@ export default function PreferredLanguage() {
         navigate('/consent-form');
       }
     } catch (err) {
-      addNotification('error', 'Failed to update language preference');
+      addNotification('error', t('preferredLanguage.error.updateFailed'));
     } finally {
       setSaving(false);
     }
@@ -138,7 +138,7 @@ export default function PreferredLanguage() {
     return (
       <Container className="text-center">
         <Spinner animation="border" role="status">
-          <span className="visually-hidden">Loading...</span>
+          <span className="visually-hidden">{t('common.loading')}</span>
         </Spinner>
       </Container>
     );

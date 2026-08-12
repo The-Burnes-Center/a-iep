@@ -4,6 +4,9 @@
     "consent.checkbox": "Tôi đồng ý",
     "consent.button": "Đồng ý và Tiếp tục",
     "consent.tooltip": "Vui lòng đánh dấu vào ô để tiếp tục",
+    "consent.success.saved": "Sự đồng ý đã được lưu thành công",
+    "consent.error.saveFailed": "Không thể lưu sự đồng ý",
+    "consent.error.saveFailedRetry": "Không thể lưu sự đồng ý. Vui lòng thử lại.",
     
     "child.title": "Về con của bạn",
     "child.name.label": "Tên",
@@ -12,6 +15,10 @@
     "child.school.placeholder": "Nhập thành phố của trường",
     "child.button.saving": "Đang lưu...",
     "child.button.save": "Lưu & Tiếp tục",
+    "child.success.updated": "Thông tin của con bạn đã được cập nhật thành công",
+    "child.success.added": "Đã thêm thông tin của con bạn thành công",
+    "child.error.updateFailed": "Không thể cập nhật thông tin của con bạn",
+    "child.error.addFailed": "Không thể thêm thông tin của con bạn",
 
     "parent.title": "Thông Tin Phụ Huynh",
     "parent.name.label": "Tên Phụ Huynh",
@@ -26,6 +33,10 @@
     "welcome.rights.title": "Quyền của bạn",
     "welcome.rights.description": "Tìm hiểu về quyền của bạn và quy trình IEP",
     "welcome.update.profile": "Cập Nhật Hồ Sơ",
+    "welcomeIntro.title": "Xin chào! Chào mừng bạn đến với AIEP",
+    "welcomeIntro.body1": "AIEP giúp bạn hiểu các tài liệu IEP của con mình bằng những bản tóm tắt dễ đọc và bản dịch sang ngôn ngữ bạn chọn.",
+    "welcomeIntro.body2": "Bạn sẽ không còn cảm thấy lạc lõng trong các cuộc họp IEP: AIEP chuyển những thuật ngữ giáo dục phức tạp thành lời lẽ đơn giản, dễ hiểu.",
+    "welcomeIntro.button.continue": "Tiếp tục",
   
     "common.back": "Quay lại",
     "common.previous": "Quay lại",
@@ -35,6 +46,9 @@
     "common.save": "Lưu",
     "common.generatingPdf": "Đang tạo PDF...",
     "common.skip": "Bỏ qua",
+    "common.loading": "Đang tải...",
+    "common.saving": "Đang lưu...",
+    "common.tryAgain": "Thử lại",
 
     "tutorial.appTutorial.title": "Chúng ta đang làm gì bây giờ?",
     "tutorial.parentRights.title": "Quyền của bạn với tư cách là phụ huynh:",
@@ -363,6 +377,7 @@
     "accountCenter.changeLanguage": "Thay đổi ngôn ngữ của bạn",
     "accountCenter.deleteAccount": "Xóa tài khoản của bạn",
     "accountCenter.logOut": "Đăng xuất",
+    "accountCenter.adminConsole": "Bảng quản trị",
     
     "supportCenter.title": "Trung Tâm Hỗ Trợ",
     "supportCenter.frequentlyAskedQuestions": "Câu Hỏi Thường Gặp",
@@ -441,14 +456,8 @@
 
     "preferredLanguage.update.title": "Cập nhật tùy chọn ngôn ngữ",
     "preferredLanguage.update.description": "Chọn ngôn ngữ bạn muốn dùng cho bản dịch IEP",
-
-    "deleteAccount.breadcrumb.account": "TÀI KHOẢN",
-    "deleteAccount.breadcrumb.deleteAccount": "XÓA TÀI KHOẢN",
-    "deleteAccount.title": "Xóa Tài Khoản",
-    "deleteAccount.description": "Hành động này sẽ xóa tài khoản của bạn, cũng như bất kỳ thông tin nào liên kết với nó trên máy chủ của chúng tôi. Bạn không thể hoàn tác hành động này, nhưng bạn có thể tạo một tài khoản mới.",
-    "deleteAccount.button.deleteMyAccount": "Xóa Tài Khoản Của Tôi",
-    "deleteAccount.loading": "Đang tải...",
-    "deleteAccount.error.serviceUnavailable": "Dịch vụ không khả dụng",
+    "preferredLanguage.success.updated": "Tùy chọn ngôn ngữ đã được cập nhật thành công",
+    "preferredLanguage.error.updateFailed": "Không thể cập nhật tùy chọn ngôn ngữ",
 
     "deleteAccount.breadcrumb.account": "TÀI KHOẢN",
     "deleteAccount.breadcrumb.deleteAccount": "XÓA TÀI KHOẢN",
@@ -457,6 +466,7 @@
     "deleteAccount.warning": "Bạn không thể hoàn tác hành động này,",
     "deleteAccount.alternative": "nhưng bạn có thể tạo một tài khoản mới.",
     "deleteAccount.button.delete": "Xóa Tài Khoản Của Tôi",
+    "deleteAccount.button.deleteMyAccount": "Xóa Tài Khoản Của Tôi",
     "deleteAccount.loading": "Đang tải...",
     "deleteAccount.error.serviceUnavailable": "Dịch vụ không khả dụng",
 
@@ -529,7 +539,7 @@
     "landingHero.title.aiep": "AIEP",
     "landingHero.title.isAn": "là một dự án",
     "landingHero.title.aiForImpact": "AI for Impact",
-    "landingHero.title.project": "",
+    "landingHero.title.project": " (Trí tuệ nhân tạo vì Tác động)",
     "landingHero.title.inPartnershipWith": "hợp tác với",
     "landingHero.title.innovate": "Innovate",
     "landingHero.title.publicSchools": "Public Schools",
