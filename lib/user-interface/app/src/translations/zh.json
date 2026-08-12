@@ -4,8 +4,6 @@
     "consent.checkbox": "我同意",
     "consent.button": "同意并继续",
     "consent.tooltip": "请勾选此框继续",
-    "consent.success.saved": "同意已成功保存",
-    "consent.error.saveFailed": "保存同意失败",
     "consent.error.saveFailedRetry": "保存同意失败。请重试。",
     
     "child.title": "关于您的孩子",
@@ -15,8 +13,6 @@
     "child.school.placeholder": "输入学校所在城市",
     "child.button.saving": "保存中...",
     "child.button.save": "保存并继续",
-    "child.success.updated": "孩子的信息已成功更新",
-    "child.success.added": "已成功添加孩子的信息",
     "child.error.updateFailed": "更新孩子的信息失败",
     "child.error.addFailed": "添加孩子的信息失败",
 
@@ -43,14 +39,12 @@
     "common.next": "下一步",
     "common.cancel": "取消",
     "common.close": "关闭",
-    "common.save": "保存",
+    "common.download": "下载",
     "common.generatingPdf": "正在生成 PDF…",
     "common.skip": "跳过",
     "common.loading": "加载中...",
     "common.saving": "保存中...",
     "common.tryAgain": "重试",
-
-    "notifications.dismiss": "关闭通知",
 
     "tutorial.appTutorial.title": "我们现在在做什么？",
     "tutorial.parentRights.title": "您作为家长的权利:",
@@ -96,7 +90,6 @@
     "summary.translate.starting": "正在开始翻译...",
     "summary.translate.alreadyReady": "此翻译已准备好，正在为您打开...",
     "summary.translate.alreadyRunning": "此翻译已在准备中，通常需要几分钟。",
-    "summary.translate.ready": "您的翻译已准备好。",
     "summary.translate.notTranslatedYet": "尚未翻译",
     "summary.translate.error.budgetSpent": "此翻译的尝试次数已用完。请联系客服，以便我们进一步检查。",
     "summary.translate.error.failed": "我们无法完成此翻译。您的英文摘要未受影响。请重试。",
@@ -166,7 +159,6 @@
     "profile.secondaryLanguage": "次要语言",
     "profile.preferredLanguage": "首选语言",
     "profile.noSecondaryLanguage": "未选择次要语言",
-  "profile.success.update": "个人资料更新成功",
   "profile.error.update": "更新个人资料失败",
   "profile.error.serviceUnavailable": "服务不可用",
   "profile.loading": "加载中...",
@@ -190,7 +182,6 @@
     "delete.button.delete": "永久删除账号",
     "delete.button.processing": "删除中...",
     "delete.error.failed": "删除账号失败。请重试。",
-    "delete.success": "账号删除成功。",
 
     "auth.title": "登录",
     "auth.email": "电子邮箱",
@@ -438,7 +429,6 @@
     "updateProfile.button.update": "更新个人资料",
     "updateProfile.loading": "加载中...",
     "updateProfile.error.serviceUnavailable": "服务不可用",
-    "updateProfile.success.saved": "家长信息保存成功",
     "updateProfile.error.saveFailed": "保存家长信息失败",
 
     "changeLanguage.breadcrumb.account": "账号",
@@ -450,7 +440,6 @@
 
     "preferredLanguage.update.title": "更新语言偏好",
     "preferredLanguage.update.description": "选择您希望用于 IEP 翻译的语言",
-    "preferredLanguage.success.updated": "语言偏好已成功更新",
     "preferredLanguage.error.updateFailed": "更新语言偏好失败",
 
     "deleteAccount.breadcrumb.account": "账号",

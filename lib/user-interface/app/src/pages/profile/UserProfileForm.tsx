@@ -5,7 +5,6 @@ import { AppContext } from '../../common/app-context';
 import { useAuth } from '../../common/auth-provider';
 import { ApiClient } from '../../common/api-client/api-client';
 import { UserProfile } from '../../common/types';
-import { useNotifications } from '../../components/notif-manager';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useNavigate } from 'react-router-dom';
@@ -18,7 +17,6 @@ export default function UserProfileForm() {
   const appContext = useContext(AppContext);
   const { setAuthenticated } = useAuth();
   const apiClient = new ApiClient(appContext);
-  const { addNotification } = useNotifications();
   const { t, setLanguage, enabledLanguages } = useLanguage();
 
   // Language options enabled for this environment
@@ -74,9 +72,10 @@ export default function UserProfileForm() {
       }
       
       setOriginalProfile(profile); // Update original profile after successful save
-      addNotification('success', t('profile.success.update'));
     } catch (err) {
-      addNotification('error', t('profile.error.update'));
+      // Inline, on the banner this page already renders: this failure used to
+      // be reported only by a toast.
+      setError(t('profile.error.update'));
     } finally {
       setSaving(false);
     }

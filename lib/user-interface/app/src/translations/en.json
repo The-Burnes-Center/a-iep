@@ -4,8 +4,6 @@
     "consent.checkbox": "I Agree",
     "consent.button": "AGREE AND CONTINUE",
     "consent.tooltip": "Please check the box to continue",
-    "consent.success.saved": "Consent saved successfully",
-    "consent.error.saveFailed": "Failed to save consent",
     "consent.error.saveFailedRetry": "Failed to save consent. Please try again.",
     
     "child.title": "About Your Child",
@@ -15,8 +13,6 @@
     "child.school.placeholder": "Enter school city",
     "child.button.saving": "Saving...",
     "child.button.save": "Save & Continue",
-    "child.success.updated": "Child information updated successfully",
-    "child.success.added": "Child added successfully",
     "child.error.updateFailed": "Failed to update child information",
     "child.error.addFailed": "Failed to add child",
 
@@ -43,14 +39,12 @@
     "common.next": "Next",
     "common.cancel": "Cancel",
     "common.close": "Close",
-    "common.save": "Save",
+    "common.download": "Download",
     "common.generatingPdf": "Generating PDF...",
     "common.skip": "Skip",
     "common.loading": "Loading...",
     "common.saving": "Saving...",
     "common.tryAgain": "Try Again",
-
-    "notifications.dismiss": "Dismiss notification",
 
     "tutorial.appTutorial.title": "What are we doing right now ?",
     "tutorial.parentRights.title": "Your rights as a parent:",
@@ -96,7 +90,6 @@
     "summary.translate.starting": "Starting the translation...",
     "summary.translate.alreadyReady": "This translation is ready. Opening it now...",
     "summary.translate.alreadyRunning": "This translation is already being prepared. It usually takes a few minutes.",
-    "summary.translate.ready": "Your translation is ready.",
     "summary.translate.notTranslatedYet": "Not translated yet",
     "summary.translate.error.budgetSpent": "We've tried this translation as many times as we can. Please contact support so we can look into it.",
     "summary.translate.error.failed": "We couldn't finish this translation. Your English summary is unchanged. Please try again.",
@@ -170,7 +163,6 @@
     "profile.secondaryLanguage": "Secondary Language",
     "profile.preferredLanguage": "Preferred Language",
     "profile.noSecondaryLanguage": "No secondary language selected",
-      "profile.success.update": "Profile updated successfully",
       "profile.error.update": "Failed to update profile",
       "profile.error.serviceUnavailable": "Service unavailable",
       "profile.loading": "Loading...",
@@ -196,7 +188,6 @@
     "delete.button.delete": "Delete Account Forever",
     "delete.button.processing": "Deleting...",
     "delete.error.failed": "Failed to delete account. Please try again.",
-    "delete.success": "Account deleted successfully.",
 
     "auth.title": "Sign In",
     "auth.email": "Email",
@@ -453,7 +444,6 @@
     "updateProfile.button.update": "Update Profile",
     "updateProfile.loading": "Loading...",
     "updateProfile.error.serviceUnavailable": "Service unavailable",
-    "updateProfile.success.saved": "Parent information saved successfully",
     "updateProfile.error.saveFailed": "Failed to save parent information",
 
     "changeLanguage.breadcrumb.account": "ACCOUNT",
@@ -465,7 +455,6 @@
 
     "preferredLanguage.update.title": "Update Language Preferences",
     "preferredLanguage.update.description": "Select your preferred language for IEP translations",
-    "preferredLanguage.success.updated": "Language preference updated successfully",
     "preferredLanguage.error.updateFailed": "Failed to update language preference",
 
     "deleteAccount.breadcrumb.account": "ACCOUNT",

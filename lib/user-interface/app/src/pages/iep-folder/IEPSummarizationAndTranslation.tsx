@@ -35,7 +35,6 @@ import {
   TranslationRequestError,
 } from '../../common/api-client/iep-document-client';
 import { AppContext } from '../../common/app-context';
-import { useNotifications } from '../../components/notif-manager';
 import { TextHelper } from '../../common/helpers/text-helper';
 
 // How long an on-demand translation may run before the page calls it failed and
@@ -50,7 +49,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // the only caller of the audio route, so hiding them is what makes it dark.
   const ttsEnabled = isFeatureEnabled('tts');
   const appContext = useContext(AppContext);
-  const { addNotification } = useNotifications();
   const apiClient = new ApiClient(appContext);
   // The documents client is not exposed on ApiClient; useDocumentFetch builds
   // its own the same way.
@@ -192,12 +190,10 @@ const IEPSummarizationAndTranslation: React.FC = () => {
       await apiClient.profile.updateProfile({ secondaryLanguage: languageCode });
 
       setOriginalProfile(updatedProfile);
-      addNotification('success', t('profile.success.update'));
     } catch (err) {
       // Revert on error
       setProfile(originalProfile);
       setLanguage(previousLanguage);
-      addNotification('error', t('profile.error.update'));
     } finally {
       setSaving(false);
     }
@@ -638,8 +634,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     setSelectedLanguage(readyLanguage);
     setActiveTab(readyLanguage);
     setTranslationRequest(idleTranslationRequest());
-    addNotification('success', t('summary.translate.ready'));
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- translatedLanguages/t/addNotification are recreated every render; the document fields they read are already dependencies
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- translatedLanguages is recreated every render; the document fields it reads are already dependencies
   }, [translationRequest, document.status, document.summaries, document.sections]);
 
   // A translation that finished WITHOUT producing the language. The backend
@@ -728,15 +723,9 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         preferredLanguage,
         fileName: 'IEP_Summary_and_Translations'
       });
-      
-      // Show success notification
-      addNotification('success', 'PDF generated successfully!');
     } catch (error) {
       // console.error('PDF generation failed:', error);
       setPdfError(error instanceof Error ? error.message : 'Failed to generate PDF');
-      
-      // Show error notification
-      addNotification('error', `PDF generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsGeneratingPDF(false);
     }
@@ -1091,7 +1080,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                 ) : (
                   <>
                     <FontAwesomeIcon icon={faDownload} className="me-2" />
-                    {t('common.save')}
+                    {t('common.download')}
                   </>
                 )}
               </Button>

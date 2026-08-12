@@ -4,8 +4,6 @@
     "consent.checkbox": "Tôi đồng ý",
     "consent.button": "Đồng ý và Tiếp tục",
     "consent.tooltip": "Vui lòng đánh dấu vào ô để tiếp tục",
-    "consent.success.saved": "Sự đồng ý đã được lưu thành công",
-    "consent.error.saveFailed": "Không thể lưu sự đồng ý",
     "consent.error.saveFailedRetry": "Không thể lưu sự đồng ý. Vui lòng thử lại.",
     
     "child.title": "Về con của bạn",
@@ -15,8 +13,6 @@
     "child.school.placeholder": "Nhập thành phố của trường",
     "child.button.saving": "Đang lưu...",
     "child.button.save": "Lưu & Tiếp tục",
-    "child.success.updated": "Thông tin của con bạn đã được cập nhật thành công",
-    "child.success.added": "Đã thêm thông tin của con bạn thành công",
     "child.error.updateFailed": "Không thể cập nhật thông tin của con bạn",
     "child.error.addFailed": "Không thể thêm thông tin của con bạn",
 
@@ -43,14 +39,12 @@
     "common.next": "Tiếp theo",
     "common.cancel": "Hủy",
     "common.close": "Đóng",
-    "common.save": "Lưu",
+    "common.download": "Tải xuống",
     "common.generatingPdf": "Đang tạo PDF...",
     "common.skip": "Bỏ qua",
     "common.loading": "Đang tải...",
     "common.saving": "Đang lưu...",
     "common.tryAgain": "Thử lại",
-
-    "notifications.dismiss": "Đóng thông báo",
 
     "tutorial.appTutorial.title": "Chúng ta đang làm gì bây giờ?",
     "tutorial.parentRights.title": "Quyền của bạn với tư cách là phụ huynh:",
@@ -96,7 +90,6 @@
     "summary.translate.starting": "Đang bắt đầu dịch...",
     "summary.translate.alreadyReady": "Bản dịch này đã sẵn sàng. Đang mở cho bạn...",
     "summary.translate.alreadyRunning": "Bản dịch này đang được chuẩn bị. Việc này thường mất vài phút.",
-    "summary.translate.ready": "Bản dịch của bạn đã sẵn sàng.",
     "summary.translate.notTranslatedYet": "Chưa được dịch",
     "summary.translate.error.budgetSpent": "Chúng tôi đã thử bản dịch này nhiều lần nhất có thể. Vui lòng liên hệ bộ phận hỗ trợ để chúng tôi kiểm tra.",
     "summary.translate.error.failed": "Chúng tôi không thể hoàn tất bản dịch này. Bản tóm tắt tiếng Anh của bạn không thay đổi. Vui lòng thử lại.",
@@ -171,7 +164,6 @@
     "profile.secondaryLanguage": "Ngôn Ngữ Phụ",
     "profile.preferredLanguage": "Ngôn Ngữ Ưa Thích",
     "profile.noSecondaryLanguage": "Chưa chọn ngôn ngữ phụ",
-    "profile.success.update": "Hồ sơ đã được cập nhật thành công",
     "profile.error.update": "Không thể cập nhật hồ sơ",
     "profile.error.serviceUnavailable": "Dịch vụ không khả dụng",
     "profile.loading": "Đang tải...",
@@ -195,7 +187,6 @@
     "delete.button.delete": "Xóa Tài Khoản Vĩnh Viễn",
     "delete.button.processing": "Đang xóa...",
     "delete.error.failed": "Không thể xóa tài khoản. Vui lòng thử lại.",
-    "delete.success": "Tài khoản đã được xóa thành công.",
 
     "auth.title": "Đăng Nhập",
     "auth.email": "Email",
@@ -446,7 +437,6 @@
     "updateProfile.button.update": "Cập Nhật Hồ Sơ",
     "updateProfile.loading": "Đang tải...",
     "updateProfile.error.serviceUnavailable": "Dịch vụ không khả dụng",
-    "updateProfile.success.saved": "Thông tin phụ huynh đã được lưu thành công",
     "updateProfile.error.saveFailed": "Không thể lưu thông tin phụ huynh",
 
     "changeLanguage.breadcrumb.account": "TÀI KHOẢN",
@@ -458,7 +448,6 @@
 
     "preferredLanguage.update.title": "Cập nhật tùy chọn ngôn ngữ",
     "preferredLanguage.update.description": "Chọn ngôn ngữ bạn muốn dùng cho bản dịch IEP",
-    "preferredLanguage.success.updated": "Tùy chọn ngôn ngữ đã được cập nhật thành công",
     "preferredLanguage.error.updateFailed": "Không thể cập nhật tùy chọn ngôn ngữ",
 
     "deleteAccount.breadcrumb.account": "TÀI KHOẢN",

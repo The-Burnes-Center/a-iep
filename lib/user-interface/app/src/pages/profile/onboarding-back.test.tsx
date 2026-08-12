@@ -23,7 +23,6 @@ import OnboardingUser from "./OnboardingUser";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
 import { AuthProvider, useAuth } from "../../common/auth-provider";
-import { NotificationProvider } from "../../components/notif-manager";
 import type { AppConfig } from "../../common/types";
 import type { SupportedLanguage } from "../../common/languages";
 
@@ -82,7 +81,6 @@ const renderPage = (path: string, page: React.ReactElement) => {
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
           <AuthProvider>
-            <NotificationProvider>
               <AuthStateProbe />
               <Here />
               <Routes>
@@ -95,7 +93,6 @@ const renderPage = (path: string, page: React.ReactElement) => {
                 <Route path="/" element={<div>public landing page</div>} />
                 <Route path="/login" element={<div>sign in form</div>} />
               </Routes>
-            </NotificationProvider>
           </AuthProvider>
         </LanguageContext.Provider>
       </AppContext.Provider>

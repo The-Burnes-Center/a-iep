@@ -5,7 +5,6 @@ import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { UserProfile } from '../../common/types';
-import { useNotifications } from '../../components/notif-manager';
 import { useLanguage } from '../../common/language-context'; 
 import './ProfileForms.css';
 
@@ -14,7 +13,6 @@ export default function ViewAndAddParent() {
   const apiClient = new ApiClient(appContext);
   const iepDocumentClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
-  const { addNotification } = useNotifications();
   const { t } = useLanguage();
 
   const [loading, setLoading] = useState(true);
@@ -87,7 +85,6 @@ export default function ViewAndAddParent() {
       // Update the profile with parent name
       await apiClient.profile.updateProfile(updatedProfileData);
       // Same wording as the Account Center's name form, so one key serves both
-      addNotification('success', t('updateProfile.success.saved'));
       
       // Check if user has any children - if not, create a default child
       if (!profile?.children || profile.children.length === 0) {
@@ -121,8 +118,9 @@ export default function ViewAndAddParent() {
         navigate('/iep-documents');
       }
     } catch (err) {
-      // console.error('Error saving parent name:', err);
-      addNotification('error', t('updateProfile.error.saveFailed'));
+      // Inline, on the banner this page already renders: this failure used to
+      // be reported only by a toast.
+      setError(t('updateProfile.error.saveFailed'));
     } finally {
       setSaving(false);
     }

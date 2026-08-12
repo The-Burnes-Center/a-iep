@@ -8,8 +8,6 @@ import { AuthProvider } from "../common/auth-provider";
 import { Alert, Spinner } from "react-bootstrap";
 import { initAnalytics } from "../common/helpers/analytics-helper";
 import AppRoutes from "./AppRoutes";
-import { NotificationProvider } from "./notif-manager";
-import NotificationToasts from "./NotificationToasts";
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 
@@ -106,27 +104,15 @@ export default function AppConfigured() {
   // Always render the router with all providers
   // The router will handle showing login vs protected routes based on auth state
   // Provider hierarchy:
-  //   LanguageProvider > AuthProvider > QueryClientProvider > BrowserRouter >
-  //   NotificationProvider > AppRoutes
+  //   LanguageProvider > AuthProvider > QueryClientProvider > BrowserRouter
   // This order is correct: no outer provider depends on hooks from an inner one.
-  //
-  // NotificationProvider sits here, and not inside AppRoutes, for two reasons.
-  // It has to be under LanguageProvider, because the toast chrome calls t() and
-  // LanguageProvider renders nothing until a dictionary has loaded. And it has
-  // to be OUTSIDE <Routes>, which AppRoutes owns: the profile forms and the
-  // delete flows all raise a notification and then navigate, so a queue that
-  // lived inside the route element would unmount with the page that filled it.
-  // NotificationToasts is a sibling of AppRoutes for the same reason.
   return (
     <AppContext.Provider value={config}>
       <LanguageProvider>
         <AuthProvider>
           <QueryClientProvider client={queryClient}>
             <BrowserRouter>
-              <NotificationProvider>
-                <NotificationToasts />
-                <AppRoutes />
-              </NotificationProvider>
+              <AppRoutes />
             </BrowserRouter>
           </QueryClientProvider>
         </AuthProvider>

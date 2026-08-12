@@ -1,31 +1,20 @@
 /**
- * app-configured is where the app's provider tree is decided, and two of the
- * things decided there have gone wrong before.
+ * The boot and configuration-error screens.
  *
- * The notification queue was mounted only by a layout component nothing routed
- * imported, so roughly ten addNotification calls resolved to the context
- * default and were discarded for two years. Mounting it correctly is not just
- * "a provider exists": it has to sit under LanguageProvider, so the toast
- * chrome can call t(), and OUTSIDE <Routes>, because every profile form saves
- * and then navigates. So this suite renders the REAL AppConfigured and stubs
- * only AppRoutes, with a route pair that raises a toast and immediately leaves
- * the page. A provider moved inside the route element passes a hand-built
- * tree and fails here.
+ * These render ABOVE LanguageProvider, which is why their text is English, and
+ * they are the only thing a parent sees if /aws-exports.json is missing. They
+ * were Cloudscape's StatusIndicator and Alert until the Cloudscape removal;
+ * these tests pin the accessible semantics that swap had to preserve, which is
+ * the part a visual check would miss.
  *
- * The boot and configuration-error screens are the other half: they render
- * ABOVE LanguageProvider, which is why their text is English, and they are the
- * only thing a parent sees if /aws-exports.json is missing.
+ * This file also used to cover the notification queue's position in the
+ * provider tree. The toasts were removed at DB's request, so there is nothing
+ * left to pin there.
  */
 import React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import AppConfigured from "./app-configured";
-
-const { SUCCESS_TEXT, ERROR_TEXT, NEXT_PAGE } = vi.hoisted(() => ({
-  SUCCESS_TEXT: "Your translation is ready",
-  ERROR_TEXT: "Saving failed",
-  NEXT_PAGE: "the page after the redirect",
-}));
 
 const Amplify = vi.hoisted(() => ({ configure: vi.fn() }));
 const Auth = vi.hoisted(() => ({
@@ -34,44 +23,8 @@ const Auth = vi.hoisted(() => ({
 }));
 vi.mock("aws-amplify", () => ({ Amplify, Auth }));
 
-/**
- * Stands in for the route tree. It owns a real <Routes>, exactly as the real
- * AppRoutes does, so "outside <Routes>" is a property this suite can actually
- * observe: the home route raises a notification and navigates away in the same
- * handler, which is what ConsentForm, ViewAndAddChild and DeleteProfileModal
- * all do.
- */
-vi.mock("./AppRoutes", async () => {
-  const { Route, Routes, useNavigate } = await import("react-router-dom");
-  const { useNotifications } = await import("./notif-manager");
-
-  const SaveAndLeave = () => {
-    const { addNotification } = useNotifications();
-    const navigate = useNavigate();
-    return (
-      <>
-        <button
-          onClick={() => {
-            addNotification("success", SUCCESS_TEXT);
-            navigate("/next");
-          }}
-        >
-          save and leave
-        </button>
-        <button onClick={() => addNotification("error", ERROR_TEXT)}>fail in place</button>
-      </>
-    );
-  };
-
-  return {
-    default: () => (
-      <Routes>
-        <Route path="/" element={<SaveAndLeave />} />
-        <Route path="/next" element={<div>{NEXT_PAGE}</div>} />
-      </Routes>
-    ),
-  };
-});
+/** The route tree is not what this file is about; keep it out of the way. */
+vi.mock("./AppRoutes", () => ({ default: () => <div>the routed app</div> }));
 
 const CONFIG = {
   httpEndpoint: "https://api.example.test/api/",
@@ -93,16 +46,9 @@ const stubConfigFetch = (answer: "ok" | "reject" | "pending") => {
   );
 };
 
-/** Renders and waits for the language dictionary, which gates all children. */
-const renderApp = async () => {
-  render(<AppConfigured />);
-  await screen.findByText("save and leave");
-};
-
 beforeEach(() => {
   // AppConfigured mounts a real BrowserRouter, which reads jsdom's one shared
-  // history. Without this reset the navigation in the first test below leaves
-  // every later test starting on /next.
+  // history.
   window.history.pushState({}, "", "/");
   Auth.currentAuthenticatedUser.mockRejectedValue(new Error("not signed in"));
   // console.error is the real one; the error-state test drives a rejected
@@ -138,47 +84,14 @@ describe("boot states", () => {
       "/aws-exports.json",
     );
   });
-});
 
-describe("the notification queue in the real provider tree", () => {
-  test("a toast raised just before a navigation survives it", async () => {
+  test("renders the routed app once the configuration is in", async () => {
     stubConfigFetch("ok");
-    await renderApp();
+    render(<AppConfigured />);
 
-    fireEvent.click(screen.getByText("save and leave"));
-
-    // The page that raised it is gone...
-    expect(await screen.findByText(NEXT_PAGE)).toBeInTheDocument();
-    expect(screen.queryByText("save and leave")).not.toBeInTheDocument();
-    // ...and the confirmation is still on screen. This is the whole reason the
-    // provider sits above <Routes> rather than inside a route element.
-    expect(screen.getByText(SUCCESS_TEXT)).toBeInTheDocument();
-  });
-
-  test("an error raised from a route reaches the parent as an alert", async () => {
-    stubConfigFetch("ok");
-    await renderApp();
-
-    fireEvent.click(screen.getByText("fail in place"));
-
-    const toast = await screen.findByTestId("notification-error");
-    expect(toast).toHaveTextContent(ERROR_TEXT);
-    expect(toast).toHaveAttribute("role", "alert");
-  });
-
-  test("the dismiss control is translated by the dictionary this tree loads", async () => {
-    stubConfigFetch("ok");
-    await renderApp();
-    fireEvent.click(screen.getByText("fail in place"));
-
-    // Not the raw key: proves the toast really is under LanguageProvider, with
-    // en.json loaded, rather than falling back to the identity t() of the
-    // default context.
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Dismiss notification" }),
-      ).toBeInTheDocument(),
-    );
-    expect(screen.queryByRole("button", { name: "notifications.dismiss" })).toBeNull();
+    // The provider tree resolving at all is the thing here: LanguageProvider
+    // renders null until its dictionary lands, so a broken provider order shows
+    // up as this never appearing.
+    expect(await screen.findByText("the routed app")).toBeInTheDocument();
   });
 });

@@ -25,7 +25,6 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import IEPSummarizationAndTranslation from "./IEPSummarizationAndTranslation";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
-import { NotificationProvider } from "../../components/notif-manager";
 import type { AppConfig } from "../../common/types";
 import type { SupportedLanguage } from "../../common/languages";
 
@@ -129,7 +128,6 @@ const renderPage = (language: SupportedLanguage = "en") => {
     <MemoryRouter initialEntries={["/summary-and-translations"]}>
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
-          <NotificationProvider>
             <Routes>
               <Route path="/summary-and-translations" element={<IEPSummarizationAndTranslation />} />
               <Route path="/iep-documents" element={<div>documents page</div>} />
@@ -139,7 +137,6 @@ const renderPage = (language: SupportedLanguage = "en") => {
                   sent here. */}
               <Route path="/" element={<div>{PUBLIC_LANDING}</div>} />
             </Routes>
-          </NotificationProvider>
         </LanguageContext.Provider>
       </AppContext.Provider>
     </MemoryRouter>,
