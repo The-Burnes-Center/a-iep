@@ -42,6 +42,20 @@ export const TRANSLATION_LANGUAGE = 'es';
 /** Function words that appear in essentially any Spanish paragraph. */
 const SPANISH_MARKERS = [' de ', ' que ', ' la ', ' los ', ' para ', ' con ', ' en '];
 
+/**
+ * The language the on-demand translation journey asks for, AFTER the pipeline
+ * has already run. It has to be one the upload did not produce: the document is
+ * uploaded with the profile on TRANSLATION_LANGUAGE, so it lands holding
+ * English plus Spanish, and pinning the profile to a THIRD language is exactly
+ * the "my language is missing" state the summary page's translate banner exists
+ * for.
+ *
+ * Chinese, because it ships in every environment (Arabic does not, see
+ * lib/user-interface/index.ts) and one regex over its script settles "this pane
+ * really holds a translation" without the function-word list Spanish needs.
+ */
+export const ON_DEMAND_LANGUAGE = 'zh';
+
 // --- Budgets (nightly, generous; the pipeline is OCR + LLM + translations) --
 /** The S3 event -> metadata-handler hop, then the first PROCESSING status. */
 export const PROCESSING_APPEARS_MS = 3 * 60_000;
@@ -56,6 +70,16 @@ export const SUMMARY_APPEARS_MS = 12 * 60_000;
  * pays for a real synthesis.
  */
 export const TTS_READY_MS = 4 * 60_000;
+/**
+ * One on-demand, whole-document translation: from the endpoint's 202 to the new
+ * language's pane on screen.
+ *
+ * Deliberately the same 10 minutes as the summary page's own backstop
+ * (TRANSLATION_TIMEOUT_MS in IEPSummarizationAndTranslation.tsx). Past that the
+ * page stops believing the request and shows the parent a retryable error, so a
+ * spec that waited longer would be asserting a state no parent is ever shown.
+ */
+export const ON_DEMAND_TRANSLATION_MS = 10 * 60_000;
 
 // --- Test ids added to the frontend for these journeys ---------------------
 export const TESTID = {
@@ -71,6 +95,15 @@ export const TESTID = {
   section: 'summary-section',
   /** Language items in the summary page's dropdown. */
   languageOption: (lang: string) => `summary-language-option-${lang}`,
+  /** Heading of the "your language has no translation yet" banner. Present in
+   * both of the banner's states, so it is what says the OFFER still stands. */
+  translateBanner: 'translate-preferred-language',
+  /** The banner's "translate it now" button; absent while one is running. */
+  translateNow: 'translate-now-button',
+  /** The inline progress that replaces that button while one is running. */
+  translationProgress: 'translation-progress',
+  /** The banner's inline error, shown when a request or a run failed. */
+  translationError: 'translation-error',
   /** "UPDATE IEP DOCUMENT" card footer -> /iep-documents. */
   replaceDocument: 'replace-document-link',
   /** Save/download button (server-generated PDF). */
@@ -108,6 +141,58 @@ export async function gotoSummaryPage(page: Page): Promise<void> {
   await page.goto(appUrl('/summary-and-translations'));
 }
 
+/**
+ * The routes the app's nav bar links to, in the order MobileTopNavigation
+ * renders its own `navigationItems` array.
+ *
+ * Those buttons carry no test id, and their aria-label is built from the
+ * TRANSLATED nav label, so with the UI in Spanish or Chinese neither the
+ * visible copy nor a role+name lookup can find them. The order of the array is
+ * the one language-independent handle there is, so they are addressed
+ * positionally, and every tap then asserts the route it actually landed on: a
+ * reorder fails saying so instead of quietly exercising the wrong button.
+ */
+const APP_NAV_ROUTES = [
+  '/summary-and-translations',
+  '/support-center',
+  '/parent-rights',
+  '/account-center',
+] as const;
+
+export type AppNavRoute = typeof APP_NAV_ROUTES[number];
+
+/**
+ * Tap a button in the app's nav bar and wait for the route it owns.
+ *
+ * This is a real react-router navigation, i.e. it UNMOUNTS the page you were
+ * on. That is the point wherever this is used.
+ */
+export async function tapAppNav(page: Page, route: AppNavRoute): Promise<void> {
+  const index = APP_NAV_ROUTES.indexOf(route);
+  // 'Navigate to ' is hardcoded English in MobileTopNavigation and only the
+  // label after it is translated, so this prefix match holds in any language.
+  // Scoped to the component's own wrapper because the landing page's nav builds
+  // its aria-labels the same way, and react-bootstrap's tab nav (hidden by CSS
+  // on the summary page, but in the DOM) also uses the class `nav-item`.
+  const buttons = page.locator('.mobile-top-navigation button[aria-label^="Navigate to "]');
+  await expect(
+    buttons,
+    `the app nav did not render its ${APP_NAV_ROUTES.length} buttons ` +
+    '(MobileTopNavigation changed, or this page does not render it)'
+  ).toHaveCount(APP_NAV_ROUTES.length);
+
+  await buttons.nth(index).click();
+  try {
+    await page.waitForURL((url) => url.pathname === route, { timeout: 60_000 });
+  } catch {
+    throw new Error(
+      `tapping app-nav button ${index} landed on ${new URL(page.url()).pathname}, ` +
+      `not ${route} (MobileTopNavigation's navigationItems order changed: ` +
+      'update APP_NAV_ROUTES to match)'
+    );
+  }
+}
+
 /** True when /iep-documents reports a document already on file. */
 export async function hasDocumentOnFile(page: Page): Promise<boolean> {
   const present = page.getByTestId(TESTID.documentOnFile);
@@ -122,6 +207,10 @@ export async function hasDocumentOnFile(page: Page): Promise<boolean> {
  * This has to happen BEFORE an upload: check_language_prefs reads
  * secondaryLanguage from the profile when the state machine runs, so a
  * document uploaded while the profile says English is never translated.
+ *
+ * It is also how the on-demand journey moves the profile onto a language the
+ * finished document does NOT have (and back again afterwards), which is what
+ * makes the summary page offer to generate one.
  *
  * Returns without touching anything when the language is already set. The
  * picker itself is helpers/profile.ts's territory, so its locators and its
@@ -144,7 +233,8 @@ export async function ensureTranslationLanguage(
   expect(
     await readLanguagePreference(page),
     `the profile's translation language did not stick on ${language} ` +
-    '(the update-profile call failed, so the pipeline would produce no translation)'
+    '(the update-profile call failed: an upload would then produce no translation, ' +
+    'and the summary page would not offer to generate one)'
   ).toBe(language);
 }
 
@@ -332,4 +422,23 @@ export function expectSpanishAndDifferent(spanish: string, english: string): voi
     `the translated summary does not read as Spanish (matched ${hits.length} of the ` +
     `common function words ${SPANISH_MARKERS.join(',')}): ${spanish.slice(0, 200)}`
   ).toBeGreaterThanOrEqual(3);
+}
+
+/**
+ * Assert an ON_DEMAND_LANGUAGE pane holds a real translation.
+ *
+ * One regex where Spanish needs a function-word list: no English (and no
+ * Spanish) text can contain a CJK ideograph, so this cannot pass on content the
+ * translation step left untranslated.
+ */
+export function expectChineseTranslation(text: string): void {
+  expect(
+    text.length,
+    'the requested translation is suspiciously short to be a real one'
+  ).toBeGreaterThan(120);
+  expect(
+    /[\u4e00-\u9fff]/.test(text),
+    `the ${ON_DEMAND_LANGUAGE} pane holds no Chinese characters, so the on-demand ` +
+    `translation produced untranslated content: ${text.slice(0, 200)}`
+  ).toBe(true);
 }

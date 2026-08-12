@@ -21,6 +21,7 @@ import {
   isRequestedTranslationReady,
   isTranslationInFlight,
   mapTranslationResponse,
+  resumeTranslationRequest,
   shouldOfferTranslation,
   shouldPollForUpdates,
   shouldSuppressProcessingTakeover,
@@ -250,6 +251,167 @@ describe('shouldSuppressProcessingTakeover', () => {
         hasEnglishContent: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe('resumeTranslationRequest', () => {
+  // REGRESSION. The request state lived only in the summary page's useState,
+  // and the bottom nav is a route change, so leaving for Account and coming
+  // back unmounted the page and reset it to idle. The translation kept running
+  // and the content did land, but the progress bar was gone for the rest of the
+  // wait, the "Translate it now" button came back as though nothing had been
+  // pressed, the arrival never switched the parent onto their language or said
+  // anything, and a run that failed produced no message at all.
+
+  const RESUMED = {
+    phase: 'running',
+    language: 'es',
+    messageKey: 'summary.translate.alreadyRunning',
+  };
+
+  test('rebuilds a running request from the document alone', () => {
+    expect(
+      resumeTranslationRequest({
+        documentStatus: 'PROCESSING_TRANSLATIONS',
+        preferredLanguage: 'es',
+        translatedLanguages: ['en'],
+      }),
+    ).toEqual(RESUMED);
+  });
+
+  test('what it rebuilds is in flight, so the whole wait comes back with it', () => {
+    // The progress bar, forcePolling, the picker lock, the arrival switch, the
+    // failure message and the timeout backstop all read the phase. Pinning it
+    // here is what says the resumed state drives them and not just the bar.
+    const resumed = resumeTranslationRequest({
+      documentStatus: 'PROCESSING_TRANSLATIONS',
+      preferredLanguage: 'es',
+      translatedLanguages: ['en'],
+    });
+
+    expect(isTranslationInFlight(resumed.phase)).toBe(true);
+    // forcePolling is exactly isTranslationInFlight(phase), so a resumed
+    // request keeps the poller running even if the next read lags back to
+    // PROCESSED — which is the one way the page could still strand a parent.
+    expect(shouldPollForUpdates('PROCESSED', isTranslationInFlight(resumed.phase))).toBe(true);
+    expect(
+      isRequestedTranslationReady({
+        ...resumed,
+        documentStatus: 'PROCESSED',
+        translatedLanguages: ['en', 'es'],
+      }),
+    ).toBe(true);
+    expect(
+      hasRequestedTranslationFailed({
+        ...resumed,
+        documentStatus: 'PROCESSED',
+        currentStep: 'translation_failed',
+        translatedLanguages: ['en'],
+      }),
+    ).toBe(true);
+  });
+
+  test('says the work is already under way, not that it is starting', () => {
+    // A parent arriving back at this page did not just press anything, so the
+    // 202's "Starting the translation..." would be a small lie about what
+    // happened and about how much longer it will take.
+    const resumed = resumeTranslationRequest({
+      documentStatus: 'PROCESSING_TRANSLATIONS',
+      preferredLanguage: 'es',
+      translatedLanguages: ['en'],
+    });
+
+    expect(resumed.messageKey).toBe('summary.translate.alreadyRunning');
+    expect(resumed.messageKey).not.toBe(
+      mapTranslationResponse({ httpStatus: 202 }).messageKey,
+    );
+  });
+
+  test('nothing to resume once the translation has landed', () => {
+    // Otherwise the page would re-adopt a running phase immediately after the
+    // arrival effect cleared it, and spin on a document that is finished.
+    expect(
+      resumeTranslationRequest({
+        documentStatus: 'PROCESSING_TRANSLATIONS',
+        preferredLanguage: 'es',
+        translatedLanguages: ['en', 'es'],
+      }),
+    ).toBeNull();
+  });
+
+  test.each([
+    ['PROCESSED', 'a finished document'],
+    ['PROCESSING', 'a first upload still being parsed'],
+    ['FAILED', 'a document that failed outright'],
+    [undefined, 'a document with no status yet'],
+  ])('%s is not a translation in flight (%s)', (documentStatus) => {
+    expect(
+      resumeTranslationRequest({
+        documentStatus,
+        preferredLanguage: 'es',
+        translatedLanguages: ['en'],
+      }),
+    ).toBeNull();
+  });
+
+  test('PROCESSING_TRANSLATIONS can only be a request this parent made', () => {
+    // Load-bearing assumption, written down so it is checked rather than
+    // remembered: the upload pipeline (iep-processing.asl.json) writes
+    // PROCESSING throughout and then PROCESSED, and _claim_translation_slot in
+    // translation-request-handler is the only writer of this status anywhere.
+    // That single writer is why the status alone is enough to resume, with no
+    // need to also match current_step.
+    expect(shouldPollForUpdates('PROCESSING_TRANSLATIONS')).toBe(true);
+    expect(
+      resumeTranslationRequest({
+        documentStatus: 'PROCESSING_TRANSLATIONS',
+        preferredLanguage: 'es',
+        translatedLanguages: ['en'],
+      }),
+    ).not.toBeNull();
+  });
+
+  test.each([
+    ['en', 'an English-preferring parent has nothing to translate'],
+    [null, 'no preference loaded yet'],
+    [undefined, 'no profile at all'],
+    ['', 'an empty preference'],
+  ])('%s resumes nothing (%s)', (preferredLanguage) => {
+    expect(
+      resumeTranslationRequest({
+        documentStatus: 'PROCESSING_TRANSLATIONS',
+        preferredLanguage,
+        translatedLanguages: ['en'],
+      }),
+    ).toBeNull();
+  });
+
+  test('survives a document with no translated languages recorded', () => {
+    expect(
+      resumeTranslationRequest({
+        documentStatus: 'PROCESSING_TRANSLATIONS',
+        preferredLanguage: 'es',
+        translatedLanguages: null,
+      }),
+    ).toEqual(RESUMED);
+  });
+
+  test('agrees with the takeover rule about the same document', () => {
+    // Both answer "is a translation running for a document the parent can
+    // already read", and disagreeing would put the progress bar behind the
+    // full-screen spinner it is meant to replace.
+    const document = { documentStatus: 'PROCESSING_TRANSLATIONS' };
+
+    expect(
+      shouldSuppressProcessingTakeover({ ...document, hasEnglishContent: true }),
+    ).toBe(true);
+    expect(
+      resumeTranslationRequest({
+        ...document,
+        preferredLanguage: 'es',
+        translatedLanguages: ['en'],
+      }),
+    ).not.toBeNull();
   });
 });
 

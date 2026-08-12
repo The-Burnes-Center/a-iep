@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import IEPSummarizationAndTranslation from "./IEPSummarizationAndTranslation";
+import MobileTopNavigation from "../../components/MobileTopNavigation";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
 import { NotificationProvider, useNotifications } from "../../components/notif-manager";
@@ -39,6 +40,14 @@ const DOCUMENTS_URL = `${API_BASE}/profile/children/${CHILD_ID}/documents`;
 
 const ENGLISH_SUMMARY = "The English summary paragraph.";
 const SPANISH_SUMMARY = "El resumen en espanol.";
+const ACCOUNT_LANDING = "you are on the account page";
+
+/**
+ * The bottom nav labels its buttons with `Navigate to ${t(key)}`, and t() is the
+ * identity here, so these are the keys.
+ */
+const NAV_TO_ACCOUNT = "Navigate to navigation.account";
+const NAV_TO_SUMMARY = "Navigate to navigation.summary";
 
 const appConfig = {
   httpEndpoint: `${API_BASE}/`,
@@ -107,7 +116,21 @@ const NotificationProbe = () => {
   );
 };
 
-const renderPage = (language: SupportedLanguage = "es") => {
+/**
+ * Stands in for Account Center. It carries the real bottom nav, because that is
+ * how a parent gets back and the tests below need the trip to be a round one.
+ */
+const AccountPage = () => (
+  <div>
+    {ACCOUNT_LANDING}
+    <MobileTopNavigation />
+  </div>
+);
+
+const renderPage = (
+  language: SupportedLanguage = "es",
+  initialPath = "/summary",
+) => {
   const languageValue = {
     language,
     setLanguage: vi.fn(),
@@ -119,13 +142,23 @@ const renderPage = (language: SupportedLanguage = "es") => {
   };
 
   render(
-    <MemoryRouter initialEntries={["/summary"]}>
+    <MemoryRouter initialEntries={[initialPath]}>
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
           <NotificationProvider>
+            {/* Outside <Routes> so a toast raised before a navigation is still
+                observable after it. */}
             <NotificationProbe />
             <Routes>
               <Route path="/summary" element={<IEPSummarizationAndTranslation />} />
+              {/* The page's REAL path, and the tab the bottom nav's own buttons
+                  point at, so a trip through the nav is a genuine route change
+                  rather than a simulated unmount. */}
+              <Route
+                path="/summary-and-translations"
+                element={<IEPSummarizationAndTranslation />}
+              />
+              <Route path="/account-center" element={<AccountPage />} />
               <Route path="/iep-documents" element={<div>documents page</div>} />
               <Route path="/" element={<div>home page</div>} />
             </Routes>
@@ -306,6 +339,235 @@ describe("when the translation lands", () => {
     expect(screen.queryByTestId("translation-progress")).not.toBeInTheDocument();
     // Request finished: the picker is usable again.
     expect(screen.getByRole("button", { name: "ESPAÑOL" })).toBeEnabled();
+  });
+});
+
+describe("stepping away to another tab mid-translation", () => {
+  // REGRESSION, and the exact reported journey: start a translation, tap
+  // Account, come back. The bottom nav is a ROUTE change, so the trip unmounts
+  // this page and resets translationRequest to idle. The backend kept working
+  // and the content did land, but for the rest of the wait the parent got the
+  // "Translate it now" button back as if nothing had happened, the arrival
+  // neither switched them onto their language nor said anything, and a run that
+  // failed reported nothing at all. Every one of those reads the phase.
+  //
+  // These go through the nav's own buttons rather than calling unmount(),
+  // because "leaving this page is an unmount" IS the premise under test.
+
+  const arriveMidTranslation = async () => {
+    renderPage("es", "/summary-and-translations");
+    await settle();
+    await clickTranslate();
+    // The request flips the document server-side; the poller reads that back.
+    documentPayload = englishOnlyDocument({ status: "PROCESSING_TRANSLATIONS" });
+    await settle(POLL_INTERVAL_MS);
+  };
+
+  const stepAwayAndBack = async () => {
+    fireEvent.click(screen.getByRole("button", { name: NAV_TO_ACCOUNT }));
+    await settle();
+    // The premise, asserted rather than assumed: the summary page is really
+    // gone while the parent is on Account. If this ever stops being true the
+    // tests below would pass for the wrong reason.
+    expect(screen.getByText(ACCOUNT_LANDING)).toBeInTheDocument();
+    expect(screen.queryByTestId("translation-progress")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: NAV_TO_SUMMARY }));
+    await settle();
+  };
+
+  test("the wait is still on screen when they come back", async () => {
+    await arriveMidTranslation();
+    expect(screen.getByTestId("translation-progress")).toBeInTheDocument();
+
+    await stepAwayAndBack();
+
+    expect(screen.getByTestId("translation-progress")).toBeInTheDocument();
+    // And the button is NOT back offering work that is already running.
+    expect(screen.queryByTestId("translate-now-button")).not.toBeInTheDocument();
+  });
+
+  test("it says the work is already under way, not that it is starting", async () => {
+    await arriveMidTranslation();
+
+    await stepAwayAndBack();
+
+    // They did not just press anything, so the 202's wording would misdescribe
+    // both what happened and how much longer it takes.
+    expect(screen.getByTestId("translation-progress")).toHaveTextContent(
+      "summary.translate.alreadyRunning",
+    );
+  });
+
+  test("the English content is still readable behind it", async () => {
+    await arriveMidTranslation();
+
+    await stepAwayAndBack();
+
+    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(ENGLISH_SUMMARY);
+  });
+
+  test("the document keeps being polled after the return", async () => {
+    await arriveMidTranslation();
+    await stepAwayAndBack();
+    const afterReturn = countCalls(DOCUMENTS_URL);
+
+    await settle(POLL_INTERVAL_MS);
+
+    expect(countCalls(DOCUMENTS_URL)).toBe(afterReturn + 1);
+  });
+
+  test("the arrival still switches them onto their language and confirms it", async () => {
+    await arriveMidTranslation();
+    await stepAwayAndBack();
+
+    documentPayload = translatedDocument();
+    await settle(POLL_INTERVAL_MS);
+
+    expect(screen.getByTestId("summary-text-es")).toHaveTextContent(SPANISH_SUMMARY);
+    expect(screen.getByRole("button", { name: "ESPAÑOL" })).toBeInTheDocument();
+    expect(screen.getByTestId("notifications")).toHaveTextContent("summary.translate.ready");
+  });
+
+  test("a run that fails while they are away is still reported", async () => {
+    await arriveMidTranslation();
+    await stepAwayAndBack();
+
+    // A failed add-on translation deliberately leaves the document PROCESSED,
+    // so current_step is the only signal there is.
+    documentPayload = englishOnlyDocument({ current_step: "translation_failed" });
+    await settle(POLL_INTERVAL_MS);
+
+    expect(screen.getByTestId("translation-error")).toHaveTextContent(
+      "summary.translate.error.failed",
+    );
+    expect(screen.getByTestId("translate-now-button")).toBeInTheDocument();
+    expect(screen.queryByTestId("translation-progress")).not.toBeInTheDocument();
+  });
+
+  test("a request that vanished while they were away still hits the backstop", async () => {
+    await arriveMidTranslation();
+    await stepAwayAndBack();
+
+    await settle(TRANSLATION_TIMEOUT_MS);
+
+    expect(screen.getByTestId("translation-error")).toHaveTextContent(
+      "summary.translate.error.generic",
+    );
+    expect(screen.getByTestId("translate-now-button")).toBeInTheDocument();
+  });
+
+  test("no wait is invented for a document that is not translating", async () => {
+    // Control for all of the above: the progress state is rebuilt from the
+    // document, so a document with nothing running must rebuild nothing.
+    renderPage("es", "/summary-and-translations");
+    await settle();
+
+    await stepAwayAndBack();
+
+    expect(screen.queryByTestId("translation-progress")).not.toBeInTheDocument();
+    expect(screen.getByTestId("translate-now-button")).toBeInTheDocument();
+  });
+
+  test("waits for the profile before deciding which language is running", async () => {
+    // preferredLanguage falls back to the language CONTEXT until the profile
+    // lands, so a document read that wins the race would pin the resumed
+    // request to the wrong language — and because a request is only adopted
+    // from idle, that wrong answer would then stick for the whole run: the
+    // arrival is never recognised and the parent watches the bar until the
+    // backstop fires.
+    let releaseProfile = () => {};
+    const pageProfileLoaded = new Promise<void>((resolve) => {
+      releaseProfile = resolve;
+    });
+
+    // TWO independent /profile reads race here: this page loads the profile
+    // for itself, and IEPDocumentClient loads it again to find the child id
+    // before it can read the document. Holding only the page's own (issued
+    // first, its effect is declared before useDocumentFetch's) lets a document
+    // status arrive while preferredLanguage is still falling back to the
+    // language CONTEXT. That is the whole race, and it is reachable precisely
+    // because the two reads are separate calls.
+    let profileReads = 0;
+    documentPayload = englishOnlyDocument({ status: "PROCESSING_TRANSLATIONS" });
+    fetchMock = vi.fn(async (url: string) => {
+      if (url === `${API_BASE}/profile`) {
+        profileReads += 1;
+        if (profileReads === 1) await pageProfileLoaded;
+        // The profile says Spanish; the context below says Chinese.
+        return jsonResponse(200, {
+          profile: {
+            userId: "user-1",
+            secondaryLanguage: "es",
+            showOnboarding: false,
+            children: [{ childId: CHILD_ID, name: "Child" }],
+          },
+        });
+      }
+      if (url === DOCUMENTS_URL) return jsonResponse(200, documentPayload);
+      throw new Error(`unexpected fetch to ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const languageValue = {
+      language: "zh" as SupportedLanguage,
+      setLanguage: vi.fn(),
+      t: (key: string) => key,
+      translationsLoaded: true,
+      enabledLanguages: ["en", "es", "zh"] as SupportedLanguage[],
+    };
+    render(
+      <MemoryRouter initialEntries={["/summary-and-translations"]}>
+        <AppContext.Provider
+          value={{ ...appConfig, enabledLanguages: ["en", "es", "zh"] } as unknown as AppConfig}
+        >
+          <LanguageContext.Provider value={languageValue}>
+            <NotificationProvider>
+              <NotificationProbe />
+              <Routes>
+                <Route
+                  path="/summary-and-translations"
+                  element={<IEPSummarizationAndTranslation />}
+                />
+              </Routes>
+            </NotificationProvider>
+          </LanguageContext.Provider>
+        </AppContext.Provider>
+      </MemoryRouter>,
+    );
+
+    // The document lands first, while the profile is still in flight.
+    await settle();
+    releaseProfile();
+    await settle();
+
+    // Spanish is what the backend is producing, so Spanish arriving is what
+    // must end the wait.
+    documentPayload = translatedDocument();
+    await settle(POLL_INTERVAL_MS);
+
+    expect(screen.getByTestId("summary-text-es")).toHaveTextContent(SPANISH_SUMMARY);
+    expect(screen.getByTestId("notifications")).toHaveTextContent("summary.translate.ready");
+    expect(screen.queryByTestId("translation-progress")).not.toBeInTheDocument();
+  });
+
+  test("an error already shown is not resurrected into a spinner", async () => {
+    // The backstop fires while the document still says PROCESSING_TRANSLATIONS.
+    // Rebuilding the running phase from that status would undo the backstop and
+    // loop for as long as the status held, which is worse than the bug this
+    // whole block fixes: a spinner that provably cannot end.
+    await arriveMidTranslation();
+    await settle(TRANSLATION_TIMEOUT_MS);
+
+    expect(screen.getByTestId("translation-error")).toHaveTextContent(
+      "summary.translate.error.generic",
+    );
+    expect(screen.queryByTestId("translation-progress")).not.toBeInTheDocument();
+
+    // Still PROCESSING_TRANSLATIONS, and still not a spinner, one poll later.
+    await settle(POLL_INTERVAL_MS * 2);
+    expect(screen.queryByTestId("translation-progress")).not.toBeInTheDocument();
+    expect(screen.getByTestId("translate-now-button")).toBeInTheDocument();
   });
 });
 

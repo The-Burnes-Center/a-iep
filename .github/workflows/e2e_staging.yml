@@ -24,7 +24,12 @@ jobs:
   e2e:
     name: E2E journeys
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Sized for the nightly (run_pipeline: true), which is the only long run:
+    # two full pipeline passes at up to 12 minutes each, then an on-demand
+    # translation at up to 10, plus the fast journeys, a cold TTS synthesis and
+    # the setup steps. This is a ceiling, not a budget, and the per-deploy run
+    # skips every @pipeline stage, so it costs that run nothing.
+    timeout-minutes: 70
     # The journeys share stateful test users (+1555555011x/012x), so two E2E
     # runs must never overlap: a deploy-triggered run and the nightly queue
     # behind each other instead.

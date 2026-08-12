@@ -46,8 +46,18 @@ export declare const isTranslationInFlight: (
   phase: TranslationRequestPhase,
 ) => boolean;
 
+/** Null when nothing is in flight for this parent. */
+export declare const resumeTranslationRequest: (input: {
+  documentStatus: string | null | undefined;
+  preferredLanguage: string | null | undefined;
+  translatedLanguages: readonly string[] | null | undefined;
+}) => TranslationRequestState | null;
+
+/**
+ * No `phase`: this one is decided by the document alone, so that it survives an
+ * unmount. Callers used to pass one and it was silently ignored.
+ */
 export declare const shouldSuppressProcessingTakeover: (input: {
-  phase: TranslationRequestPhase;
   documentStatus: string | null | undefined;
   hasEnglishContent: boolean;
 }) => boolean;

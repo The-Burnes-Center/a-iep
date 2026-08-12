@@ -64,7 +64,7 @@ All fictional (NANP 555-01XX), none can ever receive SMS.
 | +15555550111 | Stable login user (login, language specs). Persists across runs. |
 | +15555550112 | Lockout user (wrong-OTP spec). Persists across runs. |
 | +15555550113 | Profile / account-center user. Persists across runs. |
-| +15555550114 | Documents user (upload, translations, PDF export, replace) and the TTS spec's source of a processed document. Persists across runs; left holding a processed Spanish-preference document. |
+| +15555550114 | Documents user (upload, translations, PDF export, replace, on-demand translation) and the TTS spec's source of a processed document. Persists across runs; left holding a processed Spanish-preference document. Its nightly document also spends one of its 12 on-demand translation attempts; each upload mints a new document, so the count never accumulates. |
 | +15555550120 | Re-signup journey burner: the only number that runs a real Cognito sign-up. Healed (delete + admin-create) inside the spec each attempt, admin-deleted in its `afterEach`. |
 | +15555550121 | Referral journey's referrer: owns the personal invite code, stats accumulate across runs. Persists. |
 | +15555550122 | Referral journey's invited-parent burner: healed (delete + admin-create) each attempt, admin-deleted in `afterEach`. |
@@ -83,8 +83,9 @@ permanent random password, mirroring the smoke users).
   document lifecycle spec (upload a synthetic PDF, wait up to 12 minutes for
   the processed summary, then deliberately replace it and wait again, which
   both pins the replace path and leaves a processed document behind for
-  `tts.spec.ts`). Uploads REPLACE the child's previous document, so pipeline
-  runs are self-cleaning.
+  `tts.spec.ts`, then ask that document for a third language on demand and
+  wait up to 10 more). Uploads REPLACE the child's previous document, so
+  pipeline runs are self-cleaning.
 - Runs are serialized (one worker here, a shared concurrency group in CI)
   because the journeys share stateful users.
 

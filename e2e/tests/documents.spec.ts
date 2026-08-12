@@ -1,7 +1,8 @@
 /**
  * The document lifecycle, driven from the browser: upload a synthetic IEP,
  * watch the pipeline run, read the summary in English and in Spanish, save it
- * as a PDF, then replace the document and watch the pipeline run again.
+ * as a PDF, replace the document and watch the pipeline run again, then ask
+ * for a language the finished document does not have and watch that arrive.
  *
  * Supersedes the old upload.spec.ts (same @pipeline gate, same fixture, same
  * "you must see PROCESSING before you may believe a summary" discipline),
@@ -14,10 +15,18 @@
  * night, and a failure names the stage it died in.
  *
  * Self-cleaning by design: an upload REPLACES the child's previous document,
- * so repeated runs never accumulate anything. The final stage deliberately
- * waits for the replacement to finish processing, which leaves +15555550114
- * holding a healthy PROCESSED document for tts.spec.ts (and for the next
- * night's first assertions).
+ * so repeated runs never accumulate anything. Stage 9 deliberately waits for
+ * the replacement to finish processing, which leaves +15555550114 holding a
+ * healthy PROCESSED document for tts.spec.ts (and for the next night's first
+ * assertions); stages 10 and 11 then add a third language to that same
+ * document and hand the profile back on TRANSLATION_LANGUAGE, so what the
+ * account is left holding is a superset of what stage 9 guarantees.
+ *
+ * The on-demand translation costs money per attempt and is budgeted per
+ * document (MAX_TRANSLATION_ATTEMPTS in translation-request-handler, counted on
+ * the document row and never reset). Stage 10 spends exactly one, against the
+ * replacement uploaded in stage 8: uploads mint a new iepId, so that row's
+ * count starts at zero every night and nothing accumulates.
  *
  * NOT covered, because the product has no such control: deleting a document.
  * The API and the client method exist (iep-document-client.ts#deleteFile ->
@@ -32,11 +41,14 @@ import playwrightConfig from '../playwright.config';
 import { appUrl } from '../helpers/config';
 import {
   DOCUMENTS_USER,
+  ON_DEMAND_LANGUAGE,
+  ON_DEMAND_TRANSLATION_MS,
   PROCESSING_APPEARS_MS,
   SUMMARY_APPEARS_MS,
   TESTID,
   TRANSLATION_LANGUAGE,
   ensureTranslationLanguage,
+  expectChineseTranslation,
   expectSpanishAndDifferent,
   gotoDocumentsPage,
   gotoSummaryPage,
@@ -45,6 +57,7 @@ import {
   summaryPanel,
   summaryTextFor,
   selectSummaryLanguage,
+  tapAppNav,
   uploadFixture,
   waitForProcessedSummary,
   waitForProcessingMilestone,
@@ -67,12 +80,16 @@ const STAGE_TIMEOUT_MS = {
   processing: SUMMARY_APPEARS_MS + 3 * 60_000,
   /** A server-side PDF render and its download. */
   pdf: 4 * 60_000,
+  /** A profile switch, the translation request, and the nav round trip. */
+  translationRequest: 6 * 60_000,
+  /** A whole-document on-demand translation, then the profile restore. */
+  onDemandTranslation: ON_DEMAND_TRANSLATION_MS + 4 * 60_000,
 };
 
 let context: BrowserContext;
 let page: Page;
 
-test.describe('document lifecycle (upload -> summary -> translations -> replace)', { tag: '@pipeline' }, () => {
+test.describe('document lifecycle (upload -> summary -> translations -> replace -> translate on demand)', { tag: '@pipeline' }, () => {
   // Group-level modifier: evaluated per test, before the stages run, so an
   // ordinary deploy-gating run costs nothing here.
   test.skip(
@@ -240,5 +257,143 @@ test.describe('document lifecycle (upload -> summary -> translations -> replace)
     await expect(summaryPanel(page, TRANSLATION_LANGUAGE)).toBeVisible();
     await expect(page.getByTestId(TESTID.failed)).toHaveCount(0);
     console.log(`[documents] left ${DOCUMENTS_USER} with a freshly processed document at ${appUrl('/summary-and-translations')}`);
+  });
+
+  test('10. a missing translation can be asked for, and the request survives the app nav', async () => {
+    test.setTimeout(STAGE_TIMEOUT_MS.translationRequest);
+
+    // Stage 9's replacement carries English + Spanish, so moving the profile to
+    // a THIRD language is what puts this account in the state the banner is
+    // for: readable content, none of it in the parent's language.
+    //
+    // Running it here, against that replacement, is deliberate. Every accepted
+    // request spends one of a document's MAX_TRANSLATION_ATTEMPTS (12, in
+    // translation-request-handler), counted on the document row and never reset
+    // for its lifetime. Each upload mints a fresh iepId, so the row this stage
+    // charges is one night old and starts at zero: nightly runs spend 1 of 12
+    // each and cannot accumulate towards the cap. Moving this stage earlier
+    // would also mean restoring the profile before stage 8's upload, because
+    // check_language_prefs reads it at that moment.
+    await ensureTranslationLanguage(page, ON_DEMAND_LANGUAGE);
+    await gotoSummaryPage(page);
+
+    // The banner renders only for a document that HAS English content and has
+    // none in the preferred language, so its presence is the precondition for
+    // everything below.
+    await expect(
+      page.getByTestId(TESTID.translateBanner),
+      `the summary page does not offer to translate into ${ON_DEMAND_LANGUAGE} ` +
+      '(shouldOfferTranslation said no: is there English content on this document, ' +
+      'and did the profile switch stick?)'
+    ).toBeVisible({ timeout: 60_000 });
+
+    const translateNow = page.getByTestId(TESTID.translateNow);
+    const progress = page.getByTestId(TESTID.translationProgress);
+    await expect(
+      translateNow,
+      'the banner is not offering the button, so this stage starts from the wrong ' +
+      'state (something is already translating this document)'
+    ).toBeVisible();
+    await expect(progress).toHaveCount(0);
+
+    // Wait for the endpoint's own answer rather than only for the button to
+    // change: 200 (already translated) and 409 (already running) draw the very
+    // same progress bar, so the status code is the only thing that separates
+    // "this run started a translation" from "this run watched someone else's".
+    const requested = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname.endsWith('/translations') &&
+        response.request().method() === 'POST',
+      { timeout: 60_000 }
+    );
+    await translateNow.click();
+    expect(
+      (await requested).status(),
+      'POST /translations did not start a new translation. 409 means one was already ' +
+      'in flight for this document; 429 means its translation-attempt budget is spent, ' +
+      'which is never reset, so it would mean this stage is charging an old document ' +
+      "instead of stage 8's replacement"
+    ).toBe(202);
+
+    // The in-progress state has to be seen HERE, before the round trip, or the
+    // assertions after it prove nothing.
+    await expect(
+      progress,
+      'the accepted request did not put the banner into its in-progress state, so ' +
+      'nothing below can be a statement about surviving an unmount'
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(translateNow).toHaveCount(0);
+    await expect(page.getByTestId(TESTID.translationError)).toHaveCount(0);
+
+    // The regression this stage exists for. The app nav is a react-router route
+    // change, so tapping Account really unmounts the summary page and resets the
+    // request state it used to keep only in React. A parent who did this came
+    // back to the "translate it now" button, as if they had never pressed it.
+    await tapAppNav(page, '/account-center');
+    await expect(
+      page.getByTestId(TESTID.translateBanner),
+      'the summary page is still mounted after tapping Account, so coming back ' +
+      'would not exercise the unmount this stage is about'
+    ).toHaveCount(0);
+
+    await tapAppNav(page, '/summary-and-translations');
+    await expect(
+      page.getByTestId(TESTID.translateBanner),
+      'the translation banner is gone after the trip through Account'
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(
+      progress,
+      'the translation in flight was forgotten when the parent stepped over to ' +
+      'Account and back (resumeTranslationRequest no longer rebuilds it from the ' +
+      "document's PROCESSING_TRANSLATIONS status)"
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(
+      translateNow,
+      'the "translate it now" button came back while a translation was running, so ' +
+      'a parent would press it again and spend a second paid attempt'
+    ).toHaveCount(0);
+  });
+
+  test('11. the requested translation lands and the parent ends up on it', async () => {
+    test.setTimeout(STAGE_TIMEOUT_MS.onDemandTranslation);
+
+    const panel = summaryPanel(page, ON_DEMAND_LANGUAGE);
+    const failed = page.getByTestId(TESTID.translationError);
+
+    // Either the pane arrives or the page tells the parent it failed. The two
+    // are mutually exclusive (the banner that carries the error is gone the
+    // moment the language it offers exists), and waiting on both is what turns
+    // a failed run into a fast, legible failure instead of a ten-minute timeout.
+    await expect(
+      panel.or(failed),
+      `no ${ON_DEMAND_LANGUAGE} content and no error within ` +
+      `${ON_DEMAND_TRANSLATION_MS / 60_000} minutes (check this document's ` +
+      'SingleLanguageTranslation execution)'
+    ).toBeVisible({ timeout: ON_DEMAND_TRANSLATION_MS });
+    await expect(
+      failed,
+      'the summary page reported the on-demand translation failed'
+    ).toHaveCount(0);
+
+    // Visible, not merely present: the arrival is supposed to move the parent
+    // onto their own language, which is the last of the things the unmount used
+    // to break.
+    await expect(panel).toBeVisible();
+    expectChineseTranslation(await summaryTextFor(page, ON_DEMAND_LANGUAGE));
+
+    // ...and the offer is gone, because nothing is missing any more.
+    await expect(page.getByTestId(TESTID.translateBanner)).toHaveCount(0);
+
+    // Put the profile back where stage 2 left it, last thing and on purpose:
+    // +15555550114 is shared with tts.spec.ts and with the next night's run,
+    // both of which expect the Spanish preference. A failure above skips this
+    // and leaves the account on ON_DEMAND_LANGUAGE, which stage 2 of the next
+    // run heals before it uploads; tts.spec.ts is unharmed either way, because
+    // it reads whichever pane the summary page settles on.
+    await ensureTranslationLanguage(page, TRANSLATION_LANGUAGE);
+    console.log(
+      `[documents] left ${DOCUMENTS_USER} holding en + ${TRANSLATION_LANGUAGE} + ` +
+      `${ON_DEMAND_LANGUAGE} content and a ${TRANSLATION_LANGUAGE} preference`
+    );
   });
 });
