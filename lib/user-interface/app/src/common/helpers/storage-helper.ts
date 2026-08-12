@@ -1,32 +1,18 @@
-import { Mode, applyMode } from "@cloudscape-design/global-styles";
 import { NavigationPanelState } from "../types";
 
+// getTheme/applyTheme lived here until the Cloudscape removal. Nothing had set
+// the stored theme since navigation-panel.tsx (the dark-mode toggle) was
+// deleted, so applyTheme only ever ran with Light: it called Cloudscape's
+// applyMode to REMOVE a body class nothing added, and re-wrote
+// --app-color-scheme to the value app.scss already declares on :root. The
+// static `--app-color-scheme: light` in app.scss keeps doing that job on its
+// own, with no JS involved.
 const PREFIX = "aws-genai-llm-chatbot";
-const THEME_STORAGE_NAME = `${PREFIX}-theme`;
 const SELECTED_MODEL_STORAGE_NAME = `${PREFIX}-selected-model`;
 const SELECTED_WORKSPACE_STORAGE_NAME = `${PREFIX}-selected-workspace`;
 const NAVIGATION_PANEL_STATE_STORAGE_NAME = `${PREFIX}-navigation-panel-state`;
 
 export abstract class StorageHelper {
-  static getTheme() {
-    const value = localStorage.getItem(THEME_STORAGE_NAME) ?? Mode.Light;
-    const theme = value === Mode.Dark ? Mode.Dark : Mode.Light;
-
-    return theme;
-  }
-
-  static applyTheme(theme: Mode) {
-    localStorage.setItem(THEME_STORAGE_NAME, theme);
-    applyMode(theme);
-
-    document.documentElement.style.setProperty(
-      "--app-color-scheme",
-      theme === Mode.Dark ? "dark" : "light"
-    );
-
-    return theme;
-  }
-
   static getNavigationPanelState(): NavigationPanelState {
     const value =
       localStorage.getItem(NAVIGATION_PANEL_STATE_STORAGE_NAME) ??

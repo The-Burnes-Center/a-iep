@@ -1,8 +1,9 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { StatusIndicator } from '@cloudscape-design/components';
+import { Spinner } from 'react-bootstrap';
 import { AppContext } from '../common/app-context';
 import { ApiClient } from '../common/api-client/api-client';
+import { useLanguage } from '../common/language-context';
 
 /**
  * Layout route that blocks the IEP data pages until the profile has
@@ -14,6 +15,7 @@ import { ApiClient } from '../common/api-client/api-client';
 export function ConsentGate() {
   const appContext = useContext(AppContext);
   const location = useLocation();
+  const { t } = useLanguage();
   const [consented, setConsented] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -42,7 +44,9 @@ export function ConsentGate() {
           alignItems: 'center',
         }}
       >
-        <StatusIndicator type="loading">Loading...</StatusIndicator>
+        <Spinner animation="border" role="status">
+          <span className="visually-hidden">{t('common.loading')}</span>
+        </Spinner>
       </div>
     );
   }
