@@ -280,8 +280,15 @@ def staged(monkeypatch):
 
 
 def healthy_document(dynamodb):
+    """A row as the upload path really writes it, userId included.
+
+    userId is not optional decoration: without it the row is invisible to the
+    byUserId GSI account deletion queries, so a fixture missing it is not a
+    healthy document and check_unreachable_documents rightly rejects it.
+    """
     dynamodb.Table(TABLE).put_item(Item={
-        'iepId': 'iep-1', 'childId': 'child-1', 'status': 'PROCESSED',
+        'iepId': 'iep-1', 'childId': 'child-1', 'userId': 'user-sub-1',
+        'status': 'PROCESSED',
         'createdAt': int(NOW.timestamp()), 'updated_at': iso(minutes_ago=5)})
 
 
@@ -330,3 +337,51 @@ def test_prod_discovery_refuses_to_read_staging_resources(audit_mod, staged):
     dynamodb, s3, sfn = staged
     with pytest.raises(SystemExit):
         audit_mod.discover('prod', dynamodb, sfn)
+
+
+# ---------------------------------------------------------------------------
+# Rows account deletion can never reach
+
+def test_a_row_with_no_userid_is_an_error(audit_mod):
+    """The signature of a resurrected row, and of a row nothing can delete.
+
+    DynamoDB does not index items missing a GSI key, so a row without userId is
+    invisible to the byUserId query account deletion uses. Prod held one for
+    weeks while the audit reported it healthy, because the row had a status and
+    no check looked for a missing owner.
+    """
+    findings = []
+    audit_mod.check_unreachable_documents([
+        {'iepId': 'iep-phantom', 'childId': 'c1', 'status': 'FAILED'},
+        {'iepId': 'iep-ok', 'childId': 'c1', 'userId': 'u1', 'status': 'PROCESSED'},
+    ], findings)
+    f = only(findings, 'unreachable_documents')
+    assert f['level'] == 'error'
+    assert f['detail'] == ['iep-phantom']
+
+
+def test_rows_with_owners_are_clean(audit_mod):
+    findings = []
+    audit_mod.check_unreachable_documents(
+        [{'iepId': 'iep-1', 'userId': 'u1'}], findings)
+    assert only(findings, 'unreachable_documents')['level'] is None
+
+
+def test_an_empty_userid_counts_as_unreachable(audit_mod):
+    """An empty string is not a usable GSI key either."""
+    findings = []
+    audit_mod.check_unreachable_documents(
+        [{'iepId': 'iep-1', 'userId': ''}], findings)
+    assert only(findings, 'unreachable_documents')['level'] == 'error'
+
+
+def test_audit_end_to_end_flags_an_unreachable_row(audit_mod, staged):
+    dynamodb, s3, sfn = staged
+    dynamodb.Table(TABLE).put_item(Item={
+        'iepId': 'iep-phantom', 'childId': 'child-1', 'status': 'FAILED',
+        'updated_at': iso(minutes_ago=5)})  # no userId
+    findings = audit_mod.audit('staging', dynamodb=dynamodb, s3=s3, sfn=sfn,
+                               reference=NOW)
+    f = only(findings, 'unreachable_documents')
+    assert f['level'] == 'error' and f['detail'] == ['iep-phantom']
+    assert 'account' in f['message']
