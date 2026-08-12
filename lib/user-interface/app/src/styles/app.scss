@@ -22,10 +22,6 @@ body {
   height: 100% !important;
 }
 
-body.awsui-dark-mode {
-  background-color: #0e1b2a;
-}
-
 .page {
   height: 100%;
   width: 100%;
@@ -39,37 +35,6 @@ body.awsui-dark-mode {
   align-items: center;
 }
 
-
-.matrix-table {
-  border: 1px solid #d6d6d6;
-  border-radius: 2px;
-  border-collapse: collapse;
-  font-size: 1.1rem;
-
-  th {
-    border: 1px solid #d6d6d6;
-  }
-
-  td {
-    border: 1px solid #d6d6d6;
-    padding: 10px;
-  }
-}
-
-.awsui-dark-mode {
-  .matrix-table {
-    border: 1px solid rgb(95, 107, 122);
-
-    th {
-      border: 1px solid rgb(95, 107, 122);
-    }
-
-    td {
-      border: 1px solid rgb(0, 247, 255);
-      padding: 12px;
-    }
-  }
-}
 
 // .new-session-button {
 //  margin-left: auto; 
