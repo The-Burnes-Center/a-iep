@@ -5,10 +5,8 @@ import { AppConfig } from "../common/types";
 import { AppContext } from "../common/app-context";
 import { LanguageProvider } from "../common/language-context";
 import { AuthProvider } from "../common/auth-provider";
-import { Alert, StatusIndicator } from "@cloudscape-design/components";
-import { StorageHelper } from "../common/helpers/storage-helper";
+import { Alert, Spinner } from "react-bootstrap";
 import { initAnalytics } from "../common/helpers/analytics-helper";
-import { Mode } from "@cloudscape-design/global-styles";
 import AppRoutes from "./AppRoutes";
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -25,7 +23,6 @@ const queryClient = new QueryClient({
 export default function AppConfigured() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [error, setError] = useState<boolean | null>(null);
-  const [theme, setTheme] = useState(StorageHelper.getTheme());
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Load AWS configuration on mount
@@ -56,38 +53,10 @@ export default function AppConfigured() {
     loadConfig();
   }, []);
 
-  // Theme management
-  useEffect(() => {
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        if (
-          mutation.type === "attributes" &&
-          mutation.attributeName === "style"
-        ) {
-          const newValue =
-            document.documentElement.style.getPropertyValue(
-              "--app-color-scheme"
-            );
-
-          const mode = newValue === "dark" ? Mode.Dark : Mode.Light;
-          if (mode !== theme) {
-            setTheme(mode);
-          }
-        }
-      });
-    });
-
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["style"],
-    });
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [theme]);
-
-  // Loading state
+  // Loading state.
+  // This renders ABOVE LanguageProvider, so t() does not exist yet and the
+  // label here has to stay English. It is the boot screen for a fetch of a
+  // static file on the same origin, so a parent sees it for a moment at most.
   if (isLoading) {
     return (
       <div
@@ -99,7 +68,9 @@ export default function AppConfigured() {
           alignItems: "center",
         }}
       >
-        <StatusIndicator type="loading">Loading configuration...</StatusIndicator>
+        <Spinner animation="border" role="status">
+          <span className="visually-hidden">Loading configuration...</span>
+        </Spinner>
       </div>
     );
   }
@@ -116,11 +87,14 @@ export default function AppConfigured() {
           alignItems: "center",
         }}
       >
-        <Alert header="Configuration error" type="error">
+        {/* react-bootstrap's Alert carries role="alert" itself. Same reason as
+            the loading state above: no t() this high in the tree. */}
+        <Alert variant="danger">
+          <Alert.Heading>Configuration error</Alert.Heading>
           Error loading configuration from "
-          <a href="/aws-exports.json" style={{ fontWeight: "600" }}>
+          <Alert.Link href="/aws-exports.json" style={{ fontWeight: "600" }}>
             /aws-exports.json
-          </a>
+          </Alert.Link>
           "
         </Alert>
       </div>
@@ -129,8 +103,9 @@ export default function AppConfigured() {
 
   // Always render the router with all providers
   // The router will handle showing login vs protected routes based on auth state
-  // Provider hierarchy: LanguageProvider > AuthProvider > QueryClientProvider > BrowserRouter
-  // This order is correct — no outer provider depends on hooks from an inner one
+  // Provider hierarchy:
+  //   LanguageProvider > AuthProvider > QueryClientProvider > BrowserRouter
+  // This order is correct: no outer provider depends on hooks from an inner one.
   return (
     <AppContext.Provider value={config}>
       <LanguageProvider>

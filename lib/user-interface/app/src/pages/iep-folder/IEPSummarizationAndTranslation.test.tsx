@@ -22,7 +22,6 @@ import IEPSummarizationAndTranslation from "./IEPSummarizationAndTranslation";
 import MobileTopNavigation from "../../components/MobileTopNavigation";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
-import { NotificationProvider, useNotifications } from "../../components/notif-manager";
 import type { AppConfig } from "../../common/types";
 import type { SupportedLanguage } from "../../common/languages";
 
@@ -104,18 +103,6 @@ const translationsBody = () => {
   return call ? JSON.parse(call[1].body as string) : null;
 };
 
-/** Renders the notification queue so a success toast is observable. */
-const NotificationProbe = () => {
-  const { notifications } = useNotifications();
-  return (
-    <ul data-testid="notifications">
-      {notifications.map((notification) => (
-        <li key={notification.id}>{notification.content}</li>
-      ))}
-    </ul>
-  );
-};
-
 /**
  * Stands in for Account Center. It carries the real bottom nav, because that is
  * how a parent gets back and the tests below need the trip to be a round one.
@@ -145,10 +132,6 @@ const renderPage = (
     <MemoryRouter initialEntries={[initialPath]}>
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
-          <NotificationProvider>
-            {/* Outside <Routes> so a toast raised before a navigation is still
-                observable after it. */}
-            <NotificationProbe />
             <Routes>
               <Route path="/summary" element={<IEPSummarizationAndTranslation />} />
               {/* The page's REAL path, and the tab the bottom nav's own buttons
@@ -162,7 +145,6 @@ const renderPage = (
               <Route path="/iep-documents" element={<div>documents page</div>} />
               <Route path="/" element={<div>home page</div>} />
             </Routes>
-          </NotificationProvider>
         </LanguageContext.Provider>
       </AppContext.Provider>
     </MemoryRouter>,
@@ -323,13 +305,12 @@ describe("when the translation lands", () => {
     await settle(POLL_INTERVAL_MS);
   };
 
-  test("switches the parent onto their language and confirms it", async () => {
+  test("switches the parent onto their language", async () => {
     await arriveTranslated();
 
     expect(screen.getByTestId("summary-text-es")).toHaveTextContent(SPANISH_SUMMARY);
     // The picker reflecting the new selection is how the language switch shows.
     expect(screen.getByRole("button", { name: "ESPAÑOL" })).toBeInTheDocument();
-    expect(screen.getByTestId("notifications")).toHaveTextContent("summary.translate.ready");
   });
 
   test("retires the banner and the progress bar", async () => {
@@ -417,7 +398,7 @@ describe("stepping away to another tab mid-translation", () => {
     expect(countCalls(DOCUMENTS_URL)).toBe(afterReturn + 1);
   });
 
-  test("the arrival still switches them onto their language and confirms it", async () => {
+  test("the arrival still puts them on their language", async () => {
     await arriveMidTranslation();
     await stepAwayAndBack();
 
@@ -426,7 +407,6 @@ describe("stepping away to another tab mid-translation", () => {
 
     expect(screen.getByTestId("summary-text-es")).toHaveTextContent(SPANISH_SUMMARY);
     expect(screen.getByRole("button", { name: "ESPAÑOL" })).toBeInTheDocument();
-    expect(screen.getByTestId("notifications")).toHaveTextContent("summary.translate.ready");
   });
 
   test("a run that fails while they are away is still reported", async () => {
@@ -522,15 +502,12 @@ describe("stepping away to another tab mid-translation", () => {
           value={{ ...appConfig, enabledLanguages: ["en", "es", "zh"] } as unknown as AppConfig}
         >
           <LanguageContext.Provider value={languageValue}>
-            <NotificationProvider>
-              <NotificationProbe />
-              <Routes>
+                <Routes>
                 <Route
                   path="/summary-and-translations"
                   element={<IEPSummarizationAndTranslation />}
                 />
               </Routes>
-            </NotificationProvider>
           </LanguageContext.Provider>
         </AppContext.Provider>
       </MemoryRouter>,
@@ -547,8 +524,13 @@ describe("stepping away to another tab mid-translation", () => {
     await settle(POLL_INTERVAL_MS);
 
     expect(screen.getByTestId("summary-text-es")).toHaveTextContent(SPANISH_SUMMARY);
-    expect(screen.getByTestId("notifications")).toHaveTextContent("summary.translate.ready");
     expect(screen.queryByTestId("translation-progress")).not.toBeInTheDocument();
+    // The load-bearing one. Pinning the request to the wrong language leaves
+    // the phase running forever, because the language it is waiting for is
+    // never coming, and the picker stays locked against a parent who is no
+    // longer waiting for anything. The banner is already gone by now (their
+    // language arrived), so this lock is the only surviving symptom.
+    expect(screen.getByRole("button", { name: "ESPAÑOL" })).toBeEnabled();
   });
 
   test("an error already shown is not resurrected into a spinner", async () => {

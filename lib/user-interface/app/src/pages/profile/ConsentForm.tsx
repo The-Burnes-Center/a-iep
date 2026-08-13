@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { UserProfile } from '../../common/types';
-import { useNotifications } from '../../components/notif-manager';
 import { useLanguage } from '../../common/language-context'; 
 import { useFeatures } from '../../common/hooks/use-features';
 import './ProfileForms.css';
@@ -13,7 +12,6 @@ export default function ConsentForm() {
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
   const navigate = useNavigate();
-  const { addNotification } = useNotifications();
   const { t } = useLanguage();
   const { isFeatureEnabled } = useFeatures();
 
@@ -79,7 +77,6 @@ export default function ConsentForm() {
     try {
       setSaving(true);
       await apiClient.profile.updateProfile({ consentGiven: true });
-      addNotification('success', t('consent.success.saved'));
       
       // Check if user has any children - if not, create a default child
       if (!profile?.children || profile.children.length === 0) {
@@ -108,7 +105,6 @@ export default function ConsentForm() {
         navigate('/iep-documents');
       }
     } catch (err) {
-      addNotification('error', t('consent.error.saveFailed'));
       setError(t('consent.error.saveFailedRetry'));
     } finally {
       setSaving(false);

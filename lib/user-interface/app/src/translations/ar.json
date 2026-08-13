@@ -4,8 +4,6 @@
     "consent.checkbox": "أوافق",
     "consent.button": "الموافقة والمتابعة",
     "consent.tooltip": "يرجى تحديد المربع للمتابعة",
-    "consent.success.saved": "تم حفظ الموافقة بنجاح",
-    "consent.error.saveFailed": "فشل حفظ الموافقة",
     "consent.error.saveFailedRetry": "فشل حفظ الموافقة. يرجى المحاولة مرة أخرى.",
 
     "child.title": "عن طفلك",
@@ -15,8 +13,6 @@
     "child.school.placeholder": "أدخل مدينة المدرسة",
     "child.button.saving": "جارٍ الحفظ...",
     "child.button.save": "حفظ ومتابعة",
-    "child.success.updated": "تم تحديث معلومات طفلك بنجاح",
-    "child.success.added": "تمت إضافة طفلك بنجاح",
     "child.error.updateFailed": "فشل تحديث معلومات طفلك",
     "child.error.addFailed": "فشلت إضافة طفلك",
 
@@ -43,7 +39,7 @@
     "common.next": "التالي",
     "common.cancel": "إلغاء",
     "common.close": "إغلاق",
-    "common.save": "حفظ",
+    "common.download": "تنزيل",
     "common.generatingPdf": "جارٍ إنشاء ملف PDF...",
     "common.skip": "تخطّي",
     "common.loading": "جارٍ التحميل...",
@@ -94,7 +90,6 @@
     "summary.translate.starting": "جارٍ بدء الترجمة...",
     "summary.translate.alreadyReady": "هذه الترجمة جاهزة. جارٍ فتحها الآن...",
     "summary.translate.alreadyRunning": "هذه الترجمة قيد الإعداد بالفعل. يستغرق ذلك عادةً بضع دقائق.",
-    "summary.translate.ready": "ترجمتك جاهزة.",
     "summary.translate.notTranslatedYet": "لم تُترجم بعد",
     "summary.translate.error.budgetSpent": "لقد حاولنا إجراء هذه الترجمة بأقصى عدد ممكن من المرات. يرجى الاتصال بالدعم لنتمكن من فحص الأمر.",
     "summary.translate.error.failed": "لم نتمكن من إكمال هذه الترجمة. ملخصك بالإنجليزية لم يتغير. يرجى المحاولة مرة أخرى.",
@@ -167,7 +162,6 @@
     "profile.secondaryLanguage": "اللغة الثانوية",
     "profile.preferredLanguage": "اللغة المفضلة",
     "profile.noSecondaryLanguage": "لم يتم اختيار لغة ثانوية",
-    "profile.success.update": "تم تحديث الملف الشخصي بنجاح",
     "profile.error.update": "فشل تحديث الملف الشخصي",
     "profile.error.serviceUnavailable": "الخدمة غير متاحة",
     "profile.loading": "جارٍ التحميل...",
@@ -191,7 +185,6 @@
     "delete.button.delete": "حذف الحساب نهائيًا",
     "delete.button.processing": "جارٍ الحذف...",
     "delete.error.failed": "فشل حذف الحساب. يرجى المحاولة مرة أخرى.",
-    "delete.success": "تم حذف الحساب بنجاح.",
 
     "auth.title": "تسجيل الدخول",
     "auth.email": "البريد الإلكتروني",
@@ -448,7 +441,6 @@
     "updateProfile.button.update": "تحديث الملف الشخصي",
     "updateProfile.loading": "جارٍ التحميل...",
     "updateProfile.error.serviceUnavailable": "الخدمة غير متاحة",
-    "updateProfile.success.saved": "تم حفظ معلومات ولي الأمر بنجاح",
     "updateProfile.error.saveFailed": "فشل حفظ معلومات ولي الأمر",
 
     "changeLanguage.breadcrumb.account": "الحساب",
@@ -460,7 +452,6 @@
 
     "preferredLanguage.update.title": "تحديث تفضيلات اللغة",
     "preferredLanguage.update.description": "اختر لغتك المفضلة لترجمات IEP",
-    "preferredLanguage.success.updated": "تم تحديث تفضيل اللغة بنجاح",
     "preferredLanguage.error.updateFailed": "فشل تحديث تفضيل اللغة",
 
     "deleteAccount.breadcrumb.account": "الحساب",

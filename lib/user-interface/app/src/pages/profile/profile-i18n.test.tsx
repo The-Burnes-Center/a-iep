@@ -24,7 +24,6 @@ import ConsentForm from "./ConsentForm";
 import ViewAndAddChild from "./ViewAndAddChild";
 import { AppContext } from "../../common/app-context";
 import { LanguageProvider } from "../../common/language-context";
-import { NotificationContext, NotificationProvider } from "../../components/notif-manager";
 import type { AppConfig } from "../../common/types";
 
 import en from "../../translations/en.json";
@@ -63,24 +62,6 @@ const PROFILE = {
 const NEW_PROFILE = { ...PROFILE, secondaryLanguage: undefined, consentGiven: false };
 
 /**
- * What a parent would actually see of a notification. NotificationBar renders
- * `notif.content` into a Cloudscape Flashbar; this renders the same field, so
- * the assertion is on the string the page hands over, not on a call argument.
- */
-const NotificationProbe = () => {
-  const { notifications } = React.useContext(NotificationContext);
-  return (
-    <div data-testid="notifications">
-      {notifications.map((notif) => (
-        <div key={notif.id}>{notif.content}</div>
-      ))}
-    </div>
-  );
-};
-
-const notificationText = () => screen.getByTestId("notifications").textContent ?? "";
-
-/**
  * Mounts `page` under the real language provider in `language`, with stub
  * routes for everywhere the flow can navigate. Resolves once the provider has
  * loaded its dictionary and rendered its children (it renders null until then).
@@ -92,8 +73,7 @@ const renderPage = async (language: string, path: string, page: React.ReactEleme
     <MemoryRouter initialEntries={[path]}>
       <AppContext.Provider value={appConfig}>
         <LanguageProvider>
-          <NotificationProvider>
-            <NotificationProbe />
+          <div data-testid="mounted" />
             <Routes>
               <Route path={path} element={page} />
               <Route path="/preferred-language" element={<div>language step</div>} />
@@ -104,20 +84,19 @@ const renderPage = async (language: string, path: string, page: React.ReactEleme
               <Route path="/profile" element={<div>profile</div>} />
               <Route path="/account-center/profile" element={<div>name step</div>} />
             </Routes>
-          </NotificationProvider>
         </LanguageProvider>
       </AppContext.Provider>
     </MemoryRouter>,
   );
 
-  await screen.findByTestId("notifications");
+  await screen.findByTestId("mounted");
   return userEvent.setup();
 };
 
 /**
  * A fetch that answers every profile call. `failWrites` turns the PUT/POST
  * calls into 500s while the initial GET still succeeds, which is exactly the
- * shape of the failure the error toasts report.
+ * shape of the failure these screens report.
  */
 const stubFetch = ({ failWrites = false, failReads = false, profile = PROFILE } = {}) => {
   vi.stubGlobal(
@@ -194,30 +173,16 @@ describe("the welcome step", () => {
 });
 
 describe("the language picker's own messages", () => {
-  test("confirm the change in the language the parent just chose", async () => {
-    // Nothing on file yet, so choosing anything is a change and the save (and
-    // the toast with it) actually happens.
-    stubFetch({ profile: NEW_PROFILE });
-    const user = await renderPage("es", "/preferred-language", <PreferredLanguage />);
-
-    await user.click(await screen.findByRole("button", { name: /Prefiero Español/ }));
-
-    await waitFor(() =>
-      expect(notificationText()).toContain(es["preferredLanguage.success.updated"]),
-    );
-    expect(notificationText()).not.toContain(en["preferredLanguage.success.updated"]);
-  });
-
   test("report a failed save in that language too", async () => {
     stubFetch({ failWrites: true, profile: NEW_PROFILE });
     const user = await renderPage("es", "/preferred-language", <PreferredLanguage />);
 
     await user.click(await screen.findByRole("button", { name: /Prefiero Español/ }));
 
-    await waitFor(() =>
-      expect(notificationText()).toContain(es["preferredLanguage.error.updateFailed"]),
-    );
-    expect(notificationText()).not.toContain(en["preferredLanguage.error.updateFailed"]);
+    expect(
+      await screen.findByText(es["preferredLanguage.error.updateFailed"]),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(en["preferredLanguage.error.updateFailed"])).toBeNull();
   });
 
   test("say the service is down in Spanish, not in English", async () => {
@@ -243,7 +208,7 @@ describe("the consent step's outcomes", () => {
     expect(screen.queryByRole("button", { name: en["common.tryAgain"] })).toBeNull();
   });
 
-  test("report a failed save in Spanish, on the banner and in the toast", async () => {
+  test("report a failed save in Spanish, on the banner", async () => {
     // A parent who has not consented yet: ticking the box and continuing is
     // what writes, and the write is what fails here.
     vi.stubGlobal(
@@ -264,35 +229,26 @@ describe("the consent step's outcomes", () => {
     await user.click(await screen.findByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: es["consent.button"] }));
 
-    await waitFor(() =>
-      expect(notificationText()).toContain(es["consent.error.saveFailed"]),
-    );
     expect(await screen.findByText(es["consent.error.saveFailedRetry"])).toBeInTheDocument();
     expect(screen.queryByText(en["consent.error.saveFailedRetry"])).toBeNull();
   });
 });
 
 describe("the child step's outcomes", () => {
-  test("confirm an update in Spanish", async () => {
-    const user = await renderPage("es", "/view-update-add-child", <ViewAndAddChild />);
-
-    await user.click(await screen.findByTestId("child-save-button"));
-
-    await waitFor(() => expect(notificationText()).toContain(es["child.success.updated"]));
-    expect(notificationText()).not.toContain(en["child.success.updated"]);
-  });
-
   test("report a failed update in Spanish", async () => {
     stubFetch({ failWrites: true });
     const user = await renderPage("es", "/view-update-add-child", <ViewAndAddChild />);
 
     await user.click(await screen.findByTestId("child-save-button"));
 
-    await waitFor(() => expect(notificationText()).toContain(es["child.error.updateFailed"]));
-    expect(notificationText()).not.toContain(en["child.error.updateFailed"]);
+    expect(await screen.findByText(es["child.error.updateFailed"])).toBeInTheDocument();
+    expect(screen.queryByText(en["child.error.updateFailed"])).toBeNull();
   });
 });
 
+// The success confirmations that used to live here went with the toasts: the
+// toast was their only reader, so keeping them would have sent strings no
+// parent can ever see to a native reviewer.
 describe("the keys these screens depend on", () => {
   const locales = { en, es, ar } as Record<string, Record<string, string>>;
   const keys = [
@@ -304,14 +260,9 @@ describe("the keys these screens depend on", () => {
     "common.loading",
     "common.saving",
     "common.tryAgain",
-    "consent.success.saved",
-    "consent.error.saveFailed",
     "consent.error.saveFailedRetry",
-    "child.success.updated",
-    "child.success.added",
     "child.error.updateFailed",
     "child.error.addFailed",
-    "preferredLanguage.success.updated",
     "preferredLanguage.error.updateFailed",
   ];
 

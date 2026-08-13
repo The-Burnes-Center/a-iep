@@ -5,7 +5,6 @@ import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { UserProfile } from '../../common/types';
-import { useNotifications } from '../../components/notif-manager';
 import { useLanguage } from '../../common/language-context'; 
 import './ProfileForms.css';
 
@@ -14,7 +13,6 @@ export default function ViewAndAddChild() {
   const apiClient = new ApiClient(appContext);
   const iepDocumentClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
-  const { addNotification } = useNotifications();
   const { t } = useLanguage();
 
   const [loading, setLoading] = useState(true);
@@ -103,12 +101,10 @@ export default function ViewAndAddChild() {
           const updatedChildInfo = {children: [updatedProfile.children[0]]};
           
           await apiClient.profile.updateProfile(updatedChildInfo);
-          addNotification('success', t('child.success.updated'));
         }
       } else {
         // Add new child
         await apiClient.profile.addChild(childName, schoolCity);
-        addNotification('success', t('child.success.added'));
         
         // After adding a new child, check for documents again
         await checkForExistingDocument();
@@ -131,7 +127,9 @@ export default function ViewAndAddChild() {
         navigate('/welcome-intro');
       }
     } catch (err) {
-      addNotification('error', hasExistingChild ? t('child.error.updateFailed') : t('child.error.addFailed'));
+      // Inline, on the banner this page already renders: this failure used to
+      // be reported only by a toast.
+      setError(hasExistingChild ? t('child.error.updateFailed') : t('child.error.addFailed'));
     } finally {
       setSaving(false);
     }

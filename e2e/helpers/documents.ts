@@ -19,7 +19,12 @@ import { appUrl } from './config';
 import { ensureTestUser } from './aws';
 import { loginWithOtp } from './app';
 import { DOCUMENTS_USER } from './phones';
-import { openLanguageForm, readLanguagePreference, setLanguagePreference } from './profile';
+import {
+  languageSelect,
+  openLanguageForm,
+  readLanguagePreference,
+  setLanguagePreference,
+} from './profile';
 
 /**
  * The documents journey's dedicated user (+1 555 555 0114, NANP-fictional).
@@ -43,18 +48,114 @@ export const TRANSLATION_LANGUAGE = 'es';
 const SPANISH_MARKERS = [' de ', ' que ', ' la ', ' los ', ' para ', ' con ', ' en '];
 
 /**
- * The language the on-demand translation journey asks for, AFTER the pipeline
- * has already run. It has to be one the upload did not produce: the document is
- * uploaded with the profile on TRANSLATION_LANGUAGE, so it lands holding
- * English plus Spanish, and pinning the profile to a THIRD language is exactly
- * the "my language is missing" state the summary page's translate banner exists
- * for.
+ * Every language the STAGING deployment offers, in the app's display order.
  *
- * Chinese, because it ships in every environment (Arabic does not, see
- * lib/user-interface/index.ts) and one regex over its script settles "this pane
- * really holds a translation" without the function-word list Spanish needs.
+ * Mirrors ALL_LANGUAGES in lib/user-interface/index.ts, which is what CDK
+ * writes into aws-exports.json; production ships the same list minus Arabic
+ * (PROD_LANGUAGES, pinned by test/infra/enabled-languages.test.ts). This suite
+ * only ever runs against staging (the OTP backdoor and the stack lookup are
+ * both staging-only), so the full list is the one it can rotate over.
  */
-export const ON_DEMAND_LANGUAGE = 'zh';
+export const ENABLED_LANGUAGES = ['en', 'es', 'zh', 'vi', 'ar'] as const;
+
+export type EnabledLanguage = typeof ENABLED_LANGUAGES[number];
+
+/**
+ * What the pipeline run itself already puts on the document: English (always)
+ * plus whatever stage 2 pinned on the profile, which check_language_prefs
+ * reads at upload time.
+ */
+const PIPELINE_LANGUAGES: readonly string[] = ['en', TRANSLATION_LANGUAGE];
+
+/**
+ * The languages the on-demand stage rotates through: every enabled language
+ * the upload did NOT already produce.
+ *
+ * Derived rather than listed, because the derivation IS the requirement. The
+ * summary page only offers to translate into a language the document is
+ * missing (shouldOfferTranslation), and handleGenerateTranslation returns
+ * early for English, so asking for 'en' or for TRANSLATION_LANGUAGE would
+ * leave stages 10 and 11 with no banner to press and nothing to assert.
+ * That leaves Chinese, Vietnamese and Arabic.
+ */
+export const ON_DEMAND_LANGUAGES: EnabledLanguage[] = ENABLED_LANGUAGES.filter(
+  (language) => !PIPELINE_LANGUAGES.includes(language)
+);
+
+const isOnDemandLanguage = (value: string): value is EnabledLanguage =>
+  (ON_DEMAND_LANGUAGES as readonly string[]).includes(value);
+
+/** Force one language for a run, e.g. E2E_ON_DEMAND_LANGUAGE=ar. */
+export const ON_DEMAND_LANGUAGE_ENV = 'E2E_ON_DEMAND_LANGUAGE';
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+export interface OnDemandLanguageChoice {
+  language: EnabledLanguage;
+  /** How it was arrived at, logged by stage 10 so a failed night is reproducible. */
+  reason: string;
+}
+
+/**
+ * Which language this run asks the finished document for.
+ *
+ * Date-derived, not random: a nightly you cannot reproduce is a nightly you
+ * cannot debug. Whole UTC days since the epoch advance by exactly one per
+ * nightly (it runs at 09:00 UTC), so consecutive nights walk the list and
+ * every language is exercised within ON_DEMAND_LANGUAGES.length nights; two
+ * runs on the same UTC day pick the SAME language, so re-running a failed
+ * night by hand repeats it instead of testing something else.
+ *
+ * Pure and parameterised so on-demand-language.spec.ts can prove the cycle
+ * without waiting three nights for it.
+ */
+export function pickOnDemandLanguage(
+  when: Date = new Date(),
+  override: string | undefined = process.env[ON_DEMAND_LANGUAGE_ENV]
+): OnDemandLanguageChoice {
+  const forced = override?.trim().toLowerCase();
+  if (forced) {
+    if (!isOnDemandLanguage(forced)) {
+      throw new Error(
+        `${ON_DEMAND_LANGUAGE_ENV}=${override} is not one of ${ON_DEMAND_LANGUAGES.join(', ')}. ` +
+        `English and ${TRANSLATION_LANGUAGE} are excluded on purpose: the nightly upload ` +
+        'already produces both, so the summary page would never offer to translate into ' +
+        'them and the on-demand stages would have nothing to press.'
+      );
+    }
+    return { language: forced, reason: `forced by ${ON_DEMAND_LANGUAGE_ENV}` };
+  }
+
+  const day = Math.floor(when.getTime() / MS_PER_DAY);
+  // Both modulos so a date before 1970 cannot produce a negative index: JS's
+  // % keeps the sign of the dividend.
+  const size = ON_DEMAND_LANGUAGES.length;
+  const index = ((day % size) + size) % size;
+  return {
+    language: ON_DEMAND_LANGUAGES[index],
+    reason:
+      `UTC day ${day} % ${size} = index ${index} of [${ON_DEMAND_LANGUAGES.join(', ')}]; ` +
+      `force one with ${ON_DEMAND_LANGUAGE_ENV}=<code>`,
+  };
+}
+
+// Resolved ONCE per worker process, on purpose: stages 10 and 11 must agree on
+// the language, and a run that straddles UTC midnight would otherwise ask for
+// one language and assert another.
+const onDemandChoice = pickOnDemandLanguage();
+
+/**
+ * The language the on-demand translation journey asks for on THIS run, AFTER
+ * the pipeline has already run. It is one the upload did not produce: the
+ * document is uploaded with the profile on TRANSLATION_LANGUAGE, so it lands
+ * holding English plus Spanish, and pinning the profile to a THIRD language is
+ * exactly the "my language is missing" state the summary page's translate
+ * banner exists for.
+ */
+export const ON_DEMAND_LANGUAGE: EnabledLanguage = onDemandChoice.language;
+
+/** Why that one; stage 10 logs it so a failed nightly can be reproduced. */
+export const ON_DEMAND_LANGUAGE_REASON = onDemandChoice.reason;
 
 // --- Budgets (nightly, generous; the pipeline is OCR + LLM + translations) --
 /** The S3 event -> metadata-handler hop, then the first PROCESSING status. */
@@ -142,24 +243,53 @@ export async function gotoSummaryPage(page: Page): Promise<void> {
 }
 
 /**
- * The routes the app's nav bar links to, in the order MobileTopNavigation
- * renders its own `navigationItems` array.
+ * The routes the app's nav bar links to, and the icon MobileTopNavigation
+ * gives each one.
  *
  * Those buttons carry no test id, and their aria-label is built from the
- * TRANSLATED nav label, so with the UI in Spanish or Chinese neither the
- * visible copy nor a role+name lookup can find them. The order of the array is
- * the one language-independent handle there is, so they are addressed
- * positionally, and every tap then asserts the route it actually landed on: a
- * reorder fails saying so instead of quietly exercising the wrong button.
+ * TRANSLATED nav label, so with the UI in Spanish, Chinese or Arabic neither
+ * the visible copy nor a role+name lookup can find them. They used to be
+ * addressed POSITIONALLY, by their index in this array.
+ *
+ * That survives Arabic, because `dir="rtl"` reverses how a flex row is
+ * PAINTED, not the order of the DOM, and Playwright's nth() is document order.
+ * But it leans on two invisible facts at once: the component's array order,
+ * and that the flip is only visual. The icon is a better handle, depending on
+ * neither. @tabler/icons-react stamps `tabler-icon-<name>` onto every svg it
+ * renders (createReactComponent.mjs), MobileTopNavigation gives each route its
+ * own icon, and that class is the same in every language, in either writing
+ * direction, at any position in the bar.
+ *
+ * on-demand-language.spec.ts pins both halves of that: it renders the nav's
+ * markup with Arabic labels under dir="rtl" and asserts the visual order flips
+ * while this lookup keeps landing on the right button. Every tap then asserts
+ * the route it actually reached, so a rewired icon fails saying so instead of
+ * quietly exercising the wrong button.
  */
-const APP_NAV_ROUTES = [
-  '/summary-and-translations',
-  '/support-center',
-  '/parent-rights',
-  '/account-center',
-] as const;
+export const APP_NAV_ICONS = {
+  '/summary-and-translations': 'file-description',
+  '/support-center': 'heart-handshake',
+  '/parent-rights': 'info-circle',
+  '/account-center': 'user',
+} as const;
 
-export type AppNavRoute = typeof APP_NAV_ROUTES[number];
+export type AppNavRoute = keyof typeof APP_NAV_ICONS;
+
+export const APP_NAV_ROUTES = Object.keys(APP_NAV_ICONS) as AppNavRoute[];
+
+/**
+ * The nav-bar button that owns `route`, whatever language the app is in and
+ * whichever way round the bar is painted.
+ *
+ * Scoped to the component's own wrapper because the landing page's nav builds
+ * its markup the same way, and react-bootstrap's tab nav (hidden by CSS on the
+ * summary page, but in the DOM) also uses the class `nav-item`.
+ */
+export function appNavButton(page: Page, route: AppNavRoute): Locator {
+  return page.locator(
+    `.mobile-top-navigation button.nav-item:has(svg.tabler-icon-${APP_NAV_ICONS[route]})`
+  );
+}
 
 /**
  * Tap a button in the app's nav bar and wait for the route it owns.
@@ -168,27 +298,33 @@ export type AppNavRoute = typeof APP_NAV_ROUTES[number];
  * on. That is the point wherever this is used.
  */
 export async function tapAppNav(page: Page, route: AppNavRoute): Promise<void> {
-  const index = APP_NAV_ROUTES.indexOf(route);
   // 'Navigate to ' is hardcoded English in MobileTopNavigation and only the
   // label after it is translated, so this prefix match holds in any language.
-  // Scoped to the component's own wrapper because the landing page's nav builds
-  // its aria-labels the same way, and react-bootstrap's tab nav (hidden by CSS
-  // on the summary page, but in the DOM) also uses the class `nav-item`.
-  const buttons = page.locator('.mobile-top-navigation button[aria-label^="Navigate to "]');
+  // Kept as a separate, whole-bar check: it is what catches the nav rendering
+  // none of its buttons (the tutorial-phase branch renders a bare line of
+  // copy) or rendering twice.
   await expect(
-    buttons,
+    page.locator('.mobile-top-navigation button[aria-label^="Navigate to "]'),
     `the app nav did not render its ${APP_NAV_ROUTES.length} buttons ` +
     '(MobileTopNavigation changed, or this page does not render it)'
   ).toHaveCount(APP_NAV_ROUTES.length);
 
-  await buttons.nth(index).click();
+  const button = appNavButton(page, route);
+  await expect(
+    button,
+    `no app-nav button carries the ${APP_NAV_ICONS[route]} icon that MobileTopNavigation ` +
+    `gives ${route} (its navigationItems icons changed, or @tabler/icons-react stopped ` +
+    'stamping tabler-icon-<name> onto its svg): update APP_NAV_ICONS to match'
+  ).toHaveCount(1);
+
+  await button.click();
   try {
     await page.waitForURL((url) => url.pathname === route, { timeout: 60_000 });
   } catch {
     throw new Error(
-      `tapping app-nav button ${index} landed on ${new URL(page.url()).pathname}, ` +
-      `not ${route} (MobileTopNavigation's navigationItems order changed: ` +
-      'update APP_NAV_ROUTES to match)'
+      `tapping the app-nav button with the ${APP_NAV_ICONS[route]} icon landed on ` +
+      `${new URL(page.url()).pathname}, not ${route} (MobileTopNavigation wired that ` +
+      'icon to a different route: update APP_NAV_ICONS to match)'
     );
   }
 }
@@ -222,6 +358,19 @@ export async function ensureTranslationLanguage(
   language: string = TRANSLATION_LANGUAGE
 ): Promise<void> {
   await openLanguageForm(page);
+
+  // A language this deployment does not offer is a real possibility now that
+  // the on-demand stage rotates onto Arabic, which ships on staging and is
+  // dark on prod (ENABLED_LANGUAGES in lib/user-interface/index.ts, pinned by
+  // test/infra/enabled-languages.test.ts). Without this the failure is
+  // selectOption() timing out with no clue as to why.
+  await expect(
+    languageSelect(page).locator(`option[value="${language}"]`),
+    `the deployed site does not offer ${language} in its language picker: ` +
+    'enabledLanguages in its aws-exports.json (ENABLED_LANGUAGES at deploy time) ' +
+    'no longer includes it'
+  ).toHaveCount(1);
+
   if ((await readLanguagePreference(page)) !== language) {
     await setLanguagePreference(page, language);
     // Re-open the picker so the assertion below reads the SERVER's value: an
@@ -424,21 +573,83 @@ export function expectSpanishAndDifferent(spanish: string, english: string): voi
   ).toBeGreaterThanOrEqual(3);
 }
 
+interface ScriptRule {
+  /** Global on purpose: the matches are COUNTED, not merely found. */
+  pattern: RegExp;
+  /** How many of them a pane must hold before it counts as translated. */
+  minimum: number;
+  /** Named in the failure message. */
+  what: string;
+}
+
 /**
- * Assert an ON_DEMAND_LANGUAGE pane holds a real translation.
+ * What a real translation into each rotation language must contain.
  *
- * One regex where Spanish needs a function-word list: no English (and no
- * Spanish) text can contain a CJK ideograph, so this cannot pass on content the
- * translation step left untranslated.
+ * One rule per language, and each one is chosen so that content the
+ * translation step left in ENGLISH cannot satisfy it. Counting rather than
+ * testing for a single hit also rules out a stray proper noun or a quoted
+ * phrase carrying the whole assertion.
  */
-export function expectChineseTranslation(text: string): void {
+const TRANSLATED_SCRIPTS: Record<string, ScriptRule> = {
+  // CJK Unified Ideographs. Neither English nor Spanish text contains one, and
+  // a 120-character Chinese passage is almost entirely made of them.
+  zh: { pattern: /[\u4e00-\u9fff]/g, minimum: 20, what: 'Chinese characters' },
+
+  // The Arabic block (letters, Arabic-Indic digits and Arabic punctuation).
+  // Same argument as Chinese: a different script altogether.
+  ar: { pattern: /[\u0600-\u06ff]/g, minimum: 20, what: 'Arabic-script characters' },
+
+  // Vietnamese is the awkward one: it is Latin script, so "has diacritics"
+  // proves nothing. Spanish has acute-accented vowels plus u-diaeresis and
+  // n-tilde, and every one of those lives in Latin-1 Supplement
+  // (U+00C0-U+00FF), which this range deliberately excludes. What is left is
+  // the set only Vietnamese uses: the breved, barred and horned letters
+  // A-breve (U+0102/0103), D-bar (U+0110/0111), O-horn (U+01A0/01A1) and
+  // U-horn (U+01AF/01B0), plus the whole tone-marked block in Latin Extended
+  // Additional (U+1EA0-U+1EF9). Vietnamese prose is dense with them (duoc,
+  // cua, hoc, mot are all spelled with one), and English and Spanish hold
+  // none at all.
+  vi: {
+    pattern: /[\u0102\u0103\u0110\u0111\u01a0\u01a1\u01af\u01b0\u1ea0-\u1ef9]/g,
+    minimum: 5,
+    what: 'Vietnamese-only letters (A-breve, D-bar, O-horn, U-horn and U+1EA0-U+1EF9)',
+  },
+};
+
+/**
+ * Assert an on-demand translation pane holds a real translation into
+ * `language`.
+ *
+ * A missing rule THROWS rather than passing: a sixth language added to the app
+ * would be picked up by the rotation automatically, and accepting its pane
+ * without a script check would quietly green-stamp untranslated English.
+ */
+export function expectOnDemandTranslation(
+  text: string,
+  language: string = ON_DEMAND_LANGUAGE
+): void {
+  const rule = TRANSLATED_SCRIPTS[language];
+  if (!rule) {
+    throw new Error(
+      `no content assertion is defined for ${language}: add one to TRANSLATED_SCRIPTS in ` +
+      'e2e/helpers/documents.ts. Accepting the pane without one would let untranslated ' +
+      'English through.'
+    );
+  }
+
   expect(
     text.length,
-    'the requested translation is suspiciously short to be a real one'
+    `the requested ${language} translation is suspiciously short to be a real one`
   ).toBeGreaterThan(120);
+
+  // NFC first: the same Vietnamese letter can arrive precomposed (one code
+  // point, U+1EC7) or decomposed (a base letter plus combining marks), and
+  // only the precomposed form is in the range above.
+  const hits = text.normalize('NFC').match(rule.pattern)?.length ?? 0;
   expect(
-    /[\u4e00-\u9fff]/.test(text),
-    `the ${ON_DEMAND_LANGUAGE} pane holds no Chinese characters, so the on-demand ` +
-    `translation produced untranslated content: ${text.slice(0, 200)}`
-  ).toBe(true);
+    hits,
+    `the ${language} pane holds ${hits} ${rule.what}, fewer than the ${rule.minimum} a real ` +
+    `translation carries, so the on-demand translation produced untranslated content: ` +
+    text.slice(0, 200)
+  ).toBeGreaterThanOrEqual(rule.minimum);
 }

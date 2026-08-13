@@ -22,6 +22,13 @@
  * document and hand the profile back on TRANSLATION_LANGUAGE, so what the
  * account is left holding is a superset of what stage 9 guarantees.
  *
+ * WHICH third language rotates by date (ON_DEMAND_LANGUAGE in
+ * helpers/documents.ts, proven by on-demand-language.spec.ts), so successive
+ * nights exercise Chinese, Vietnamese and Arabic in turn instead of one of
+ * them forever. Stage 10 logs the choice; E2E_ON_DEMAND_LANGUAGE forces it.
+ * The restore in stage 11 is unconditional, so the account is handed back on
+ * TRANSLATION_LANGUAGE whichever language a night picked.
+ *
  * The on-demand translation costs money per attempt and is budgeted per
  * document (MAX_TRANSLATION_ATTEMPTS in translation-request-handler, counted on
  * the document row and never reset). Stage 10 spends exactly one, against the
@@ -42,13 +49,14 @@ import { appUrl } from '../helpers/config';
 import {
   DOCUMENTS_USER,
   ON_DEMAND_LANGUAGE,
+  ON_DEMAND_LANGUAGE_REASON,
   ON_DEMAND_TRANSLATION_MS,
   PROCESSING_APPEARS_MS,
   SUMMARY_APPEARS_MS,
   TESTID,
   TRANSLATION_LANGUAGE,
   ensureTranslationLanguage,
-  expectChineseTranslation,
+  expectOnDemandTranslation,
   expectSpanishAndDifferent,
   gotoDocumentsPage,
   gotoSummaryPage,
@@ -262,9 +270,27 @@ test.describe('document lifecycle (upload -> summary -> translations -> replace 
   test('10. a missing translation can be asked for, and the request survives the app nav', async () => {
     test.setTimeout(STAGE_TIMEOUT_MS.translationRequest);
 
+    // First thing, before anything can fail: which language this run asked for
+    // and how it got there. The nightly rotates over the languages the upload
+    // does NOT produce, so a report of "stage 10 failed" is only actionable
+    // with this line next to it, and E2E_ON_DEMAND_LANGUAGE replays it.
+    console.log(
+      `[documents] on-demand translation language for this run: ${ON_DEMAND_LANGUAGE} ` +
+      `(${ON_DEMAND_LANGUAGE_REASON})`
+    );
+
     // Stage 9's replacement carries English + Spanish, so moving the profile to
     // a THIRD language is what puts this account in the state the banner is
-    // for: readable content, none of it in the parent's language.
+    // for: readable content, none of it in the parent's language. Which third
+    // language rotates by date, so that over successive nights every language
+    // the app ships gets an on-demand run rather than Chinese forever.
+    //
+    // When the rotation lands on Arabic the profile switch also flips the whole
+    // UI to RTL (common/direction.ts swaps in the RTL Bootstrap build and sets
+    // document.dir). Nothing below depends on left-to-right layout: the banner,
+    // its button and the tab panes are addressed by test id, and the nav bar by
+    // the icon each button carries rather than by its position in the row,
+    // which is the only thing dir="rtl" actually reorders.
     //
     // Running it here, against that replacement, is deliberate. Every accepted
     // request spends one of a document's MAX_TRANSLATION_ATTEMPTS (12, in
@@ -379,17 +405,21 @@ test.describe('document lifecycle (upload -> summary -> translations -> replace 
     // onto their own language, which is the last of the things the unmount used
     // to break.
     await expect(panel).toBeVisible();
-    expectChineseTranslation(await summaryTextFor(page, ON_DEMAND_LANGUAGE));
+    // Script check, chosen per language so it cannot pass on English content
+    // the translation step left alone (see TRANSLATED_SCRIPTS in the helper).
+    expectOnDemandTranslation(await summaryTextFor(page, ON_DEMAND_LANGUAGE), ON_DEMAND_LANGUAGE);
 
     // ...and the offer is gone, because nothing is missing any more.
     await expect(page.getByTestId(TESTID.translateBanner)).toHaveCount(0);
 
     // Put the profile back where stage 2 left it, last thing and on purpose:
     // +15555550114 is shared with tts.spec.ts and with the next night's run,
-    // both of which expect the Spanish preference. A failure above skips this
+    // both of which expect the Spanish preference. It also puts the UI back to
+    // LTR on the nights the rotation picked Arabic. A failure above skips this
     // and leaves the account on ON_DEMAND_LANGUAGE, which stage 2 of the next
     // run heals before it uploads; tts.spec.ts is unharmed either way, because
-    // it reads whichever pane the summary page settles on.
+    // it reads whichever pane the summary page settles on, in whichever
+    // direction the page renders it.
     await ensureTranslationLanguage(page, TRANSLATION_LANGUAGE);
     console.log(
       `[documents] left ${DOCUMENTS_USER} holding en + ${TRANSLATION_LANGUAGE} + ` +

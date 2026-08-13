@@ -4,7 +4,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { Language } from '../../common/types';
-import { useNotifications } from '../../components/notif-manager';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useFeatures } from '../../common/hooks/use-features';
@@ -15,7 +14,6 @@ export default function PreferredLanguage() {
   const apiClient = new ApiClient(appContext);
   const navigate = useNavigate();
   const location = useLocation();
-  const { addNotification } = useNotifications();
   const { setLanguage, enabledLanguages, t } = useLanguage();
   const { isFeatureEnabled } = useFeatures();
 
@@ -118,7 +116,6 @@ export default function PreferredLanguage() {
       // Only update if there are changes to save
       if (profile.secondaryLanguage !== languageValue) {
         await apiClient.profile.updateProfile(preferredLanguage);
-        addNotification('success', t('preferredLanguage.success.updated'));
       }
       
       // Navigate back to appropriate page
@@ -128,7 +125,10 @@ export default function PreferredLanguage() {
         navigate('/consent-form');
       }
     } catch (err) {
-      addNotification('error', t('preferredLanguage.error.updateFailed'));
+      // Inline, on the banner this page already renders. This used to be a
+      // toast and nothing else, so removing the toasts would have made a failed
+      // language save silent.
+      setError(t('preferredLanguage.error.updateFailed'));
     } finally {
       setSaving(false);
     }

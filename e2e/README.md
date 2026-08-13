@@ -64,7 +64,7 @@ All fictional (NANP 555-01XX), none can ever receive SMS.
 | +15555550111 | Stable login user (login, language specs). Persists across runs. |
 | +15555550112 | Lockout user (wrong-OTP spec). Persists across runs. |
 | +15555550113 | Profile / account-center user. Persists across runs. |
-| +15555550114 | Documents user (upload, translations, PDF export, replace, on-demand translation) and the TTS spec's source of a processed document. Persists across runs; left holding a processed Spanish-preference document. Its nightly document also spends one of its 12 on-demand translation attempts; each upload mints a new document, so the count never accumulates. |
+| +15555550114 | Documents user (upload, translations, PDF export, replace, on-demand translation) and the TTS spec's source of a processed document. Persists across runs; left holding a processed Spanish-preference document, whichever language that night's on-demand stage asked for (see below). Its nightly document also spends one of its 12 on-demand translation attempts; each upload mints a new document, so the count never accumulates. |
 | +15555550120 | Re-signup journey burner: the only number that runs a real Cognito sign-up. Healed (delete + admin-create) inside the spec each attempt, admin-deleted in its `afterEach`. |
 | +15555550121 | Referral journey's referrer: owns the personal invite code, stats accumulate across runs. Persists. |
 | +15555550122 | Referral journey's invited-parent burner: healed (delete + admin-create) each attempt, admin-deleted in `afterEach`. |
@@ -89,6 +89,46 @@ permanent random password, mirroring the smoke users).
 - Runs are serialized (one worker here, a shared concurrency group in CI)
   because the journeys share stateful users.
 
+## The on-demand translation language rotates
+
+Stages 10 and 11 of `documents.spec.ts` ask the finished document for a
+language it does not have. Which one **rotates by date**, so successive
+nightlies cover every language the app ships instead of the same one forever.
+
+- **The set is `zh, vi, ar`**: every language staging offers, minus English
+  and minus the profile language stage 2 pinned before the upload (Spanish).
+  The banner those stages drive only appears for a language the document is
+  MISSING, so asking for either of those two would leave nothing to press.
+  Arabic ships on staging and is dark on prod (`ENABLED_LANGUAGES`, pinned by
+  `test/infra/enabled-languages.test.ts`); this suite only ever runs against
+  staging, and `ensureTranslationLanguage` fails with a plain message if the
+  deployed picker does not offer the language it was handed.
+- **The index is `floor(epochMillis / 86_400_000) % 3`**, i.e. whole UTC days.
+  The nightly runs at 09:00 UTC, so consecutive nights walk the list and every
+  language is exercised within three; two runs on the SAME UTC day pick the
+  same language, so re-running a failed nightly by hand repeats it rather than
+  quietly testing something else. Stage 10 logs the choice and the derivation
+  as its first line.
+- **Force one with `E2E_ON_DEMAND_LANGUAGE`**, e.g.
+  `E2E_ON_DEMAND_LANGUAGE=ar RUN_PIPELINE_E2E=1 npx playwright test documents.spec.ts`.
+  Anything outside the rotation set (including `en` and `es`) is rejected up
+  front with the reason.
+- **Arabic brings RTL.** Pinning the profile to it flips `document.dir` and
+  swaps in the RTL Bootstrap build, which reverses how the nav bar is
+  *painted*. It does not reverse the DOM, but the nav buttons are addressed by
+  the icon each one carries rather than by position anyway, so neither the
+  order nor the direction matters.
+
+`on-demand-language.spec.ts` covers all of that without a pipeline run: the
+cycle over a fed sequence of dates, the override and its rejections, each
+language's content assertion (including that English and accent-dense Spanish
+fail every one of them), and the nav lookup under `dir="rtl"`. It also reads
+two files it does not own as text, the way `test/infra/enabled-languages.test.ts`
+reads `vite.config.ts`, so drift shows up on the next deploy instead of the
+next nightly: `lib/user-interface/index.ts` for the language list, and
+`MobileTopNavigation.tsx` for the route-to-icon pairing the nav lookup relies
+on. It is not `@pipeline`-gated, so it runs on every staging deploy too.
+
 ## Running locally
 
 ```bash
@@ -100,6 +140,9 @@ npx playwright install chromium
 npx playwright test                     # fast journeys
 RUN_PIPELINE_E2E=1 npx playwright test  # include the pipeline spec
 npx playwright show-report              # after a failure
+
+# Force the on-demand translation language instead of taking the day's turn
+E2E_ON_DEMAND_LANGUAGE=ar RUN_PIPELINE_E2E=1 npx playwright test documents.spec.ts
 ```
 
 `SITE_URL` (and optionally `USER_POOL_ID`) override the CloudFormation

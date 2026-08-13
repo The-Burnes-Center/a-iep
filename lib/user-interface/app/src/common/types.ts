@@ -31,11 +31,6 @@ export interface AppConfig {
       environment? : "prod" | "dev",
 }
 
-export interface NavigationPanelState {
-  collapsed?: boolean;
-  collapsedSections?: Record<number, boolean>;
-}
-
 export type LoadingStatus = "pending" | "loading" | "finished" | "error";
 export type AdminDataType =
 | "file"

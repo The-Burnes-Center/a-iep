@@ -1,11 +1,10 @@
 import React, { useState, useContext } from 'react';
-import { Container, Form, Row, Col, Breadcrumb } from 'react-bootstrap';
+import { Container, Form, Row, Col, Breadcrumb, Alert } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { Auth } from 'aws-amplify';
 import { useAuth } from '../../common/auth-provider';
-import { useNotifications } from '../../components/notif-manager';
 import { useLanguage } from '../../common/language-context'; 
 import './UpdateProfileName.css';
 import './ProfileForms.css';
@@ -15,12 +14,14 @@ import AIEPFooter from '../../components/AIEPFooter';
 
 export default function DeleteAccount() {
   const [processing, setProcessing] = useState(false);
-  const [, setError] = useState<string | null>(null);
+  // Rendered below. This used to be a write-only `const [, setError]`, so a
+  // failed deletion told the parent nothing at all: the toast that was meant to
+  // carry it never reached anyone, and the state it also set had no reader.
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
   const { setAuthenticated } = useAuth();
-  const { addNotification } = useNotifications();
   const { t } = useLanguage();
 
   const handleDeleteProfile = async () => {
@@ -30,9 +31,6 @@ export default function DeleteAccount() {
       
       // Delete the entire user profile and all data
       await apiClient.profile.deleteProfile();
-      
-      // Show success notification
-      addNotification('success', t('delete.success'));
       
       // Navigate to root BEFORE signing out to reset browser history
       navigate('/', { replace: true });
@@ -71,7 +69,8 @@ export default function DeleteAccount() {
           <Col xs={12} md={8} lg={6}>
             <div className="profile-form">
             <h4 className="update-profile-header">{t('deleteAccount.title')}</h4>
-            <p className='update-profile-description'>{t('deleteAccount.description')}</p> 
+            <p className='update-profile-description'>{t('deleteAccount.description')}</p>
+              {error && <Alert variant="danger">{error}</Alert>}
               <Form onSubmit={(e) => { e.preventDefault(); handleDeleteProfile(); }}>
 
                 <div className="d-grid">

@@ -4,7 +4,6 @@ import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { Auth } from 'aws-amplify';
 import { useAuth } from '../../common/auth-provider';
-import { useNotifications } from '../../components/notif-manager';
 import { useLanguage } from '../../common/language-context';
 
 interface DeleteProfileModalProps {
@@ -18,7 +17,6 @@ const DeleteProfileModal: React.FC<DeleteProfileModalProps> = ({ show, onHide })
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
   const { setAuthenticated } = useAuth();
-  const { addNotification } = useNotifications();
   const { t } = useLanguage();
 
   const handleDeleteProfile = async () => {
@@ -28,9 +26,6 @@ const DeleteProfileModal: React.FC<DeleteProfileModalProps> = ({ show, onHide })
       
       // Delete the entire user profile and all data
       await apiClient.profile.deleteProfile();
-      
-      // Show success notification
-      addNotification('success', t('delete.success'));
       
       // Sign out the user
       await Auth.signOut();

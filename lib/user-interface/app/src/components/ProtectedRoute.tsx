@@ -1,11 +1,13 @@
 import React from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { StatusIndicator } from '@cloudscape-design/components';
+import { Spinner } from 'react-bootstrap';
 import { useAuth } from '../common/auth-provider';
+import { useLanguage } from '../common/language-context';
 
 export function ProtectedRoute() {
   const { authenticated, loading } = useAuth();
   const location = useLocation();
+  const { t } = useLanguage();
 
   // Show loading spinner while checking authentication
   if (loading) {
@@ -19,7 +21,12 @@ export function ProtectedRoute() {
           alignItems: 'center',
         }}
       >
-        <StatusIndicator type="loading">Checking authentication...</StatusIndicator>
+        {/* The label is the spinner's accessible name, so it has to be there
+            and it has to be translated: this guard fronts every protected
+            route, in whatever language the parent picked. */}
+        <Spinner animation="border" role="status">
+          <span className="visually-hidden">{t('common.loading')}</span>
+        </Spinner>
       </div>
     );
   }

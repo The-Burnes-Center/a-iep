@@ -4,8 +4,6 @@
     "consent.checkbox": "Estoy de acuerdo",
     "consent.button": "Aceptar y continuar",
     "consent.tooltip": "Por favor marque la casilla para continuar",
-    "consent.success.saved": "Consentimiento guardado con éxito",
-    "consent.error.saveFailed": "Error al guardar el consentimiento",
     "consent.error.saveFailedRetry": "Error al guardar el consentimiento. Por favor, inténtelo de nuevo.",
     
     "child.title": "Sobre su hijo/a",
@@ -15,8 +13,6 @@
     "child.school.placeholder": "Ingrese la ciudad de la escuela",
     "child.button.saving": "Guardando...",
     "child.button.save": "Guardar y continuar",
-    "child.success.updated": "Información de su hijo actualizada con éxito",
-    "child.success.added": "Su hijo se agregó con éxito",
     "child.error.updateFailed": "Error al actualizar la información de su hijo",
     "child.error.addFailed": "Error al agregar a su hijo",
 
@@ -43,7 +39,7 @@
     "common.next": "Siguiente",
     "common.cancel": "Cancelar",
     "common.close": "Cerrar",
-    "common.save": "Guardar",
+    "common.download": "Descargar",
     "common.generatingPdf": "Generando PDF...",
     "common.skip": "Omitir",
     "common.loading": "Cargando...",
@@ -94,7 +90,6 @@
     "summary.translate.starting": "Comenzando la traducción...",
     "summary.translate.alreadyReady": "Esta traducción ya está lista. Abriéndola ahora...",
     "summary.translate.alreadyRunning": "Esta traducción ya se está preparando. Suele tardar unos minutos.",
-    "summary.translate.ready": "Su traducción está lista.",
     "summary.translate.notTranslatedYet": "Aún no traducido",
     "summary.translate.error.budgetSpent": "Hemos intentado esta traducción todas las veces posibles. Comuníquese con soporte para que podamos revisarlo.",
     "summary.translate.error.failed": "No pudimos terminar esta traducción. Su resumen en inglés no ha cambiado. Vuelva a intentarlo.",
@@ -164,7 +159,6 @@
     "profile.secondaryLanguage": "Idioma Secundario",
     "profile.preferredLanguage": "Idioma Preferido",
     "profile.noSecondaryLanguage": "No se ha seleccionado idioma secundario",
-    "profile.success.update": "Perfil actualizado con éxito",
     "profile.error.update": "Error al actualizar el perfil",
     "profile.error.serviceUnavailable": "Servicio no disponible",
     "profile.loading": "Cargando...",
@@ -188,7 +182,6 @@
     "delete.button.delete": "Eliminar Cuenta Para Siempre",
     "delete.button.processing": "Eliminando...",
     "delete.error.failed": "Error al eliminar la cuenta. Por favor, inténtelo de nuevo.",
-    "delete.success": "Cuenta eliminada exitosamente.",
 
     "auth.title": "Iniciar Sesión",
     "auth.email": "Correo electrónico",
@@ -439,7 +432,6 @@
     "updateProfile.button.update": "Actualizar Perfil",
     "updateProfile.loading": "Cargando...",
     "updateProfile.error.serviceUnavailable": "Servicio no disponible",
-    "updateProfile.success.saved": "Información del padre guardada exitosamente",
     "updateProfile.error.saveFailed": "Error al guardar la información del padre",
 
     "changeLanguage.breadcrumb.account": "CUENTA",
@@ -451,7 +443,6 @@
 
     "preferredLanguage.update.title": "Actualizar preferencias de idioma",
     "preferredLanguage.update.description": "Seleccione su idioma preferido para las traducciones del IEP",
-    "preferredLanguage.success.updated": "Preferencia de idioma actualizada con éxito",
     "preferredLanguage.error.updateFailed": "Error al actualizar la preferencia de idioma",
 
     "deleteAccount.breadcrumb.account": "CUENTA",
