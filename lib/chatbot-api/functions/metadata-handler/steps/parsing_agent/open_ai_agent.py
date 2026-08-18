@@ -265,7 +265,11 @@ class OpenAIAgent:
             data['sections'].append({
                 'title': missing_section,
                 'content': placeholder_content,
-                'page_numbers': [1]  # Default to page 1
+                # No citation: the model never found this section, so there is no
+                # page to send the parent to. The app and the PDF both skip the
+                # "Found in pages" line when this is empty. A default of [1] would
+                # print a page reference under text saying the section was not found.
+                'page_numbers': []
             })
         
         logger.info(f"Final section count: {len(data['sections'])}")
@@ -299,7 +303,7 @@ class OpenAIAgent:
                 data['sections'][lang].append({
                     'title': missing_section,
                     'content': placeholder_content,
-                    'page_numbers': [1]  # Default to page 1
+                    'page_numbers': []
                 })
         
         return data

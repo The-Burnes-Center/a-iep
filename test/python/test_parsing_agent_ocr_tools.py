@@ -181,3 +181,51 @@ def test_the_prompt_states_the_convention(agent_module):
     prompt = sys.modules['config'].get_english_only_prompt()
     assert '1-based' in prompt
     assert 'first page of the document is page 1' in prompt
+
+
+# --- placeholder sections get no citation -----------------------------------
+#
+# The schema demands all nine sections, so a section the model could not find
+# is backfilled with "was not found in the provided IEP document". That
+# placeholder used to carry page_numbers [1], which printed "Found in pages 1"
+# to a parent underneath text telling them the section is not in their
+# document. The app and the PDF generator both skip the citation line when the
+# array is empty, so empty is the honest value.
+
+def _english_sections(agent_module, titles):
+    agent = agent_module.OpenAIAgent(ocr_data=ocr_data(), api_key='test-key')
+    data = {'sections': [{'title': t, 'content': f'{t} content',
+                          'page_numbers': [2]} for t in titles]}
+    filled = agent._ensure_complete_english_sections(data)
+    return {s['title']: s for s in filled['sections']}
+
+
+def _required_titles(agent_module):
+    return list(sys.modules['config'].IEP_SECTIONS.keys())
+
+
+def test_a_backfilled_section_carries_no_page_citation(agent_module):
+    required = _required_titles(agent_module)
+    sections = _english_sections(agent_module, required[:-1])
+    dropped = required[-1]
+    assert sections[dropped]['page_numbers'] == []
+
+
+def test_every_backfilled_section_carries_no_page_citation(agent_module):
+    # Nothing came back at all, so all nine are placeholders.
+    sections = _english_sections(agent_module, [])
+    assert [s['page_numbers'] for s in sections.values()] == [[]] * len(sections)
+
+
+def test_a_backfilled_section_still_says_it_was_not_found(agent_module):
+    required = _required_titles(agent_module)
+    dropped = required[-1]
+    sections = _english_sections(agent_module, required[:-1])
+    assert 'was not found in the provided IEP document' in sections[dropped]['content']
+
+
+def test_sections_the_model_returned_keep_their_citations(agent_module):
+    required = _required_titles(agent_module)
+    sections = _english_sections(agent_module, required[:-1])
+    kept = [s['page_numbers'] for t, s in sections.items() if t != required[-1]]
+    assert kept == [[2]] * (len(required) - 1)
