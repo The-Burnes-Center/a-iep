@@ -44,42 +44,78 @@ class OpenAIAgent:
             logger.error("OPENAI_API_KEY environment variable not set")
         return key
 
-    # --- tool factories unchanged ---
+    # --- OCR retrieval tools ---
+    # Pages are 1-based everywhere the model can see them: the "Page N:" labels
+    # in get_all_ocr_text, the arguments these lookups take, and the
+    # page_numbers the model emits into SectionContent. Those page numbers are
+    # shown to parents so they can find the passage in their own copy of the
+    # IEP, so the convention has to be the one a person counting pages would
+    # use. Position in the pages list is the single source of truth: Mistral's
+    # raw pages[].index is 0-based, and matching on it while labelling 1-based
+    # handed the model the page after the one it asked for.
+    def _page_count(self):
+        return len((self.ocr_data or {}).get('pages') or [])
+
+    def _get_page_markdown(self, page_number):
+        """Markdown for a 1-based page number, or None if out of range."""
+        pages = (self.ocr_data or {}).get('pages') or []
+        if page_number < 1 or page_number > len(pages):
+            return None
+        return pages[page_number - 1].get('markdown', '')
+
     def _create_ocr_text_tool(self):
         @function_tool()
         def get_all_ocr_text() -> str:
+            """Get the full OCR text of the document, one labelled block per
+            page. Pages are numbered from 1: the first page of the document is
+            "Page 1". Use those numbers with get_ocr_text_for_page and
+            get_ocr_text_for_pages, and in the page_numbers you report."""
             if not self.ocr_data or 'pages' not in self.ocr_data:
                 return None
             text_content = []
-            for i, page in enumerate(self.ocr_data['pages'], 1):
+            for page_number, page in enumerate(self.ocr_data['pages'], 1):
                 md = page.get('markdown')
                 if md:
-                    text_content.append(f"Page {i}:\n{md}")
+                    text_content.append(f"Page {page_number}:\n{md}")
             combined = "\n\n".join(text_content)
             return f"{combined}\n\nTotal pages: {len(self.ocr_data['pages'])}"
         return get_all_ocr_text
 
     def _create_ocr_page_tool(self):
         @function_tool()
-        def get_ocr_text_for_page(page_index: int) -> str:
+        def get_ocr_text_for_page(page_number: int) -> str:
+            """Get the OCR text of a single page. page_number is 1-based: pass
+            1 for the first page of the document, matching the "Page N:" labels
+            get_all_ocr_text prints."""
             if not self.ocr_data or 'pages' not in self.ocr_data:
-                return f"ERROR: No OCR data"
-            for page in self.ocr_data['pages']:
-                if page.get('index') == page_index:
-                    return page.get('markdown','')
-            return f"ERROR: Page {page_index} not found"
+                return "ERROR: No OCR data"
+            markdown = self._get_page_markdown(page_number)
+            if markdown is None:
+                logger.warning(f"Page {page_number} requested but document has {self._page_count()} pages")
+                return f"ERROR: Page {page_number} not found. This document has {self._page_count()} pages, numbered 1 to {self._page_count()}"
+            return markdown
         return get_ocr_text_for_page
 
     def _create_ocr_multiple_pages_tool(self):
         @function_tool()
-        def get_ocr_text_for_pages(page_indices: list[int]) -> str:
+        def get_ocr_text_for_pages(page_numbers: list[int]) -> str:
+            """Get the OCR text of several pages, returned in the order asked
+            for and labelled "Page N:". Page numbers are 1-based: pass 1 for the
+            first page of the document, matching the labels get_all_ocr_text
+            prints."""
             if not self.ocr_data or 'pages' not in self.ocr_data:
-                return ""
+                return "ERROR: No OCR data"
             parts = []
-            for idx in page_indices:
-                for page in self.ocr_data['pages']:
-                    if page.get('index') == idx:
-                        parts.append(f"Page {idx+1}:\n{page.get('markdown','')}")
+            for page_number in page_numbers:
+                markdown = self._get_page_markdown(page_number)
+                if markdown is None:
+                    # Reported, not skipped: dropping the page silently handed
+                    # the model fewer pages than it asked for with nothing to
+                    # say which ones were missing.
+                    logger.warning(f"Page {page_number} requested but document has {self._page_count()} pages")
+                    parts.append(f"Page {page_number}:\nERROR: Page {page_number} not found. This document has {self._page_count()} pages, numbered 1 to {self._page_count()}")
+                    continue
+                parts.append(f"Page {page_number}:\n{markdown}")
             return "\n\n".join(parts)
         return get_ocr_text_for_pages
 
