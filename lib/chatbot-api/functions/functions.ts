@@ -19,6 +19,8 @@ import * as kms from 'aws-cdk-lib/aws-kms';
 import { getEnvironment } from '../../tags';
 import * as stepfunctions from 'aws-cdk-lib/aws-stepfunctions';
 import * as stepfunctionsTasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
 
 // Every Python lambda asset in this file is staged with this exclude.
 //
@@ -413,6 +415,31 @@ export class LambdaFunctionStack extends cdk.Stack {
 
     // Add step function policies to DDB service function (created before stepFunctionPolicies were defined)
     stepFunctionPolicies.forEach(policy => this.ddbServiceFunction.addToRolePolicy(policy));
+
+    // Reclaim documents whose upload never reached S3: the presigned-URL
+    // upload path (knowledge-management/upload-s3) writes the DynamoDB row
+    // before the browser's PUT to S3 is confirmed, so a dropped upload (closed
+    // tab, dropped network, cancelled request) leaves the row at
+    // PENDING_UPLOAD forever - no S3 event ever fires the orchestrator, so
+    // nothing in the pipeline itself will ever move it again. This schedule is
+    // the automatic remediation for that one failure mode;
+    // scripts/audit-residue.py's statusless_documents check only reports it.
+    // The DDB service function already carries dynamodb:Scan/UpdateItem on
+    // this table via stepFunctionPolicies above, so no new permissions needed.
+    const pendingUploadSweepRule = new events.Rule(scope, 'PendingUploadSweepRule', {
+      description: 'Fails closed any IEP document stuck at PENDING_UPLOAD (upload never reached S3)',
+      schedule: events.Schedule.rate(cdk.Duration.minutes(10)),
+    });
+    pendingUploadSweepRule.addTarget(new targets.LambdaFunction(this.ddbServiceFunction, {
+      event: events.RuleTargetInput.fromObject({
+        operation: 'expire_stale_pending_uploads',
+        params: {},
+      }),
+    }));
+    tagResource(pendingUploadSweepRule, {
+      'Resource': 'EventsRule',
+      'Function': 'PendingUploadSweepRule'
+    });
 
     // Grant step functions permission to invoke DDB service
     const functionsNeedingDDBAccess = [

@@ -633,13 +633,20 @@ def get_child_documents(event: Dict) -> Dict:
                 if created_at > latest_timestamp:
                     latest_timestamp = created_at
                     
+                    # PENDING_UPLOAD (and, for rows written before that status
+                    # existed, no status at all) means the upload handler wrote
+                    # this row but the pipeline has not started yet. Surface it
+                    # as PROCESSING: that is the value the frontend already
+                    # polls and renders a spinner for, and the real value stays
+                    # in DynamoDB so ddb-service's pending-upload sweep can
+                    # tell a stalled upload apart from real in-flight work.
                     # Construct the base document
                     latest_doc = {
                         'iepId': doc['iepId'],
                         'documentId': doc['iepId'],  # Also include documentId for frontend compatibility
                         'childId': doc['childId'],
                         'documentUrl': doc.get('documentUrl', f"s3://{os.environ.get('BUCKET', '')}/{doc['iepId']}"),
-                        'status': doc.get('status', 'PROCESSING'),
+                        'status': 'PROCESSING' if doc.get('status') in (None, 'PENDING_UPLOAD') else doc['status'],
                         'progress': doc.get('progress', 0),
                         'current_step': doc.get('current_step', 'initializing'),
                         'createdAt': doc.get('createdAt', ''),
