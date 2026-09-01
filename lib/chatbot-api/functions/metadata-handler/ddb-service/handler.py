@@ -4,6 +4,7 @@ Handles all DynamoDB read/write operations with standardized interface
 """
 import json
 import os
+import time
 import boto3
 import traceback
 from botocore.exceptions import ClientError
@@ -127,6 +128,8 @@ def lambda_handler(event, context):
             return get_document_with_content(params)
         elif operation == 'save_content_to_s3':
             return save_content_to_s3_operation(params)
+        elif operation == 'expire_stale_pending_uploads':
+            return expire_stale_pending_uploads(params)
         else:
             raise ValueError(f"Unknown operation: {operation}")
             
@@ -224,6 +227,12 @@ def record_failure(params):
     user_id = params['user_id']
     error_message = params['error_message']
     failed_step = params.get('failed_step', 'unknown')
+    # Guard used only by the pending-upload sweep below: the state machine's
+    # own Catch path always calls this mid-execution, so a document really is
+    # failing and no guard is needed. The sweep runs minutes later on a
+    # schedule, so it must not clobber a document that legitimately moved on
+    # (a delayed S3 event finally landed) in the meantime.
+    only_if_status_in = params.get('only_if_status_in')
 
     # Best-effort purge of unredacted artifacts; must never mask the failure record
     try:
@@ -231,33 +240,44 @@ def record_failure(params):
     except Exception as cleanup_error:
         print(f"Cleanup of unredacted artifacts after failure did not complete: {str(cleanup_error)}")
 
-    # A document deleted mid-run has no failure left to record, and writing one
-    # anyway is what created production's single phantom row. This is the one
-    # caller that treats a vanished document as success: it is the terminal
-    # state, so raising here would only fail the execution over a row the user
-    # deliberately removed.
-    try:
-        _guarded_update(
-            Key={
-                'iepId': iep_id,
-                'childId': child_id
-            },
-            UpdateExpression="SET #status = :status, error_message = :error_message, last_error = :last_error, failed_step = :failed_step, updated_at = :updated_at",
-            ExpressionAttributeNames={'#status': 'status'},
-            ExpressionAttributeValues={
-                ':status': 'FAILED',
-                ':error_message': error_message,
-                ':last_error': error_message,
-                ':failed_step': failed_step,
-                ':updated_at': datetime.utcnow().isoformat()
-            }
+    update_kwargs = {
+        'Key': {'iepId': iep_id, 'childId': child_id},
+        'UpdateExpression': "SET #status = :status, error_message = :error_message, last_error = :last_error, failed_step = :failed_step, updated_at = :updated_at",
+        'ExpressionAttributeNames': {'#status': 'status'},
+        'ExpressionAttributeValues': {
+            ':status': 'FAILED',
+            ':error_message': error_message,
+            ':last_error': error_message,
+            ':failed_step': failed_step,
+            ':updated_at': datetime.utcnow().isoformat()
+        }
+    }
+
+    if only_if_status_in:
+        placeholders = []
+        for i, expected in enumerate(only_if_status_in):
+            key = f':expectedStatus{i}'
+            update_kwargs['ExpressionAttributeValues'][key] = expected
+            placeholders.append(f'#status = {key}')
+        update_kwargs['ConditionExpression'] = (
+            'attribute_not_exists(#status) OR ' + ' OR '.join(placeholders)
         )
+
+    # A document deleted mid-run (or, for the guarded caller, one that already
+    # moved past the expected status) has no failure left to record, and
+    # writing one anyway is what created production's single phantom row. This
+    # is the one caller that treats a vanished/moved-on document as success: it
+    # is the terminal state, so raising here would only fail the execution over
+    # a row the user deliberately removed or that the pipeline already claimed.
+    try:
+        _guarded_update(**update_kwargs)
     except DocumentDeleted as deleted:
         print(f"Not recording a failure: {deleted}")
         return {
             'statusCode': 200,
             'body': json.dumps({
-                'message': 'Document was deleted mid-run; no failure recorded',
+                'message': 'Document was deleted or already moved past the expected '
+                           'status; no failure recorded',
                 'iep_id': iep_id,
                 'documentDeleted': True
             }, default=str)
@@ -269,6 +289,75 @@ def record_failure(params):
             'message': 'Failure recorded successfully',
             'iep_id': iep_id,
             'error': error_message
+        }, default=str)
+    }
+
+
+# The upload handler (knowledge-management/upload-s3) writes the document row
+# before the browser's presigned-URL PUT to S3 is known to succeed, with
+# status PENDING_UPLOAD. If that PUT never lands (closed tab, dropped network,
+# cancelled request) no S3 event ever fires the orchestrator, so
+# InitializeProcessing never runs and nothing in the pipeline itself will ever
+# move the row again. scripts/audit-residue.py's statusless_documents check
+# only reports rows like this; this sweep is what actually fixes them.
+PENDING_UPLOAD_TIMEOUT_MINUTES = 15
+
+
+def expire_stale_pending_uploads(params):
+    """Fail closed any document that never left PENDING_UPLOAD.
+
+    Invoked on a schedule (PendingUploadSweepRule in functions.ts), not
+    per-request: nothing in the request path is positioned to notice a PUT
+    that never happened. Also catches legacy rows with no status at all,
+    written before PENDING_UPLOAD existed.
+    """
+    now_epoch_seconds = params.get('now_epoch_seconds') or time.time()
+    cutoff = now_epoch_seconds - PENDING_UPLOAD_TIMEOUT_MINUTES * 60
+
+    expired, errored = [], []
+    scan_kwargs = {
+        'ProjectionExpression': 'iepId, childId, userId, createdAt, #s',
+        'ExpressionAttributeNames': {'#s': 'status'},
+    }
+    while True:
+        page = table.scan(**scan_kwargs)
+        for row in page.get('Items', []):
+            if row.get('status') not in (None, 'PENDING_UPLOAD'):
+                continue
+            created_at = row.get('createdAt')
+            if created_at is None or float(created_at) > cutoff:
+                continue
+
+            iep_id = row['iepId']
+            try:
+                record_failure({
+                    'iep_id': iep_id,
+                    'child_id': row['childId'],
+                    'user_id': row.get('userId'),
+                    'error_message': 'Upload never completed: no document reached the '
+                                      f'pipeline within {PENDING_UPLOAD_TIMEOUT_MINUTES} '
+                                      'minutes of the upload request',
+                    'failed_step': 'PENDING_UPLOAD',
+                    'only_if_status_in': ['PENDING_UPLOAD'],
+                })
+                expired.append(iep_id)
+            except Exception as e:
+                # One bad row must not stop the sweep from reclaiming the rest;
+                # the next scheduled run will retry it.
+                print(f"Failed to expire stale pending upload {iep_id}: {str(e)}")
+                errored.append(iep_id)
+
+        start_key = page.get('LastEvaluatedKey')
+        if not start_key:
+            break
+        scan_kwargs['ExclusiveStartKey'] = start_key
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps({
+            'message': f'Expired {len(expired)} stale pending upload(s)',
+            'expired': expired,
+            'errored': errored,
         }, default=str)
     }
 

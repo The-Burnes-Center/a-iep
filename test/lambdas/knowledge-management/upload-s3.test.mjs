@@ -141,6 +141,17 @@ describe('upload', () => {
         expect(typeof Item.createdAt).toBe('number');
     });
 
+    // The row is written before this handler knows the browser's presigned
+    // PUT below actually lands in S3. Without an explicit starting status, a
+    // dropped upload (closed tab, network drop) leaves a row with no status
+    // at all and nothing ever moves it again — see ddb-service's
+    // expire_stale_pending_uploads, which is what reclaims rows stuck here.
+    test('the new record starts at PENDING_UPLOAD, not PROCESSING', async () => {
+        await call(GOOD_UPLOAD);
+        const { Item } = ddbMock.commandCalls(PutCommand)[0].args[0].input;
+        expect(Item.status).toBe('PENDING_UPLOAD');
+    });
+
     test("replaces the child's existing documents before writing the new record", async () => {
         // Prefix-aware: the replace path sweeps three different prefixes (raw
         // upload, iep-data, iep-audio), so a mock that answers every prefix

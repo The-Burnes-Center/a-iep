@@ -19,7 +19,9 @@ class SectionContent(BaseModel):
         description="Section name - must match one of: " + ", ".join(IEP_SECTIONS.keys())
     )
     content: str = Field(..., description="Section content in markdown format")
-    page_numbers: List[int] = Field(..., description="List of page numbers where content was found, make sure to include all the pages where the section content was found.")
+    # Parents read these to find the passage in their own copy of the IEP, so
+    # they are 1-based page numbers, the same numbering the OCR tools use.
+    page_numbers: List[int] = Field(..., description="List of page numbers where content was found, make sure to include all the pages where the section content was found. Page numbers are 1-based: the first page of the document is page 1.")
 
     @field_validator('title')
     @classmethod

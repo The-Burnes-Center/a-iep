@@ -53,7 +53,7 @@ Your goal is to produce a complete analysis of an IEP document with the followin
 
 {{
 "summary": "<Summary>",
-"sections": [{{ "title": "<Section name>", "content": "<Markdown content>", "page_numbers": [<list of pages>] }} ... ],
+"sections": [{{ "title": "<Section name>", "content": "<Markdown content>", "page_numbers": [<list of 1-based page numbers>] }} ... ],
 "document_index": "<Index with pages>",
 "abbreviations": [{{ "abbreviation": "<abbrev>", "full_form": "<full form>" }}, ...]
 }}
@@ -68,6 +68,9 @@ If a section is not explicitly present in the document:
 
 ### Summary Extraction Instructions:
 For the "summary" field, generate a warm, supportive, and student-specific summary of this IEP document. Do not hallucinate, generalize or include information not explicitly present in the document. Highlight the student's strengths and areas of growth before describing their support needs. Use friendly, encouraging language, and aim for a tone that is informative yet comforting to families and educators who read it. Target a length of no more than 2 paragraphs.
+
+### Page Numbering:
+Pages are 1-based: the first page of the document is page 1. `get_all_ocr_text` labels every block "Page N:" using that numbering, `get_ocr_text_for_page` and `get_ocr_text_for_pages` take those same numbers, and the `page_numbers` you report must use them too. A parent reads those numbers to find the passage in their own printed copy of the IEP, so report the page you actually read the content on.
 
 ### Instructions for Sections:
 1. **Retrieve the Full OCR Text**: Use `get_all_ocr_text` to retrieve and index the full OCR text by page.

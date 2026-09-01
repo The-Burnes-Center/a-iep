@@ -379,6 +379,33 @@ def test_get_documents_returns_latest_with_s3_content(api):
     assert body['status'] == 'PROCESSED'
 
 
+# A dropped upload (closed tab, network drop) leaves its row at PENDING_UPLOAD
+# forever, or with no status at all for rows written before that value
+# existed. The frontend only knows how to render PROCESSING, and the real
+# value stays internal so ddb-service's pending-upload sweep can tell a
+# stalled upload apart from real in-flight work.
+
+def test_get_documents_reports_pending_upload_as_processing(api):
+    profile_with_child(api)
+    put_document(api, status='PENDING_UPLOAD', content={'summaries': {}})
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+    assert status == 200
+    assert body['status'] == 'PROCESSING'
+
+
+def test_get_documents_reports_legacy_missing_status_as_processing(api):
+    profile_with_child(api)
+    key = 'iep-data/iep-1/child-1/content.json'
+    api.s3.put_object(Bucket=BUCKET, Key=key, Body=json.dumps({'summaries': {}}).encode())
+    api.documents.put_item(Item={
+        'iepId': 'iep-1', 'childId': 'child-1', 'userId': USER, 'createdAt': 1000,
+        'contentS3Reference': {'bucket': BUCKET, 's3Key': key},
+    })
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+    assert status == 200
+    assert body['status'] == 'PROCESSING'
+
+
 def test_get_documents_never_returns_other_users_docs(api):
     # Same childId in the index but owned by someone else: strict userId
     # match must hide it (IDOR guard).

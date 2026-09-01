@@ -6,8 +6,15 @@ import LandingContent from './LandingContent';
 import LandingCTA from './LandingCTA';
 import { useLanguage } from '../common/language-context';
 
+// The privacy diagram is artwork with baked-in text, so it can only be shown
+// in a language it was drawn in. Spanish is the only translated version;
+// every other language falls back to English.
+const PRIVACY_DIAGRAM_EN = '/images/privacy-diagram-en.jpg';
+const PRIVACY_DIAGRAM_ES = '/images/privacy-diagram-es.jpg';
+
 const LandingContainerBottom = () => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const privacyDiagramSrc = language === 'es' ? PRIVACY_DIAGRAM_ES : PRIVACY_DIAGRAM_EN;
 
   return (
     <div className="landing-container">
@@ -40,9 +47,9 @@ const LandingContainerBottom = () => {
           <li className="landing-content-list-item">{t('landingContainer.privacyAndTrust.item4')}</li>
         </ul>
         <p className="landing-content-title">{t('landingContainer.privacyAndTrust.conclusion')}</p>
-        <img 
-          src="/images/privacy-diagram-en.jpg" 
-          alt={t('landingContainer.privacyAndTrust.diagramAlt')} 
+        <img
+          src={privacyDiagramSrc}
+          alt={t('landingContainer.privacyAndTrust.diagramAlt')}
           className="privacy-diagram"
         />
       </LandingSection>

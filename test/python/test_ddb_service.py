@@ -179,6 +179,114 @@ def test_record_failure_purges_unredacted_artifacts(service):
     assert not s3_keys(service, f'iep-data/{IEP}/{CHILD}/ocr_result.json')
 
 
+# ---------------------------------------------------------------------------
+# Pending-upload sweep: reclaims documents whose upload never reached S3.
+#
+# upload-s3 writes the row with status PENDING_UPLOAD before the browser's PUT
+# to S3 is confirmed. If that PUT never lands, no S3 event ever fires the
+# orchestrator, and nothing in the pipeline itself moves the row again — this
+# sweep (expire_stale_pending_uploads) is what actually reclaims it.
+
+def test_record_failure_guard_skips_a_row_that_already_moved_on(service):
+    seed_document(service, status='PROCESSING')  # pipeline already claimed it
+    status, body = op(service, 'record_failure', **IDS,
+                      error_message='stale sweep pass', failed_step='PENDING_UPLOAD',
+                      only_if_status_in=['PENDING_UPLOAD'])
+    assert status == 200
+    assert body['documentDeleted'] is True  # guard tripped: no failure recorded
+    assert item(service)['status'] == 'PROCESSING'  # untouched
+
+
+def test_record_failure_guard_allows_a_matching_status(service):
+    seed_document(service, status='PENDING_UPLOAD')
+    status, _ = op(service, 'record_failure', **IDS,
+                   error_message='upload never completed', failed_step='PENDING_UPLOAD',
+                   only_if_status_in=['PENDING_UPLOAD'])
+    assert status == 200
+    assert item(service)['status'] == 'FAILED'
+
+
+def test_record_failure_guard_allows_a_missing_status(service):
+    service.documents.put_item(Item={**KEY, 'userId': USER, 'createdAt': 1000})
+    status, _ = op(service, 'record_failure', **IDS,
+                   error_message='upload never completed', failed_step='PENDING_UPLOAD',
+                   only_if_status_in=['PENDING_UPLOAD'])
+    assert status == 200
+    assert item(service)['status'] == 'FAILED'
+
+
+def test_expire_stale_pending_uploads_fails_closed_past_the_timeout(service):
+    now = 1_000_000
+    stale_created_at = now - 16 * 60  # 16 minutes ago, past the 15m timeout
+    service.s3.put_object(Bucket=BUCKET, Key=f'{USER}/{CHILD}/{IEP}/original.pdf', Body=b'pdf')
+    seed_document(service, status='PENDING_UPLOAD', createdAt=stale_created_at,
+                 documentUrl=f's3://{BUCKET}/{USER}/{CHILD}/{IEP}/original.pdf')
+
+    status, body = op(service, 'expire_stale_pending_uploads', now_epoch_seconds=now)
+    assert status == 200
+    assert body['expired'] == [IEP]
+
+    doc = item(service)
+    assert doc['status'] == 'FAILED'
+    assert doc['failed_step'] == 'PENDING_UPLOAD'
+    assert not s3_keys(service, f'{USER}/')  # the abandoned original is purged too
+
+
+def test_expire_stale_pending_uploads_ignores_uploads_still_within_the_window(service):
+    now = 1_000_000
+    seed_document(service, status='PENDING_UPLOAD', createdAt=now - 60)  # 1 minute ago
+
+    status, body = op(service, 'expire_stale_pending_uploads', now_epoch_seconds=now)
+    assert status == 200
+    assert body['expired'] == []
+    assert item(service)['status'] == 'PENDING_UPLOAD'
+
+
+def test_expire_stale_pending_uploads_ignores_documents_already_in_flight(service):
+    now = 1_000_000
+    # Old but legitimately running: must never be reclassified as a dead upload.
+    seed_document(service, status='PROCESSING', createdAt=now - 3600)
+
+    status, body = op(service, 'expire_stale_pending_uploads', now_epoch_seconds=now)
+    assert status == 200
+    assert body['expired'] == []
+    assert item(service)['status'] == 'PROCESSING'
+
+
+def test_expire_stale_pending_uploads_catches_legacy_rows_with_no_status(service):
+    now = 1_000_000
+    service.documents.put_item(Item={**KEY, 'userId': USER, 'createdAt': now - 3600})
+
+    status, body = op(service, 'expire_stale_pending_uploads', now_epoch_seconds=now)
+    assert status == 200
+    assert body['expired'] == [IEP]
+    assert item(service)['status'] == 'FAILED'
+
+
+def test_expire_stale_pending_uploads_one_bad_row_does_not_block_the_rest(service, monkeypatch):
+    """Mutation-check: a per-row failure must not abort the whole sweep."""
+    now = 1_000_000
+    seed_document(service, status='PENDING_UPLOAD', createdAt=now - 3600)
+    other_key = {'iepId': 'iep-2', 'childId': 'child-2'}
+    service.documents.put_item(Item={**other_key, 'userId': USER, 'status': 'PENDING_UPLOAD',
+                                     'createdAt': now - 3600})
+
+    real_record_failure = service.module.record_failure
+
+    def flaky(params):
+        if params['iep_id'] == 'iep-2':
+            raise RuntimeError('boom')
+        return real_record_failure(params)
+
+    monkeypatch.setattr(service.module, 'record_failure', flaky)
+
+    status, body = op(service, 'expire_stale_pending_uploads', now_epoch_seconds=now)
+    assert status == 200
+    assert body['expired'] == [IEP]           # the healthy row still got fixed
+    assert body['errored'] == ['iep-2']        # the broken one is reported, not swallowed
+    assert item(service)['status'] == 'FAILED'
+
+
 def test_save_content_merges_languages_without_clobbering(service):
     seed_document(service, summaries={'en': 'Inline legacy summary'})
 

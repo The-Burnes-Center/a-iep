@@ -1,6 +1,6 @@
 {
   "name": "gen-ai-mvp",
-  "version": "2026.8.1",
+  "version": "2026.9.1",
   "license": "CC-BY-NC-4.0",
   "bin": {
     "gen-ai-mvp": "bin/gen-ai-mvp.js"

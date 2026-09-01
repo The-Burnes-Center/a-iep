@@ -727,6 +727,50 @@ describe('IEP processing state machine', () => {
   });
 });
 
+// The upload handler (knowledge-management/upload-s3) writes a document row
+// with status PENDING_UPLOAD before the browser's presigned-URL PUT to S3 is
+// confirmed. If that PUT never lands, no S3 event ever fires the
+// orchestrator, so nothing in the pipeline itself moves the row again — this
+// schedule is the only thing that does (ddb-service's
+// expire_stale_pending_uploads).
+describe('pending-upload sweep', () => {
+  const sweepTargetsOf = (rule: any) =>
+    (rule.Properties.Targets ?? []).filter((target: any) => {
+      try {
+        return JSON.parse(target.Input).operation === 'expire_stale_pending_uploads';
+      } catch {
+        return false;
+      }
+    });
+
+  test('a scheduled rule invokes the DDB service to expire stale pending uploads', () => {
+    const ddbServiceIds = Object.keys(template.findResources('AWS::Lambda::Function'))
+      .filter((id) => id.includes('DDBServiceFunction'));
+    expect(ddbServiceIds).toHaveLength(1);
+    const [ddbServiceId] = ddbServiceIds;
+
+    const rules = Object.values(template.findResources('AWS::Events::Rule'));
+    const matchingTargets = rules
+      .flatMap((rule: any) => sweepTargetsOf(rule))
+      .filter((target: any) => JSON.stringify(target.Arn).includes(ddbServiceId));
+
+    expect(matchingTargets).toHaveLength(1);
+  });
+
+  // Must run more often than PENDING_UPLOAD_TIMEOUT_MINUTES (15, in
+  // ddb-service/handler.py) or a stuck upload could sit well past its
+  // supposed timeout before the next pass even looks at it.
+  test('the sweep runs more often than the 15-minute pending-upload timeout', () => {
+    const rules = Object.values(template.findResources('AWS::Events::Rule')) as any[];
+    const sweepRule = rules.find((rule) => sweepTargetsOf(rule).length > 0);
+    expect(sweepRule).toBeDefined();
+
+    const match = /rate\((\d+) minutes?\)/.exec(sweepRule.Properties.ScheduleExpression);
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBeLessThanOrEqual(15);
+  });
+});
+
 describe('on-demand single-language translation', () => {
   const TRANSLATIONS_ROUTE =
     'POST /profile/children/{childId}/documents/{iepId}/translations';
