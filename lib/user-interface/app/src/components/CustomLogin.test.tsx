@@ -8,7 +8,7 @@
  * sees (which screen, which message, where they land) plus what must NOT
  * happen (no second SMS, no confirmation step, no account created).
  *
- * The single most valuable case here is `userConfirmed === false`. A PreSignUp
+ * The single most valuable case here is `isSignUpComplete === false`. A PreSignUp
  * trigger now auto-confirms phone-only signups so a new parent gets exactly
  * ONE SMS, and the two-code path is the fallback for when that trigger does
  * not take effect. No E2E journey can cover it: a journey cannot assert
@@ -27,13 +27,14 @@ import type { SupportedLanguage } from "../common/languages";
 const Auth = vi.hoisted(() => ({
   signIn: vi.fn(),
   signUp: vi.fn(),
-  sendCustomChallengeAnswer: vi.fn(),
+  confirmSignIn: vi.fn(),
   confirmSignUp: vi.fn(),
-  resendSignUp: vi.fn(),
-  currentAuthenticatedUser: vi.fn(),
+  resendSignUpCode: vi.fn(),
+  getCurrentUser: vi.fn(),
+  fetchAuthSession: vi.fn(),
   signOut: vi.fn(),
 }));
-vi.mock("aws-amplify", () => ({ Auth }));
+vi.mock("aws-amplify/auth", () => Auth);
 
 const PHONE_DIGITS = "5551234567";
 const PHONE_E164 = "+15551234567";
@@ -108,12 +109,12 @@ const onPhoneScreen = () => screen.queryByPlaceholderText("(xxx) xxx-xxxx") !== 
 
 beforeEach(() => {
   // No session: AuthProvider's mount check must report anonymous.
-  Auth.currentAuthenticatedUser.mockRejectedValue(new Error("not authenticated"));
+  Auth.getCurrentUser.mockRejectedValue(new Error("not authenticated"));
 });
 
 describe("phone number handling", () => {
   test("normalizes the formatted field to E.164 before calling Cognito", async () => {
-    Auth.signIn.mockResolvedValue({ challengeName: "CUSTOM_CHALLENGE", challengeParam: {} });
+    Auth.signIn.mockResolvedValue({ isSignedIn: false, nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} } });
     const { user } = renderLogin();
 
     fillPhone();
@@ -121,7 +122,10 @@ describe("phone number handling", () => {
     await submitPhone(user);
 
     await screen.findByTestId("sms-code-input");
-    expect(Auth.signIn).toHaveBeenCalledWith(PHONE_E164, undefined, { language: "en" });
+    expect(Auth.signIn).toHaveBeenCalledWith({
+      username: PHONE_E164,
+      options: { authFlowType: "CUSTOM_WITHOUT_SRP", clientMetadata: { language: "en" } },
+    });
   });
 
   test("rejects a short number without contacting Cognito at all", async () => {
@@ -140,8 +144,8 @@ describe("phone number handling", () => {
 describe("applyPhoneSignInResult", () => {
   test("a plain custom challenge parks the parent on the code screen", async () => {
     Auth.signIn.mockResolvedValue({
-      challengeName: "CUSTOM_CHALLENGE",
-      challengeParam: {},
+      isSignedIn: false,
+      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
       username: PHONE_E164,
     });
     const { user } = renderLogin();
@@ -161,8 +165,8 @@ describe("applyPhoneSignInResult", () => {
     // still returning a CUSTOM_CHALLENGE. Without the check the UI would park
     // the parent on a code screen waiting for an SMS that never arrives.
     Auth.signIn.mockResolvedValue({
-      challengeName: "CUSTOM_CHALLENGE",
-      challengeParam: { error: "SNS publish failed" },
+      isSignedIn: false,
+      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: { error: "SNS publish failed" } },
     });
     const { user } = renderLogin();
 
@@ -176,7 +180,8 @@ describe("applyPhoneSignInResult", () => {
   });
 
   test("no challenge at all means already authenticated: log in and route on", async () => {
-    Auth.signIn.mockResolvedValue({ signInUserSession: { idToken: "token" } });
+    Auth.signIn.mockResolvedValue({ isSignedIn: true, nextStep: { signInStep: "DONE" } });
+    Auth.getCurrentUser.mockResolvedValue({ username: PHONE_E164, userId: "test-user" });
     const { user } = renderLogin();
 
     fillPhone();
@@ -192,13 +197,13 @@ describe("applyPhoneSignInResult", () => {
     // it DOES forward clientMetadata, and the next round sends the OTP in that
     // language — the whole reason the round exists.
     const handshakeUser = {
-      challengeName: "CUSTOM_CHALLENGE",
-      challengeParam: { challengeType: "LANGUAGE_HANDSHAKE" },
+      isSignedIn: false,
+      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: { challengeType: "LANGUAGE_HANDSHAKE" } },
     };
     Auth.signIn.mockResolvedValue(handshakeUser);
-    Auth.sendCustomChallengeAnswer.mockResolvedValue({
-      challengeName: "CUSTOM_CHALLENGE",
-      challengeParam: {},
+    Auth.confirmSignIn.mockResolvedValue({
+      isSignedIn: false,
+      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
     });
     const { user } = renderLogin("es");
 
@@ -206,11 +211,10 @@ describe("applyPhoneSignInResult", () => {
     await submitPhone(user);
 
     expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
-    expect(Auth.sendCustomChallengeAnswer).toHaveBeenCalledWith(
-      handshakeUser,
-      "HANDSHAKE_ACK",
-      { language: "es" },
-    );
+    expect(Auth.confirmSignIn).toHaveBeenCalledWith({
+      challengeResponse: "HANDSHAKE_ACK",
+      options: { clientMetadata: { language: "es" } },
+    });
   });
 });
 
@@ -222,10 +226,10 @@ describe("unknown number falls back to sign-up", () => {
       // client has PreventUserExistenceErrors on, so an unknown number surfaces
       // as a failed auth rather than a missing user.
       Auth.signIn.mockRejectedValueOnce(cognitoError(code));
-      Auth.signUp.mockResolvedValue({ userConfirmed: true });
+      Auth.signUp.mockResolvedValue({ isSignUpComplete: true });
       Auth.signIn.mockResolvedValueOnce({
-        challengeName: "CUSTOM_CHALLENGE",
-        challengeParam: {},
+        isSignedIn: false,
+        nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
       });
       const { user } = renderLogin("vi");
 
@@ -236,8 +240,10 @@ describe("unknown number falls back to sign-up", () => {
       expect(Auth.signUp).toHaveBeenCalledTimes(1);
       expect(Auth.signUp.mock.calls[0][0]).toMatchObject({
         username: PHONE_E164,
-        attributes: { phone_number: PHONE_E164, locale: "vi" },
-        clientMetadata: { language: "vi" },
+        options: {
+          userAttributes: { phone_number: PHONE_E164, locale: "vi" },
+          clientMetadata: { language: "vi" },
+        },
       });
     },
   );
@@ -258,8 +264,8 @@ describe("unknown number falls back to sign-up", () => {
     Auth.signIn.mockRejectedValueOnce(cognitoError("UserNotFoundException"));
     Auth.signUp.mockRejectedValue(cognitoError("UsernameExistsException"));
     Auth.signIn.mockResolvedValueOnce({
-      challengeName: "CUSTOM_CHALLENGE",
-      challengeParam: {},
+      isSignedIn: false,
+      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
     });
     const { user } = renderLogin();
 
@@ -272,13 +278,13 @@ describe("unknown number falls back to sign-up", () => {
   });
 });
 
-describe("single-SMS signup (userConfirmed: true)", () => {
+describe("single-SMS signup (isSignUpComplete: true)", () => {
   const arrangeAutoConfirmedSignup = () => {
     Auth.signIn.mockRejectedValueOnce(cognitoError("UserNotFoundException"));
-    Auth.signUp.mockResolvedValue({ userConfirmed: true });
+    Auth.signUp.mockResolvedValue({ isSignUpComplete: true });
     Auth.signIn.mockResolvedValueOnce({
-      challengeName: "CUSTOM_CHALLENGE",
-      challengeParam: {},
+      isSignedIn: false,
+      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
       username: PHONE_E164,
     });
   };
@@ -295,15 +301,16 @@ describe("single-SMS signup (userConfirmed: true)", () => {
     // The PreSignUp trigger minted no signup code, so there is nothing to
     // confirm — asking for one would strand the parent on a dead screen.
     expect(Auth.confirmSignUp).not.toHaveBeenCalled();
-    expect(Auth.resendSignUp).not.toHaveBeenCalled();
+    expect(Auth.resendSignUpCode).not.toHaveBeenCalled();
     expect(Auth.signUp).toHaveBeenCalledTimes(1);
   });
 
   test("the one code the parent receives is the custom-auth code, and it logs them in", async () => {
     arrangeAutoConfirmedSignup();
-    Auth.sendCustomChallengeAnswer.mockResolvedValue({
-      signInUserSession: { idToken: "token" },
+    Auth.confirmSignIn.mockResolvedValue({
+      isSignedIn: true, nextStep: { signInStep: "DONE" },
     });
+    Auth.getCurrentUser.mockResolvedValue({ username: PHONE_E164, userId: "test-user" });
     const { user } = renderLogin();
 
     fillPhone();
@@ -313,18 +320,17 @@ describe("single-SMS signup (userConfirmed: true)", () => {
 
     expect(await screen.findByText("auth.phoneVerificationSuccess")).toBeInTheDocument();
     expect(screen.getByTestId("auth-state")).toHaveTextContent("signed-in");
-    expect(Auth.sendCustomChallengeAnswer).toHaveBeenCalledWith(
-      expect.objectContaining({ challengeName: "CUSTOM_CHALLENGE" }),
-      OTP,
-      { language: "en" },
-    );
+    expect(Auth.confirmSignIn).toHaveBeenCalledWith({
+      challengeResponse: OTP,
+      options: { clientMetadata: { language: "en" } },
+    });
     expect(Auth.confirmSignUp).not.toHaveBeenCalled();
     // The redirect is deliberately delayed a beat so the success alert is read.
     expect(await screen.findByText(LANDING, undefined, { timeout: 3000 })).toBeInTheDocument();
   });
 });
 
-describe("two-code fallback (userConfirmed: false)", () => {
+describe("two-code fallback (isSignUpComplete: false)", () => {
   /**
    * The PreSignUp trigger did not take effect, so Cognito minted a signup code
    * and the parent must confirm the account before the login OTP is issued.
@@ -332,7 +338,7 @@ describe("two-code fallback (userConfirmed: false)", () => {
    */
   const arrangeUnconfirmedSignup = async () => {
     Auth.signIn.mockRejectedValueOnce(cognitoError("UserNotFoundException"));
-    Auth.signUp.mockResolvedValue({ userConfirmed: false });
+    Auth.signUp.mockResolvedValue({ isSignUpComplete: false });
     const { user } = renderLogin();
 
     fillPhone();
@@ -350,23 +356,26 @@ describe("two-code fallback (userConfirmed: false)", () => {
     // here would send a second SMS and the parent would not know which to type.
     // (Call 1 is the probe that threw UserNotFoundException.)
     expect(Auth.signIn).toHaveBeenCalledTimes(1);
-    expect(Auth.resendSignUp).not.toHaveBeenCalled();
+    expect(Auth.resendSignUpCode).not.toHaveBeenCalled();
   });
 
   test("the first code confirms the account, then a login code is requested", async () => {
     const user = await arrangeUnconfirmedSignup();
     Auth.signIn.mockResolvedValueOnce({
-      challengeName: "CUSTOM_CHALLENGE",
-      challengeParam: {},
+      isSignedIn: false,
+      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
       username: PHONE_E164,
     });
 
     await submitCode(user, OTP);
 
     expect(await screen.findByText("auth.accountConfirmedNewCode")).toBeInTheDocument();
-    expect(Auth.confirmSignUp).toHaveBeenCalledWith(PHONE_E164, OTP);
+    expect(Auth.confirmSignUp).toHaveBeenCalledWith({
+      username: PHONE_E164,
+      confirmationCode: OTP,
+    });
     // The signup code is a confirmation code, never a custom-auth answer.
-    expect(Auth.sendCustomChallengeAnswer).not.toHaveBeenCalled();
+    expect(Auth.confirmSignIn).not.toHaveBeenCalled();
     expect(Auth.signIn).toHaveBeenCalledTimes(2);
     // Cleared so the parent types the NEW code into an empty field.
     expect(screen.getByTestId("sms-code-input")).toHaveValue("");
@@ -375,25 +384,25 @@ describe("two-code fallback (userConfirmed: false)", () => {
   test("the second code completes the login", async () => {
     const user = await arrangeUnconfirmedSignup();
     Auth.signIn.mockResolvedValueOnce({
-      challengeName: "CUSTOM_CHALLENGE",
-      challengeParam: {},
+      isSignedIn: false,
+      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
       username: PHONE_E164,
     });
     await submitCode(user, OTP);
     await screen.findByText("auth.accountConfirmedNewCode");
 
-    Auth.sendCustomChallengeAnswer.mockResolvedValue({
-      signInUserSession: { idToken: "token" },
+    Auth.confirmSignIn.mockResolvedValue({
+      isSignedIn: true, nextStep: { signInStep: "DONE" },
     });
+    Auth.getCurrentUser.mockResolvedValue({ username: PHONE_E164, userId: "test-user" });
     await submitCode(user, SECOND_OTP);
 
     expect(await screen.findByText("auth.phoneVerificationSuccess")).toBeInTheDocument();
     expect(screen.getByTestId("auth-state")).toHaveTextContent("signed-in");
-    expect(Auth.sendCustomChallengeAnswer).toHaveBeenCalledWith(
-      expect.objectContaining({ username: PHONE_E164 }),
-      SECOND_OTP,
-      { language: "en" },
-    );
+    expect(Auth.confirmSignIn).toHaveBeenCalledWith({
+      challengeResponse: SECOND_OTP,
+      options: { clientMetadata: { language: "en" } },
+    });
   });
 
   test("a wrong signup code keeps the parent on the code screen with a retryable message", async () => {
@@ -412,8 +421,8 @@ describe("two-code fallback (userConfirmed: false)", () => {
     const user = await arrangeUnconfirmedSignup();
     // Confirmed, but the follow-up custom auth could not send its code.
     Auth.signIn.mockResolvedValueOnce({
-      challengeName: "CUSTOM_CHALLENGE",
-      challengeParam: { error: "SNS publish failed" },
+      isSignedIn: false,
+      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: { error: "SNS publish failed" } },
     });
 
     await submitCode(user, OTP);

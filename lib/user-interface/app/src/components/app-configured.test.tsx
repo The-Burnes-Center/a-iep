@@ -18,10 +18,12 @@ import AppConfigured from "./app-configured";
 
 const Amplify = vi.hoisted(() => ({ configure: vi.fn() }));
 const Auth = vi.hoisted(() => ({
-  currentAuthenticatedUser: vi.fn(),
+  getCurrentUser: vi.fn(),
+  fetchAuthSession: vi.fn(),
   signOut: vi.fn(),
 }));
-vi.mock("aws-amplify", () => ({ Amplify, Auth }));
+vi.mock("aws-amplify", () => ({ Amplify }));
+vi.mock("aws-amplify/auth", () => Auth);
 
 /** The route tree is not what this file is about; keep it out of the way. */
 vi.mock("./AppRoutes", () => ({ default: () => <div>the routed app</div> }));
@@ -50,7 +52,7 @@ beforeEach(() => {
   // AppConfigured mounts a real BrowserRouter, which reads jsdom's one shared
   // history.
   window.history.pushState({}, "", "/");
-  Auth.currentAuthenticatedUser.mockRejectedValue(new Error("not signed in"));
+  Auth.getCurrentUser.mockRejectedValue(new Error("not signed in"));
   // console.error is the real one; the error-state test drives a rejected
   // fetch through the component's own catch, which logs on purpose.
   vi.spyOn(console, "error").mockImplementation(() => {});

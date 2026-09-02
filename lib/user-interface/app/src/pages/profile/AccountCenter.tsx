@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuth } from '../../common/auth-provider';
-import { Auth } from "aws-amplify";
+import { signOut } from 'aws-amplify/auth';
 import { useNavigate } from 'react-router-dom';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
@@ -35,7 +35,7 @@ const AccountCenter: React.FC = () => {
   const handleSignOut = async () => {
     try {
       navigate('/', { replace: true });
-      await Auth.signOut();
+      await signOut();
       setAuthenticated(false);
     } catch (error) {
       // console.error("Error signing out:", error);

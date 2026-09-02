@@ -1,5 +1,15 @@
 import React, { useState } from 'react';
-import { Auth } from 'aws-amplify';
+import {
+  signIn, signUp, confirmSignIn, confirmSignUp, resendSignUpCode,
+  resetPassword, confirmResetPassword, getCurrentUser,
+} from 'aws-amplify/auth';
+
+// Amplify v6 reports service errors on `name`; v5 used `code`. Read both so the
+// branching below keeps working regardless of which the SDK surfaces.
+const errCode = (e: unknown): string | undefined => {
+  const err = e as { code?: string; name?: string } | null | undefined;
+  return err?.code ?? err?.name;
+};
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Form, 
@@ -32,10 +42,10 @@ interface CustomLoginProps {
   showLanguageDropdown?: boolean;
 }
 
-/** The slice of the Cognito user object the phone custom-auth flow reads back */
+/** The slice of the v6 signIn/confirmSignIn result the phone custom-auth flow reads back */
 interface SmsChallengeUser {
-  username?: string;
-  challengeParam?: { USERNAME?: string };
+  isSignedIn?: boolean;
+  nextStep?: { signInStep?: string; additionalInfo?: Record<string, string> };
 }
 
 const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguageDropdown = false }) => {
@@ -59,7 +69,6 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   const [resetEmail, setResetEmail] = useState('');
   const [resetSent, setResetSent] = useState(false);
   const [passwordChangeRequired, setPasswordChangeRequired] = useState(false);
-  const [cognitoUser, setCognitoUser] = useState<unknown>(null);
   
   // Sign up state variables
   const [showSignUp, setShowSignUp] = useState(false);
@@ -115,22 +124,25 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     const normalizedUsername = username.toLowerCase();
     
     try {
-      const user = await Auth.signIn(normalizedUsername, password, { language });
+      const { isSignedIn, nextStep } = await signIn({
+        username: normalizedUsername,
+        password,
+        options: { clientMetadata: { language } },
+      });
       // console.log('Login successful', user);
       
       // Check for NEW_PASSWORD_REQUIRED challenge
-      if (user.challengeName === 'NEW_PASSWORD_REQUIRED') {
+      // v6: challenges arrive as nextStep.signInStep, not user.challengeName.
+      if (nextStep?.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
         // console.log('New password required');
         setPasswordChangeRequired(true);
-        setCognitoUser(user);
+        // v6 tracks the pending sign-in internally; only the flag is needed.
         setLoading(false);
         return;
       }
       
-      // Update auth context with logged in user
-      login(user);
-      
-      // Navigate to appropriate page
+      // v6: signIn returns no user object — fetch it once signed in.
+      if (isSignedIn) login(await getCurrentUser());
       handleSuccessfulAuthentication();
     } catch (err) {
       // console.error('Login error', err);
@@ -149,12 +161,22 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
    * round sends the OTP in that language.
    */
   const signInWithPhone = async (phone: string) => {
-    let user = await Auth.signIn(phone, undefined, { language });
+    // v6: CUSTOM_AUTH needs an explicit authFlowType; challenge metadata moves
+    // from challengeParam to nextStep.additionalInfo.
+    let user: SmsChallengeUser = await signIn({
+      username: phone,
+      options: { authFlowType: 'CUSTOM_WITHOUT_SRP', clientMetadata: { language } },
+    });
     if (
-      user.challengeName === 'CUSTOM_CHALLENGE' &&
-      user.challengeParam?.challengeType === 'LANGUAGE_HANDSHAKE'
+      user.nextStep?.signInStep === 'CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE' &&
+      user.nextStep?.additionalInfo?.challengeType === 'LANGUAGE_HANDSHAKE'
     ) {
-      user = await Auth.sendCustomChallengeAnswer(user, 'HANDSHAKE_ACK', { language });
+      // confirmSignIn still forwards clientMetadata, preserving the two-round
+      // language handshake the backend depends on.
+      user = await confirmSignIn({
+        challengeResponse: 'HANDSHAKE_ACK',
+        options: { clientMetadata: { language } },
+      });
     }
     return user;
   };
@@ -167,17 +189,18 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
    * user, a freshly auto-confirmed signup, and the UsernameExistsException
    * race — and a third hand-copy of it was where a divergence would hide.
    */
-  const applyPhoneSignInResult = (
+  const applyPhoneSignInResult = async (
     cognitoUser: Awaited<ReturnType<typeof signInWithPhone>>,
     sentMessageKey = 'auth.smsCodeSent'
   ) => {
-    if (cognitoUser.challengeName !== 'CUSTOM_CHALLENGE') {
-      login(cognitoUser);
+    if (cognitoUser.nextStep?.signInStep !== 'CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE') {
+      // v6: signIn returns no user object — fetch it once signed in.
+      login(await getCurrentUser());
       handleSuccessfulAuthentication();
       return;
     }
 
-    if (cognitoUser.challengeParam?.error) {
+    if (cognitoUser.nextStep?.additionalInfo?.error) {
       // The SMS lambda reports send failures through this challenge
       // parameter; without this check the UI claims a code was sent.
       setError('auth.errorSendingCode');
@@ -228,7 +251,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         // console.log('SignIn result:', { challengeName: cognitoUser.challengeName, username: cognitoUser.username });
         
         // Handle the authentication response for existing users
-        applyPhoneSignInResult(cognitoUser);
+        await applyPhoneSignInResult(cognitoUser);
 
       } catch (signInError) {
         // console.log('SignIn error:', signInError.code);
@@ -237,7 +260,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         // the app client prevents user existence errors, so the define-auth
         // lambda fails auth for unknown numbers instead of Cognito throwing
         // UserNotFoundException. Treat both as "create the account".
-        if (signInError.code === 'UserNotFoundException' || signInError.code === 'NotAuthorizedException') {
+        if (errCode(signInError) === 'UserNotFoundException' || errCode(signInError) === 'NotAuthorizedException') {
           // User doesn't exist, create them first
           // console.log('Creating new user for phone:', formattedPhone);
           
@@ -245,25 +268,29 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           const tempPassword = 'TempPass123!' + Math.random().toString(36).substring(2, 15);
           
           try {
-            const signUpResult = await Auth.signUp({
+            // v6: attributes/clientMetadata move under options.
+            const signUpResult = await signUp({
               username: formattedPhone,
               password: tempPassword,
-              attributes: {
-                phone_number: formattedPhone,
-                // 'locale' is how the OTP login SMS gets localized: Cognito
-                // doesn't forward sign-in clientMetadata to that trigger
-                locale: language
+              options: {
+                userAttributes: {
+                  phone_number: formattedPhone,
+                  // 'locale' is how the OTP login SMS gets localized: Cognito
+                  // doesn't forward sign-in clientMetadata to that trigger
+                  locale: language,
+                },
+                clientMetadata: { language },
               },
-              clientMetadata: { language }
             });
 
-            if (signUpResult.userConfirmed) {
+            // v6 renamed userConfirmed -> isSignUpComplete
+            if (signUpResult.isSignUpComplete) {
               // The PreSignUp trigger auto-confirmed the account, so Cognito
               // minted no signup code and there is nothing to collect here:
               // go straight to the login OTP, which is now the ONLY SMS a new
               // parent receives.
               setIsNewUserSignup(true);
-              applyPhoneSignInResult(await signInWithPhone(formattedPhone), 'auth.smsCodeSentNewUser');
+              await applyPhoneSignInResult(await signInWithPhone(formattedPhone), 'auth.smsCodeSentNewUser');
             } else {
               // userConfirmed === false means the trigger did not take effect.
               // Fall back to the old two-code flow rather than stranding the
@@ -277,20 +304,20 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
 
           } catch (signUpError) {
             // console.error('SignUp error:', signUpError);
-            if (signUpError.code === 'UsernameExistsException') {
+            if (errCode(signUpError) === 'UsernameExistsException') {
               // User was created between our attempts, try signin again
-              applyPhoneSignInResult(await signInWithPhone(formattedPhone));
+              await applyPhoneSignInResult(await signInWithPhone(formattedPhone));
             } else {
               throw signUpError;
             }
           }
-        } else if (signInError.code === 'UserNotConfirmedException') {
+        } else if (errCode(signInError) === 'UserNotConfirmedException') {
           // User exists but not confirmed - treat as new user confirmation
           // console.log('User exists but not confirmed, setting up confirmation flow');
           
           // Try to resend confirmation code for existing unconfirmed user
           try {
-            await Auth.resendSignUp(formattedPhone, { language });
+            await resendSignUpCode({ username: formattedPhone, options: { clientMetadata: { language } } });
             // console.log('Resent confirmation code for existing user');
           } catch (resendError) {
             // console.log('Could not resend confirmation code:', resendError.code);
@@ -353,7 +380,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         // console.log('Confirming signup for:', pendingPhoneNumber);
         
         // Confirm the signup
-        await Auth.confirmSignUp(pendingPhoneNumber, smsCode);
+        await confirmSignUp({ username: pendingPhoneNumber, confirmationCode: smsCode });
         // console.log('Signup confirmed successfully');
         
         // Now initiate custom auth for the confirmed user
@@ -362,7 +389,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         try {
           const cognitoUser = await signInWithPhone(pendingPhoneNumber);
 
-          if (cognitoUser.challengeName === 'CUSTOM_CHALLENGE' && !cognitoUser.challengeParam?.error) {
+          if (cognitoUser.nextStep?.signInStep === 'CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE' && !cognitoUser.nextStep?.additionalInfo?.error) {
             // Switch to custom auth mode
             setCognitoUserForSms(cognitoUser);
             setIsNewUserConfirmation(false);
@@ -370,13 +397,14 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             setSmsCode(''); // Clear the confirmation code
             setSuccessMessage('auth.accountConfirmedNewCode');
             // console.log('Custom auth initiated after confirmation');
-          } else if (cognitoUser.signInUserSession) {
+          } else if (cognitoUser.isSignedIn) {
             // User is fully authenticated (shouldn't happen with CUSTOM_AUTH but handle gracefully)
             // console.log('User authenticated successfully after confirmation');
             setSuccessMessage('auth.accountConfirmedSuccess');
             
             // Update auth context with logged in user
-            login(cognitoUser);
+            // v6: the result carries only status — fetch the real user.
+            login(await getCurrentUser());
             
             setTimeout(() => {
               handleSuccessfulAuthentication();
@@ -392,7 +420,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           }
         } catch (postConfirmError) {
           // console.error('Error starting custom auth after confirmation:', postConfirmError);
-          if (postConfirmError.code === 'UserNotConfirmedException') {
+          if (errCode(postConfirmError) === 'UserNotConfirmedException') {
             setError('auth.errorVerification');
           } else {
             setError('auth.errorGeneric');
@@ -417,24 +445,29 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         // console.log('Verifying custom auth challenge');
         
         // Send the challenge response
-        const result = await Auth.sendCustomChallengeAnswer(cognitoUserForSms, smsCode, { language });
+        // v6: the pending sign-in is tracked internally — no user object is passed.
+        const result: SmsChallengeUser = await confirmSignIn({
+          challengeResponse: smsCode,
+          options: { clientMetadata: { language } },
+        });
         
         // console.log('Challenge response result:', result);
         
         // Check if authentication is complete
-        if (result.signInUserSession) {
+        if (result.isSignedIn) {
           // console.log('Authentication successful!');
           setSuccessMessage('auth.phoneVerificationSuccess');
           
           // Update auth context with logged in user
-          login(result);
+          // v6: the result carries only status — fetch the real user.
+          login(await getCurrentUser());
           
           // Small delay to show success message, then redirect
           setTimeout(() => {
             handleSuccessfulAuthentication();
           }, 1000);
           
-        } else if (result.challengeName) {
+        } else if (result.nextStep?.signInStep) {
           // Still have challenges to complete
           // console.log('Additional challenge required:', result.challengeName);
           setCognitoUserForSms(result);
@@ -452,7 +485,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       
       // Handle specific error cases. The message check catches custom-auth
       // lambdas that report a wrong code as NotAuthorized/"Incorrect ...".
-      if (error.code === 'NotAuthorizedException' || error.message?.includes('Incorrect')) {
+      if (errCode(error) === 'NotAuthorizedException' || error.message?.includes('Incorrect')) {
         setError('auth.invalidSmsCode');
       } else {
         setError(cognitoErrorKey(error, {
@@ -492,7 +525,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         }
         
         // console.log('Resending signup confirmation for:', pendingPhoneNumber);
-        await Auth.resendSignUp(pendingPhoneNumber, { language });
+        await resendSignUpCode({ username: pendingPhoneNumber, options: { clientMetadata: { language } } });
         setSuccessMessage('auth.smsCodeResent');
         setSmsCode(''); // Clear previous code
         
@@ -510,17 +543,20 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         // For custom auth, we need to re-initiate the auth flow to get a new challenge
         // Instead of using sendCustomChallengeAnswer with 'RESEND', we restart the flow
         try {
-          const phoneNumber = cognitoUserForSms.username || cognitoUserForSms.challengeParam?.USERNAME;
-          if (!phoneNumber) {
+          // v6: the sign-in result carries no username, so re-derive the E.164
+          // number from the form state (same formatting as sign-in).
+          const resendDigits = phoneNumber.replace(/\D/g, '');
+          const phoneNumberForResend = resendDigits.length >= 10 ? `+1${resendDigits.slice(-10)}` : null;
+          if (!phoneNumberForResend) {
             setError('auth.errorSessionExpired');
             setSmsCodeSent(false);
             setLoading(false);
             return;
           }
-          
-          const result = await signInWithPhone(phoneNumber);
 
-          if (result.challengeName === 'CUSTOM_CHALLENGE' && !result.challengeParam?.error) {
+          const result = await signInWithPhone(phoneNumberForResend);
+
+          if (result.nextStep?.signInStep === 'CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE' && !result.nextStep?.additionalInfo?.error) {
             setCognitoUserForSms(result);
             setSuccessMessage('auth.smsCodeResent');
             setSmsCode(''); // Clear previous code
@@ -554,14 +590,10 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     
     try {
       // Complete the new password challenge
-      const user = await Auth.completeNewPassword(
-        cognitoUser,   // the Cognito User object
-        newPassword    // the new password
-      );
-      
-      // console.log('Password change successful', user);
-      // Update auth context
-      login(user);
+      // v6: the NEW_PASSWORD_REQUIRED challenge is answered via confirmSignIn.
+      const { isSignedIn } = await confirmSignIn({ challengeResponse: newPassword });
+
+      if (isSignedIn) login(await getCurrentUser());
       
       // Navigate to appropriate page
       handleSuccessfulAuthentication();
@@ -580,7 +612,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     setSuccessMessage(null);
 
     try {
-      await Auth.forgotPassword(resetEmail.toLowerCase(), { language });
+      await resetPassword({ username: resetEmail.toLowerCase(), options: { clientMetadata: { language } } });
       setResetSent(true);
       setSuccessMessage('auth.resetCodeSent');
     } catch (err) {
@@ -604,7 +636,11 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     setSuccessMessage(null);
 
     try {
-      await Auth.forgotPasswordSubmit(resetEmail.toLowerCase(), resetCode, newPassword);
+      await confirmResetPassword({
+        username: resetEmail.toLowerCase(),
+        confirmationCode: resetCode,
+        newPassword,
+      });
       setSuccessMessage('auth.passwordResetSuccess');
       setShowForgotPassword(false);
       setResetSent(false);
@@ -633,14 +669,13 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     setSuccessMessage(null);
 
     try {
-      await Auth.signUp({
+      await signUp({
         username: signUpEmail.toLowerCase(),
         password: signUpPassword,
-        attributes: {
-          email: signUpEmail.toLowerCase(),
-          locale: language
+        options: {
+          userAttributes: { email: signUpEmail.toLowerCase(), locale: language },
+          clientMetadata: { language },
         },
-        clientMetadata: { language }
       });
       
       // console.log('Sign up successful', user);
@@ -661,7 +696,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     setSuccessMessage(null);
 
     try {
-      await Auth.confirmSignUp(signUpEmail.toLowerCase(), verificationCode);
+      await confirmSignUp({ username: signUpEmail.toLowerCase(), confirmationCode: verificationCode });
       setSuccessMessage('auth.emailVerified');
       setShowSignUp(false);
       setIsSignUpComplete(false);
@@ -683,7 +718,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     setSuccessMessage(null);
 
     try {
-      await Auth.resendSignUp(signUpEmail.toLowerCase(), { language });
+      await resendSignUpCode({ username: signUpEmail.toLowerCase(), options: { clientMetadata: { language } } });
       setSuccessMessage('auth.verificationCodeResent');
     } catch (err) {
       // console.error('Resend confirmation error', err);
