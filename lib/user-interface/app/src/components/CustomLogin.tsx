@@ -265,7 +265,15 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           // console.log('Creating new user for phone:', formattedPhone);
           
           // Generate a secure random password
-          const tempPassword = 'TempPass123!' + Math.random().toString(36).substring(2, 15);
+          // The parent never learns this password, but the app client allows
+          // USER_PASSWORD_AUTH and USER_SRP_AUTH, so a guessable value would be a
+          // way to sign in without the SMS code. 128 bits from the platform CSPRNG;
+          // the prefix satisfies the pool's upper/lower/digit/symbol policy.
+          const randomSuffix = Array.from(
+            crypto.getRandomValues(new Uint8Array(16)),
+            (byte) => byte.toString(16).padStart(2, '0'),
+          ).join('');
+          const tempPassword = `TempPass123!${randomSuffix}`;
           
           try {
             // v6: attributes/clientMetadata move under options.
