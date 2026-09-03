@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Container, Row, Col, Card, Button } from 'react-bootstrap';
-import { Auth } from 'aws-amplify';
+import { signOut, getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
 import { useAuth } from '../common/auth-provider';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../common/language-context'; 
@@ -17,22 +17,22 @@ export default function WelcomePage() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const result = await Auth.currentAuthenticatedUser();
+        const result = await getCurrentUser();
         if (!result || Object.keys(result).length === 0) {
           // console.log("No authenticated user found");
-          await Auth.signOut();
+          await signOut();
           setAuthenticated(false);
           navigate('/');
         }
         else {
           // console.log("JWT Payload:", result?.signInUserSession?.idToken?.payload);
           
-          const {
-            email
-          } = result.signInUserSession.idToken.payload;
+          // v6: ID-token claims come from fetchAuthSession(), not the user object.
+          const payload = ((await fetchAuthSession()).tokens?.idToken?.payload ?? {}) as Record<string, unknown>;
+          const email = payload['email'];
           
           // Set the email in state
-          setUserEmail(email);
+          setUserEmail(typeof email === 'string' ? email : '');
           
           // console.log("User details:", {
           //   email,
@@ -44,7 +44,7 @@ export default function WelcomePage() {
         }
       } catch (error) {
         // console.error("Authentication check failed:", error);
-        await Auth.signOut();
+        await signOut();
         setAuthenticated(false);
         navigate('/');
       }
