@@ -432,3 +432,68 @@ describe("two-code fallback (isSignUpComplete: false)", () => {
     expect(onOtpScreen()).toBe(false);
   });
 });
+
+/**
+ * The Amplify v6 regression the nightly resignup journey caught.
+ *
+ * v5's Auth.signIn replaced an existing session silently. v6 refuses, throwing
+ * UserAlreadyAuthenticatedException, and CustomLogin branched only on
+ * UserNotFoundException / NotAuthorizedException / UserNotConfirmedException,
+ * so it fell through to the generic "something went wrong" message with no way
+ * forward.
+ *
+ * A session outlives the account it belonged to: deleting an account navigates
+ * to the login screen before signOut resolves, so any page load in that window
+ * rehydrates tokens from storage. The parent then cannot sign up again at all.
+ *
+ * The mock models the SDK's real guard rather than asserting a call order:
+ * signIn throws while `sessionPresent`, and only a genuine signOut clears it.
+ * That is what makes this fail before the fix and pass after, instead of
+ * green-stamping whichever calls the component happens to make.
+ */
+describe("a session left over from a deleted account", () => {
+  let sessionPresent = false;
+
+  const challenge = {
+    isSignedIn: false,
+    nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
+    username: PHONE_E164,
+  };
+
+  beforeEach(() => {
+    sessionPresent = false;
+    Auth.getCurrentUser.mockImplementation(async () => {
+      if (!sessionPresent) throw new Error("not authenticated");
+      return { username: PHONE_E164 };
+    });
+    Auth.signOut.mockImplementation(async () => {
+      sessionPresent = false;
+    });
+    Auth.signIn.mockImplementation(async () => {
+      if (sessionPresent) throw cognitoError("UserAlreadyAuthenticatedException");
+      return challenge;
+    });
+  });
+
+  test("does not block the next sign-in: the parent still reaches the code screen", async () => {
+    sessionPresent = true;
+    const { user } = renderLogin();
+
+    fillPhone();
+    await submitPhone(user);
+
+    await screen.findByTestId("sms-code-input");
+    expect(screen.queryByText("auth.errorGeneric")).not.toBeInTheDocument();
+    expect(Auth.signOut).toHaveBeenCalled();
+  });
+
+  test("costs no signOut when nobody is signed in", async () => {
+    const { user } = renderLogin();
+
+    fillPhone();
+    await submitPhone(user);
+
+    await screen.findByTestId("sms-code-input");
+    expect(Auth.signOut).not.toHaveBeenCalled();
+  });
+});

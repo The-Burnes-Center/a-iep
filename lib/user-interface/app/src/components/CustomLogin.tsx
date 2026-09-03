@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   signIn, signUp, confirmSignIn, confirmSignUp, resendSignUpCode,
-  resetPassword, confirmResetPassword, getCurrentUser,
+  resetPassword, confirmResetPassword, getCurrentUser, signOut,
 } from 'aws-amplify/auth';
 
 // Amplify v6 reports service errors on `name`; v5 used `code`. Read both so the
@@ -10,6 +10,7 @@ const errCode = (e: unknown): string | undefined => {
   const err = e as { code?: string; name?: string } | null | undefined;
   return err?.code ?? err?.name;
 };
+
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Form, 
@@ -36,6 +37,39 @@ import LanguageDropdown from './LanguageDropdown';
 import LoginMethodToggle from './LoginMethodToggle';
 import FormLabel from './FormLabel';
 import VerificationCodeInput from './VerificationCodeInput';
+
+/**
+ * Drop any session still held locally, before starting a new sign-in.
+ *
+ * v5's Auth.signIn replaced an existing session silently. v6 refuses and
+ * throws UserAlreadyAuthenticatedException before it makes any network call,
+ * so no Cognito request is attempted and none of the branches below match:
+ * the parent got the generic "something went wrong" message and no way
+ * forward. The nightly resignup journey caught this.
+ *
+ * A session outlives the account it belonged to. Deleting an account routes to
+ * the login screen before signOut resolves, so a page load inside that window
+ * rehydrates tokens from storage for a user that no longer exists, and the
+ * parent can never sign up again.
+ *
+ * Clearing up front rather than branching on the exception afterwards: by the
+ * time signIn throws there is nothing left to tell the parent, and discarding
+ * a session they are trying to sign out of is the right answer in every case.
+ * getCurrentUser first so a normal login costs no RevokeToken round trip.
+ */
+const clearStaleSession = async (): Promise<void> => {
+  try {
+    await getCurrentUser();
+  } catch {
+    return; // nobody signed in, nothing to clear
+  }
+  try {
+    await signOut();
+  } catch (err) {
+    // Best effort: a failed cleanup must not block the sign-in behind it.
+    console.error('Could not clear the previous session:', errCode(err) ?? 'unknown');
+  }
+};
 
 interface CustomLoginProps {
   showLogo?: boolean;
@@ -124,12 +158,12 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     const normalizedUsername = username.toLowerCase();
     
     try {
+      await clearStaleSession();
       const { isSignedIn, nextStep } = await signIn({
         username: normalizedUsername,
         password,
         options: { clientMetadata: { language } },
       });
-      // console.log('Login successful', user);
       
       // Check for NEW_PASSWORD_REQUIRED challenge
       // v6: challenges arrive as nextStep.signInStep, not user.challengeName.
@@ -145,7 +179,10 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       if (isSignedIn) login(await getCurrentUser());
       handleSuccessfulAuthentication();
     } catch (err) {
-      // console.error('Login error', err);
+      // The code, never the identifier: what a parent sees is deliberately
+      // generic, and without this an exception nothing branches on is
+      // invisible in the field. UserAlreadyAuthenticatedException hid here.
+      console.error('Email sign-in failed:', errCode(err) ?? 'unknown');
       setError(cognitoErrorKey(err, { NotAuthorizedException: 'auth.errorIncorrectCredentials' }));
     } finally {
       setLoading(false);
@@ -161,6 +198,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
    * round sends the OTP in that language.
    */
   const signInWithPhone = async (phone: string) => {
+    await clearStaleSession();
     // v6: CUSTOM_AUTH needs an explicit authFlowType; challenge metadata moves
     // from challengeParam to nextStep.additionalInfo.
     let user: SmsChallengeUser = await signIn({
@@ -311,7 +349,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             }
 
           } catch (signUpError) {
-            // console.error('SignUp error:', signUpError);
+            console.error('Phone sign-up failed:', errCode(signUpError) ?? 'unknown');
             if (errCode(signUpError) === 'UsernameExistsException') {
               // User was created between our attempts, try signin again
               await applyPhoneSignInResult(await signInWithPhone(formattedPhone));
@@ -342,8 +380,8 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       }
       
     } catch (error) {
-      // console.error('Phone authentication error:', error);
-      
+      console.error('Phone authentication failed:', errCode(error) ?? 'unknown');
+
       // In this flow InvalidParameterException means the phone number was
       // rejected, so it gets the phone-specific message
       setError(cognitoErrorKey(error, {
