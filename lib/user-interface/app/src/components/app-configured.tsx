@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter } from "react-router-dom";
 import { Amplify } from "aws-amplify";
+import type { ResourcesConfig } from "aws-amplify";
 import { AppConfig } from "../common/types";
 import { AppContext } from "../common/app-context";
 import { LanguageProvider } from "../common/language-context";
@@ -9,6 +10,59 @@ import { Alert, Spinner } from "react-bootstrap";
 import { initAnalytics } from "../common/helpers/analytics-helper";
 import AppRoutes from "./AppRoutes";
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+// Amplify v6 expects Auth.Cognito.*, while the CDK still publishes the v5-flat
+// aws-exports.json shape (Auth.region / userPoolWebClientId / oauth.scope, with
+// single-string redirects). Translate here so the deployed config file and every
+// other consumer of AppConfig stay unchanged.
+type V5Oauth = {
+  domain?: string;
+  scope?: string[];
+  scopes?: string[];
+  redirectSignIn?: string | string[];
+  redirectSignOut?: string | string[];
+  responseType?: string;
+};
+type V5AuthConfig = {
+  region?: string;
+  userPoolId?: string;
+  userPoolWebClientId?: string;
+  userPoolClientId?: string;
+  oauth?: V5Oauth;
+};
+
+function toV6ResourcesConfig(cfg: { Auth?: V5AuthConfig } | undefined): ResourcesConfig {
+  const auth: V5AuthConfig = cfg?.Auth ?? {};
+  const oauth = auth.oauth;
+  const asList = (v: string | string[] | undefined) =>
+    Array.isArray(v) ? v : v ? [v] : [];
+  // The shape is assembled from a JSON file fetched at runtime, so the
+  // required-field guarantees of ResourcesConfig cannot be proven statically.
+  return {
+    Auth: {
+      Cognito: {
+        userPoolId: auth.userPoolId,
+        // v6 renamed userPoolWebClientId -> userPoolClientId
+        userPoolClientId: auth.userPoolWebClientId ?? auth.userPoolClientId,
+        ...(oauth
+          ? {
+              loginWith: {
+                oauth: {
+                  domain: oauth.domain,
+                  // v6 renamed scope -> scopes and takes redirects as arrays
+                  scopes: oauth.scope ?? oauth.scopes ?? [],
+                  redirectSignIn: asList(oauth.redirectSignIn),
+                  redirectSignOut: asList(oauth.redirectSignOut ?? oauth.redirectSignIn),
+                  responseType: (oauth.responseType ?? 'code') as 'code' | 'token',
+                },
+              },
+            }
+          : {}),
+      },
+    },
+  } as unknown as ResourcesConfig;
+}
+
 
 
 const queryClient = new QueryClient({
@@ -33,7 +87,7 @@ export default function AppConfigured() {
         const awsExports = await result.json();
 
         // Configure Amplify once
-        Amplify.configure(awsExports);
+        Amplify.configure(toV6ResourcesConfig(awsExports));
 
         // Analytics only on the prod deployment; staging and local dev
         // stay out of the production GA property.

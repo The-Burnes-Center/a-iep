@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Container, Form, Button, Row, Col, Alert, Spinner } from 'react-bootstrap';
-import { Auth } from "aws-amplify";
+import { signOut } from 'aws-amplify/auth';
 import { AppContext } from '../../common/app-context';
 import { useAuth } from '../../common/auth-provider';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -94,7 +94,7 @@ export default function UserProfileForm() {
   const handleSignOut = async () => {
     try {
       navigate('/', { replace: true });
-      await Auth.signOut();
+      await signOut();
       setAuthenticated(false);
     } catch (error) {
       // console.error("Error signing out:", error);

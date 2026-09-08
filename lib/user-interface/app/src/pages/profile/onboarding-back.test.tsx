@@ -27,10 +27,11 @@ import type { AppConfig } from "../../common/types";
 import type { SupportedLanguage } from "../../common/languages";
 
 const Auth = vi.hoisted(() => ({
-  currentAuthenticatedUser: vi.fn(),
+  getCurrentUser: vi.fn(),
+  fetchAuthSession: vi.fn(),
   signOut: vi.fn(),
 }));
-vi.mock("aws-amplify", () => ({ Auth }));
+vi.mock("aws-amplify/auth", () => Auth);
 
 const API_BASE = "https://api.example.test/api";
 
@@ -111,8 +112,9 @@ const expectStillSignedIn = () => {
 };
 
 beforeEach(() => {
-  Auth.currentAuthenticatedUser.mockResolvedValue({
-    signInUserSession: { idToken: { jwtToken: "id-token" } },
+  Auth.getCurrentUser.mockResolvedValue({ username: "test-user", userId: "test-user" });
+  Auth.fetchAuthSession.mockResolvedValue({
+    tokens: { idToken: { toString: () => "id-token", payload: {} } },
   });
   vi.stubGlobal(
     "fetch",

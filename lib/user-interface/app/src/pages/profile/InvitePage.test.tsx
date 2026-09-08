@@ -38,9 +38,10 @@ import type { SupportedLanguage } from '../../common/languages';
 import type { AppConfig, ReferralStats } from '../../common/types';
 
 const Auth = vi.hoisted(() => ({
-  currentAuthenticatedUser: vi.fn(),
+  getCurrentUser: vi.fn(),
+  fetchAuthSession: vi.fn(),
 }));
-vi.mock('aws-amplify', () => ({ Auth }));
+vi.mock('aws-amplify/auth', () => Auth);
 
 const HTTP_ENDPOINT = 'https://api.example.test/';
 const REFERRAL_CODE = 'ABC123';
@@ -121,8 +122,9 @@ beforeEach(() => {
   // Shape matches what Utils.authenticate actually reads off the Amplify user
   // (`signInUserSession.idToken.jwtToken`). Inventing a field the SDK never
   // returns is how a suite green-stamps a path that cannot work.
-  Auth.currentAuthenticatedUser.mockResolvedValue({
-    signInUserSession: { idToken: { jwtToken: 'test-token' } },
+  Auth.getCurrentUser.mockResolvedValue({ username: "test-user", userId: "test-user" });
+  Auth.fetchAuthSession.mockResolvedValue({
+    tokens: { idToken: { toString: () => "id-token", payload: {} } },
   });
   vi.stubGlobal(
     'fetch',

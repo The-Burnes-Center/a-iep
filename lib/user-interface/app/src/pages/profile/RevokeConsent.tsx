@@ -3,7 +3,7 @@ import { Container, Button, Row, Col, Alert } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
-import { Auth } from 'aws-amplify';
+import { signOut } from 'aws-amplify/auth';
 import { useAuth } from '../../common/auth-provider';
 import { useLanguage } from '../../common/language-context';
 import '../profile/ProfileForms.css';
@@ -26,7 +26,7 @@ const RevokeConsent: React.FC = () => {
       await apiClient.profile.updateProfile({ consentGiven: false });
       
       // Sign out the user
-      await Auth.signOut();
+      await signOut();
       setAuthenticated(false);
       
       // Redirect to sign-in page

@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import { Auth } from 'aws-amplify';
+import { signOut, getCurrentUser } from 'aws-amplify/auth';
 
 interface AuthContextType {
   authenticated: boolean;
@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const checkAuth = async () => {
     setLoading(true);
     try {
-      const currentUser = await Auth.currentAuthenticatedUser();
+      const currentUser = await getCurrentUser();
       if (currentUser) {
         setUser(currentUser);
         setAuthenticated(true);
@@ -61,7 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      await Auth.signOut();
+      await signOut();
       setUser(null);
       setAuthenticated(false);
     } catch (error) {

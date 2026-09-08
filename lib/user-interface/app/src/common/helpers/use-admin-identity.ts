@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Auth } from 'aws-amplify';
+import { fetchAuthSession } from 'aws-amplify/auth';
 
 export interface AdminIdentity {
   // null while the session is still being checked
@@ -21,8 +21,14 @@ export function useAdminIdentity(): AdminIdentity {
     let cancelled = false;
     (async () => {
       try {
-        const session = await Auth.currentSession();
-        const payload = session.getIdToken().decodePayload();
+        // v6: claims are already decoded on the session's ID token.
+        const session = await fetchAuthSession();
+        const payload = (session.tokens?.idToken?.payload ?? {}) as Record<string, unknown>;
+        const claim = (name: string) => {
+          const value = payload[name];
+          return typeof value === 'string' ? value : undefined;
+        };
+        if (!session.tokens?.idToken) throw new Error('no session');
         const groups = payload['cognito:groups'] || [];
         const list = Array.isArray(groups)
           ? groups
@@ -30,8 +36,8 @@ export function useAdminIdentity(): AdminIdentity {
         if (!cancelled) {
           setIdentity({
             isAdmin: list.includes('admin'),
-            sub: payload['sub'],
-            username: payload['cognito:username'],
+            sub: claim('sub'),
+            username: claim('cognito:username'),
           });
         }
       } catch {

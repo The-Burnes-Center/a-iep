@@ -2,7 +2,7 @@ import React, { useState, useContext } from 'react';
 import { Modal, Button, Alert } from 'react-bootstrap';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
-import { Auth } from 'aws-amplify';
+import { signOut } from 'aws-amplify/auth';
 import { useAuth } from '../../common/auth-provider';
 import { useLanguage } from '../../common/language-context';
 
@@ -28,7 +28,7 @@ const DeleteProfileModal: React.FC<DeleteProfileModalProps> = ({ show, onHide })
       await apiClient.profile.deleteProfile();
       
       // Sign out the user
-      await Auth.signOut();
+      await signOut();
       setAuthenticated(false);
       
       // Close modal and redirect will happen via auth context

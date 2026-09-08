@@ -14,8 +14,9 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { IEPDocumentClient, TranslationRequestError } from "./iep-document-client";
 import type { AppConfig } from "../types";
 
-const Auth = vi.hoisted(() => ({ currentAuthenticatedUser: vi.fn() }));
-vi.mock("aws-amplify", () => ({ Auth }));
+const Auth = vi.hoisted(() => ({ getCurrentUser: vi.fn(),
+  fetchAuthSession: vi.fn() }));
+vi.mock("aws-amplify/auth", () => Auth);
 
 const CHILD_ID = "child-abc";
 const IEP_ID = "iep-789";
@@ -55,8 +56,9 @@ const translationsCall = () =>
   fetchMock.mock.calls.find(([url]) => String(url).endsWith("/translations"));
 
 beforeEach(() => {
-  Auth.currentAuthenticatedUser.mockResolvedValue({
-    signInUserSession: { idToken: { jwtToken: TOKEN } },
+  Auth.getCurrentUser.mockResolvedValue({ username: "test-user", userId: "test-user" });
+  Auth.fetchAuthSession.mockResolvedValue({
+    tokens: { idToken: { toString: () => TOKEN, payload: {} } },
   });
   translationsAnswer = jsonResponse(202, {
     status: "PROCESSING_TRANSLATIONS",

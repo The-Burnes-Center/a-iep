@@ -25,8 +25,9 @@ import { LanguageContext } from "../../common/language-context";
 import type { AppConfig } from "../../common/types";
 import type { SupportedLanguage } from "../../common/languages";
 
-const Auth = vi.hoisted(() => ({ currentAuthenticatedUser: vi.fn() }));
-vi.mock("aws-amplify", () => ({ Auth }));
+const Auth = vi.hoisted(() => ({ getCurrentUser: vi.fn(),
+  fetchAuthSession: vi.fn() }));
+vi.mock("aws-amplify/auth", () => Auth);
 
 const API_BASE = "https://api.example.test/api";
 const CHILD_ID = "child-abc";
@@ -166,8 +167,9 @@ const clickTranslate = async () => {
 
 beforeEach(async () => {
   vi.useFakeTimers();
-  Auth.currentAuthenticatedUser.mockResolvedValue({
-    signInUserSession: { idToken: { jwtToken: "id-token" } },
+  Auth.getCurrentUser.mockResolvedValue({ username: "test-user", userId: "test-user" });
+  Auth.fetchAuthSession.mockResolvedValue({
+    tokens: { idToken: { toString: () => "id-token", payload: {} } },
   });
   documentPayload = englishOnlyDocument();
   translationsAnswer = jsonResponse(202, {

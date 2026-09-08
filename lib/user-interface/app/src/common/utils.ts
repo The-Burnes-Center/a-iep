@@ -1,4 +1,4 @@
-import {Auth} from 'aws-amplify'
+import { fetchAuthSession } from 'aws-amplify/auth'
 export class Utils {
   // static isDevelopment() {
   //   return import.meta.env.MODE === "development";
@@ -131,28 +131,13 @@ export class Utils {
 
   static async authenticate(): Promise<string> {
     try {
-      // const currentSession = await Auth.currentSession();
-      let token = '';
-      // console.log('Auth token:', currentSession.getAccessToken().getJwtToken());
-      // console.log('ID token:', currentSession.getAccessToken().getJwtToken());
-      // console.log(Auth.currentSession())
-      // console.log(await Auth.currentSession())
-      const currentUser = await Auth.currentAuthenticatedUser()
-      // currentUser.
-      // console.log(currentUser);
-      // console.log(currentSession);
-      // token = 'Bearer ' + currentUser.signInUserSession.idToken.jwtToken
-      
-      // for some reason
-      token = currentUser.signInUserSession.idToken.jwtToken //currentSession.getAccessToken().getJwtToken(); 
-
-      // currentUser.idToken.jwtToken
-      
-      // console.log("new token:", token)
-      // return currentSession.getAccessToken().getJwtToken();
+      // v6: the ID token comes from fetchAuthSession(); v5's
+      // currentUser.signInUserSession.idToken.jwtToken no longer exists.
+      const session = await fetchAuthSession();
+      const token = session.tokens?.idToken?.toString();
+      if (!token) throw new Error('No ID token in session');
       return token;
     } catch (error) {
-      // console.error('Error getting current user session:', error);
       throw new Error('Authentication failed');
     }
   }

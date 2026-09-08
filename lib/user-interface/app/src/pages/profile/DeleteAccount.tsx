@@ -3,7 +3,7 @@ import { Container, Form, Row, Col, Breadcrumb, Alert } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
-import { Auth } from 'aws-amplify';
+import { signOut } from 'aws-amplify/auth';
 import { useAuth } from '../../common/auth-provider';
 import { useLanguage } from '../../common/language-context'; 
 import './UpdateProfileName.css';
@@ -36,7 +36,7 @@ export default function DeleteAccount() {
       navigate('/', { replace: true });
       
       // Sign out the user
-      await Auth.signOut();
+      await signOut();
       setAuthenticated(false);
     } catch (err) {
       // console.error('Error deleting profile:', err);

@@ -30,8 +30,9 @@ import type { SupportedLanguage } from "../../common/languages";
 
 // signOut is stubbed so "the parent is still signed in" is an assertion about
 // the real Amplify boundary rather than an assumption.
-const Auth = vi.hoisted(() => ({ currentAuthenticatedUser: vi.fn(), signOut: vi.fn() }));
-vi.mock("aws-amplify", () => ({ Auth }));
+const Auth = vi.hoisted(() => ({ getCurrentUser: vi.fn(),
+  fetchAuthSession: vi.fn(), signOut: vi.fn() }));
+vi.mock("aws-amplify/auth", () => Auth);
 
 const API_BASE = "https://api.example.test/api";
 const CHILD_ID = "child-abc";
@@ -161,8 +162,9 @@ const clickNext = (times = 1) => {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  Auth.currentAuthenticatedUser.mockResolvedValue({
-    signInUserSession: { idToken: { jwtToken: "id-token" } },
+  Auth.getCurrentUser.mockResolvedValue({ username: "test-user", userId: "test-user" });
+  Auth.fetchAuthSession.mockResolvedValue({
+    tokens: { idToken: { toString: () => "id-token", payload: {} } },
   });
   documentPayload = processingDocument();
   profilePayload = finishedProfile();
@@ -338,7 +340,8 @@ describe("when the parent's profile is not finished yet", () => {
     // The redirect is a redirect, not a sign-out: nothing on this path may
     // touch the Amplify session, and the authenticated calls kept working.
     expect(Auth.signOut).not.toHaveBeenCalled();
-    expect(Auth.currentAuthenticatedUser).toHaveBeenCalled();
+    // v6: authenticated calls read the session (fetchAuthSession), not the user object.
+    expect(Auth.fetchAuthSession).toHaveBeenCalled();
     expect(screen.queryByText(PUBLIC_LANDING)).not.toBeInTheDocument();
   });
 
