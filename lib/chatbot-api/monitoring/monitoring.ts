@@ -9,14 +9,23 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as stepfunctions from 'aws-cdk-lib/aws-stepfunctions';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
+import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
+import * as path from 'path';
+import * as kms from 'aws-cdk-lib/aws-kms';
 import { getEnvironment, getResourceName, tagResource } from '../../tags';
 
 /**
- * Outage alerting: CloudWatch alarms -> SNS -> AWS Chatbot -> Slack #a-iep-dev.
+ * Outage alerting:
+ *
+ *   alarms -> alarmTopic -> alert-formatter -> alertTopic -> Chatbot -> #a-iep-dev
  *
  * Before this, nothing in AWS noticed an outage. The only automated signals
  * were two nightly GitHub Actions digests, so a prod failure at 02:00 waited
  * for a parent to report it.
+ *
+ * **Chatbot must be subscribed to alertTopic, not alarmTopic.** Subscribing it
+ * to the raw topic still works, and produces the metric-dump card the
+ * formatter exists to replace.
  *
  * Three things shape the design:
  *
@@ -30,10 +39,12 @@ import { getEnvironment, getResourceName, tagResource } from '../../tags';
  *    (which also say WHICH stage broke) and a metric filter counting the
  *    failure marker record_failure now logs.
  *
- * 2. **The alarm description is the Slack message.** AWS Chatbot renders
- *    alarmDescription in its card, and nothing else here carries context. So
- *    each description says what broke, who it affects, and what to look at,
- *    rather than restating the metric.
+ * 2. **The alarm description is the one line a person reads.** The formatter
+ *    uses it verbatim as the impact statement under the headline, so each one
+ *    is a single sentence about what a parent experiences, not a restatement
+ *    of the metric. Keep them under ~250 characters: Chatbot truncates around
+ *    there, and that limit also applies to the raw card it falls back to.
+ *    Measured, after 17 of these were long enough to be cut mid-sentence.
  *
  * 3. **A missing metric must not read as healthy.** Anything that is a
  *    heartbeat uses treatMissingData.BREACHING. The default (MISSING) would
@@ -81,11 +92,27 @@ export interface MonitoringProps {
   readonly pendingUploadSweepRule: events.Rule;
   readonly tables: { readonly label: string; readonly table: dynamodb.ITable }[];
   readonly httpApi: apigwv2.IHttpApi;
+  /**
+   * The application CMK, for the formatter's environment.
+   *
+   * Its variables are a topic ARN and an environment name, neither sensitive.
+   * It is encrypted anyway because test/infra pins EVERY ChatbotAPI lambda to
+   * the CMK, and a security pin with one exemption in it is a security pin
+   * that grows exemptions.
+   */
+  readonly kmsKey: kms.IKey;
 }
 
 export class MonitoringStack extends Construct {
-  /** Subscribe AWS Chatbot to this to land alarms in Slack. */
+  /** Alarms publish here. The formatter is the only subscriber. */
   public readonly alarmTopic: sns.Topic;
+  /**
+   * Human-readable alerts. **This is the topic AWS Chatbot subscribes to.**
+   * Subscribing Chatbot to alarmTopic instead gets the raw metric card.
+   */
+  public readonly alertTopic: sns.Topic;
+  /** Rewrites alarms into Chatbot custom notifications. */
+  public readonly alertFormatter: lambda.Function;
   /** Every alarm created, so test/infra can assert the set. */
   public readonly alarms: cloudwatch.Alarm[] = [];
 
@@ -95,11 +122,27 @@ export class MonitoringStack extends Construct {
     super(scope, id);
     this.env = getEnvironment();
 
+    // Two topics, because the alert a person reads is not the alarm AWS
+    // emits:
+    //
+    //   alarms -> alarmTopic -> alert-formatter -> alertTopic -> Chatbot
+    //
+    // Chatbot's own alarm card is a metric dump that truncates the
+    // description and leads with the account id. The formatter replaces it
+    // with a title, one impact line, a context line and a log link.
     this.alarmTopic = new sns.Topic(this, 'AlarmTopic', {
       topicName: getResourceName('a-iep-alarms'),
-      displayName: `A-IEP ${this.env} alarms`,
+      displayName: `A-IEP ${this.env} alarms (raw)`,
     });
     tagResource(this.alarmTopic, { Resource: 'SNSTopic', Function: 'AlarmTopic' });
+
+    this.alertTopic = new sns.Topic(this, 'AlertTopic', {
+      topicName: getResourceName('a-iep-alerts'),
+      displayName: `A-IEP ${this.env} alerts`,
+    });
+    tagResource(this.alertTopic, { Resource: 'SNSTopic', Function: 'AlertTopic' });
+
+    this.alertFormatter = this.addAlertFormatter(props.kmsKey);
 
     this.addDocumentFailureAlarm(props.ddbServiceFunction);
     this.addPipelineStepAlarms(props.pipelineFunctions);
@@ -110,6 +153,64 @@ export class MonitoringStack extends Construct {
     this.addTableThrottleAlarms(props.tables);
 
     new cdk.CfnOutput(this, 'AlarmTopicArn', { value: this.alarmTopic.topicArn });
+    // The one an operator needs: this is what Chatbot must subscribe to.
+    new cdk.CfnOutput(this, 'AlertTopicArn', { value: this.alertTopic.topicArn });
+  }
+
+  /**
+   * The formatter, plus the one alarm that watches the alerter itself.
+   *
+   * If this lambda breaks, every alarm still fires but no alert reaches
+   * Slack, which looks exactly like a healthy system. So its own Errors alarm
+   * publishes STRAIGHT to alertTopic, bypassing the formatter: a broken
+   * formatter degrades to Chatbot's ugly raw card rather than to silence.
+   *
+   * No pip dependencies, so no Docker bundling: boto3 comes with the runtime.
+   *
+   * Not added, and a deliberate limit: there is no dead-letter queue. SNS
+   * retries a failed lambda invocation and then drops the message, so alerts
+   * raised while the formatter is down are lost rather than replayed. Being
+   * TOLD the formatter is down is what matters for an alerting path; being
+   * able to replay yesterday's alert is not. A DLQ is the follow-up if that
+   * ever proves wrong.
+   */
+  private addAlertFormatter(kmsKey: kms.IKey): lambda.Function {
+    const formatter = new lambda.Function(this, 'AlertFormatterFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'handler.lambda_handler',
+      code: lambda.Code.fromAsset(
+        path.join(__dirname, '../functions/alert-formatter'),
+        { assetHashType: cdk.AssetHashType.SOURCE, exclude: ['__pycache__'] },
+      ),
+      timeout: cdk.Duration.seconds(15),
+      environment: {
+        ALERT_TOPIC_ARN: this.alertTopic.topicArn,
+        ENVIRONMENT: this.env,
+      },
+      description: 'Rewrites CloudWatch alarms as readable Slack alerts',
+      logRetention: logs.RetentionDays.ONE_MONTH,
+      environmentEncryption: kmsKey,
+    });
+    tagResource(formatter, { Resource: 'Lambda', Function: 'AlertFormatter' });
+
+    this.alertTopic.grantPublish(formatter);
+    this.alarmTopic.addSubscription(new subscriptions.LambdaSubscription(formatter));
+
+    this.alarm('AlertFormatterFailingAlarm', {
+      name: 'alerting itself is broken',
+      description:
+        'Alarms are firing but their alerts are not reaching Slack, so the ' +
+        'channel looks quiet while something may be wrong. Check CloudWatch ' +
+        'alarms directly until this is fixed.',
+      metric: formatter.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      // Straight to Chatbot: routing this through the thing that is broken
+      // would be the alarm that cannot fire.
+      topic: this.alertTopic,
+    });
+
+    return formatter;
   }
 
   /**
@@ -127,6 +228,9 @@ export class MonitoringStack extends Construct {
       evaluationPeriods: number;
       comparisonOperator?: cloudwatch.ComparisonOperator;
       treatMissingData?: cloudwatch.TreatMissingData;
+      /** Defaults to alarmTopic (via the formatter). Only the formatter's own
+       *  alarm overrides this, to bypass the component it is reporting on. */
+      topic?: sns.Topic;
     },
   ): cloudwatch.Alarm {
     const alarm = new cloudwatch.Alarm(this, id, {
@@ -140,10 +244,11 @@ export class MonitoringStack extends Construct {
         opts.comparisonOperator ?? cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: opts.treatMissingData ?? cloudwatch.TreatMissingData.NOT_BREACHING,
     });
-    alarm.addAlarmAction(new actions.SnsAction(this.alarmTopic));
+    const target = opts.topic ?? this.alarmTopic;
+    alarm.addAlarmAction(new actions.SnsAction(target));
     // Recovery is as newsworthy as the failure: without this, Slack shows an
     // outage starting and never ending.
-    alarm.addOkAction(new actions.SnsAction(this.alarmTopic));
+    alarm.addOkAction(new actions.SnsAction(target));
     this.alarms.push(alarm);
     return alarm;
   }
@@ -174,15 +279,8 @@ export class MonitoringStack extends Construct {
     this.alarm('DocumentsFailingAlarm', {
       name: 'document pipeline failing',
       description:
-        'Three or more IEP documents failed processing within fifteen minutes. ' +
-        'Parents see an error screen and a re-upload button. ' +
-        'To triage: the RECORD_FAILURE lines in the ddb-service log group name ' +
-        'the failing stage (step=), and the sanitized event dump above each one ' +
-        'gives the exception class. A ValidationError points at our own schema, ' +
-        'an API or timeout error at a third party (Mistral OCR, OpenAI, ' +
-        'Comprehend), which is the usual cause. The full error text is not in ' +
-        'the logs by design; it is on the document row in DynamoDB. If a ' +
-        'per-step alarm also fired, that stage crashed outright.',
+        'Uploads are erroring instead of producing summaries. Usually Mistral ' +
+        'OCR, OpenAI or Comprehend is down.',
       metric: new cloudwatch.Metric({
         namespace: metricNamespace,
         metricName,
@@ -204,12 +302,8 @@ export class MonitoringStack extends Construct {
       this.alarm(`PipelineStepErrors${label.replace(/[^A-Za-z0-9]/g, '')}`, {
         name: `pipeline step failing: ${label}`,
         description:
-          `The ${label} step of the document pipeline threw more than one ` +
-          "document's worth of errors. Every document reaching this stage is " +
-          'likely failing, and each one shows its parent an error. Look at this ' +
-          'stage first, and at its upstream third party if it calls one. A ' +
-          'single unreadable PDF does NOT reach this threshold; if only one ' +
-          'parent is affected, the document-pipeline alarm is the one to watch.',
+          `Documents are failing at the ${label} step, so every upload ` +
+          'reaching this stage is affected.',
         metric: fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
         threshold: PIPELINE_STEP_ERROR_THRESHOLD,
         evaluationPeriods: 1,
@@ -232,11 +326,7 @@ export class MonitoringStack extends Construct {
       this.alarm(`AuthTriggerErrors${label.replace(/[^A-Za-z0-9]/g, '')}`, {
         name: `login broken: ${label} trigger failing`,
         description:
-          `The ${label} Cognito trigger threw. Depending on the trigger this ` +
-          'blocks login, blocks signup, or stops the SMS code being sent, so ' +
-          'treat it as families being locked out rather than as a background ' +
-          'error. Check the trigger log group, and SNS SMS delivery if it is ' +
-          'CreateAuthChallenge.',
+          `Families cannot log in or sign up: the ${label} trigger is failing.`,
         metric: fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
         threshold: 1,
         evaluationPeriods: 1,
@@ -248,9 +338,7 @@ export class MonitoringStack extends Construct {
     this.alarm('ApiServerErrorAlarm', {
       name: 'API returning 5xx',
       description:
-        'The HTTP API returned five or more server errors in five minutes. ' +
-        'Parents cannot load summaries, save a profile or start an upload. ' +
-        'Check the request-path lambda alarms and the API access logs.',
+        'Parents cannot load summaries, save a profile or start an upload.',
       metric: new cloudwatch.Metric({
         namespace: 'AWS/ApiGateway',
         metricName: '5xx',
@@ -266,8 +354,7 @@ export class MonitoringStack extends Construct {
       this.alarm(`ApiFunctionErrors${label.replace(/[^A-Za-z0-9]/g, '')}`, {
         name: `API handler failing: ${label}`,
         description:
-          `The ${label} lambda threw on the request path. Whatever part of the ` +
-          'app calls it is broken for every parent using it right now.',
+          `The ${label} part of the app is broken for everyone using it now.`,
         metric: fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
         threshold: 5,
         evaluationPeriods: 1,
@@ -275,8 +362,7 @@ export class MonitoringStack extends Construct {
       this.alarm(`ApiFunctionThrottles${label.replace(/[^A-Za-z0-9]/g, '')}`, {
         name: `API handler throttled: ${label}`,
         description:
-          `The ${label} lambda is being throttled, so requests are failing for ` +
-          'capacity reasons rather than bugs. Check concurrency limits.',
+          `The ${label} handler is throttled: failing on capacity, not bugs.`,
         metric: fn.metricThrottles({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
         threshold: 1,
         evaluationPeriods: 1,
@@ -294,11 +380,8 @@ export class MonitoringStack extends Construct {
     this.alarm('PipelineTimedOutAlarm', {
       name: 'document stuck: pipeline execution timed out',
       description:
-        'A document pipeline execution hit its six-hour timeout. Unlike every ' +
-        'other pipeline failure this is NOT caught into RecordFailure, so the ' +
-        'document keeps whatever status it had and the parent is left on the ' +
-        'processing screen indefinitely. Find the execution, then fail the row ' +
-        'closed by hand.',
+        'A document stuck for six hours was never marked failed, so the parent ' +
+        'is still on the processing screen. Fail the row closed by hand.',
       metric: sm.metricTimedOut({ period: cdk.Duration.minutes(15), statistic: 'Sum' }),
       threshold: 1,
       evaluationPeriods: 1,
@@ -317,11 +400,8 @@ export class MonitoringStack extends Construct {
     this.alarm('SweepHeartbeatAlarm', {
       name: 'pending-upload sweep has stopped running',
       description:
-        'The 10-minute pending-upload sweep has not run for 30 minutes. While ' +
-        'it is down, an upload that never reaches S3 is never failed closed, so ' +
-        'the parent sits on "we are processing your document" indefinitely with ' +
-        'no error and no way to retry. Check the EventBridge rule is enabled ' +
-        'and the ddb-service lambda is healthy.',
+        'Stalled uploads are no longer failed closed, so parents sit on the ' +
+        'processing screen indefinitely. The 10-minute sweep has stopped.',
       metric: new cloudwatch.Metric({
         namespace: 'AWS/Events',
         metricName: 'Invocations',
@@ -338,9 +418,8 @@ export class MonitoringStack extends Construct {
     this.alarm('SweepFailingAlarm', {
       name: 'pending-upload sweep failing to invoke',
       description:
-        'EventBridge could not invoke the pending-upload sweep. Same parent ' +
-        'impact as the sweep stopping: stalled uploads are never failed closed. ' +
-        'Usually an IAM or permission change on the ddb-service lambda.',
+        'EventBridge cannot invoke the pending-upload sweep, so stalled ' +
+        'uploads are never failed closed.',
       metric: new cloudwatch.Metric({
         namespace: 'AWS/Events',
         metricName: 'FailedInvocations',
@@ -360,9 +439,8 @@ export class MonitoringStack extends Construct {
       this.alarm(`TableThrottle${label.replace(/[^A-Za-z0-9]/g, '')}`, {
         name: `DynamoDB throttling: ${label}`,
         description:
-          `The ${label} table is throttling requests. Reads and writes are ` +
-          'failing intermittently, which surfaces to parents as random errors ' +
-          'rather than a clean outage, so it is easy to misdiagnose.',
+          `The ${label} table is throttling: parents see random intermittent ` +
+          'errors rather than a clean outage.',
         metric: new cloudwatch.MathExpression({
           expression: 'read + write',
           usingMetrics: {

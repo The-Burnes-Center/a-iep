@@ -283,6 +283,7 @@ export class ChatBotApi extends Construct {
         { label: 'referrals', table: this.tables.referralsTable },
       ],
       httpApi: this.httpAPI.restAPI,
+      kmsKey: appKmsKey,
     });
 
     // Prints out the AppSync GraphQL API key to the terminal

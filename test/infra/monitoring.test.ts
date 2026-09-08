@@ -69,9 +69,9 @@ function alarmsOf(template: Template): Record<string, any>[] {
 }
 
 describe.each([
-  ['staging', 'a-iep-alarms-staging', 'a-iep-staging '],
-  ['production', 'a-iep-alarms', 'a-iep '],
-])('outage alerting (%s)', (environment, expectedTopicName, namePrefix) => {
+  ['staging', 'a-iep-alarms-staging', 'a-iep-alerts-staging', 'a-iep-staging '],
+  ['production', 'a-iep-alarms', 'a-iep-alerts', 'a-iep '],
+])('outage alerting (%s)', (environment, expectedTopicName, expectedAlertTopicName, namePrefix) => {
   let template: Template;
   let alarms: Record<string, any>[];
 
@@ -80,10 +80,65 @@ describe.each([
     alarms = alarmsOf(template);
   }, 180_000);
 
-  test('an alarm topic exists for AWS Chatbot to subscribe to', () => {
-    template.hasResourceProperties('AWS::SNS::Topic', {
-      TopicName: expectedTopicName,
+  test('both topics exist: alarms in, readable alerts out', () => {
+    template.hasResourceProperties('AWS::SNS::Topic', { TopicName: expectedTopicName });
+    template.hasResourceProperties('AWS::SNS::Topic', { TopicName: expectedAlertTopicName });
+  });
+
+  // The formatter is what turns "Threshold Crossed: 1 datapoint [4.0]" into a
+  // sentence. If it stops being subscribed, alarms fire into a topic nobody
+  // reads and Slack goes quiet during an outage.
+  test('the formatter is subscribed to the raw alarm topic', () => {
+    template.hasResourceProperties('AWS::SNS::Subscription', {
+      Protocol: 'lambda',
+      TopicArn: Match.objectLike({ Ref: Match.stringLikeRegexp('.*AlarmTopic.*') }),
     });
+  });
+
+  test('the formatter can publish to the alert topic and knows which one', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Handler: 'handler.lambda_handler',
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({
+          ALERT_TOPIC_ARN: Match.anyValue(),
+          ENVIRONMENT: environment === 'production' ? 'prod' : 'dev',
+        }),
+      }),
+    });
+  });
+
+  // WHY: a broken formatter breaks every alert while every alarm still fires,
+  // which looks exactly like a healthy system. Its own alarm therefore must
+  // NOT route through it. Routing it through the formatter would be the
+  // canonical alarm that cannot fire.
+  test('the alerting-is-broken alarm bypasses the formatter', () => {
+    const selfAlarm = alarms.find(
+      (a) => a.AlarmName === `${namePrefix}alerting itself is broken`,
+    );
+    expect(selfAlarm).toBeDefined();
+
+    const alertTopicRefs = Object.entries(template.findResources('AWS::SNS::Topic'))
+      .filter(([, r]: [string, any]) => r.Properties.TopicName === expectedAlertTopicName)
+      .map(([id]) => id);
+    expect(alertTopicRefs).toHaveLength(1);
+
+    // Its action points at the alert topic (Chatbot) directly, not the raw one.
+    expect(JSON.stringify(selfAlarm!.AlarmActions)).toContain(alertTopicRefs[0]);
+  });
+
+  // Every other alarm goes the long way round, through the formatter, so that
+  // the message a person reads is the formatted one.
+  test('every other alarm routes through the formatter', () => {
+    const rawTopicId = Object.entries(template.findResources('AWS::SNS::Topic'))
+      .filter(([, r]: [string, any]) => r.Properties.TopicName === expectedTopicName)
+      .map(([id]) => id)[0];
+
+    const routedElsewhere = alarms
+      .filter((a) => a.AlarmName !== `${namePrefix}alerting itself is broken`)
+      .filter((a) => !JSON.stringify(a.AlarmActions).includes(rawTopicId))
+      .map((a) => a.AlarmName);
+
+    expect(routedElsewhere).toEqual([]);
   });
 
   test('every expected alarm exists', () => {
@@ -108,10 +163,15 @@ describe.each([
   // AWS Chatbot renders AlarmDescription in its Slack card and nothing else
   // here carries context, so an empty description ships an alert that says
   // only that a metric moved.
-  test('every alarm carries a description for the Slack card', () => {
+  // The description is used verbatim as the impact line, and is also the body
+  // of the raw card if the formatter is down. Chatbot truncates around 250
+  // characters: 17 of these were once long enough to be cut mid-sentence,
+  // losing the most actionable part.
+  test('every description is a usable length for Slack', () => {
     for (const alarm of alarms) {
       expect(typeof alarm.AlarmDescription).toBe('string');
-      expect(alarm.AlarmDescription.length).toBeGreaterThan(80);
+      expect(alarm.AlarmDescription.length).toBeGreaterThan(40);
+      expect(alarm.AlarmDescription.length).toBeLessThanOrEqual(250);
     }
   });
 
