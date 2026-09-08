@@ -113,3 +113,9 @@ output2.json
 # never shared. Team-wide conventions belong in README/docs instead.
 /CLAUDE.md
 /CLAUDE.local.md
+
+# Internal infrastructure notes. This repo is public: the encryption doc names
+# the AWS account id, both CMK key ids, table names, and a TLSv1 finding on
+# another Burnes Center distribution that is still open. Share it with the team
+# directly, not by pushing it here.
+/docs/encryption-at-rest-and-in-transit.md
