@@ -43,6 +43,7 @@ export class Website extends Construct {
         removalPolicy: cdk.RemovalPolicy.DESTROY,
         autoDeleteObjects: true,
         enforceSSL: true,
+        minimumTLSVersion: 1.2,
       }
     );
     
@@ -61,6 +62,15 @@ export class Website extends Construct {
             acm.Certificate.fromCertificateArn(this, 'CloudfrontAcm', process.env.ACM_CERTIFICATE_ARN),
             {
               aliases: [process.env.DOMAIN],
+              // CloudFormation defaults MinimumProtocolVersion to TLSv1 when a
+              // custom certificate omits it, and CDK passes the field through
+              // unset. Both live distributions (a-iep.org, dev.a-iep.org)
+              // therefore accepted TLS 1.0/1.1 and 3DES until 2026-09-08:
+              // valid padlock, obsolete floor, nothing failing. These front
+              // FERPA-scoped IEP data, so pin 1.2 explicitly.
+              // test/infra pins this; it needs its own synth because the
+              // block above only renders when ACM_CERTIFICATE_ARN is set.
+              securityPolicy: cf.SecurityPolicyProtocol.TLS_V1_2_2021,
             }
           ),
         }),
@@ -165,7 +175,15 @@ export class Website extends Construct {
         id: "AwsSolutions-CFR2",
         reason: "WAF not required due to configured Cognito auth.",
       },
-      { id: "AwsSolutions-CFR4", reason: "TLS 1.2 is the default." },
+      {
+        id: "AwsSolutions-CFR4",
+        // Was "TLS 1.2 is the default", which was false and is what let both
+        // live distributions sit on TLSv1 unnoticed. With a custom
+        // certificate we now set TLS_V1_2_2021 above. This suppression covers
+        // only the no-custom-domain case: the default *.cloudfront.net
+        // certificate is fixed at a TLSv1 minimum by AWS and cannot be raised.
+        reason: "Default CloudFront certificate; AWS fixes its minimum at TLSv1. Custom certificates set TLS_V1_2_2021.",
+      },
     ]);
     }
 

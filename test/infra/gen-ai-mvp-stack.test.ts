@@ -625,6 +625,139 @@ describe('S3 data protection', () => {
   });
 });
 
+// ── Encryption ──────────────────────────────────────────────────────────
+// WHY: on 2026-09-08 an audit found the encryption posture correct in the
+// live account but pinned by nothing. `encryptionKey` and `environmentEncryption`
+// are optional props threaded through from lib/chatbot-api/index.ts, so
+// dropping one downgrades a store from the CMK to an AWS-owned key, synths
+// clean, deploys green, and shows up nowhere: the same failure shape as the
+// bucket rename above, which also passed every check that existed at the time.
+// The same audit found both live CloudFront distributions on a TLSv1 floor
+// for the same reason, so the in-transit floor is pinned here too.
+//
+// "Encrypted" is not the property that matters, since AWS encrypts these at
+// rest by default regardless. The property is WHICH key: only the CMK gives
+// per-decrypt CloudTrail records and a revocation path over children's IEPs.
+describe('encryption at rest and in transit', () => {
+  // Resolved from the template rather than hardcoded: the assertions below
+  // must break if the key is swapped, not if its logical ID is refactored.
+  const appKmsKeyLogicalId = (): string => {
+    const keys = resourcesMatching(template, 'AWS::KMS::Key', 'AppKmsKey');
+    // Vacuity floor: no CMK means every pin below is asserting nothing.
+    expect(keys).toHaveLength(1);
+    return keys[0][0];
+  };
+
+  const referencesAppKmsKey = (value: unknown): boolean =>
+    JSON.stringify(value ?? null).includes(appKmsKeyLogicalId());
+
+  test('the knowledge bucket encrypts objects with the application CMK', () => {
+    const buckets = resourcesMatching(template, 'AWS::S3::Bucket', 'KnowledgeSourceBucket');
+    expect(buckets).toHaveLength(1);
+
+    const rules = buckets[0][1].Properties?.BucketEncryption?.ServerSideEncryptionConfiguration ?? [];
+    expect(rules).toHaveLength(1);
+
+    const applied = rules[0].ServerSideEncryptionByDefault;
+    // Not 'AES256': SSE-S3 would still read as "encrypted at rest" in the
+    // console while dropping the audit trail and the revocation path.
+    expect(applied?.SSEAlgorithm).toBe('aws:kms');
+    expect(referencesAppKmsKey(applied?.KMSMasterKeyID)).toBe(true);
+  });
+
+  test('every user-data table encrypts with the application CMK', () => {
+    const tables = Object.entries(template.findResources('AWS::DynamoDB::Table'))
+      .filter(([logicalId]) => USER_DATA_TABLE_HINTS.some((hint) => logicalId.includes(hint)));
+    expect(tables).toHaveLength(USER_DATA_TABLE_HINTS.length);
+
+    const offenders = tables
+      .filter(([, table]: [string, any]) => {
+        const sse = table.Properties?.SSESpecification;
+        return sse?.SSEEnabled !== true
+          || sse?.SSEType !== 'KMS'
+          || !referencesAppKmsKey(sse?.KMSMasterKeyId);
+      })
+      .map(([logicalId]) => logicalId);
+
+    // The OtpRateLimitTable is deliberately absent from this list: its rows
+    // are sha256(phone)#hour counters that TTL out within the hour, so the
+    // AWS-owned default key is the right call and a CMK would only add cost.
+    expect(offenders).toEqual([]);
+  });
+
+  test('the application log group encrypts with the application CMK', () => {
+    const groups = resourcesMatching(template, 'AWS::Logs::LogGroup', 'LoggingLogGroup');
+    expect(groups).toHaveLength(1);
+    expect(referencesAppKmsKey(groups[0][1].Properties?.KmsKeyId)).toBe(true);
+  });
+
+  // Every lambda that touches document content, profiles, or a decrypted API
+  // key holds its configuration in environment variables. The Cognito trigger
+  // lambdas under NewAuthorization are exempt on purpose: their environments
+  // carry table names and the fictional-number allowlist, no secret and no
+  // document reference. If that ever changes, delete the exemption.
+  test('every data-plane lambda encrypts its environment with the application CMK', () => {
+    const dataPlane = Object.entries(template.findResources('AWS::Lambda::Function'))
+      .filter(([logicalId]) => logicalId.startsWith('ChatbotAPI'));
+    // 18 at the time of writing; the floor catches a filter that stops matching.
+    expect(dataPlane.length).toBeGreaterThanOrEqual(15);
+
+    const offenders = dataPlane
+      .filter(([, fn]: [string, any]) => !referencesAppKmsKey(fn.Properties?.KmsKeyArn))
+      .map(([logicalId]) => logicalId);
+
+    expect(offenders).toEqual([]);
+  });
+
+  // enforceSSL renders as a Deny statement on the bucket's resource policy,
+  // which is the only one of the two that binds a caller holding a presigned
+  // URL: presigned GETs are evaluated against the bucket policy, so without
+  // this a link could be replayed over plaintext HTTP.
+  // Both TLS pins below assert the rendered Deny rather than the CDK prop.
+  // That matters here: buckets.ts once carried a hand-written
+  // aws:SecureTransport deny next to enforceSSL, CDK emits a byte-identical
+  // statement, and PostProcessPolicyDocument dedupes them to one. A pin on
+  // the prop would have passed either way and told us nothing about the
+  // policy that actually ships.
+  const bucketsWithoutDeny = (matches: (statement: any) => boolean): string[] => {
+    const buckets = Object.keys(template.findResources('AWS::S3::Bucket'));
+    // Knowledge, website, website logs, CloudFront logs.
+    expect(buckets.length).toBeGreaterThanOrEqual(4);
+
+    const policies = Object.values(template.findResources('AWS::S3::BucketPolicy'));
+
+    return buckets.filter((bucketLogicalId) => !policies.some((policy: any) => {
+      const doc = policy.Properties ?? {};
+      if (!JSON.stringify(doc.Bucket ?? null).includes(bucketLogicalId)) return false;
+      return (doc.PolicyDocument?.Statement ?? []).some((statement: any) =>
+        statement.Effect === 'Deny'
+        && [statement.Action ?? []].flat().includes('s3:*')
+        && matches(statement));
+    }));
+  };
+
+  // enforceSSL renders as a Deny statement on the bucket's resource policy,
+  // which is the only one of the two that binds a caller holding a presigned
+  // URL: presigned GETs are evaluated against the bucket policy, so without
+  // this a link could be replayed over plaintext HTTP.
+  test('every bucket denies requests that are not over TLS', () => {
+    expect(bucketsWithoutDeny(
+      (statement) => statement.Condition?.Bool?.['aws:SecureTransport'] === 'false'
+    )).toEqual([]);
+  });
+
+  // The floor, not just the scheme. enforceSSL on its own denies plaintext
+  // HTTP and happily accepts TLS 1.0 and 1.1, which is where all four buckets
+  // sat until 2026-09-08: the same shape as the CloudFront TLSv1 default
+  // found the same day. minimumTLSVersion adds this second Deny, and CDK
+  // throws at synth if enforceSSL is turned off underneath it.
+  test('every bucket denies TLS below 1.2', () => {
+    expect(bucketsWithoutDeny(
+      (statement) => statement.Condition?.NumericLessThan?.['s3:TlsVersion'] === 1.2
+    )).toEqual([]);
+  });
+});
+
 describeDurableStoreRetention('staging', () => template);
 
 /**
@@ -1114,4 +1247,53 @@ describe('production synth: the OTP test backdoor must not exist', () => {
   // naming pins matter most for production (that is where 50 of 102 documents
   // were lost), and a second top-level synth would double the suite's runtime.
   describeDurableStoreRetention('production', () => prodTemplate);
+});
+
+describe('custom-certificate synth: the CloudFront TLS floor', () => {
+  // The viewerCertificate block in lib/user-interface/generate-app.ts only
+  // renders when ACM_CERTIFICATE_ARN and DOMAIN are both set, which is how
+  // the real deploys run and how a-iep.org and dev.a-iep.org got their certs.
+  // The shared synth above leaves both unset, so it produces the default
+  // *.cloudfront.net certificate and cannot see this field at all. That blind
+  // spot is exactly why the TLSv1 floor survived: pay for a third synth.
+  let certTemplate: Template;
+  let savedAcmArn: string | undefined;
+  let savedDomain: string | undefined;
+
+  beforeAll(() => {
+    savedAcmArn = process.env.ACM_CERTIFICATE_ARN;
+    savedDomain = process.env.DOMAIN;
+    process.env.ACM_CERTIFICATE_ARN =
+      'arn:aws:acm:us-east-1:123456789012:certificate/11111111-2222-3333-4444-555555555555';
+    process.env.DOMAIN = 'example.test';
+
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const { GenAiMvpStack } = require('../../lib/gen-ai-mvp-stack');
+    const { stackName } = require('../../lib/constants');
+    /* eslint-enable @typescript-eslint/no-var-requires */
+
+    const app = new App({ context: { 'aws:cdk:bundling-stacks': [] } });
+    certTemplate = Template.fromStack(new GenAiMvpStack(app, stackName, {}));
+  }, 180_000);
+
+  afterAll(() => {
+    process.env.ACM_CERTIFICATE_ARN = savedAcmArn;
+    process.env.DOMAIN = savedDomain;
+  });
+
+  test('the distribution serves the custom certificate over TLS 1.2 or better', () => {
+    const distributions = Object.values(certTemplate.findResources('AWS::CloudFront::Distribution'));
+    expect(distributions).toHaveLength(1);
+
+    const viewerCertificate = (distributions[0] as any).Properties?.DistributionConfig?.ViewerCertificate;
+    // Vacuity floor: with the env vars unset this object is the default
+    // certificate and carries no MinimumProtocolVersion, so the pin below
+    // would pass against undefined === undefined if the block stopped
+    // rendering. Prove the custom certificate is the one under test first.
+    expect(viewerCertificate?.AcmCertificateArn).toBe(process.env.ACM_CERTIFICATE_ARN);
+    expect(viewerCertificate?.SslSupportMethod).toBe('sni-only');
+
+    // CloudFormation's own default here is 'TLSv1', which also permits 3DES.
+    expect(viewerCertificate?.MinimumProtocolVersion).toBe('TLSv1.2_2021');
+  });
 });
