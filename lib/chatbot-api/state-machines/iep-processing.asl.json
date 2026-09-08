@@ -11,7 +11,7 @@
         "operation": "update_progress",
         "params": {
           "iep_id.$": "$.iep_id",
-          "child_id.$": "$.child_id", 
+          "child_id.$": "$.child_id",
           "user_id.$": "$.user_id",
           "status": "PROCESSING",
           "current_step": "start",
@@ -21,7 +21,9 @@
       "ResultPath": null,
       "Retry": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "MaxAttempts": 3,
           "IntervalSeconds": 2,
           "BackoffRate": 2
@@ -29,12 +31,21 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "RecordFailure",
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailedAtInitializeProcessing",
           "ResultPath": "$.error"
         }
       ],
       "Next": "SetInitialProgress"
+    },
+    "FailedAtInitializeProcessing": {
+      "Type": "Pass",
+      "Comment": "Name the failing step for record_failure (InitializeProcessing)",
+      "Result": "InitializeProcessing",
+      "ResultPath": "$.failed_step",
+      "Next": "RecordFailure"
     },
     "SetInitialProgress": {
       "Type": "Pass",
@@ -52,13 +63,15 @@
       "Next": "MistralOCR"
     },
     "MistralOCR": {
-      "Type": "Task", 
+      "Type": "Task",
       "Resource": "${MistralOCRArn}",
       "Comment": "Extract text from document using Mistral OCR API",
       "ResultPath": null,
       "Retry": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "MaxAttempts": 3,
           "IntervalSeconds": 2,
           "BackoffRate": 2
@@ -66,12 +79,21 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "RecordFailure",
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailedAtMistralOCR",
           "ResultPath": "$.error"
         }
       ],
       "Next": "UpdateOCRProgress"
+    },
+    "FailedAtMistralOCR": {
+      "Type": "Pass",
+      "Comment": "Name the failing step for record_failure (MistralOCR)",
+      "Result": "MistralOCR",
+      "ResultPath": "$.failed_step",
+      "Next": "RecordFailure"
     },
     "UpdateOCRProgress": {
       "Type": "Task",
@@ -81,7 +103,7 @@
         "operation": "update_progress",
         "params": {
           "iep_id.$": "$.iep_id",
-          "child_id.$": "$.child_id", 
+          "child_id.$": "$.child_id",
           "user_id.$": "$.user_id",
           "status": "PROCESSING",
           "current_step": "ocr_complete",
@@ -91,7 +113,9 @@
       "ResultPath": null,
       "Retry": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "MaxAttempts": 3,
           "IntervalSeconds": 2,
           "BackoffRate": 2
@@ -99,12 +123,21 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "RecordFailure",
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailedAtUpdateOCRProgress",
           "ResultPath": "$.error"
         }
       ],
       "Next": "SetOCRProgress"
+    },
+    "FailedAtUpdateOCRProgress": {
+      "Type": "Pass",
+      "Comment": "Name the failing step for record_failure (UpdateOCRProgress)",
+      "Result": "UpdateOCRProgress",
+      "ResultPath": "$.failed_step",
+      "Next": "RecordFailure"
     },
     "SetOCRProgress": {
       "Type": "Pass",
@@ -128,7 +161,9 @@
       "ResultPath": null,
       "Retry": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "MaxAttempts": 3,
           "IntervalSeconds": 2,
           "BackoffRate": 2
@@ -136,12 +171,21 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "RecordFailure",
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailedAtRedactOCR",
           "ResultPath": "$.error"
         }
       ],
       "Next": "UpdateRedactionProgress"
+    },
+    "FailedAtRedactOCR": {
+      "Type": "Pass",
+      "Comment": "Name the failing step for record_failure (RedactOCR)",
+      "Result": "RedactOCR",
+      "ResultPath": "$.failed_step",
+      "Next": "RecordFailure"
     },
     "UpdateRedactionProgress": {
       "Type": "Task",
@@ -151,7 +195,7 @@
         "operation": "update_progress",
         "params": {
           "iep_id.$": "$.iep_id",
-          "child_id.$": "$.child_id", 
+          "child_id.$": "$.child_id",
           "user_id.$": "$.user_id",
           "status": "PROCESSING",
           "current_step": "pii_redaction_complete",
@@ -161,7 +205,9 @@
       "ResultPath": null,
       "Retry": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "MaxAttempts": 3,
           "IntervalSeconds": 2,
           "BackoffRate": 2
@@ -169,12 +215,21 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "RecordFailure",
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailedAtUpdateRedactionProgress",
           "ResultPath": "$.error"
         }
       ],
       "Next": "SetRedactionProgress"
+    },
+    "FailedAtUpdateRedactionProgress": {
+      "Type": "Pass",
+      "Comment": "Name the failing step for record_failure (UpdateRedactionProgress)",
+      "Result": "UpdateRedactionProgress",
+      "ResultPath": "$.failed_step",
+      "Next": "RecordFailure"
     },
     "SetRedactionProgress": {
       "Type": "Pass",
@@ -198,7 +253,9 @@
       "ResultPath": null,
       "Retry": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "MaxAttempts": 3,
           "IntervalSeconds": 2,
           "BackoffRate": 2
@@ -206,12 +263,21 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "RecordFailure",
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailedAtDeleteOriginal",
           "ResultPath": "$.error"
         }
       ],
       "Next": "UpdateCleanupProgress"
+    },
+    "FailedAtDeleteOriginal": {
+      "Type": "Pass",
+      "Comment": "Name the failing step for record_failure (DeleteOriginal)",
+      "Result": "DeleteOriginal",
+      "ResultPath": "$.failed_step",
+      "Next": "RecordFailure"
     },
     "UpdateCleanupProgress": {
       "Type": "Task",
@@ -221,7 +287,7 @@
         "operation": "update_progress",
         "params": {
           "iep_id.$": "$.iep_id",
-          "child_id.$": "$.child_id", 
+          "child_id.$": "$.child_id",
           "user_id.$": "$.user_id",
           "status": "PROCESSING",
           "current_step": "cleanup_complete",
@@ -231,7 +297,9 @@
       "ResultPath": null,
       "Retry": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "MaxAttempts": 3,
           "IntervalSeconds": 2,
           "BackoffRate": 2
@@ -239,12 +307,21 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "RecordFailure",
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailedAtUpdateCleanupProgress",
           "ResultPath": "$.error"
         }
       ],
       "Next": "SetCleanupProgress"
+    },
+    "FailedAtUpdateCleanupProgress": {
+      "Type": "Pass",
+      "Comment": "Name the failing step for record_failure (UpdateCleanupProgress)",
+      "Result": "UpdateCleanupProgress",
+      "ResultPath": "$.failed_step",
+      "Next": "RecordFailure"
     },
     "SetCleanupProgress": {
       "Type": "Pass",
@@ -267,7 +344,9 @@
       "Comment": "Generate English summary, sections, and document index using OpenAI",
       "Retry": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "MaxAttempts": 3,
           "IntervalSeconds": 2,
           "BackoffRate": 2
@@ -275,13 +354,22 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "RecordFailure",
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailedAtParsingAgent",
           "ResultPath": "$.error"
         }
       ],
       "Next": "UpdateAnalysisProgress",
       "ResultPath": null
+    },
+    "FailedAtParsingAgent": {
+      "Type": "Pass",
+      "Comment": "Name the failing step for record_failure (ParsingAgent)",
+      "Result": "ParsingAgent",
+      "ResultPath": "$.failed_step",
+      "Next": "RecordFailure"
     },
     "UpdateAnalysisProgress": {
       "Type": "Task",
@@ -291,7 +379,7 @@
         "operation": "update_progress",
         "params": {
           "iep_id.$": "$.iep_id",
-          "child_id.$": "$.child_id", 
+          "child_id.$": "$.child_id",
           "user_id.$": "$.user_id",
           "status": "PROCESSING",
           "current_step": "analysis_complete",
@@ -301,7 +389,9 @@
       "ResultPath": null,
       "Retry": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "MaxAttempts": 3,
           "IntervalSeconds": 2,
           "BackoffRate": 2
@@ -309,12 +399,21 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "RecordFailure",
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailedAtUpdateAnalysisProgress",
           "ResultPath": "$.error"
         }
       ],
       "Next": "SetAnalysisProgress"
+    },
+    "FailedAtUpdateAnalysisProgress": {
+      "Type": "Pass",
+      "Comment": "Name the failing step for record_failure (UpdateAnalysisProgress)",
+      "Result": "UpdateAnalysisProgress",
+      "ResultPath": "$.failed_step",
+      "Next": "RecordFailure"
     },
     "SetAnalysisProgress": {
       "Type": "Pass",
@@ -337,7 +436,7 @@
       "Comment": "Check user language preferences to determine if translations are needed",
       "Parameters": {
         "iep_id.$": "$.iep_id",
-        "child_id.$": "$.child_id", 
+        "child_id.$": "$.child_id",
         "user_id.$": "$.user_id",
         "s3_bucket.$": "$.s3_bucket",
         "s3_key.$": "$.s3_key",
@@ -347,7 +446,9 @@
       },
       "Retry": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "MaxAttempts": 3,
           "IntervalSeconds": 2,
           "BackoffRate": 2
@@ -355,12 +456,21 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "RecordFailure",
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailedAtCheckLanguagePrefs",
           "ResultPath": "$.error"
         }
       ],
       "Next": "TranslationChoice"
+    },
+    "FailedAtCheckLanguagePrefs": {
+      "Type": "Pass",
+      "Comment": "Name the failing step for record_failure (CheckLanguagePrefs)",
+      "Result": "CheckLanguagePrefs",
+      "ResultPath": "$.failed_step",
+      "Next": "RecordFailure"
     },
     "TranslationChoice": {
       "Type": "Choice",
@@ -387,7 +497,9 @@
       },
       "Retry": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "MaxAttempts": 3,
           "IntervalSeconds": 2,
           "BackoffRate": 2
@@ -395,13 +507,22 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "RecordFailure",
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailedAtTranslateParsingResult",
           "ResultPath": "$.error"
         }
       ],
       "Next": "UpdateTranslationProgress",
       "ResultPath": null
+    },
+    "FailedAtTranslateParsingResult": {
+      "Type": "Pass",
+      "Comment": "Name the failing step for record_failure (TranslateParsingResult)",
+      "Result": "TranslateParsingResult",
+      "ResultPath": "$.failed_step",
+      "Next": "RecordFailure"
     },
     "UpdateTranslationProgress": {
       "Type": "Task",
@@ -411,7 +532,7 @@
         "operation": "update_progress",
         "params": {
           "iep_id.$": "$.iep_id",
-          "child_id.$": "$.child_id", 
+          "child_id.$": "$.child_id",
           "user_id.$": "$.user_id",
           "status": "PROCESSING",
           "current_step": "translation_complete",
@@ -421,7 +542,9 @@
       "ResultPath": null,
       "Retry": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "MaxAttempts": 3,
           "IntervalSeconds": 2,
           "BackoffRate": 2
@@ -429,12 +552,21 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "RecordFailure",
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailedAtUpdateTranslationProgress",
           "ResultPath": "$.error"
         }
       ],
       "Next": "SetTranslationProgress"
+    },
+    "FailedAtUpdateTranslationProgress": {
+      "Type": "Pass",
+      "Comment": "Name the failing step for record_failure (UpdateTranslationProgress)",
+      "Result": "UpdateTranslationProgress",
+      "ResultPath": "$.failed_step",
+      "Next": "RecordFailure"
     },
     "SetTranslationProgress": {
       "Type": "Pass",
@@ -459,7 +591,7 @@
       "Comment": "Combined step: combine results, save to DDB, and mark as completed",
       "Parameters": {
         "iep_id.$": "$.iep_id",
-        "child_id.$": "$.child_id", 
+        "child_id.$": "$.child_id",
         "user_id.$": "$.user_id",
         "target_languages.$": "$.target_languages",
         "translation_needed.$": "$.translation_needed",
@@ -469,7 +601,9 @@
       },
       "Retry": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "MaxAttempts": 3,
           "IntervalSeconds": 2,
           "BackoffRate": 2
@@ -477,12 +611,21 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "RecordFailure",
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailedAtFinalizeResults",
           "ResultPath": "$.error"
         }
       ],
       "End": true
+    },
+    "FailedAtFinalizeResults": {
+      "Type": "Pass",
+      "Comment": "Name the failing step for record_failure (FinalizeResults)",
+      "Result": "FinalizeResults",
+      "ResultPath": "$.failed_step",
+      "Next": "RecordFailure"
     },
     "RecordFailure": {
       "Type": "Task",
@@ -492,15 +635,17 @@
         "operation": "record_failure",
         "params": {
           "iep_id.$": "$.iep_id",
-          "child_id.$": "$.child_id", 
+          "child_id.$": "$.child_id",
           "user_id.$": "$.user_id",
           "error_message.$": "$.error.Cause",
-          "failed_step.$": "$$.State.Name"
+          "failed_step.$": "$.failed_step"
         }
       },
       "Retry": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "MaxAttempts": 3,
           "IntervalSeconds": 2,
           "BackoffRate": 2

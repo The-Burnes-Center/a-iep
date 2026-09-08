@@ -806,17 +806,33 @@ describe('IEP processing state machine', () => {
   // A processing failure that never reaches RecordFailure leaves the document
   // stuck at PROCESSING forever — the parent sees an eternal spinner and the
   // failure is invisible to us (no failed_step, no error_message in DDB).
+  //
+  // Catches now reach RecordFailure through a one-state FailedAt<Step> Pass
+  // that injects the failing step's name, so this resolves that hop instead of
+  // requiring Next === 'RecordFailure' directly. The pin was updated, not
+  // relaxed: the hop is allowed only if it is a Pass that goes straight to
+  // RecordFailure, so an arbitrary chain, a Choice that could route elsewhere,
+  // or a dead end still fails. Its intent is unchanged, that every failure
+  // ARRIVES at RecordFailure.
   test('every task and parallel state catches States.ALL into RecordFailure', () => {
     const definition = stateMachineDefinition();
-    expect(definition.States.RecordFailure).toMatchObject({ Type: 'Task' });
+    const states: Record<string, any> = definition.States;
+    expect(states.RecordFailure).toMatchObject({ Type: 'Task' });
 
-    const offenders = Object.entries(definition.States)
+    /** Does this catch target land on RecordFailure, at most one Pass away? */
+    const reachesRecordFailure = (next: string): boolean => {
+      if (next === 'RecordFailure') return true;
+      const hop = states[next];
+      return Boolean(hop) && hop.Type === 'Pass' && hop.Next === 'RecordFailure';
+    };
+
+    const offenders = Object.entries(states)
       .filter(([name, state]: [string, any]) =>
         name !== 'RecordFailure' && (state.Type === 'Task' || state.Type === 'Parallel'))
       .filter(([, state]: [string, any]) => {
         const catches: any[] = state.Catch ?? [];
         return !catches.some((c) =>
-          (c.ErrorEquals ?? []).includes('States.ALL') && c.Next === 'RecordFailure');
+          (c.ErrorEquals ?? []).includes('States.ALL') && reachesRecordFailure(c.Next));
       })
       .map(([name]) => name);
 
@@ -857,6 +873,44 @@ describe('IEP processing state machine', () => {
     const timeout = stateMachineDefinition().TimeoutSeconds;
     expect(timeout).toBe(21600);
     expect(timeout).toBeGreaterThan(WORST_CASE_RUN_SECONDS);
+  });
+
+  // WHY: failed_step was `$$.State.Name` read INSIDE RecordFailure, so it
+  // resolved to the literal string "RecordFailure" for every failure the
+  // pipeline has ever recorded. All six failures in production carry that
+  // value, and none of them names the stage that actually broke, which is the
+  // first thing anyone triaging wants and the field the document-pipeline
+  // alarm's runbook points at.
+  //
+  // The fix routes each Task's Catch through a Pass that injects its own name,
+  // so these assertions pin the wiring rather than the outcome: a Catch that
+  // goes straight to RecordFailure again, or a marker whose Result drifts from
+  // its state name, silently restores a field that lies.
+  describe('a failure names the stage that failed', () => {
+    test('every Catch is routed through a marker that injects its own step name', () => {
+      const states = stateMachineDefinition().States;
+      const caught = Object.entries<any>(states)
+        .flatMap(([name, state]) => (state.Catch ?? []).map((c: any) => [name, c.Next]));
+
+      expect(caught.length).toBeGreaterThan(0);
+      for (const [source, next] of caught) {
+        // Never straight to RecordFailure: that is what made failed_step a lie.
+        expect(next).toBe(`FailedAt${source}`);
+        const marker = states[next as string];
+        expect(marker.Type).toBe('Pass');
+        // The literal must match the state it catches for, or the field names
+        // the wrong stage, which is worse than naming none.
+        expect(marker.Result).toBe(source);
+        expect(marker.ResultPath).toBe('$.failed_step');
+        expect(marker.Next).toBe('RecordFailure');
+      }
+    });
+
+    test('RecordFailure reads the injected step, not its own state name', () => {
+      const params = stateMachineDefinition().States.RecordFailure.Parameters.params;
+      expect(params['failed_step.$']).toBe('$.failed_step');
+      expect(params['failed_step.$']).not.toBe('$$.State.Name');
+    });
   });
 });
 

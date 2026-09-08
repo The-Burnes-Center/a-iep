@@ -159,11 +159,14 @@ export class MonitoringStack extends Construct {
       name: 'document pipeline failing',
       description:
         'Three or more IEP documents failed processing within fifteen minutes. ' +
-        'Parents see an error screen and a re-upload button. Check the per-step ' +
-        'alarms to see which stage broke; if none fired, the failures are inside ' +
-        'a step rather than a crash, so read the ddb-service logs for the ' +
-        'RECORD_FAILURE lines and their failed_step. A third party being down ' +
-        '(Mistral OCR, OpenAI, Comprehend) is the usual cause.',
+        'Parents see an error screen and a re-upload button. ' +
+        'To triage: the RECORD_FAILURE lines in the ddb-service log group name ' +
+        'the failing stage (step=), and the sanitized event dump above each one ' +
+        'gives the exception class. A ValidationError points at our own schema, ' +
+        'an API or timeout error at a third party (Mistral OCR, OpenAI, ' +
+        'Comprehend), which is the usual cause. The full error text is not in ' +
+        'the logs by design; it is on the document row in DynamoDB. If a ' +
+        'per-step alarm also fired, that stage crashed outright.',
       metric: new cloudwatch.Metric({
         namespace: metricNamespace,
         metricName,
