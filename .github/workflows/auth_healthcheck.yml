@@ -29,7 +29,7 @@ on:
 
 permissions:
   contents: read
-  actions: read # to see whether the previous run failed, for the recovery notice
+  actions: read # to read the previous run's conclusion, so only changes are posted
 
 concurrency:
   # A backed-up runner queue must not stack these up; the next scheduled run
@@ -97,31 +97,50 @@ jobs:
           fi
           echo "Auth contract checks passed for prod and staging"
 
-      # Was the previous run of this workflow red? If so, this green run is
-      # a recovery and worth saying, because otherwise Slack shows an outage
-      # beginning and never ending.
-      - name: Check whether this is a recovery
+      # Post on TRANSITIONS only, the way a CloudWatch alarm does.
+      #
+      # This runs 96 times a day. Posting on every failing run means a
+      # sustained outage is 96 Slack messages overnight, which is the noise
+      # that teaches everyone to mute the channel and is the exact failure
+      # this alerting exists to avoid. So:
+      #
+      #   was green, now red  -> post (a new incident)
+      #   was red,   now red  -> silence (already told you)
+      #   was red,   now green-> post (recovered)
+      #   was green, now green-> silence
+      #
+      # Runs `always()` because the decision needs the previous conclusion
+      # whether this run passed or failed.
+      - name: Decide whether this is a change worth reporting
         id: prev
-        if: success()
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
           prev=$(gh run list --workflow auth_healthcheck.yml --status completed \
-                   --limit 2 --json conclusion,databaseId \
+                   --limit 5 --json conclusion,databaseId \
                    --jq "[.[] | select(.databaseId != ${{ github.run_id }})][0].conclusion" 2>/dev/null || echo "")
-          echo "previous conclusion: ${prev:-unknown}"
-          [ "$prev" = "failure" ] && echo "recovered=1" >> "$GITHUB_OUTPUT" || echo "recovered=0" >> "$GITHUB_OUTPUT"
+          echo "previous conclusion: ${prev:-none}"
+          # No previous run at all: treat the first result as a change, so a
+          # broken first firing is not silently swallowed.
+          if [ "${{ steps.checks.outcome }}" = "failure" ]; then
+            [ "$prev" = "failure" ] && echo "report=none" >> "$GITHUB_OUTPUT" \
+                                   || echo "report=failed" >> "$GITHUB_OUTPUT"
+          else
+            [ "$prev" = "failure" ] && echo "report=recovered" >> "$GITHUB_OUTPUT" \
+                                   || echo "report=none" >> "$GITHUB_OUTPUT"
+          fi
 
-      # Silence on success is the point: at 96 runs a day, a message per run
-      # would bury every real alert. Only failures and recoveries speak.
+      # Silence unless something changed: at 96 runs a day, anything else
+      # buries the real alert.
       - name: Notify Slack
-        if: always() && (failure() || steps.prev.outputs.recovered == '1')
+        if: always() && steps.prev.outputs.report != 'none'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           REPORT: ${{ steps.checks.outputs.report }}
           FAILED: ${{ steps.checks.outputs.failed }}
-          RECOVERED: ${{ steps.prev.outputs.recovered }}
+          REPORT_KIND: ${{ steps.prev.outputs.report }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -uo pipefail
@@ -130,7 +149,7 @@ jobs:
             exit 0
           fi
 
-          if [ "${RECOVERED:-0}" = "1" ]; then
+          if [ "${REPORT_KIND:-}" = "recovered" ]; then
             text=$(printf ':white_check_mark: A-IEP auth checks are passing again\nprod and staging both clean.\n\n<%s|View run>' "$RUN_URL")
           elif [ -n "${FAILED:-}" ]; then
             text=$(printf ':rotating_light: A-IEP auth is failing in: %s\n%s\n\nFamilies may be unable to log in or sign up. This check sends no SMS, so a failure here is the contract breaking, not a delivery problem.\n\n<%s|View run>' \
