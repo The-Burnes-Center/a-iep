@@ -45,6 +45,22 @@ import { getEnvironment, getResourceName, tagResource } from '../../tags';
  * here, so that a noisy staging never trains anyone to ignore the channel.
  */
 
+/**
+ * Every pipeline Task in iep-processing.asl.json retries with MaxAttempts 3,
+ * so ONE failing document invokes its step lambda 4 times and records 4
+ * Errors. A threshold at or below 4 therefore fires for a single unreadable
+ * PDF from a single parent, reported as though the whole stage were down.
+ *
+ * Measured, not reasoned about: a deliberate failing execution on staging
+ * produced exactly 4 datapoints and tripped the original threshold of 2.
+ *
+ * 5 means at least two documents failed at the same stage inside five
+ * minutes. Anything that raises the retry count has to raise this with it,
+ * which is what the test/infra pin exists to force.
+ */
+const PIPELINE_STEP_RETRY_INVOCATIONS = 4;
+const PIPELINE_STEP_ERROR_THRESHOLD = PIPELINE_STEP_RETRY_INVOCATIONS + 1;
+
 /** A lambda plus the human name used in the alarm and its description. */
 export interface MonitoredFunction {
   readonly label: string;
@@ -188,12 +204,14 @@ export class MonitoringStack extends Construct {
       this.alarm(`PipelineStepErrors${label.replace(/[^A-Za-z0-9]/g, '')}`, {
         name: `pipeline step failing: ${label}`,
         description:
-          `The ${label} step of the document pipeline threw. Every document ` +
-          'reaching this stage fails until it is fixed, and each one shows its ' +
-          'parent an error. This stage is the one to look at first, and its ' +
-          'upstream third party if it calls one.',
+          `The ${label} step of the document pipeline threw more than one ` +
+          "document's worth of errors. Every document reaching this stage is " +
+          'likely failing, and each one shows its parent an error. Look at this ' +
+          'stage first, and at its upstream third party if it calls one. A ' +
+          'single unreadable PDF does NOT reach this threshold; if only one ' +
+          'parent is affected, the document-pipeline alarm is the one to watch.',
         metric: fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
-        threshold: 2,
+        threshold: PIPELINE_STEP_ERROR_THRESHOLD,
         evaluationPeriods: 1,
       });
     }

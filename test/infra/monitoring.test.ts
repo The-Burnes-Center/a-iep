@@ -157,6 +157,25 @@ describe.each([
     expect(alarm!.MetricName).toBe('DocumentFailures');
   });
 
+  // WHY, measured on staging: every pipeline Task retries with MaxAttempts 3,
+  // so ONE failing document invokes its step lambda 4 times and records 4
+  // Errors. A deliberate failing execution produced exactly 4 datapoints and
+  // tripped the original threshold of 2, i.e. a single unreadable PDF from a
+  // single parent would have paged the channel as though the stage were down.
+  // Raising the retry count without raising this reintroduces that, so the
+  // relationship is pinned rather than the number alone.
+  test('a single failing document cannot trip a pipeline step alarm', () => {
+    const stepAlarms = alarms.filter((a) =>
+      String(a.AlarmName).startsWith(`${namePrefix}pipeline step failing:`),
+    );
+    expect(stepAlarms.length).toBeGreaterThanOrEqual(7);
+    for (const alarm of stepAlarms) {
+      expect(alarm.MetricName).toBe('Errors');
+      // 4 invocations is one document's retries; the alarm must need more.
+      expect(alarm.Threshold).toBeGreaterThan(4);
+    }
+  });
+
   // Every Cognito trigger gets its own alarm: an error in any of them locks
   // families out, and phone signup has already been silently dead for a month
   // once (2026-07).
