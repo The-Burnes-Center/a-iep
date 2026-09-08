@@ -70,6 +70,9 @@ export class LambdaFunctionStack extends cdk.Stack {
   
   // Step function Lambda handlers
   public readonly ddbServiceFunction : lambda.Function;
+  /** Watched as a heartbeat by MonitoringStack: if this stops, stalled
+   *  uploads are never failed closed. */
+  public readonly pendingUploadSweepRule : events.Rule;
   public readonly mistralOCRFunction : lambda.Function;
   public readonly redactOCRFunction : lambda.Function;
   public readonly deleteOriginalFunction : lambda.Function;
@@ -426,7 +429,7 @@ export class LambdaFunctionStack extends cdk.Stack {
     // scripts/audit-residue.py's statusless_documents check only reports it.
     // The DDB service function already carries dynamodb:Scan/UpdateItem on
     // this table via stepFunctionPolicies above, so no new permissions needed.
-    const pendingUploadSweepRule = new events.Rule(scope, 'PendingUploadSweepRule', {
+    const pendingUploadSweepRule = this.pendingUploadSweepRule = new events.Rule(scope, 'PendingUploadSweepRule', {
       description: 'Fails closed any IEP document stuck at PENDING_UPLOAD (upload never reached S3)',
       schedule: events.Schedule.rate(cdk.Duration.minutes(10)),
     });

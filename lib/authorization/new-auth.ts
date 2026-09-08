@@ -69,6 +69,10 @@ export interface NewAuthorizationStackProps extends cdk.StackProps {
  * - Applies standard tags and outputs resource ARNs/IDs.
  */
 export class NewAuthorizationStack extends Construct {
+  /** The custom-auth triggers, so MonitoringStack can alarm on each one:
+   *  an error in any of these locks families out. Label is the name a
+   *  human reads in Slack. */
+  public readonly authTriggerFunctions: { label: string; fn: lambda.Function }[] = [];
   public readonly userPool: UserPool;
   public readonly userPoolClient: UserPoolClient;
 
@@ -434,6 +438,18 @@ export class NewAuthorizationStack extends Construct {
     if (userProfilesTable) {
       userProfilesTable.grantReadWriteData(verifyAuthChallengeFunction);
     }
+
+    // Collected for MonitoringStack, which alarms on each one's Errors. The
+    // labels are what a human reads in Slack, so they name the effect on a
+    // family where that is not obvious from the trigger name.
+    this.authTriggerFunctions.push(
+      { label: 'PreSignUp', fn: preSignUpFunction },
+      { label: 'DefineAuthChallenge', fn: defineAuthChallengeFunction },
+      { label: 'CreateAuthChallenge (sends the SMS code)', fn: createAuthChallengeFunction },
+      { label: 'VerifyAuthChallenge (checks the SMS code)', fn: verifyAuthChallengeFunction },
+      { label: 'CustomMessage', fn: customMessageFunction },
+      { label: 'PreAuthentication', fn: preAuthenticationFunction },
+    );
 
     // Allow Cognito to invoke the Lambda functions
     [preSignUpFunction, defineAuthChallengeFunction, createAuthChallengeFunction, verifyAuthChallengeFunction, customMessageFunction, preAuthenticationFunction].forEach(func => {

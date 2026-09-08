@@ -283,6 +283,18 @@ def record_failure(params):
             }, default=str)
         }
 
+    # The one line that says a document failed, and the only aggregate signal
+    # that documents are failing at all: a failed document produces a
+    # SUCCESSFUL state machine execution (every Task catches into this
+    # function, which ends the machine normally), so ExecutionsFailed stays at
+    # zero through a total outage. MonitoringStack's DocumentFailureFilter
+    # counts this marker and alarms on the rate.
+    #
+    # Ids and the step only. error_message is deliberately not logged: it
+    # carries whatever the failing step raised, which for OCR or parsing can
+    # quote document text.
+    print(f"RECORD_FAILURE iep={iep_id} step={failed_step}")
+
     return {
         'statusCode': 200,
         'body': json.dumps({

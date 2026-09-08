@@ -119,3 +119,4 @@ output2.json
 # another Burnes Center distribution that is still open. Share it with the team
 # directly, not by pushing it here.
 /docs/encryption-at-rest-and-in-transit.md
+.venv-test/

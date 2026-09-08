@@ -1,0 +1,152 @@
+name: Auth healthcheck (prod + staging)
+
+# The gap CloudWatch alarms cannot close.
+#
+# The 2026-09 Amplify v6 regression threw UserAlreadyAuthenticatedException in
+# the browser, before any network call. No lambda ran, no API returned 5xx, no
+# metric moved, so not one of the 32 alarms in lib/chatbot-api/monitoring would
+# have fired. Phone signup was broken on staging for about 20 hours and the
+# only thing that noticed was the nightly E2E. Before that, the same path was
+# silently dead for a month (2026-07).
+#
+# So this runs the contract checks continuously rather than only after a
+# deploy: an unknown number must still be rejected (the 2026-07 incident
+# exactly), the permanent test user must still reach the language handshake,
+# and the API must still answer and still enforce auth.
+#
+# It sends NO SMS. Round 1 of the custom-auth handshake mints no code by
+# design and the script abandons the session, so this can run every fifteen
+# minutes against production without texting anybody or touching a real
+# family's account.
+#
+# What it deliberately does NOT cover: the frontend bundle. These are
+# server-side contract checks, so a broken login SCREEN would still pass.
+# Closing that needs a browser canary; see docs/OUTAGE_ALERTING_SCOPE.md.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read # to see whether the previous run failed, for the recovery notice
+
+concurrency:
+  # A backed-up runner queue must not stack these up; the next scheduled run
+  # is a better check than a stale one finishing late.
+  group: auth-healthcheck
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Auth contract checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Run the auth contract checks
+        id: checks
+        run: |
+          set -uo pipefail
+          report=""
+          failed=""
+          for pair in "AIEPStack production" "AIEPStagingStack staging"; do
+            set -- $pair
+            stack="$1"; env="$2"
+            echo "::group::$env"
+            out=$(bash scripts/smoke-test.sh "$stack" "$env" 2>&1)
+            rc=$?
+            echo "$out"
+            echo "::endgroup::"
+
+            # The sentinel matters more than the exit code. A script that dies
+            # early (missing SSM parameter, AWS CLI blowing up, a `set -e` trip
+            # in a helper) can exit non-zero OR zero without having checked
+            # anything, and a health check that reads "clean" because it never
+            # ran is the exact failure mode it exists to prevent.
+            if ! printf '%s' "$out" | grep -q "All smoke checks passed for $stack"; then
+              failed="${failed}${env} "
+              # Only the failing lines: the full log is on the run, and the
+              # Slack message should be readable on a phone.
+              detail=$(printf '%s' "$out" | grep -E '^(FAIL|[0-9]+ smoke check)' | head -6)
+              [ -z "$detail" ] && detail="the script exited (rc=$rc) without completing its checks"
+              report="${report}"$'\n'"*${env}*"$'\n'"${detail}"
+            fi
+          done
+
+          delim="EOF_$(openssl rand -hex 8)"
+          {
+            echo "report<<$delim"
+            echo "$report"
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+
+          if [ -n "$failed" ]; then
+            echo "::error::Auth contract checks failed for: $failed"
+            exit 1
+          fi
+          echo "Auth contract checks passed for prod and staging"
+
+      # Was the previous run of this workflow red? If so, this green run is
+      # a recovery and worth saying, because otherwise Slack shows an outage
+      # beginning and never ending.
+      - name: Check whether this is a recovery
+        id: prev
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          prev=$(gh run list --workflow auth_healthcheck.yml --status completed \
+                   --limit 2 --json conclusion,databaseId \
+                   --jq "[.[] | select(.databaseId != ${{ github.run_id }})][0].conclusion" 2>/dev/null || echo "")
+          echo "previous conclusion: ${prev:-unknown}"
+          [ "$prev" = "failure" ] && echo "recovered=1" >> "$GITHUB_OUTPUT" || echo "recovered=0" >> "$GITHUB_OUTPUT"
+
+      # Silence on success is the point: at 96 runs a day, a message per run
+      # would bury every real alert. Only failures and recoveries speak.
+      - name: Notify Slack
+        if: always() && (failure() || steps.prev.outputs.recovered == '1')
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          REPORT: ${{ steps.checks.outputs.report }}
+          FAILED: ${{ steps.checks.outputs.failed }}
+          RECOVERED: ${{ steps.prev.outputs.recovered }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
+            echo "SLACK_WEBHOOK_URL is not set; skipping."
+            exit 0
+          fi
+
+          if [ "${RECOVERED:-0}" = "1" ]; then
+            text=$(printf ':white_check_mark: A-IEP auth checks are passing again\nprod and staging both clean.\n\n<%s|View run>' "$RUN_URL")
+          elif [ -n "${FAILED:-}" ]; then
+            text=$(printf ':rotating_light: A-IEP auth is failing in: %s\n%s\n\nFamilies may be unable to log in or sign up. This check sends no SMS, so a failure here is the contract breaking, not a delivery problem.\n\n<%s|View run>' \
+              "$FAILED" "$REPORT" "$RUN_URL")
+          else
+            # The check step itself died before reporting. Say so plainly
+            # rather than implying the system is fine.
+            text=$(printf ':x: A-IEP auth healthcheck could not complete\nIt failed before producing a report, so this says nothing about whether auth works.\n\n<%s|View run>' "$RUN_URL")
+          fi
+
+          payload=$(jq -n --arg text "$text" '{text: $text}')
+          # Never echo the URL: it is the credential.
+          code=$(curl -sS -o /tmp/slack_response -w '%{http_code}' \
+            -X POST -H 'Content-type: application/json' \
+            --data "$payload" "$SLACK_WEBHOOK_URL" || echo "000")
+          echo "Slack responded HTTP $code: $(cat /tmp/slack_response)"
+          if [ "$code" != "200" ]; then
+            echo "::warning::Slack notification failed to post (HTTP $code)"
+          fi

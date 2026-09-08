@@ -5,6 +5,7 @@ import { LambdaFunctionStack } from "./functions/functions"
 import { TableStack } from "./tables/tables"
 import { S3BucketStack } from "./buckets/buckets"
 import { LoggingStack } from "./logging/logging"
+import { MonitoringStack } from "./monitoring/monitoring"
 
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { HttpJwtAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
@@ -23,6 +24,8 @@ export interface ChatBotApiProps {
 export class ChatBotApi extends Construct {
   public readonly httpAPI: RestBackendAPI;
   public readonly logging: LoggingStack;
+  /** Outage alerting. Subscribe AWS Chatbot to monitoring.alarmTopic. */
+  public monitoring!: MonitoringStack;
   public readonly userProfilesTable: any;
   private lambdaFunctions: LambdaFunctionStack;
   private tables: TableStack;
@@ -248,6 +251,38 @@ export class ChatBotApi extends Construct {
       methods: [apigwv2.HttpMethod.DELETE],
       integration: referralAPIIntegration,
       authorizer: httpAuthorizer,
+    });
+
+    // Outage alerting. Created last so every lambda, table and rule it
+    // watches already exists.
+    this.monitoring = new MonitoringStack(this, "Monitoring", {
+      pipelineFunctions: [
+        { label: 'Mistral OCR', fn: this.lambdaFunctions.mistralOCRFunction },
+        { label: 'PII redaction', fn: this.lambdaFunctions.redactOCRFunction },
+        { label: 'delete original', fn: this.lambdaFunctions.deleteOriginalFunction },
+        { label: 'parsing agent', fn: this.lambdaFunctions.parsingAgentFunction },
+        { label: 'language prefs', fn: this.lambdaFunctions.checkLanguagePrefsFunction },
+        { label: 'translation', fn: this.lambdaFunctions.translateContentFunction },
+        { label: 'finalize results', fn: this.lambdaFunctions.finalizeResultsFunction },
+        { label: 'orchestrator', fn: this.lambdaFunctions.orchestratorFunction },
+      ],
+      authTriggerFunctions: authentication.authTriggerFunctions,
+      apiFunctions: [
+        { label: 'user profile', fn: this.lambdaFunctions.userProfileFunction },
+        { label: 'upload', fn: this.lambdaFunctions.uploadS3KnowledgeFunction },
+        { label: 'referrals', fn: this.lambdaFunctions.referralFunction },
+        { label: 'TTS', fn: this.lambdaFunctions.ttsFunction },
+        { label: 'PDF download', fn: this.lambdaFunctions.pdfGeneratorFunction },
+      ],
+      ddbServiceFunction: this.lambdaFunctions.ddbServiceFunction,
+      iepProcessingStateMachine: this.lambdaFunctions.iepProcessingStateMachine,
+      pendingUploadSweepRule: this.lambdaFunctions.pendingUploadSweepRule,
+      tables: [
+        { label: 'IEP documents', table: this.tables.iepDocumentsTable },
+        { label: 'user profiles', table: this.tables.userProfilesTable },
+        { label: 'referrals', table: this.tables.referralsTable },
+      ],
+      httpApi: this.httpAPI.restAPI,
     });
 
     // Prints out the AppSync GraphQL API key to the terminal
