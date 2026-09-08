@@ -62,12 +62,23 @@ export class Website extends Construct {
             acm.Certificate.fromCertificateArn(this, 'CloudfrontAcm', process.env.ACM_CERTIFICATE_ARN),
             {
               aliases: [process.env.DOMAIN],
-              // CloudFormation defaults MinimumProtocolVersion to TLSv1 when a
-              // custom certificate omits it, and CDK passes the field through
-              // unset. Both live distributions (a-iep.org, dev.a-iep.org)
-              // therefore accepted TLS 1.0/1.1 and 3DES until 2026-09-08:
-              // valid padlock, obsolete floor, nothing failing. These front
-              // FERPA-scoped IEP data, so pin 1.2 explicitly.
+              // CloudFormation defaults MinimumProtocolVersion to TLSv1 when
+              // a custom certificate omits it, and CDK passes the field
+              // through unset, so both distributions accepted TLS 1.0/1.1
+              // until 2026-09-08. Confirmed against the distribution
+              // hostnames: d1tznne4kof6ph.cloudfront.net (staging) refuses
+              // TLS 1.0 after this change, d3lrdgie157gsn.cloudfront.net
+              // (prod, not yet promoted) still accepts it.
+              //
+              // Scope this honestly, because the first write-up overclaimed
+              // it: a-iep.org and dev.a-iep.org resolve to Cloudflare, which
+              // terminates TLS for browsers and uses the distribution as its
+              // origin. This pin covers the Cloudflare-to-CloudFront hop and
+              // anyone hitting the *.cloudfront.net name directly. It does
+              // NOT move the parent-facing floor, which is Cloudflare's own
+              // "Minimum TLS Version" and was still 1.0 on 2026-09-08.
+              // Probing a-iep.org measures Cloudflare, not this setting.
+              //
               // test/infra pins this; it needs its own synth because the
               // block above only renders when ACM_CERTIFICATE_ARN is set.
               securityPolicy: cf.SecurityPolicyProtocol.TLS_V1_2_2021,
