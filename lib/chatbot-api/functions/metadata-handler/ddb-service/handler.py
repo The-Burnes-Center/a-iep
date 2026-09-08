@@ -73,6 +73,45 @@ _SENSITIVE_PARAM_FIELDS = {
     'items',          # append_to_list_field: content list items
 }
 
+# record_failure's error text needs its own treatment: it is neither safe to
+# log verbatim nor worth dropping entirely.
+#
+# The state machine passes $.error.Cause, which for a Lambda failure is Step
+# Functions' envelope: {"errorMessage", "errorType", "requestId",
+# "stackTrace"}. The message inside can quote FERPA-protected content. A
+# pydantic ValidationError raised in parsing_agent names the input value it
+# rejected, which is section text; OpenAI and Mistral errors can echo prompt
+# content. Every failure production has recorded so far is a short generic
+# Exception (91-251 characters, no content), so this is a latent leak rather
+# than a realised one, which is the cheapest moment to close it.
+#
+# Reduced to structure rather than replaced with [REDACTED], because the
+# exception CLASS is the single most useful triage fact and cannot itself
+# contain document text: a ValidationError points at our own schema, an
+# APIError or a timeout points at a third party. The full text is still on the
+# document row in DynamoDB, inside the CMK-encrypted FERPA store and returned
+# to no caller, for the rare case where the class is not enough.
+_ERROR_TEXT_FIELDS = {'error_message', 'last_error'}
+
+
+def _summarize_error_for_logging(value):
+    """Structure only: the exception class and how long its message was."""
+    if not isinstance(value, str):
+        return '[REDACTED]'
+    try:
+        envelope = json.loads(value)
+    except (ValueError, TypeError):
+        # Not the Lambda envelope (the pending-upload sweep passes a plain
+        # sentence, for one). Length alone still distinguishes a one-line API
+        # error from a dumped payload.
+        return f'[redacted: {len(value)} chars]'
+    if not isinstance(envelope, dict):
+        return f'[redacted: {len(value)} chars]'
+    error_type = envelope.get('errorType') or 'unknown'
+    inner = envelope.get('errorMessage')
+    inner_length = len(inner) if isinstance(inner, str) else 0
+    return f'[redacted: {error_type}, {inner_length} chars]'
+
 
 def sanitize_event_for_logging(event):
     """Return a copy of the DDB service event with content-bearing params redacted.
@@ -85,10 +124,14 @@ def sanitize_event_for_logging(event):
     safe = {'operation': event.get('operation')}
     params = event.get('params')
     if isinstance(params, dict):
-        safe['params'] = {
-            k: ('[REDACTED]' if k in _SENSITIVE_PARAM_FIELDS else v)
-            for k, v in params.items()
-        }
+        def scrub(key, value):
+            if key in _SENSITIVE_PARAM_FIELDS:
+                return '[REDACTED]'
+            if key in _ERROR_TEXT_FIELDS:
+                return _summarize_error_for_logging(value)
+            return value
+
+        safe['params'] = {k: scrub(k, v) for k, v in params.items()}
     elif params is not None:
         safe['params'] = '[REDACTED]'
     return safe
