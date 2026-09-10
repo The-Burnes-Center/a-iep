@@ -384,12 +384,10 @@ describe('Cognito custom-auth wiring', () => {
     expect(props.TimeToLiveSpecification).toEqual({ AttributeName: 'expiresAt', Enabled: true });
   });
 
-  // The destination allowlist is the control that stops SMS-pumping fraud:
-  // the per-phone hourly limit above cannot, because a pumping run never
-  // texts the same number twice. Widening this to a country A-IEP does not
-  // serve re-opens the hole that drained the $50 account SNS budget in 13
-  // minutes on 2026-09-09 and took login down in prod and staging together.
-  // The lambda defaults to +1 on its own; this pins the deployed value.
+  // A-IEP serves United States families, so +1 is every real destination.
+  // Widening this to a country the service does not serve removes a
+  // load-bearing abuse control. The lambda defaults to +1 on its own; this
+  // pins the value actually deployed.
   test('create-auth-challenge only texts +1 destinations', () => {
     template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
       Handler: 'create-auth-challenge.handler',

@@ -238,12 +238,10 @@ describe.each([
     }
   });
 
-  // WHY (2026-09-09 incident): 1,045 signups and 1,558 SMS sends arrived in
-  // one hour. The OTP rate limiter keys on sha256(phone)#hour, so 1,045
-  // distinct numbers were never limited, and it ended only when SNS hit the
-  // $50 monthly cap, leaving real families unable to receive a login code for
-  // the rest of the month. Neither of these alarms existed; either would have
-  // caught it in minutes.
+  // Signup volume and SMS spend are the two leading indicators of abuse of
+  // the phone-signup flow, and the harm lands on families: once SMS delivery
+  // stops, no parent can receive a login code until the month rolls over.
+  // Both alarms must exist, and the spend one must sit below the ceiling.
   test('a signup flood is alarmed on, well below the SMS cap', () => {
     const surge = alarms.find(
       (a) => a.AlarmName === `${namePrefix}signup flood: someone is abusing the signup form`,
@@ -251,7 +249,8 @@ describe.each([
     expect(surge).toBeDefined();
     expect(surge!.MetricName).toBe('Invocations');
     // Cognito triggers are not retried, so one invocation is one real attempt.
-    // Organic traffic for this service is ~1/day; 1,045/hour was the attack.
+    // Organic signup traffic for this service is a small number per day, so
+    // the threshold sits far above it and far below an abuse run.
     expect(surge!.Threshold).toBeLessThanOrEqual(50);
   });
 

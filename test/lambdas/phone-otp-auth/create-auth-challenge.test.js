@@ -134,10 +134,8 @@ describe('create-auth-challenge', () => {
         expect(publish.PhoneNumber).toBe(PHONE);
         expect(publish.Message).toContain(code);
         expect(publish.MessageAttributes['AWS.SNS.SMS.SMSType'].StringValue).toBe('Transactional');
-        // Was '0.50', which permitted essentially every destination on earth
-        // and so bounded nothing. '0.05' clears US (~$0.006) and Canadian
-        // (~$0.021) traffic with headroom while SNS itself refuses the
-        // premium international routes that SMS pumping monetizes.
+        // Pinned: SNS declines anything dearer, which is a lock on spend
+        // independent of the destination allowlist.
         expect(publish.MessageAttributes['AWS.SNS.SMS.MaxPrice'].StringValue).toBe('0.05');
 
         // Metadata must round-trip for the reuse/expiry logic downstream.
@@ -240,15 +238,11 @@ describe('create-auth-challenge', () => {
         expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
     });
 
-    // Inverted deliberately, and this is the sharpest trade-off in the file.
-    // It used to assert the SMS still goes out during a DynamoDB outage, on
-    // the reasoning that an outage must not lock everyone out of login. The
-    // global budget now fails CLOSED, so it does lock login. That is the
-    // right way round: an unmetered send window is what 2026-09-09 cost, and
-    // DynamoDB already holds the profiles and documents the whole app runs
-    // on, so during its outage there is no working product to log in to. A
-    // DynamoDB outage costs minutes; a drained SNS budget costs every family
-    // their login until the calendar month rolls over.
+    // Inverted deliberately, and it is the sharpest trade-off in the file.
+    // This used to assert the SMS still goes out during a DynamoDB outage.
+    // It now fails closed instead: DynamoDB holds the profiles and documents
+    // the app runs on, so there is no usable product during its outage
+    // anyway, and an unmetered send path costs more and for longer.
     test('a DynamoDB outage fails CLOSED: no unmetered SMS goes out', async () => {
         mockDdbSend.mockImplementation(async (cmd) => {
             if (cmd instanceof UpdateCommand) throw new Error('DynamoDB unavailable');
@@ -262,13 +256,9 @@ describe('create-auth-challenge', () => {
         });
     });
 
-    // This pin was inverted deliberately. It used to assert that a missing
-    // table still texts, which was true of the per-phone limiter alone. The
-    // global budget now runs first and fails CLOSED, so an unmetered send is
-    // no longer reachable: without the counter there is nothing bounding
-    // spend, and 2026-09-09 is what unbounded spend costs. CDK always sets
-    // this env var on both stacks, so a missing table is a deploy fault and
-    // should be loud rather than quietly unmetered.
+    // Inverted deliberately: this used to assert a missing table still texts.
+    // CDK always sets this env var on both stacks, so its absence is a deploy
+    // fault, and an unmetered send path is not an acceptable way to degrade.
     test('no rate-limit table configured refuses to send rather than texting unmetered', async () => {
         delete process.env.OTP_RATE_LIMIT_TABLE;
         const event = await handler(baseEvent([HANDSHAKE_PASS]));
@@ -299,14 +289,10 @@ describe('create-auth-challenge', () => {
     });
 
     describe('global SMS budget', () => {
-        // The control that bounds total spend. The per-phone limiter cannot:
-        // on 2026-09-09, 1,024 numbers each used once meant it never fired.
-        //
-        // It is sized to bind BEFORE the account's SNS monthly cap, because
-        // SNS does not throw once that cap is hit. Publish returns a
-        // MessageId and drops the message, so the handler logs success and a
-        // parent is told a code is coming that will never arrive. Refusing
-        // here is what turns a silent drop into an error someone can act on.
+        // The control that bounds total spend, which the per-recipient
+        // limiter structurally cannot. Sized to bind before the provider's
+        // own account ceiling, so a refusal surfaces as a real error rather
+        // than a message the provider accepts and never delivers.
         const BUDGET_SHAPE = {
             error: 'Text messaging is temporarily unavailable. Please try again in a little while.',
         };
@@ -328,8 +314,8 @@ describe('create-auth-challenge', () => {
         });
 
         test('the hourly ceiling stops a run that never repeats a number', async () => {
-            // The exact 2026-09-09 shape: a first-ever send for this phone, so
-            // the per-phone counter reads 1 and would happily allow it.
+            // A first-ever send for this recipient, so the per-recipient
+            // counter reads 1 and would allow it on its own.
             countsBy({ 'GLOBAL#H#': 101, 'GLOBAL#D#': 101 });
 
             const event = await handler(baseEvent([HANDSHAKE_PASS]));
@@ -404,14 +390,9 @@ describe('create-auth-challenge', () => {
     });
 
     describe('destination allowlist', () => {
-        // The control that stops SMS-pumping fraud. On 2026-09-09 an attacker
-        // texted 1,024 numbers, each exactly once, across a dozen high-cost
-        // country codes; MAX_SMS_PER_HOUR never fired because it keys on a
-        // single phone number, and the account's $50 monthly SNS budget was
-        // gone in 13 minutes, taking login down in prod AND staging.
-        //
-        // Every test here asserts the thing that must NOT happen: no SNS
-        // publish, and no draw on the rate-limit counter.
+        // Destinations this service has no reason to text are refused before
+        // any spend. Every test here asserts the thing that must NOT happen:
+        // no SNS publish, and no draw on the counters.
         const TANZANIA = '+255712345678';
 
         const eventTo = (phone, session = [HANDSHAKE_PASS]) =>

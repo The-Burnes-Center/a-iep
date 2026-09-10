@@ -11,6 +11,12 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import { CfnUserPool } from 'aws-cdk-lib/aws-cognito';
 
+// Allowed OTP destinations, as E.164 dialling prefixes. A-IEP serves families
+// in the United States, so +1 covers every real user, and refusing anything
+// else is a load-bearing abuse control. The fictional test numbers below are
+// NANP and so are already covered by +1.
+const SMS_ALLOWED_COUNTRY_CODES = ['+1'];
+
 // ── Staging-only E2E test backdoor: the shared allowlist ─────────────────
 // The Playwright suite signs in as real Cognito users whose numbers are drawn
 // from the NANP-fictional 555-01XX block (+1 555 555-01XX can never be
@@ -35,18 +41,6 @@ import { CfnUserPool } from 'aws-cdk-lib/aws-cognito';
 // Allowlist roles: 0111 = stable E2E login user, 0112 = lockout-journey user,
 // 0113 = profile-journey user, 0114 = documents-journey user,
 // 0120-0129 = throwaway pool for the delete/re-signup journey.
-// Allowed OTP destinations, as E.164 dialling prefixes. A-IEP serves families
-// in the United States, so +1 covers every real user: at the time this was
-// introduced the production pool held 220 phone accounts, all +1, and the only
-// non-+1 numbers in it were an attacker's.
-//
-// This is the control that stops SMS-pumping fraud. The per-phone hourly limit
-// cannot, because a pumping run never texts the same number twice. See the
-// 2026-09-09 incident note in create-auth-challenge.js.
-//
-// The test numbers below are NANP-fictional and so are covered by +1 already.
-const SMS_ALLOWED_COUNTRY_CODES = ['+1'];
-
 const TEST_PHONE_NUMBERS = [
   '+15555550111',
   '+15555550112',
@@ -339,8 +333,8 @@ export class NewAuthorizationStack extends Construct {
       environment: {
         OTP_RATE_LIMIT_TABLE: otpRateLimitTable.tableName,
         // Both environments serve United States families only. Set here as
-        // well as defaulted in the lambda so the allowed destinations are
-        // visible in the template and pinned by test/infra.
+        // well as defaulted in the lambda so the value is pinned by
+        // test/infra rather than resting on the lambda default alone.
         SMS_ALLOWED_COUNTRY_CODES: SMS_ALLOWED_COUNTRY_CODES.join(','),
         ...(userProfilesTable && { USER_PROFILES_TABLE: userProfilesTable.tableName })
       },

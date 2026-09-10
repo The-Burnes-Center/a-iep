@@ -70,8 +70,9 @@ import { getEnvironment, getResourceName, tagResource } from '../../tags';
  * which is what the test/infra pin exists to force.
  */
 /**
- * Half of the account's $50 SNS MonthlySpendLimit. Deliberately a fraction of
- * the cap and not the cap itself: at the cap, login is already down.
+ * Deliberately a fraction of the account's SMS spend ceiling rather than the
+ * ceiling itself: at the ceiling, login is already down, so an alarm there
+ * reports an outage instead of preventing one.
  */
 const SMS_SPEND_ALARM_USD = 25;
 
@@ -440,25 +441,16 @@ export class MonitoringStack extends Construct {
   }
 
   /**
-   * Abuse of the phone-signup flow, which is how prod auth went down on
-   * 2026-09-09.
-   *
-   * 1,045 self-service signups and 1,558 SMS sends arrived in a single hour
-   * against a service that normally sees one a day. Nothing stopped it: the
-   * OTP rate limiter keys on sha256(phone)#hour, so 1,045 DISTINCT numbers
-   * each got their first code and none was ever limited. It ended only when
-   * SNS hit the $50 monthly SMS spend cap, which then left real families
-   * unable to receive a login code for the rest of the month.
-   *
-   * Neither of these existed at the time, and either would have caught it
-   * within minutes:
+   * Abuse of the phone-signup flow. Signup volume and SMS spend are the two
+   * leading indicators of it, and both are alarmed here because the harm
+   * lands on families rather than on us: once SMS delivery stops, no parent
+   * can receive a login code until the calendar month rolls over.
    *
    * - Signup surge. Cognito triggers are not retried, so one invocation is
-   *   one real attempt, and 20 in five minutes is far above anything organic
+   *   one real attempt, and the threshold sits far above anything organic
    *   for this service.
-   * - SMS spend. The leading indicator of the actual harm. Alarming at half
-   *   the cap leaves room to react before codes stop being delivered, because
-   *   once the cap is reached login is down until the calendar month rolls.
+   * - SMS spend. Alarmed at a fraction of the ceiling, which leaves room to
+   *   react while codes are still being delivered.
    */
   private addAbuseAlarms(authTriggers: MonitoredFunction[]): void {
     const preSignUp = authTriggers.find((f) => f.label.startsWith('PreSignUp'));
