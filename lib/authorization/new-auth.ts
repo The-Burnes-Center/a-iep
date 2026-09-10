@@ -96,6 +96,10 @@ export class NewAuthorizationStack extends Construct {
    *  human reads in Slack. */
   public readonly authTriggerFunctions: { label: string; fn: lambda.Function }[] = [];
   public readonly userPool: UserPool;
+  /** Exposed so monitoring can alarm on throttling: the service-wide SMS
+   *  budget fails closed on a DynamoDB error, so throttling here stops
+   *  login outright rather than just slowing it. */
+  public otpRateLimitTable!: dynamodb.Table;
   public readonly userPoolClient: UserPoolClient;
 
   constructor(scope: Construct, id: string, props?: NewAuthorizationStackProps) {
@@ -326,7 +330,7 @@ export class NewAuthorizationStack extends Construct {
     // InitiateAuth, so in-session state can never rate-limit SMS sends).
     // Keys are sha256(phone) + hour bucket, so no raw phone numbers are
     // stored, and rows expire via TTL, keeping the table tiny.
-    const otpRateLimitTable = new dynamodb.Table(this, 'OtpRateLimitTable', {
+    const otpRateLimitTable = this.otpRateLimitTable = new dynamodb.Table(this, 'OtpRateLimitTable', {
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'expiresAt',

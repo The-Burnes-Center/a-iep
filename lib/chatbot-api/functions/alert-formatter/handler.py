@@ -40,6 +40,41 @@ IS_PROD = ENVIRONMENT in ('prod', 'production')
 
 _CONSOLE = f'https://console.aws.amazon.com/cloudwatch/home?region={REGION}'
 
+# Colour is severity, not environment. Which environment fired is already on
+# the headline and in the footer as words; how urgent it is was not encoded
+# anywhere, so 39 alarms all arrived looking identical and a total auth outage
+# read the same as one throttled write.
+#
+# Staging is capped at yellow. It fires the same alarms for broken tests, and
+# a red that sometimes means "a test broke" is a red nobody trusts at 3am.
+_SEVERITY_ICON = {
+    'critical': ':red_circle:',
+    'medium': ':large_yellow_circle:',
+    'low': ':large_green_circle:',
+}
+_STAGING_ICON = {
+    'critical': ':large_yellow_circle:',
+    'medium': ':large_yellow_circle:',
+    'low': ':large_green_circle:',
+}
+# A cleared alarm is not a severity, so it gets its own mark. Reusing the green
+# circle would make "resolved" and "low priority" indistinguishable.
+_CLEARED_ICON = ':white_check_mark:'
+
+# The marker MonitoringStack prefixes onto every alarm description. Stripped
+# here so no reader ever sees it, and defaulted rather than required: an alarm
+# created outside that construct must still format, just without a tier.
+_SEVERITY_PATTERN = re.compile(r'^\s*\[(critical|medium|low)\]\s*')
+
+
+def _severity_and_text(description):
+    """Split '[critical] Nobody can sign in.' into ('critical', the sentence)."""
+    match = _SEVERITY_PATTERN.match(description or '')
+    if not match:
+        return 'medium', (description or '').strip()
+    return match.group(1), _SEVERITY_PATTERN.sub('', description).strip()
+
+
 # No @channel, @here or any all-member mention, ever, in either environment.
 # Getting an alert to push is the channel's notification settings, which is a
 # choice for the person receiving them rather than something an alert imposes
@@ -140,6 +175,32 @@ def _observed_phrase(alarm):
     return f'{count} {unit}{window}'
 
 
+def _threshold_phrase(alarm):
+    """e.g. "AI-IEP/Auth SmsSendFailed >= 1", so the bar is visible.
+
+    Worth showing because a surprising alarm is often a threshold problem
+    rather than an outage, and that is not otherwise answerable from Slack.
+    """
+    trigger = alarm.get('Trigger') or {}
+    namespace = trigger.get('Namespace')
+    metric = trigger.get('MetricName')
+    threshold = trigger.get('Threshold')
+    if not metric or threshold is None:
+        return ''
+    operators = {
+        'GreaterThanOrEqualToThreshold': '>=',
+        'GreaterThanThreshold': '>',
+        'LessThanOrEqualToThreshold': '<=',
+        'LessThanThreshold': '<',
+    }
+    operator = operators.get(trigger.get('ComparisonOperator'), '>=')
+    # Trim the trailing .0 CloudWatch puts on integral thresholds.
+    if isinstance(threshold, float) and threshold.is_integer():
+        threshold = int(threshold)
+    subject = f'{namespace} {metric}' if namespace else metric
+    return f'{subject} {operator} {threshold}'
+
+
 def build_notification(alarm):
     """Shape one alarm into a Chatbot custom notification."""
     name = alarm.get('AlarmName', 'unknown alarm')
@@ -150,8 +211,10 @@ def build_notification(alarm):
     # Environment on the headline, because "is this real" is the first
     # question and it should not need a click to answer.
     env_label = 'prod' if IS_PROD else 'staging'
-    icon = ':large_green_circle:' if recovered else (
-        ':red_circle:' if IS_PROD else ':large_orange_circle:')
+    description = (alarm.get('AlarmDescription') or '').strip()
+    severity, description = _severity_and_text(description)
+    icons = _SEVERITY_ICON if IS_PROD else _STAGING_ICON
+    icon = _CLEARED_ICON if recovered else icons.get(severity, ':large_yellow_circle:')
     # Alarm names are present-tense problem statements, which is right when
     # one fires and wrong in every recovery: "Cleared · login codes are not
     # being delivered" still reads as a claim that codes are not arriving.
@@ -165,9 +228,8 @@ def build_notification(alarm):
         else f'{icon} {headline} · {env_label}'
     )
 
-    # One line. The alarm description is written as the impact statement, so
-    # it is used as-is rather than wrapped in more words.
-    description = (alarm.get('AlarmDescription') or '').strip()
+    # The description is written as the impact statement, so it is used as-is
+    # rather than wrapped in more words. Already stripped of its tier above.
     observed = _observed_phrase(alarm)
     if recovered:
         description = f'The "{headline}" alert has cleared. No action needed.'
@@ -184,37 +246,45 @@ def build_notification(alarm):
     if link and not recovered:
         content['nextSteps'] = [f'<{link}|{link_label}>']
 
-    # The context line: how much, when, where, and which resource.
+    # Detail lines, one fact per line as "• key: value".
     #
     # These belong in metadata.additionalContext by the guidance (fields, not
     # prose), and that is where they started. Chatbot does not render it: a
     # test notification carrying environment/resource/started showed the title,
     # description and nextSteps only, with the fields silently dropped. So they
-    # go in the description, still as a scannable line of separated values
-    # rather than a sentence.
+    # go in the description instead, still as fields rather than a sentence.
+    #
+    # The 250-character truncation in the docstring above is Chatbot's DEFAULT
+    # alarm card. A custom notification carries the whole message, so there is
+    # room to say what actually happened rather than only that it did.
     #
     # A custom notification also gets no timestamp from Chatbot, unlike the
-    # default alarm card, so without this a reader cannot tell a five-minute
+    # default card, so without "since" a reader cannot tell a five-minute
     # outage from a five-hour one.
-    context = []
+    #
+    # Nothing here can carry FERPA content: every value is an alarm name, a
+    # metric name, a resource id, a count or a timestamp. Never add a field
+    # sourced from a log message or a request body.
+    details = []
     if observed and not recovered:
-        context.append(observed)
+        details.append(('observed', observed))
     started = _started(alarm)
     if started:
-        context.append(started)
-    # Environment only, and deliberately no claim about who was affected.
-    # Some alarms watch account-scoped metrics, so a staging-named alarm can
-    # be reporting damage that is not staging's. Naming the environment is a
-    # fact this function has; impact is not, and asserting it wrongly is worse
-    # than leaving it out.
-    context.append('prod' if IS_PROD else 'staging')
-
-    lines = [description, ' · '.join(context)]
-    # Resource on its own line: the names are long enough to wrap and push the
-    # numbers out of view, and it is the string someone pastes into a console.
+        details.append(('since', started))
+    # Environment as a field, and deliberately no claim about who was
+    # affected. Some alarms watch account-scoped metrics, so a staging-named
+    # alarm can be reporting damage that is not staging's. Naming the
+    # environment is a fact this function has; impact is not, and asserting it
+    # wrongly is worse than leaving it out.
+    details.append(('environment', 'prod' if IS_PROD else 'staging'))
     if resource:
-        lines.append(f'`{resource}`')
-    content['description'] = '\n\n'.join(lines[:1]) + '\n' + '\n'.join(lines[1:])
+        details.append(('resource', f'`{resource}`'))
+    threshold = _threshold_phrase(alarm)
+    if threshold and not recovered:
+        details.append(('trigger', threshold))
+
+    lines = [description, ''] + [f'• {key}: {value}' for key, value in details]
+    content['description'] = '\n'.join(lines)
 
     return {
         'version': '1.0',

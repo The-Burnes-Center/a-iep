@@ -76,6 +76,28 @@ import { getEnvironment, getResourceName, tagResource } from '../../tags';
  */
 const SMS_SPEND_ALARM_USD = 25;
 
+/**
+ * How urgent this alarm is, which is the only thing that decides its colour
+ * in Slack.
+ *
+ * - `critical`: families cannot use the service right now. Red.
+ * - `medium`:   something is degraded, or is heading for critical if left.
+ *               Yellow.
+ * - `low`:      worth knowing, nothing is broken. Green.
+ *
+ * Assigned per alarm rather than derived, because urgency is a judgement
+ * about what a parent experiences and no metric carries it. It is required,
+ * so a new alarm cannot quietly default into the wrong tier.
+ *
+ * It reaches the formatter as a prefix on the alarm description, which is the
+ * only field CloudWatch carries into the SNS payload that we control. The
+ * formatter strips it, so no reader ever sees the marker. Splitting the tiers
+ * across separate SNS topics would be tidier and is the upgrade path if these
+ * ever need to reach different Slack channels; it is not worth three topics
+ * while they all land in one.
+ */
+export type Severity = 'critical' | 'medium' | 'low';
+
 const PIPELINE_STEP_RETRY_INVOCATIONS = 4;
 const PIPELINE_STEP_ERROR_THRESHOLD = PIPELINE_STEP_RETRY_INVOCATIONS + 1;
 
@@ -95,6 +117,9 @@ export interface MonitoringProps {
   /** The lambda that runs record_failure, whose log group is filtered. */
   readonly ddbServiceFunction: lambda.Function;
   readonly iepProcessingStateMachine: stepfunctions.StateMachine;
+  /** The on-demand "translate it now" machine. A parent is waiting on this
+   *  one in the foreground, unlike the upload pipeline. */
+  readonly translationStateMachine: stepfunctions.StateMachine;
   /** The 10-minute pending-upload sweep, watched as a heartbeat. */
   readonly pendingUploadSweepRule: events.Rule;
   readonly tables: { readonly label: string; readonly table: dynamodb.ITable }[];
@@ -160,6 +185,7 @@ export class MonitoringStack extends Construct {
     this.addTableThrottleAlarms(props.tables);
     this.addAbuseAlarms(props.authTriggerFunctions);
     this.addSmsPathAlarms(props.authTriggerFunctions);
+    this.addTranslationAndUsageAlarms(props.translationStateMachine);
 
     new cdk.CfnOutput(this, 'AlarmTopicArn', { value: this.alarmTopic.topicArn });
     // The one an operator needs: this is what Chatbot must subscribe to.
@@ -206,6 +232,7 @@ export class MonitoringStack extends Construct {
     this.alarmTopic.addSubscription(new subscriptions.LambdaSubscription(formatter));
 
     this.alarm('AlertFormatterFailingAlarm', {
+      severity: 'critical',
       name: 'alerting itself is broken',
       description:
         'Alarms are firing but their alerts are not reaching Slack, so the ' +
@@ -232,6 +259,7 @@ export class MonitoringStack extends Construct {
     opts: {
       name: string;
       description: string;
+      severity: Severity;
       metric: cloudwatch.IMetric;
       threshold: number;
       evaluationPeriods: number;
@@ -245,7 +273,8 @@ export class MonitoringStack extends Construct {
     const alarm = new cloudwatch.Alarm(this, id, {
       // Named for a human reading Slack at 2am, not for the metric.
       alarmName: `${getResourceName('a-iep')} ${opts.name}`,
-      alarmDescription: opts.description,
+      // The marker the formatter reads and strips; see Severity.
+      alarmDescription: `[${opts.severity}] ${opts.description}`,
       metric: opts.metric,
       threshold: opts.threshold,
       evaluationPeriods: opts.evaluationPeriods,
@@ -286,6 +315,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('DocumentsFailingAlarm', {
+      severity: 'medium',
       name: 'document pipeline failing',
       description:
         'Uploads are erroring instead of producing summaries. Usually Mistral ' +
@@ -309,6 +339,7 @@ export class MonitoringStack extends Construct {
   private addPipelineStepAlarms(fns: MonitoredFunction[]): void {
     for (const { label, fn } of fns) {
       this.alarm(`PipelineStepErrors${label.replace(/[^A-Za-z0-9]/g, '')}`, {
+        severity: 'medium',
         name: `pipeline step failing: ${label}`,
         description:
           `Documents are failing at the ${label} step, so every upload ` +
@@ -333,6 +364,7 @@ export class MonitoringStack extends Construct {
   private addAuthAlarms(fns: MonitoredFunction[]): void {
     for (const { label, fn } of fns) {
       this.alarm(`AuthTriggerErrors${label.replace(/[^A-Za-z0-9]/g, '')}`, {
+        severity: 'critical',
         name: `login broken: ${label} trigger failing`,
         description:
           `Families cannot log in or sign up: the ${label} trigger is failing.`,
@@ -345,6 +377,7 @@ export class MonitoringStack extends Construct {
 
   private addApiAlarms(fns: MonitoredFunction[], httpApi: apigwv2.IHttpApi): void {
     this.alarm('ApiServerErrorAlarm', {
+      severity: 'critical',
       name: 'API returning 5xx',
       description:
         'Parents cannot load summaries, save a profile or start an upload.',
@@ -361,6 +394,7 @@ export class MonitoringStack extends Construct {
 
     for (const { label, fn } of fns) {
       this.alarm(`ApiFunctionErrors${label.replace(/[^A-Za-z0-9]/g, '')}`, {
+        severity: 'medium',
         name: `API handler failing: ${label}`,
         description:
           `The ${label} part of the app is broken for everyone using it now.`,
@@ -369,6 +403,7 @@ export class MonitoringStack extends Construct {
         evaluationPeriods: 1,
       });
       this.alarm(`ApiFunctionThrottles${label.replace(/[^A-Za-z0-9]/g, '')}`, {
+        severity: 'medium',
         name: `API handler throttled: ${label}`,
         description:
           `The ${label} handler is throttled: failing on capacity, not bugs.`,
@@ -387,6 +422,7 @@ export class MonitoringStack extends Construct {
    */
   private addStateMachineAlarms(sm: stepfunctions.StateMachine): void {
     this.alarm('PipelineTimedOutAlarm', {
+      severity: 'medium',
       name: 'document stuck: pipeline execution timed out',
       description:
         'A document stuck for six hours was never marked failed, so the parent ' +
@@ -407,6 +443,7 @@ export class MonitoringStack extends Construct {
    */
   private addSweepHeartbeatAlarm(rule: events.Rule): void {
     this.alarm('SweepHeartbeatAlarm', {
+      severity: 'medium',
       name: 'pending-upload sweep has stopped running',
       description:
         'Stalled uploads are no longer failed closed, so parents sit on the ' +
@@ -425,6 +462,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('SweepFailingAlarm', {
+      severity: 'medium',
       name: 'pending-upload sweep failing to invoke',
       description:
         'EventBridge cannot invoke the pending-upload sweep, so stalled ' +
@@ -492,6 +530,7 @@ export class MonitoringStack extends Construct {
     };
 
     this.alarm('SmsDestinationRefusedAlarm', {
+      severity: 'medium',
       name: 'login codes being requested for numbers we do not serve',
       description:
         'Someone is asking for login codes for numbers outside the countries ' +
@@ -505,6 +544,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('SmsBudgetExhaustedAlarm', {
+      severity: 'critical',
       name: 'login codes are being refused: the sending limit is reached',
       description:
         'The service-wide limit on login codes has been hit, so parents are ' +
@@ -517,6 +557,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('SmsSendFailedAlarm', {
+      severity: 'critical',
       name: 'login codes are not being delivered',
       description:
         'Sending a login code is failing outright, so no parent can sign in. ' +
@@ -532,6 +573,7 @@ export class MonitoringStack extends Construct {
     // status logging enabled on the account; without it this stays flat, so
     // it is a complement to SMS_SEND_FAILED rather than a replacement.
     this.alarm('SmsDeliveryFailureAlarm', {
+      severity: 'critical',
       name: 'the SMS provider is failing to deliver login codes',
       description:
         'Codes are being accepted for sending and then not arriving. Parents ' +
@@ -548,10 +590,65 @@ export class MonitoringStack extends Construct {
     });
   }
 
+  /**
+   * The on-demand translation machine, and the account's KMS call volume.
+   *
+   * Translation is foreground work: a parent taps "translate it now" and
+   * waits, so a failure here is felt immediately rather than discovered on a
+   * later visit. It had no alarm at all until now, despite being the flow
+   * most likely to strand someone mid-task.
+   */
+  private addTranslationAndUsageAlarms(translationStateMachine: stepfunctions.StateMachine): void {
+    this.alarm('TranslationRunsFailingAlarm', {
+      severity: 'medium',
+      name: 'on-demand translations are failing',
+      description:
+        'A parent asked for a translation and it errored. They are left on ' +
+        'the page waiting for something that will not arrive.',
+      metric: translationStateMachine.metricFailed({
+        period: cdk.Duration.minutes(15),
+        statistic: 'Sum',
+      }),
+      threshold: 3,
+      evaluationPeriods: 1,
+    });
+
+    // Not an application signal. Between 2026-09-08 and 2026-09-10 a
+    // monitoring agent swept lambda:ListFunctions on a timer, and because
+    // that call decrypts every function's environment variables it produced
+    // roughly 22,000 KMS Decrypts an hour for a day and a half before anyone
+    // noticed. Harmless, but it is the shape a runaway loop makes, and it
+    // cost more to find than it did to run.
+    this.alarm('KmsCallVolumeAlarm', {
+      severity: 'low',
+      name: 'unusual AWS API volume',
+      description:
+        'Something is calling AWS far more than this service normally does. ' +
+        'Nothing is broken for families; this is usually a script or an ' +
+        'agent left running.',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/Usage',
+        metricName: 'CallCount',
+        dimensionsMap: {
+          Type: 'API',
+          Resource: 'Decrypt',
+          Service: 'KMS',
+          Class: 'None',
+        },
+        statistic: 'Sum',
+        period: cdk.Duration.hours(1),
+      }),
+      // Normal is a few hundred an hour across every project in the account.
+      threshold: 10000,
+      evaluationPeriods: 1,
+    });
+  }
+
   private addAbuseAlarms(authTriggers: MonitoredFunction[]): void {
     const preSignUp = authTriggers.find((f) => f.label.startsWith('PreSignUp'));
     if (preSignUp) {
       this.alarm('SignupSurgeAlarm', {
+        severity: 'critical',
         name: 'signup flood: someone is abusing the signup form',
         description:
           'Far more accounts are being created than this service ever sees. ' +
@@ -567,6 +664,7 @@ export class MonitoringStack extends Construct {
     }
 
     this.alarm('SmsSpendAlarm', {
+      severity: 'medium',
       name: 'SMS budget half spent',
       description:
         'Monthly SMS spend has passed half the cap. At the cap, SNS stops ' +
@@ -588,6 +686,7 @@ export class MonitoringStack extends Construct {
   ): void {
     for (const { label, table } of tables) {
       this.alarm(`TableThrottle${label.replace(/[^A-Za-z0-9]/g, '')}`, {
+        severity: 'critical',
         name: `DynamoDB throttling: ${label}`,
         description:
           `The ${label} table is throttling: parents see random intermittent ` +

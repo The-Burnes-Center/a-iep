@@ -281,21 +281,41 @@ export class ChatBotApi extends Construct {
         { label: 'finalize results', fn: this.lambdaFunctions.finalizeResultsFunction },
         { label: 'orchestrator', fn: this.lambdaFunctions.orchestratorFunction },
       ],
-      authTriggerFunctions: authentication.authTriggerFunctions,
+      authTriggerFunctions: [
+        ...authentication.authTriggerFunctions,
+        // PostConfirmation. It rotates a phone signup's client-chosen
+        // password, which is the only thing making auto-confirm safe, and on
+        // failure it disables the account instead. Either way a failure here
+        // costs a parent their account, so it belongs with the auth triggers
+        // rather than in the API list.
+        { label: 'PostConfirmation (secures a new account)', fn: this.lambdaFunctions.cognitoTriggerFunction },
+      ],
       apiFunctions: [
         { label: 'user profile', fn: this.lambdaFunctions.userProfileFunction },
         { label: 'upload', fn: this.lambdaFunctions.uploadS3KnowledgeFunction },
         { label: 'referrals', fn: this.lambdaFunctions.referralFunction },
         { label: 'TTS', fn: this.lambdaFunctions.ttsFunction },
         { label: 'PDF download', fn: this.lambdaFunctions.pdfGeneratorFunction },
+        // Silent failure here shows a parent an empty document list, or a
+        // delete that appears to work and does not.
+        { label: 'documents list', fn: this.lambdaFunctions.getS3KnowledgeFunction },
+        { label: 'document delete', fn: this.lambdaFunctions.deleteS3Function },
+        // The "translate it now" request path.
+        { label: 'translation request', fn: this.lambdaFunctions.translationRequestFunction },
+        // Writes every pipeline progress and failure record.
+        { label: 'pipeline database writes', fn: this.lambdaFunctions.ddbServiceFunction },
       ],
       ddbServiceFunction: this.lambdaFunctions.ddbServiceFunction,
       iepProcessingStateMachine: this.lambdaFunctions.iepProcessingStateMachine,
+      translationStateMachine: this.lambdaFunctions.singleLanguageTranslationStateMachine,
       pendingUploadSweepRule: this.lambdaFunctions.pendingUploadSweepRule,
       tables: [
         { label: 'IEP documents', table: this.tables.iepDocumentsTable },
         { label: 'user profiles', table: this.tables.userProfilesTable },
         { label: 'referrals', table: this.tables.referralsTable },
+        // Throttling here now stops login outright, because the service-wide
+        // SMS budget fails closed on a DynamoDB error.
+        { label: 'login rate limiting', table: authentication.otpRateLimitTable },
       ],
       httpApi: this.httpAPI.restAPI,
       kmsKey: appKmsKey,

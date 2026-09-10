@@ -31,8 +31,10 @@ def _alarm(**overrides):
     """A CloudWatch alarm SNS payload, in the shape AWS actually sends."""
     alarm = {
         'AlarmName': 'a-iep-staging pipeline step failing: Mistral OCR',
-        'AlarmDescription': 'Documents are failing at the Mistral OCR step, so '
-                            'every upload reaching this stage is affected.',
+        # MonitoringStack prefixes every description with its tier; the
+        # formatter strips it. A fixture without one would not exercise that.
+        'AlarmDescription': '[medium] Documents are failing at the Mistral OCR step, '
+                            'so every upload reaching this stage is affected.',
         'NewStateValue': 'ALARM',
         # CloudWatch always sends this. It was missing here, and a fixture
         # that omits a field AWS always sends is how a rule keyed on that
@@ -42,7 +44,10 @@ def _alarm(**overrides):
                           'was greater than or equal to the threshold (5.0).',
         'StateChangeTime': '2026-09-08T18:19:58.123+0000',
         'Trigger': {
+            'Namespace': 'AWS/Lambda',
             'MetricName': 'Errors',
+            'Threshold': 5.0,
+            'ComparisonOperator': 'GreaterThanOrEqualToThreshold',
             'Period': 300,
             'Dimensions': [{'name': 'FunctionName',
                             'value': 'AIEPStagingStack-MistralOCRFunc-XyZ'}],
@@ -111,23 +116,122 @@ def test_footer_names_the_environment_and_claims_nothing_else(formatter):
     """
     description = formatter.build_notification(_alarm())['content']['description']
 
-    # The footer is the ' · '-joined context line, not the alarm prose above
-    # it: an alarm description may legitimately say a stage is affected.
-    footer = next(line for line in description.splitlines() if ' · ' in line)
+    # The environment detail line, not the alarm prose above it: an alarm
+    # description may legitimately say a stage is affected.
+    line = next(l for l in description.splitlines() if l.startswith('• environment:'))
 
-    assert footer.endswith('staging')
-    assert 'families' not in footer
-    assert 'affected' not in footer
+    assert line == '• environment: staging'
+    assert 'families' not in line
+    assert 'affected' not in line
 
 
-def test_prod_and_staging_are_visibly_different(formatter, prod_formatter):
-    staging = formatter.build_notification(_alarm())['content']['title']
-    prod = prod_formatter.build_notification(_alarm())['content']['title']
+def test_the_body_is_scannable_fields_not_prose(prod_formatter):
+    """One fact per line, "• key: value", after the impact sentence.
 
-    assert 'staging' in staging and ':large_orange_circle:' in staging
-    # Red only for production: a staging alarm that looks identical to a prod
-    # one is how a channel gets ignored.
-    assert 'prod' in prod and ':red_circle:' in prod
+    Modelled on the InnovateUS cron-monitoring channel, which reads well at
+    2am because every alert has the same shape and the facts are in the same
+    place every time.
+    """
+    description = prod_formatter.build_notification(_alarm())['content']['description']
+    lines = description.splitlines()
+
+    # Impact sentence first, then a blank line, then only bullets.
+    assert lines[0].startswith('Documents are failing')
+    assert lines[1] == ''
+    assert all(l.startswith('• ') for l in lines[2:])
+
+    keys = [l.split(':')[0].removeprefix('• ') for l in lines[2:]]
+    assert keys == ['observed', 'since', 'environment', 'resource', 'trigger']
+
+
+def test_the_trigger_line_shows_the_bar_that_was_crossed(prod_formatter):
+    """A surprising alarm is often a threshold problem, not an outage.
+
+    Without this the reader cannot tell the difference from Slack.
+    """
+    description = prod_formatter.build_notification(_alarm())['content']['description']
+
+    assert '• trigger: AWS/Lambda Errors >= 5' in description
+
+
+def test_a_recovery_carries_no_trigger_or_count(prod_formatter):
+    """Nothing crossed anything; showing a threshold would imply it had."""
+    description = prod_formatter.build_notification(
+        _alarm(NewStateValue='OK', OldStateValue='ALARM'),
+    )['content']['description']
+
+    assert '• trigger:' not in description
+    assert '• observed:' not in description
+    assert '• environment: prod' in description
+
+
+def test_colour_is_severity_not_environment(prod_formatter):
+    """Red critical, yellow medium, green low. The tier decides the colour.
+
+    39 alarms previously arrived looking identical, so a total auth outage
+    read the same as one throttled write.
+    """
+    for tier, icon in (('critical', ':red_circle:'),
+                       ('medium', ':large_yellow_circle:'),
+                       ('low', ':large_green_circle:')):
+        title = prod_formatter.build_notification(
+            _alarm(AlarmDescription=f'[{tier}] Something happened.'),
+        )['content']['title']
+        assert icon in title, tier
+
+
+def test_staging_never_goes_red(formatter):
+    """Staging fires the same alarms for broken tests.
+
+    A red that sometimes means "a test broke" is a red nobody trusts at 3am,
+    so staging caps at yellow however critical the alarm is.
+    """
+    title = formatter.build_notification(
+        _alarm(AlarmDescription='[critical] Nobody can sign in.'),
+    )['content']['title']
+
+    assert ':red_circle:' not in title
+    assert ':large_yellow_circle:' in title
+    assert 'staging' in title
+
+
+def test_the_tier_marker_never_reaches_a_reader(prod_formatter):
+    """It is plumbing, not prose."""
+    content = prod_formatter.build_notification(
+        _alarm(AlarmDescription='[critical] Nobody can sign in.'),
+    )['content']
+
+    assert content['description'].startswith('Nobody can sign in.')
+    for tier in ('[critical]', '[medium]', '[low]'):
+        assert tier not in json.dumps(content)
+
+
+def test_an_alarm_with_no_tier_still_formats(prod_formatter):
+    """An alarm created outside MonitoringStack must not break the formatter.
+
+    It lands in the middle tier rather than being dropped or shown untiered:
+    swallowing an alert is the one failure this function must never have.
+    """
+    content = prod_formatter.build_notification(
+        _alarm(AlarmDescription='No tier on this one.'),
+    )['content']
+
+    assert ':large_yellow_circle:' in content['title']
+    assert content['description'].startswith('No tier on this one.')
+
+
+def test_a_cleared_alarm_is_not_confusable_with_a_low_priority_one(prod_formatter):
+    """Green means "not urgent", so a recovery needs its own mark."""
+    cleared = prod_formatter.build_notification(
+        _alarm(NewStateValue='OK', OldStateValue='ALARM'),
+    )['content']['title']
+    low = prod_formatter.build_notification(
+        _alarm(AlarmDescription='[low] Nothing is broken.'),
+    )['content']['title']
+
+    assert ':white_check_mark:' in cleared
+    assert ':large_green_circle:' not in cleared
+    assert ':large_green_circle:' in low
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +345,7 @@ def test_recovery_is_quiet_and_asks_for_nothing(formatter):
     # The alarm name must not appear bare in a recovery title: the names are
     # present-tense problem statements, so "Cleared · login codes are not
     # being delivered" still reads as a claim that they are not arriving.
-    assert content['title'] == ':large_green_circle: Back to normal · staging'
+    assert content['title'] == ':white_check_mark: Back to normal · staging'
     # It belongs in the description instead, quoted, so it reads as the name
     # of an alert rather than a statement about right now.
     assert '"pipeline step failing: Mistral OCR" alert has cleared' in content['description']

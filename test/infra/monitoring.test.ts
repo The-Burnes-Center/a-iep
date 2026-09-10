@@ -208,12 +208,33 @@ describe.each([
     expect(heartbeat!.Threshold).toBe(1);
   });
 
-  test('no alarm watches the pipeline ExecutionsFailed metric, which cannot move', () => {
-    const failedExecutionAlarms = alarms.filter((a) => a.MetricName === 'ExecutionsFailed');
-    expect(failedExecutionAlarms).toEqual([]);
+  // Scoped to the pipeline, not to the metric. Every pipeline state catches
+  // into RecordFailure and the machine then ends successfully, so
+  // ExecutionsFailed can never move there and an alarm on it would be one
+  // that cannot fire. The single-language translation machine is different:
+  // it ends in a Fail state, so the same metric is the correct signal. Which
+  // machine it is, is the whole distinction.
+  test('the pipeline is not alarmed on ExecutionsFailed, which cannot move for it', () => {
+    const pipelineFailed = alarms.filter(
+      (a) =>
+        a.MetricName === 'ExecutionsFailed' &&
+        JSON.stringify(a.Dimensions ?? []).includes('IEPProcessing'),
+    );
+    expect(pipelineFailed).toEqual([]);
     // The real signal for a stuck document is the timeout, which RecordFailure
     // does NOT catch.
     expect(alarms.some((a) => a.MetricName === 'ExecutionsTimedOut')).toBe(true);
+  });
+
+  // ...and the translation machine IS alarmed on it, because there the
+  // executions really do fail.
+  test('the translation machine is alarmed on ExecutionsFailed, which does move for it', () => {
+    const translationFailed = alarms.filter(
+      (a) =>
+        a.MetricName === 'ExecutionsFailed' &&
+        JSON.stringify(a.Dimensions ?? []).includes('Translation'),
+    );
+    expect(translationFailed).toHaveLength(1);
   });
 
   test('document failures are counted from the record_failure log marker', () => {
@@ -286,11 +307,16 @@ describe.each([
   // Every Cognito trigger gets its own alarm: an error in any of them locks
   // families out, and phone signup has already been silently dead for a month
   // once (2026-07).
-  test('all six custom-auth triggers are alarmed at a threshold of one error', () => {
+  // Seven, not six: PostConfirmation joined the set. It rotates a phone
+  // signup's client-chosen password, which is the only thing that makes
+  // auto-confirming a signup safe, and on failure it disables the account
+  // instead. Either outcome costs a parent their account, so it is alarmed
+  // like the rest of the login path rather than as an ordinary API lambda.
+  test('all seven custom-auth triggers are alarmed at a threshold of one error', () => {
     const authAlarms = alarms.filter((a) =>
       String(a.AlarmName).startsWith(`${namePrefix}login broken:`),
     );
-    expect(authAlarms).toHaveLength(6);
+    expect(authAlarms).toHaveLength(7);
     for (const alarm of authAlarms) {
       expect(alarm.Threshold).toBe(1);
       expect(alarm.MetricName).toBe('Errors');
