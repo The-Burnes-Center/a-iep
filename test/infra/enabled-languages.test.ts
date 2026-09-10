@@ -101,3 +101,55 @@ describe('enabled languages per environment', () => {
     expect(deployProd).toContain('en');
   });
 });
+
+/**
+ * The Turnstile site key, which is environment-split for a reason that is easy
+ * to undo by accident.
+ *
+ * Production must carry the real key, because the bot check is the point.
+ * Everywhere else must carry Cloudflare's always-passes TEST key, because a
+ * challenge a script can solve is not a challenge: with the real key on
+ * staging every E2E signup is refused (SIGNUP_REFUSED reason=missing-token)
+ * and the suite loses the journey that once caught a signup bug which had
+ * been broken for over a month.
+ *
+ * Both directions are pinned. Shipping the test key to prod would silently
+ * accept every bot; shipping the real key to staging would silently delete
+ * signup coverage. Neither failure raises anything at deploy time.
+ */
+describe('the Turnstile site key per environment', () => {
+  const siteKeyFor = (environment: string): string => {
+    const saved = process.env.ENVIRONMENT;
+    const savedOverride = process.env.TURNSTILE_SITE_KEY;
+    process.env.ENVIRONMENT = environment;
+    delete process.env.TURNSTILE_SITE_KEY;
+    try {
+      const source = fs.readFileSync(
+        path.join(__dirname, '../../lib/user-interface/index.ts'), 'utf8');
+      const prodKey = /TURNSTILE_PROD_SITE_KEY = '([^']+)'/.exec(source)![1];
+      const testKey = /TURNSTILE_TEST_SITE_KEY = '([^']+)'/.exec(source)![1];
+      /* eslint-disable @typescript-eslint/no-var-requires */
+      const { getEnvironment } = require('../../lib/tags');
+      /* eslint-enable @typescript-eslint/no-var-requires */
+      return getEnvironment() === 'prod' ? prodKey : testKey;
+    } finally {
+      process.env.ENVIRONMENT = saved;
+      if (savedOverride !== undefined) process.env.TURNSTILE_SITE_KEY = savedOverride;
+    }
+  };
+
+  // Cloudflare's documented dummy keys. 1x... always passes, which is what
+  // makes an automated signup possible at all.
+  const ALWAYS_PASSES = '1x00000000000000000000AA';
+
+  test('production ships the real key, never a test key', () => {
+    const key = siteKeyFor('production');
+    expect(key).not.toBe(ALWAYS_PASSES);
+    // Every Cloudflare dummy key starts 1x/2x/3x; a real one does not.
+    expect(key).not.toMatch(/^[123]x0{20}A[AB]$/);
+  });
+
+  test('staging ships the always-passes test key, so E2E can sign up', () => {
+    expect(siteKeyFor('staging')).toBe(ALWAYS_PASSES);
+  });
+});

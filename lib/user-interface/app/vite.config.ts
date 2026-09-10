@@ -60,8 +60,11 @@ export default defineConfig({
                 process.env.AWS_USER_POOLS_WEB_CLIENT_ID,
               enabledLanguages: resolveEnabledLanguages(),
               enabledFeatures: resolveEnabledFeatures(),
-              // Public by design; see lib/user-interface/index.ts.
-              turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '0x4AAAAAAEvXtpdIJHNkU_vK',
+              // Public by design, and the real key is PROD ONLY; see
+              // lib/user-interface/index.ts for why everything else gets
+              // Cloudflare's always-passes test key. This branch is the dev
+              // build, so it never wants the real one.
+              turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '1x00000000000000000000AA',
               config: {
                 api_endpoint: `https://${process.env.API_DISTRIBUTION_DOMAIN_NAME}/api`,
                 websocket_endpoint: `wss://${process.env.API_DISTRIBUTION_DOMAIN_NAME}/socket`,

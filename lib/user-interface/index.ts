@@ -66,9 +66,24 @@ export interface UserInterfaceProps {
 // The SECRET that validates the token it produces is a different value, lives
 // in Parameter Store as a SecureString, and is read only by the server side.
 //
-// One key covers both environments today. Overridable per deploy for when
-// that stops being true.
-const TURNSTILE_SITE_KEY = process.env.TURNSTILE_SITE_KEY || '0x4AAAAAAEvXtpdIJHNkU_vK';
+// PRODUCTION gets the real key. Everywhere else gets Cloudflare's official
+// always-passes test key, and the reason is that a widget a script can solve
+// is not a widget: refusing automated browsers is the entire product. With
+// the real key on staging, every E2E signup is refused with
+// SIGNUP_REFUSED reason=missing-token, and we lose the journey coverage that
+// once caught a signup bug that had been broken for over a month. That is a
+// worse trade than staging never seeing a real challenge.
+//
+// The whole path still runs on staging: the widget renders, Cloudflare issues
+// a token, the endpoint posts it to siteverify, and siteverify accepts it. It
+// is the verdict that is fixed, not the plumbing. The staging SecureString
+// must hold the matching test secret (1x000...AA) for that to hold together;
+// a real secret against a test token fails closed, which is the safe way for
+// that mismatch to land.
+const TURNSTILE_TEST_SITE_KEY = '1x00000000000000000000AA';
+const TURNSTILE_PROD_SITE_KEY = '0x4AAAAAAEvXtpdIJHNkU_vK';
+const TURNSTILE_SITE_KEY = process.env.TURNSTILE_SITE_KEY
+  || (getEnvironment() === 'prod' ? TURNSTILE_PROD_SITE_KEY : TURNSTILE_TEST_SITE_KEY);
 
 export class UserInterface extends Construct {
   public readonly websiteDistribution: cf.CloudFrontWebDistribution;
