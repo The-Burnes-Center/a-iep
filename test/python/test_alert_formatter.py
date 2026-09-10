@@ -82,6 +82,37 @@ def test_the_headline_says_what_broke_and_where(formatter):
     assert 'a-iep-staging ' not in content['title']
 
 
+def test_production_alarms_page_the_channel(prod_formatter):
+    """A production alarm has to push, not wait to be read.
+
+    The 2026-09-09 outage ran for thirteen hours partly because nothing
+    notified anyone; a Slack message with no mention is a message someone
+    reads in the morning.
+    """
+    description = prod_formatter.build_notification(_alarm())['content']['description']
+
+    assert description.startswith('<!channel>')
+
+
+def test_staging_alarms_do_not_page(formatter):
+    """Staging fires the same alarms for broken tests.
+
+    A channel that buzzes for those gets muted, and then the production ones
+    are lost with it.
+    """
+    description = formatter.build_notification(_alarm())['content']['description']
+
+    assert '<!channel>' not in description
+
+
+def test_recoveries_never_page(prod_formatter):
+    """Good news must not wake anyone."""
+    recovery = _alarm(NewStateValue='OK')
+    description = prod_formatter.build_notification(recovery)['content']['description']
+
+    assert '<!channel>' not in description
+
+
 def test_footer_names_the_environment_and_claims_nothing_else(formatter):
     """The footer states which environment fired, and no impact claim.
 

@@ -1,4 +1,5 @@
 import * as cdk from "aws-cdk-lib";
+import { AuditTrail, SmsDeliveryStatusRole } from './audit/audit-trail';
 
 import { RestBackendAPI } from "./gateway/rest-api"
 import { LambdaFunctionStack } from "./functions/functions"
@@ -65,6 +66,20 @@ export class ChatBotApi extends Construct {
     
     // Expose user profiles table
     this.userProfilesTable = this.tables.userProfilesTable;
+
+    // Data-event audit logging for the FERPA stores. See AuditTrail: the
+    // organisation trail is management-events only, so object and item reads
+    // are currently unrecorded everywhere.
+    new SmsDeliveryStatusRole(this, 'SmsDeliveryStatusRole');
+
+    new AuditTrail(this, 'AuditTrail', {
+      documentBucket: this.buckets.knowledgeBucket,
+      tables: [
+        this.tables.userProfilesTable,
+        this.tables.iepDocumentsTable,
+        this.tables.referralsTable,
+      ],
+    });
     
     const restBackend = new RestBackendAPI(this, "RestBackend", {})
     this.httpAPI = restBackend;

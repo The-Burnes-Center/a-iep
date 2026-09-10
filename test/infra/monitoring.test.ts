@@ -45,6 +45,25 @@ const EXPECTED_ALARM_SUFFIXES = [
   'DynamoDB throttling: user profiles',
   'signup flood: someone is abusing the signup form',
   'SMS budget half spent',
+  'login codes being requested for numbers we do not serve',
+  'login codes are being refused: the sending limit is reached',
+  'login codes are not being delivered',
+  'the SMS provider is failing to deliver login codes',
+];
+
+/**
+ * The markers create-auth-challenge logs, and the metric each one feeds.
+ *
+ * These strings are a contract across two languages: the lambda emits them
+ * and a metric filter counts them, and nothing else connects the two. Reword
+ * one end and the alarm goes quiet while every test still passes, which is
+ * the failure mode this pins shut. The lambda side is pinned in
+ * test/lambdas/phone-otp-auth/create-auth-challenge.test.js.
+ */
+const SMS_MARKERS: [string, string][] = [
+  ['SMS_REFUSED_DESTINATION', 'SmsRefusedDestination'],
+  ['SMS_BUDGET_EXHAUSTED', 'SmsBudgetExhausted'],
+  ['SMS_SEND_FAILED', 'SmsSendFailed'],
 ];
 
 function synth(environment: string): Template {
@@ -276,5 +295,47 @@ describe.each([
       expect(alarm.Threshold).toBe(1);
       expect(alarm.MetricName).toBe('Errors');
     }
+  });
+});
+
+describe('the SMS send path is watched through log markers', () => {
+  // Lambda Errors cannot see any of this: create-auth-challenge reports a
+  // failed send through the challenge parameter rather than raising, so its
+  // error count stays at zero through a total delivery outage.
+  test.each(SMS_MARKERS)('%s is counted into %s', (marker, metricName) => {
+    for (const environment of ['production', 'staging']) {
+      const template = synth(environment);
+      template.hasResourceProperties('AWS::Logs::MetricFilter', {
+        FilterPattern: marker,
+        MetricTransformations: Match.arrayWith([
+          Match.objectLike({ MetricName: metricName, MetricNamespace: 'AI-IEP/Auth' }),
+        ]),
+      });
+    }
+  });
+
+  test('a single refused destination does not page, a run does', () => {
+    const template = synth('production');
+    const alarms = Object.values(template.findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => String(p.AlarmName).includes('numbers we do not serve'));
+
+    expect(alarms).toHaveLength(1);
+    // A parent mistyping a country code is possible; one of those must not
+    // wake anyone, and an abuse run produces these in bulk.
+    expect(alarms[0].Threshold).toBeGreaterThan(1);
+  });
+
+  test('a refused parent or an undelivered code alarms on the first occurrence', () => {
+    const template = synth('production');
+    const byName = (needle: string) =>
+      Object.values(template.findResources('AWS::CloudWatch::Alarm'))
+        .map((r: any) => r.Properties)
+        .find((p: any) => String(p.AlarmName).includes(needle));
+
+    // Unlike a refused destination, both of these mean a real parent was
+    // already turned away, so there is no benign volume to tolerate.
+    expect(byName('the sending limit is reached').Threshold).toBe(1);
+    expect(byName('are not being delivered').Threshold).toBe(1);
   });
 });

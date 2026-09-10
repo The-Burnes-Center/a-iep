@@ -403,6 +403,68 @@ describe('create-auth-challenge', () => {
         });
     });
 
+    describe('log markers the alarms key on', () => {
+        // These strings are a contract with the metric filters in
+        // lib/chatbot-api/monitoring. Rewording one silently disarms an
+        // alarm, which is a failure that looks like success, so each marker
+        // is pinned here rather than left to prose.
+        const errorLog = () => jest.spyOn(console, 'error').mockImplementation(() => {});
+
+        test('a refused destination emits SMS_REFUSED_DESTINATION', async () => {
+            const logged = errorLog();
+            await handler(baseEvent([HANDSHAKE_PASS], {
+                userAttributes: { phone_number: '+255712345678' },
+            }));
+            const out = logged.mock.calls.map((a) => a.join(' ')).join('\n');
+            expect(out).toContain('SMS_REFUSED_DESTINATION');
+            logged.mockRestore();
+        });
+
+        test('an exhausted global ceiling emits SMS_BUDGET_EXHAUSTED', async () => {
+            const logged = errorLog();
+            mockDdbSend.mockImplementation(async (cmd) => {
+                if (!(cmd instanceof UpdateCommand)) return {};
+                return { Attributes: { smsCount: cmd.input.Key.pk.startsWith('GLOBAL#') ? 999 : 1 } };
+            });
+            await handler(baseEvent([HANDSHAKE_PASS]));
+            const out = logged.mock.calls.map((a) => a.join(' ')).join('\n');
+            expect(out).toContain('SMS_BUDGET_EXHAUSTED');
+            logged.mockRestore();
+        });
+
+        test('a broken send emits SMS_SEND_FAILED', async () => {
+            const logged = errorLog();
+            mockSnsSend.mockRejectedValue(new Error('SNS unavailable'));
+            await handler(baseEvent([HANDSHAKE_PASS]));
+            const out = logged.mock.calls.map((a) => a.join(' ')).join('\n');
+            expect(out).toContain('SMS_SEND_FAILED');
+            logged.mockRestore();
+        });
+
+        test('a deliberate refusal does NOT emit SMS_SEND_FAILED', async () => {
+            // Otherwise every working control would page as a delivery
+            // outage, and the alarm would be trained into noise.
+            const logged = errorLog();
+            await handler(baseEvent([HANDSHAKE_PASS], {
+                userAttributes: { phone_number: '+255712345678' },
+            }));
+            const out = logged.mock.calls.map((a) => a.join(' ')).join('\n');
+            expect(out).toContain('SMS_REFUSED_DESTINATION');
+            expect(out).not.toContain('SMS_SEND_FAILED');
+            logged.mockRestore();
+        });
+
+        test('no marker at all on a healthy send', async () => {
+            const logged = errorLog();
+            await handler(baseEvent([HANDSHAKE_PASS]));
+            const out = logged.mock.calls.map((a) => a.join(' ')).join('\n');
+            expect(out).not.toContain('SMS_SEND_FAILED');
+            expect(out).not.toContain('SMS_BUDGET_EXHAUSTED');
+            expect(out).not.toContain('SMS_REFUSED_DESTINATION');
+            logged.mockRestore();
+        });
+    });
+
     describe('SMS policy from Parameter Store', () => {
         // The deployed ceilings live outside this repo so they are not
         // published with the source. Every layer of the fallback must narrow

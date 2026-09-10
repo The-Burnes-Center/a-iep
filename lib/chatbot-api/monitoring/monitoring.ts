@@ -159,6 +159,7 @@ export class MonitoringStack extends Construct {
     this.addSweepHeartbeatAlarm(props.pendingUploadSweepRule);
     this.addTableThrottleAlarms(props.tables);
     this.addAbuseAlarms(props.authTriggerFunctions);
+    this.addSmsPathAlarms(props.authTriggerFunctions);
 
     new cdk.CfnOutput(this, 'AlarmTopicArn', { value: this.alarmTopic.topicArn });
     // The one an operator needs: this is what Chatbot must subscribe to.
@@ -452,6 +453,101 @@ export class MonitoringStack extends Construct {
    * - SMS spend. Alarmed at a fraction of the ceiling, which leaves room to
    *   react while codes are still being delivered.
    */
+  /**
+   * The SMS send path, watched through the markers create-auth-challenge
+   * logs rather than through Lambda Errors.
+   *
+   * Errors cannot see any of this. The trigger reports a failed send through
+   * the challenge parameter instead of raising, so its error count stays at
+   * zero through a total delivery outage and every "login broken" alarm stays
+   * green. That is why the markers exist and why these read logs.
+   *
+   * Refusals are the leading indicator. Spend only moves after money is gone;
+   * a burst of refused destinations is the same event while it is happening.
+   */
+  private addSmsPathAlarms(authTriggers: MonitoredFunction[]): void {
+    const createAuth = authTriggers.find((f) => f.label.startsWith('CreateAuthChallenge'));
+    if (!createAuth) {
+      return;
+    }
+    const metricNamespace = 'AI-IEP/Auth';
+
+    const markerMetric = (id: string, marker: string, metricName: string) => {
+      new logs.MetricFilter(this, id, {
+        logGroup: createAuth.fn.logGroup,
+        // Marker only. These are pinned by the lambda's own unit tests, since
+        // a reworded log line would disarm the alarm without failing anything.
+        filterPattern: logs.FilterPattern.literal(marker),
+        metricNamespace,
+        metricName,
+        metricValue: '1',
+        defaultValue: 0,
+      });
+      return new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName,
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+      });
+    };
+
+    this.alarm('SmsDestinationRefusedAlarm', {
+      name: 'login codes being requested for numbers we do not serve',
+      description:
+        'Someone is asking for login codes for numbers outside the countries ' +
+        'this service texts. The codes are being refused, so no money is ' +
+        'being spent, but this is what an abuse run looks like starting.',
+      metric: markerMetric('SmsRefusedDestinationFilter', 'SMS_REFUSED_DESTINATION', 'SmsRefusedDestination'),
+      // A real parent mistyping a country code is possible but rare, and one
+      // refusal should not page. A run produces these in bulk.
+      threshold: 10,
+      evaluationPeriods: 1,
+    });
+
+    this.alarm('SmsBudgetExhaustedAlarm', {
+      name: 'login codes are being refused: the sending limit is reached',
+      description:
+        'The service-wide limit on login codes has been hit, so parents are ' +
+        'being turned away at sign-in. Either an abuse run is under way or ' +
+        'real demand has outgrown the limit.',
+      metric: markerMetric('SmsBudgetExhaustedFilter', 'SMS_BUDGET_EXHAUSTED', 'SmsBudgetExhausted'),
+      // Any occurrence matters: this one only fires when a parent was refused.
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+
+    this.alarm('SmsSendFailedAlarm', {
+      name: 'login codes are not being delivered',
+      description:
+        'Sending a login code is failing outright, so no parent can sign in. ' +
+        'This is the alarm the trigger error alarms cannot raise, because a ' +
+        'failed send is reported to the app rather than thrown.',
+      metric: markerMetric('SmsSendFailedFilter', 'SMS_SEND_FAILED', 'SmsSendFailed'),
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+
+    // Delivery failures counted by SNS itself, which is the only way to see a
+    // message that was accepted and then not delivered. Needs SMS delivery
+    // status logging enabled on the account; without it this stays flat, so
+    // it is a complement to SMS_SEND_FAILED rather than a replacement.
+    this.alarm('SmsDeliveryFailureAlarm', {
+      name: 'the SMS provider is failing to deliver login codes',
+      description:
+        'Codes are being accepted for sending and then not arriving. Parents ' +
+        'see "code sent" and no code, which looks to them like the app is ' +
+        'broken.',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/SNS',
+        metricName: 'NumberOfNotificationsFailed',
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(15),
+      }),
+      threshold: 5,
+      evaluationPeriods: 1,
+    });
+  }
+
   private addAbuseAlarms(authTriggers: MonitoredFunction[]): void {
     const preSignUp = authTriggers.find((f) => f.label.startsWith('PreSignUp'));
     if (preSignUp) {

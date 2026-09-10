@@ -40,6 +40,19 @@ IS_PROD = ENVIRONMENT in ('prod', 'production')
 
 _CONSOLE = f'https://console.aws.amazon.com/cloudwatch/home?region={REGION}'
 
+# Slack's channel-wide mention. In production every alarm that is not a
+# recovery carries it, so the message pushes to phones instead of waiting to
+# be read: on 2026-09-09 a production outage sat unnoticed for thirteen hours
+# because nothing pushed.
+#
+# Production only, and deliberately so. Staging fires the same alarms for
+# broken tests, and a channel that buzzes for those trains its reader to
+# ignore it, which costs more than the alerts are worth.
+#
+# The mention must reach Slack as raw text. It goes in the description rather
+# than the title because only the description is markdown-typed.
+PAGE_MENTION = '<!channel>'
+
 
 def _resource(dimensions):
     """Which AWS resource this alarm is about, and where to look at it.
@@ -157,6 +170,10 @@ def build_notification(alarm):
     observed = _observed_phrase(alarm)
     if recovered:
         description = 'Back to normal. No action needed.'
+    elif IS_PROD:
+        # Recoveries never page: good news that buzzes a phone at 3am is how a
+        # channel gets muted.
+        description = f'{PAGE_MENTION} {description}'.strip()
 
     trigger = alarm.get('Trigger') or {}
     resource, link, link_label = _resource(trigger.get('Dimensions'))

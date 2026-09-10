@@ -384,6 +384,78 @@ describe('Cognito custom-auth wiring', () => {
     expect(props.TimeToLiveSpecification).toEqual({ AttributeName: 'expiresAt', Enabled: true });
   });
 
+  // A message the provider accepts and then fails to deliver is otherwise
+  // invisible: the publish succeeds, an id comes back, and nothing records
+  // that it never arrived. This role is what lets SNS write that down.
+  test('SNS can write SMS delivery outcomes, and only that', () => {
+    template.hasResourceProperties('AWS::IAM::Role', Match.objectLike({
+      AssumeRolePolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({ Principal: { Service: 'sns.amazonaws.com' } }),
+        ]),
+      }),
+    }));
+
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[]);
+    const deliveryStatus = statements.filter((st) =>
+      JSON.stringify(st.Action).includes('logs:PutMetricFilter'),
+    );
+    expect(deliveryStatus.length).toBeGreaterThan(0);
+    for (const st of deliveryStatus) {
+      // Logs only. This role is assumable by an AWS service, so anything
+      // beyond writing logs would be a standing grant to SNS.
+      const actions = ([] as string[]).concat(st.Action);
+      expect(actions.every((a) => a.startsWith('logs:'))).toBe(true);
+    }
+  });
+
+  // Data events are the only record that an IEP document or a profile row was
+  // READ. Without them the question "was anything taken" has no answer, only
+  // an absence of evidence, and a trail cannot be made to cover the past.
+  test('object and item reads on the FERPA stores are audited', () => {
+    const trails = Object.values(template.findResources('AWS::CloudTrail::Trail'))
+      .map((r: any) => r.Properties);
+    expect(trails).toHaveLength(1);
+    const [trail] = trails;
+
+    // Tamper-evidence: a log that can be altered afterwards is not evidence.
+    expect(trail.EnableLogFileValidation).toBe(true);
+
+    const dataResources = (trail.EventSelectors as any[]).flatMap((s) => s.DataResources ?? []);
+    const byType = (t: string) => dataResources.filter((d) => d.Type === t);
+
+    // Reads, not just writes: a write shows up in the data, an exfiltration
+    // shows up nowhere else.
+    for (const selector of trail.EventSelectors as any[]) {
+      expect(selector.ReadWriteType).toBe('All');
+    }
+    expect(byType('AWS::S3::Object')).toHaveLength(1);
+    expect(byType('AWS::DynamoDB::Table')[0].Values).toHaveLength(3);
+  });
+
+  // The audit log is the only copy of the evidence for anything already
+  // recorded, so a stack teardown must not take it.
+  test('the audit log bucket is retained', () => {
+    const buckets = Object.entries(template.findResources('AWS::S3::Bucket'))
+      .filter(([logicalId]) => logicalId.includes('AuditLog'));
+    expect(buckets).toHaveLength(1);
+    expect(buckets[0][1].DeletionPolicy).toBe('Retain');
+  });
+
+  // The OTP counter holds hashes and counters, no personal data, and is
+  // written several times per login. Auditing it would be most of the volume
+  // for none of the value, so its absence is deliberate rather than an
+  // oversight, and this says so out loud.
+  test('the OTP rate-limit table is deliberately NOT audited', () => {
+    const trail = Object.values(template.findResources('AWS::CloudTrail::Trail'))
+      .map((r: any) => r.Properties)[0];
+    const tableRefs = JSON.stringify(
+      (trail.EventSelectors as any[]).flatMap((s) => s.DataResources ?? []),
+    );
+    expect(tableRefs).not.toContain('OtpRateLimitTable');
+  });
+
   // A-IEP serves United States families, so +1 is every real destination.
   // Widening this to a country the service does not serve removes a
   // load-bearing abuse control. The lambda defaults to +1 on its own; this
