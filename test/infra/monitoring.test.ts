@@ -50,6 +50,7 @@ const EXPECTED_ALARM_SUFFIXES = [
   'login codes are not being delivered',
   'the SMS provider is rejecting login codes',
   'the pipeline cannot write to its database',
+  'a failed document kept its unredacted copy',
   // The signup endpoint. It is the ONLY way to create an account, because
   // Cognito's public SignUp API is closed, and for its first day it had no
   // alarm of any kind: not in pipelineFunctions, not in authTriggerFunctions,
@@ -375,6 +376,42 @@ describe.each([
       expect(alarm.Threshold).toBe(1);
       expect(alarm.MetricName).toBe('Errors');
     }
+  });
+});
+
+describe('unredacted copies surviving a failed document', () => {
+  // The purge that backs "a FAILED document retains no unredacted artifacts"
+  // is deliberately best-effort, because recording the failure matters more
+  // and must not be masked by a cleanup problem. That makes this marker the
+  // only way anyone finds out, and its previous form was a plain print
+  // matching no filter: a child's raw OCR could sit in S3 indefinitely with
+  // the document marked FAILED and nothing anywhere saying so.
+  //
+  // Pinned on the lambda side in test/python/test_ddb_service.py.
+  test('UNREDACTED_ARTIFACTS_RETAINED is counted into its own metric', () => {
+    for (const environment of ['production', 'staging']) {
+      synth(environment).hasResourceProperties('AWS::Logs::MetricFilter', {
+        FilterPattern: 'UNREDACTED_ARTIFACTS_RETAINED',
+        MetricTransformations: Match.arrayWith([
+          Match.objectLike({
+            MetricName: 'UnredactedArtifactsRetained',
+            MetricNamespace: 'AI-IEP/Pipeline',
+          }),
+        ]),
+      });
+    }
+  });
+
+  // Unlike a failed write there is no benign volume of this: every occurrence
+  // is one child's records that should no longer exist.
+  test('a single surviving copy is enough to alarm, at critical', () => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes('kept its unredacted copy'));
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Threshold).toBe(1);
+    expect(alarm.AlarmDescription).toContain('[critical]');
   });
 });
 

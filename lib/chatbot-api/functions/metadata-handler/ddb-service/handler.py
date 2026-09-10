@@ -257,25 +257,59 @@ def _cleanup_unredacted_artifacts(iep_id, child_id):
     Data-retention policy: only redacted content may persist. On the happy
     path the DeleteOriginal step handles this; this runs on failure so a
     FAILED document also retains no unredacted artifacts.
+
+    Returns the artifacts that could NOT be removed, so the caller can say so.
+    Two properties matter here and neither was true before:
+
+    1. **Each artifact is deleted independently.** A single raise used to
+       abandon everything after it, so an S3 blip on the original upload left
+       the raw OCR behind as well. Every one of these is a child's unredacted
+       record; failing to delete one is no reason to keep the rest.
+    2. **The failure is reported rather than swallowed.** This is the purge
+       that backs "a FAILED document retains no unredacted artifacts", and it
+       could quietly not happen. Recording the failure still takes priority
+       over the purge, so this does not raise; it tells the truth instead.
     """
-    response = table.get_item(Key={'iepId': iep_id, 'childId': child_id})
-    item = response.get('Item', {})
+    retained = []
+    try:
+        response = table.get_item(Key={'iepId': iep_id, 'childId': child_id})
+        item = response.get('Item', {})
+    except Exception as error:  # noqa: BLE001 - reported, see docstring
+        # Without the row the artifacts cannot even be named, let alone
+        # deleted. That is the worst case, not a reason to continue quietly.
+        print(f'Unredacted cleanup could not read the document record: {type(error).__name__}')
+        return ['document-record-unreadable']
 
     # Original uploaded file (documentUrl = s3://bucket/key)
     document_url = item.get('documentUrl') or ''
     if document_url.startswith('s3://'):
         bucket, _, key = document_url[len('s3://'):].partition('/')
         if bucket and key:
-            delete_content_from_s3(key, bucket)
+            try:
+                delete_content_from_s3(key, bucket)
+            except Exception as error:  # noqa: BLE001 - reported, see docstring
+                print(f'Unredacted cleanup left the original upload: {type(error).__name__}')
+                retained.append('original-upload')
 
     # Raw OCR: S3 payload (new format) and/or inline attribute (legacy)
     s3_ref = item.get('ocr_result_s3_ref')
     if s3_ref:
-        delete_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
-    _guarded_update(
-        Key={'iepId': iep_id, 'childId': child_id},
-        UpdateExpression="REMOVE ocr_result, ocr_result_s3_ref"
-    )
+        try:
+            delete_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
+        except Exception as error:  # noqa: BLE001 - reported, see docstring
+            print(f'Unredacted cleanup left the raw OCR object: {type(error).__name__}')
+            retained.append('raw-ocr-object')
+
+    try:
+        _guarded_update(
+            Key={'iepId': iep_id, 'childId': child_id},
+            UpdateExpression="REMOVE ocr_result, ocr_result_s3_ref"
+        )
+    except Exception as error:  # noqa: BLE001 - reported, see docstring
+        print(f'Unredacted cleanup left the raw OCR attribute: {type(error).__name__}')
+        retained.append('raw-ocr-attribute')
+
+    return retained
 
 
 def record_failure(params):
@@ -292,11 +326,24 @@ def record_failure(params):
     # (a delayed S3 event finally landed) in the meantime.
     only_if_status_in = params.get('only_if_status_in')
 
-    # Best-effort purge of unredacted artifacts; must never mask the failure record
+    # Purge of unredacted artifacts. Still must never mask the failure record,
+    # so this does not raise; but a survivor is now REPORTED rather than
+    # printed and forgotten.
+    #
+    # This is the purge that backs "a FAILED document retains no unredacted
+    # artifacts", and it could quietly not happen: the old message matched no
+    # metric filter, so a child's raw OCR and original upload could sit in S3
+    # indefinitely with the document marked FAILED, and nothing anywhere said
+    # so. The marker below is watched by an alarm.
     try:
-        _cleanup_unredacted_artifacts(iep_id, child_id)
-    except Exception as cleanup_error:
-        print(f"Cleanup of unredacted artifacts after failure did not complete: {str(cleanup_error)}")
+        retained = _cleanup_unredacted_artifacts(iep_id, child_id)
+    except Exception as cleanup_error:  # noqa: BLE001 - the failure record wins
+        print(f"Cleanup of unredacted artifacts after failure did not complete: "
+              f"{type(cleanup_error).__name__}")
+        retained = ['unknown']
+    if retained:
+        # Ids and artifact kinds only, never content.
+        print(f"UNREDACTED_ARTIFACTS_RETAINED iep={iep_id} artifacts={','.join(retained)}")
 
     update_kwargs = {
         'Key': {'iepId': iep_id, 'childId': child_id},

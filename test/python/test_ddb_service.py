@@ -592,3 +592,79 @@ def test_the_marker_carries_no_document_content(service, capsys):
     assert marker_lines, 'the marker must be emitted'
     for line in marker_lines:
         assert 'child name here' not in line
+
+
+# ---------------------------------------------------------------------------
+# A failed document whose unredacted copies could NOT be removed.
+#
+# The purge is deliberately best-effort: recording the failure matters more,
+# and must not be masked by a cleanup problem. That makes the marker below the
+# only way anyone ever finds out, and its previous form was a plain print that
+# matched no metric filter, so a child's raw OCR and original upload could sit
+# in S3 indefinitely with the document marked FAILED and nothing saying so.
+#
+# MonitoringStack's UnredactedArtifactsRetainedFilter counts this token, so the
+# exact string is a contract across two languages. Pinned on the CDK side in
+# test/infra/monitoring.test.ts.
+# ---------------------------------------------------------------------------
+
+def test_a_surviving_unredacted_copy_is_reported_not_swallowed(service, monkeypatch, capsys):
+    service.s3.put_object(Bucket=BUCKET, Key=f'{USER}/{CHILD}/{IEP}/original.pdf', Body=b'pdf')
+    seed_document(service, documentUrl=f's3://{BUCKET}/{USER}/{CHILD}/{IEP}/original.pdf')
+
+    def refuse(*_args, **_kwargs):
+        raise RuntimeError('S3 unavailable')
+
+    monkeypatch.setattr(service.module, 'delete_content_from_s3', refuse)
+
+    status, _ = op(service, 'record_failure', **IDS,
+                   error_message='OCR provider exploded', failed_step='mistral_ocr')
+
+    # The failure record still wins: the document is FAILED, not stuck.
+    assert status == 200
+    assert item(service)['status'] == 'FAILED'
+
+    out = capsys.readouterr().out
+    assert 'UNREDACTED_ARTIFACTS_RETAINED' in out
+    assert 'original-upload' in out
+    # Ids and artifact kinds only. The exception text could quote content.
+    assert 'S3 unavailable' not in out
+
+
+def test_one_artifact_failing_does_not_abandon_the_others(service, monkeypatch, capsys):
+    # A single raise used to skip everything after it, so an S3 blip on the
+    # original upload left the raw OCR behind as well. Every one of these is a
+    # child's unredacted record; failing on one is no reason to keep the rest.
+    service.s3.put_object(Bucket=BUCKET, Key=f'{USER}/{CHILD}/{IEP}/original.pdf', Body=b'pdf')
+    seed_document(service, documentUrl=f's3://{BUCKET}/{USER}/{CHILD}/{IEP}/original.pdf')
+    op(service, 'save_ocr_data', **IDS, ocr_data={'pages': ['raw']})
+
+    real_delete = service.module.delete_content_from_s3
+
+    def fail_only_the_original(key, bucket=None, *args, **kwargs):
+        if key.startswith(f'{USER}/'):
+            raise RuntimeError('S3 unavailable')
+        return real_delete(key, bucket, *args, **kwargs)
+
+    monkeypatch.setattr(service.module, 'delete_content_from_s3', fail_only_the_original)
+
+    op(service, 'record_failure', **IDS,
+       error_message='OCR provider exploded', failed_step='mistral_ocr')
+
+    # The raw OCR was still removed, both its object and its attribute.
+    assert 'ocr_result_s3_ref' not in item(service)
+    out = capsys.readouterr().out
+    assert 'original-upload' in out
+    assert 'raw-ocr-object' not in out
+
+
+def test_a_clean_purge_reports_nothing(service, capsys):
+    # Mutation guard: if the marker were logged unconditionally the alarm
+    # would fire on every failed document and be muted within a day.
+    service.s3.put_object(Bucket=BUCKET, Key=f'{USER}/{CHILD}/{IEP}/original.pdf', Body=b'pdf')
+    seed_document(service, documentUrl=f's3://{BUCKET}/{USER}/{CHILD}/{IEP}/original.pdf')
+
+    op(service, 'record_failure', **IDS,
+       error_message='OCR provider exploded', failed_step='mistral_ocr')
+
+    assert 'UNREDACTED_ARTIFACTS_RETAINED' not in capsys.readouterr().out

@@ -560,6 +560,43 @@ export class MonitoringStack extends Construct {
       evaluationPeriods: 1,
     });
 
+    // A child's unredacted records surviving a failure. Separate from the
+    // alarm above because the consequence is different in kind: that one is
+    // an outage, this one is FERPA-protected content that should no longer
+    // exist still sitting in S3.
+    //
+    // The purge is deliberately best-effort, since recording the failure
+    // matters more than the cleanup and must not be masked by it. That makes
+    // this marker the only way anyone finds out, and its old form was a plain
+    // print that matched no filter at all.
+    new logs.MetricFilter(this, 'UnredactedArtifactsRetainedFilter', {
+      logGroup: ddbServiceFunction.logGroup,
+      filterPattern: logs.FilterPattern.literal('UNREDACTED_ARTIFACTS_RETAINED'),
+      metricNamespace,
+      metricName: 'UnredactedArtifactsRetained',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
+    this.alarm('UnredactedArtifactsRetainedAlarm', {
+      severity: 'critical',
+      name: 'a failed document kept its unredacted copy',
+      description:
+        'A document failed and the original upload or raw OCR could not be ' +
+        'deleted, so unredacted student information is still stored. It ' +
+        'needs removing by hand.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'UnredactedArtifactsRetained',
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(15),
+      }),
+      // One is enough. Unlike a failed write there is no benign volume of
+      // this: every occurrence is one child's records that should be gone.
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+
     this.alarm('DocumentsFailingAlarm', {
       severity: 'medium',
       name: 'document pipeline failing',
