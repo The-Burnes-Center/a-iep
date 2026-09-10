@@ -272,14 +272,14 @@ export class ChatBotApi extends Construct {
     // watches already exists.
     this.monitoring = new MonitoringStack(this, "Monitoring", {
       pipelineFunctions: [
-        { label: 'Mistral OCR', fn: this.lambdaFunctions.mistralOCRFunction },
-        { label: 'PII redaction', fn: this.lambdaFunctions.redactOCRFunction },
-        { label: 'delete original', fn: this.lambdaFunctions.deleteOriginalFunction },
-        { label: 'parsing agent', fn: this.lambdaFunctions.parsingAgentFunction },
-        { label: 'language prefs', fn: this.lambdaFunctions.checkLanguagePrefsFunction },
-        { label: 'translation', fn: this.lambdaFunctions.translateContentFunction },
-        { label: 'finalize results', fn: this.lambdaFunctions.finalizeResultsFunction },
-        { label: 'orchestrator', fn: this.lambdaFunctions.orchestratorFunction },
+        { label: 'Mistral OCR', fn: this.lambdaFunctions.mistralOCRFunction, purpose: 'reads the text out of an uploaded IEP; runs once per upload' },
+        { label: 'PII redaction', fn: this.lambdaFunctions.redactOCRFunction, purpose: 'strips personal details before anything reaches an LLM; runs once per upload' },
+        { label: 'delete original', fn: this.lambdaFunctions.deleteOriginalFunction, purpose: 'deletes the unredacted upload once text is extracted; runs once per upload' },
+        { label: 'parsing agent', fn: this.lambdaFunctions.parsingAgentFunction, purpose: 'writes the plain-language summary and sections; runs once per upload' },
+        { label: 'language prefs', fn: this.lambdaFunctions.checkLanguagePrefsFunction, purpose: 'decides which languages a summary is translated into' },
+        { label: 'translation', fn: this.lambdaFunctions.translateContentFunction, purpose: 'translates the summary into the languages a family asked for' },
+        { label: 'finalize results', fn: this.lambdaFunctions.finalizeResultsFunction, purpose: 'assembles the finished summary and marks the document ready' },
+        { label: 'orchestrator', fn: this.lambdaFunctions.orchestratorFunction, purpose: 'starts the pipeline when a document lands' },
       ],
       authTriggerFunctions: [
         ...authentication.authTriggerFunctions,
@@ -288,22 +288,23 @@ export class ChatBotApi extends Construct {
         // failure it disables the account instead. Either way a failure here
         // costs a parent their account, so it belongs with the auth triggers
         // rather than in the API list.
-        { label: 'PostConfirmation (secures a new account)', fn: this.lambdaFunctions.cognitoTriggerFunction },
+        { label: 'PostConfirmation (secures a new account)', fn: this.lambdaFunctions.cognitoTriggerFunction,
+          purpose: 'secures a newly created account; runs once per signup' },
       ],
       apiFunctions: [
-        { label: 'user profile', fn: this.lambdaFunctions.userProfileFunction },
-        { label: 'upload', fn: this.lambdaFunctions.uploadS3KnowledgeFunction },
-        { label: 'referrals', fn: this.lambdaFunctions.referralFunction },
-        { label: 'TTS', fn: this.lambdaFunctions.ttsFunction },
-        { label: 'PDF download', fn: this.lambdaFunctions.pdfGeneratorFunction },
+        { label: 'user profile', fn: this.lambdaFunctions.userProfileFunction, purpose: 'the account screen: name, child, languages, and account deletion' },
+        { label: 'upload', fn: this.lambdaFunctions.uploadS3KnowledgeFunction, purpose: 'accepts an IEP upload from a parent' },
+        { label: 'referrals', fn: this.lambdaFunctions.referralFunction, purpose: 'invite links and the referral admin console' },
+        { label: 'TTS', fn: this.lambdaFunctions.ttsFunction, purpose: 'reads a summary aloud; runs when a parent taps play' },
+        { label: 'PDF download', fn: this.lambdaFunctions.pdfGeneratorFunction, purpose: 'renders a summary as a PDF; runs when a parent downloads one' },
         // Silent failure here shows a parent an empty document list, or a
         // delete that appears to work and does not.
-        { label: 'documents list', fn: this.lambdaFunctions.getS3KnowledgeFunction },
-        { label: 'document delete', fn: this.lambdaFunctions.deleteS3Function },
+        { label: 'documents list', fn: this.lambdaFunctions.getS3KnowledgeFunction, purpose: 'lists the documents on an account; runs on every visit to that page' },
+        { label: 'document delete', fn: this.lambdaFunctions.deleteS3Function, purpose: 'deletes a document at a parent request' },
         // The "translate it now" request path.
-        { label: 'translation request', fn: this.lambdaFunctions.translationRequestFunction },
+        { label: 'translation request', fn: this.lambdaFunctions.translationRequestFunction, purpose: 'handles "translate it now"; runs only when a parent asks' },
         // Writes every pipeline progress and failure record.
-        { label: 'pipeline database writes', fn: this.lambdaFunctions.ddbServiceFunction },
+        { label: 'pipeline database writes', fn: this.lambdaFunctions.ddbServiceFunction, purpose: 'records pipeline progress and failures for every document' },
       ],
       ddbServiceFunction: this.lambdaFunctions.ddbServiceFunction,
       iepProcessingStateMachine: this.lambdaFunctions.iepProcessingStateMachine,

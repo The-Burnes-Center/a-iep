@@ -94,7 +94,7 @@ export class NewAuthorizationStack extends Construct {
   /** The custom-auth triggers, so MonitoringStack can alarm on each one:
    *  an error in any of these locks families out. Label is the name a
    *  human reads in Slack. */
-  public readonly authTriggerFunctions: { label: string; fn: lambda.Function }[] = [];
+  public readonly authTriggerFunctions: { label: string; fn: lambda.Function; purpose: string }[] = [];
   public readonly userPool: UserPool;
   /** Exposed so monitoring can alarm on throttling: the service-wide SMS
    *  budget fails closed on a DynamoDB error, so throttling here stops
@@ -485,12 +485,12 @@ export class NewAuthorizationStack extends Construct {
     // labels are what a human reads in Slack, so they name the effect on a
     // family where that is not obvious from the trigger name.
     this.authTriggerFunctions.push(
-      { label: 'PreSignUp', fn: preSignUpFunction },
-      { label: 'DefineAuthChallenge', fn: defineAuthChallengeFunction },
-      { label: 'CreateAuthChallenge (sends the SMS code)', fn: createAuthChallengeFunction },
-      { label: 'VerifyAuthChallenge (checks the SMS code)', fn: verifyAuthChallengeFunction },
-      { label: 'CustomMessage', fn: customMessageFunction },
-      { label: 'PreAuthentication', fn: preAuthenticationFunction },
+      { label: 'PreSignUp', fn: preSignUpFunction , purpose: 'auto-confirms a phone signup so a new parent gets one code, not two' },
+      { label: 'DefineAuthChallenge', fn: defineAuthChallengeFunction , purpose: 'decides each step of the login challenge; runs on every sign-in' },
+      { label: 'CreateAuthChallenge (sends the SMS code)', fn: createAuthChallengeFunction , purpose: 'generates and texts the login code; runs on every sign-in' },
+      { label: 'VerifyAuthChallenge (checks the SMS code)', fn: verifyAuthChallengeFunction , purpose: 'checks the code a parent typed; runs on every sign-in' },
+      { label: 'CustomMessage', fn: customMessageFunction , purpose: 'wording for the codes Cognito itself sends' },
+      { label: 'PreAuthentication', fn: preAuthenticationFunction , purpose: 'runs just before a sign-in is accepted' },
     );
 
     // Allow Cognito to invoke the Lambda functions

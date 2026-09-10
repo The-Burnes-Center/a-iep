@@ -8,8 +8,10 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as stepfunctions from 'aws-cdk-lib/aws-stepfunctions';
 import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as path from 'path';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import { getEnvironment, getResourceName, tagResource } from '../../tags';
@@ -101,10 +103,28 @@ export type Severity = 'critical' | 'medium' | 'low';
 const PIPELINE_STEP_RETRY_INVOCATIONS = 4;
 const PIPELINE_STEP_ERROR_THRESHOLD = PIPELINE_STEP_RETRY_INVOCATIONS + 1;
 
+/** One line in the daily brief: what ran, and what it is for. */
+interface BriefComponent {
+  readonly label: string;
+  readonly functionName: string;
+  /** Why a reader who did not build this should care that it ran, or did not.
+   *  Without it, "0 runs" is unreadable: some of these are meant to be idle. */
+  readonly purpose: string;
+}
+
 /** A lambda plus the human name used in the alarm and its description. */
 export interface MonitoredFunction {
   readonly label: string;
   readonly fn: lambda.Function;
+  /**
+   * One line on what this is for, shown in the daily brief.
+   *
+   * Required, because the brief's value is that a reader who did not build
+   * the thing can still judge it: "0 runs" is meaningless without knowing
+   * whether it is supposed to run hourly or only when a parent acts. An
+   * unexplained green line is decoration.
+   */
+  readonly purpose: string;
 }
 
 export interface MonitoringProps {
@@ -186,6 +206,15 @@ export class MonitoringStack extends Construct {
     this.addAbuseAlarms(props.authTriggerFunctions);
     this.addSmsPathAlarms(props.authTriggerFunctions);
     this.addTranslationAndUsageAlarms(props.translationStateMachine);
+    this.addDailyBrief(props.kmsKey, [
+      ...props.pipelineFunctions,
+      ...props.authTriggerFunctions,
+      ...props.apiFunctions,
+    ].map(({ label, fn, purpose }) => ({
+      label,
+      functionName: fn.functionName,
+      purpose,
+    })));
 
     new cdk.CfnOutput(this, 'AlarmTopicArn', { value: this.alarmTopic.topicArn });
     // The one an operator needs: this is what Chatbot must subscribe to.
@@ -209,6 +238,76 @@ export class MonitoringStack extends Construct {
    * able to replay yesterday's alert is not. A DLQ is the follow-up if that
    * ever proves wrong.
    */
+  /**
+   * The once-a-day brief: a positive statement that things ran.
+   *
+   * Alarms answer "did something break". They cannot answer "is anything
+   * still happening", and a component that stops being invoked at all raises
+   * no errors, so every alarm stays green while nothing works. Silence from
+   * an alerting system is ambiguous; this is what makes it mean something.
+   *
+   * The component manifest is built here rather than in the lambda, so adding
+   * a monitored thing is one edit in one place and the brief cannot drift out
+   * of step with the alarms.
+   */
+  private addDailyBrief(kmsKey: kms.IKey, components: BriefComponent[]): void {
+    const brief = new lambda.Function(this, 'DailyBriefFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'handler.lambda_handler',
+      code: lambda.Code.fromAsset(
+        path.join(__dirname, '../functions/daily-brief'),
+        { assetHashType: cdk.AssetHashType.SOURCE, exclude: ['__pycache__'] },
+      ),
+      // 51 alarms and two metric queries per component: seconds, not
+      // milliseconds, and a slow CloudWatch day should not fail the brief.
+      timeout: cdk.Duration.minutes(2),
+      environment: {
+        ALERT_TOPIC_ARN: this.alertTopic.topicArn,
+        ENVIRONMENT: this.env,
+        BRIEF_COMPONENTS: JSON.stringify(components),
+        // Scoped so a staging brief never reports production's alarms. They
+        // share an account and the name prefix is all that separates them.
+        ALARM_PREFIX: `${getResourceName('a-iep')} `,
+      },
+      description: 'Publishes the daily A-IEP health brief to Slack',
+      logRetention: logs.RetentionDays.ONE_MONTH,
+      environmentEncryption: kmsKey,
+    });
+    tagResource(brief, { Resource: 'Lambda', Function: 'DailyBrief' });
+
+    // Read-only on metrics and alarm state. It must never be able to change
+    // an alarm it reports on.
+    brief.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['cloudwatch:GetMetricData', 'cloudwatch:DescribeAlarms'],
+      resources: ['*'],
+    }));
+    this.alertTopic.grantPublish(brief);
+
+    // 13:00 UTC is 9am Eastern, which is when someone is actually reading.
+    const schedule = new events.Rule(this, 'DailyBriefSchedule', {
+      schedule: events.Schedule.cron({ minute: '0', hour: '13' }),
+      description: 'Triggers the daily A-IEP health brief',
+    });
+    schedule.addTarget(new targets.LambdaFunction(brief));
+
+    // The brief is itself a thing that can stop running, and its whole value
+    // is that its absence means something. BREACHING so a dead schedule reads
+    // as broken rather than as quiet.
+    this.alarm('DailyBriefMissingAlarm', {
+      severity: 'low',
+      name: 'the daily health brief has stopped running',
+      description:
+        'The once-a-day summary did not go out, so "no news" no longer means ' +
+        'anything. Nothing is broken for families.',
+      metric: brief.metricInvocations({ period: cdk.Duration.hours(26), statistic: 'Sum' }),
+      threshold: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+    });
+  }
+
   private addAlertFormatter(kmsKey: kms.IKey): lambda.Function {
     const formatter = new lambda.Function(this, 'AlertFormatterFunction', {
       runtime: lambda.Runtime.PYTHON_3_12,

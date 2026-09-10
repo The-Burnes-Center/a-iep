@@ -365,3 +365,79 @@ describe('the SMS send path is watched through log markers', () => {
     expect(byName('are not being delivered').Threshold).toBe(1);
   });
 });
+
+describe('the daily brief', () => {
+  // Alarms answer "did something break". They cannot answer "is anything
+  // still happening", and a component that stops being invoked raises no
+  // errors, so every alarm stays green while nothing works. The brief is
+  // what makes silence from this system mean something.
+  test('it runs once a day, on a schedule', () => {
+    for (const environment of ['production', 'staging']) {
+      const template = synth(environment);
+      template.hasResourceProperties('AWS::Events::Rule', Match.objectLike({
+        ScheduleExpression: 'cron(0 13 * * ? *)',
+        State: 'ENABLED',
+      }));
+    }
+  });
+
+  test('it can read metrics and alarm state, and change neither', () => {
+    const template = synth('production');
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[]);
+    const briefStatements = statements.filter((st) =>
+      JSON.stringify(st.Action).includes('cloudwatch:GetMetricData'),
+    );
+    expect(briefStatements.length).toBeGreaterThan(0);
+
+    for (const st of briefStatements) {
+      const actions = ([] as string[]).concat(st.Action);
+      // Read-only. It reports on alarms; it must never be able to silence one.
+      expect(actions.every((a) => a === 'cloudwatch:GetMetricData'
+        || a === 'cloudwatch:DescribeAlarms')).toBe(true);
+    }
+  });
+
+  test('every monitored component reaches the brief with a purpose', () => {
+    const template = synth('production');
+    const fn = Object.values(template.findResources('AWS::Lambda::Function'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.Description).includes('daily A-IEP health brief'));
+    expect(fn).toBeDefined();
+
+    // The manifest embeds function-name tokens, so it synthesizes as an
+    // Fn::Join rather than a string. Rebuilding it with the tokens replaced
+    // by a placeholder checks the far more useful property: that what the
+    // lambda receives at runtime is well-formed JSON, tokens and all.
+    const raw = fn.Environment.Variables.BRIEF_COMPONENTS;
+    const joined = typeof raw === 'string'
+      ? raw
+      : (raw['Fn::Join'][1] as any[])
+          .map((part) => (typeof part === 'string' ? part : 'resolved-name'))
+          .join(raw['Fn::Join'][0]);
+    const manifest = JSON.parse(joined);
+    // Pipeline, auth triggers and API handlers: every lambda a parent's
+    // experience depends on.
+    expect(manifest.length).toBeGreaterThanOrEqual(20);
+    for (const component of manifest) {
+      // A line without a purpose is decoration: "0 runs" cannot be judged
+      // without knowing whether the thing is meant to run.
+      expect(component.purpose.length).toBeGreaterThan(10);
+      expect(component.label.length).toBeGreaterThan(0);
+    }
+  });
+
+  // Staging and production share an account, so the name prefix is the only
+  // thing stopping a staging brief reporting production's alarms.
+  test('the brief only reports its own environment alarms', () => {
+    const prefixes = ['production', 'staging'].map((environment) => {
+      const template = synth(environment);
+      const fn = Object.values(template.findResources('AWS::Lambda::Function'))
+        .map((r: any) => r.Properties)
+        .find((p: any) => String(p.Description).includes('daily A-IEP health brief'));
+      return fn.Environment.Variables.ALARM_PREFIX;
+    });
+    expect(prefixes[0]).not.toEqual(prefixes[1]);
+    expect(prefixes[1]).toContain('staging');
+  });
+});
