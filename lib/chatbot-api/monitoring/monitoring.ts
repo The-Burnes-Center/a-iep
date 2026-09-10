@@ -69,6 +69,12 @@ import { getEnvironment, getResourceName, tagResource } from '../../tags';
  * minutes. Anything that raises the retry count has to raise this with it,
  * which is what the test/infra pin exists to force.
  */
+/**
+ * Half of the account's $50 SNS MonthlySpendLimit. Deliberately a fraction of
+ * the cap and not the cap itself: at the cap, login is already down.
+ */
+const SMS_SPEND_ALARM_USD = 25;
+
 const PIPELINE_STEP_RETRY_INVOCATIONS = 4;
 const PIPELINE_STEP_ERROR_THRESHOLD = PIPELINE_STEP_RETRY_INVOCATIONS + 1;
 
@@ -151,6 +157,7 @@ export class MonitoringStack extends Construct {
     this.addStateMachineAlarms(props.iepProcessingStateMachine);
     this.addSweepHeartbeatAlarm(props.pendingUploadSweepRule);
     this.addTableThrottleAlarms(props.tables);
+    this.addAbuseAlarms(props.authTriggerFunctions);
 
     new cdk.CfnOutput(this, 'AlarmTopicArn', { value: this.alarmTopic.topicArn });
     // The one an operator needs: this is what Chatbot must subscribe to.
@@ -428,6 +435,62 @@ export class MonitoringStack extends Construct {
         period: cdk.Duration.minutes(15),
       }),
       threshold: 1,
+      evaluationPeriods: 1,
+    });
+  }
+
+  /**
+   * Abuse of the phone-signup flow, which is how prod auth went down on
+   * 2026-09-09.
+   *
+   * 1,045 self-service signups and 1,558 SMS sends arrived in a single hour
+   * against a service that normally sees one a day. Nothing stopped it: the
+   * OTP rate limiter keys on sha256(phone)#hour, so 1,045 DISTINCT numbers
+   * each got their first code and none was ever limited. It ended only when
+   * SNS hit the $50 monthly SMS spend cap, which then left real families
+   * unable to receive a login code for the rest of the month.
+   *
+   * Neither of these existed at the time, and either would have caught it
+   * within minutes:
+   *
+   * - Signup surge. Cognito triggers are not retried, so one invocation is
+   *   one real attempt, and 20 in five minutes is far above anything organic
+   *   for this service.
+   * - SMS spend. The leading indicator of the actual harm. Alarming at half
+   *   the cap leaves room to react before codes stop being delivered, because
+   *   once the cap is reached login is down until the calendar month rolls.
+   */
+  private addAbuseAlarms(authTriggers: MonitoredFunction[]): void {
+    const preSignUp = authTriggers.find((f) => f.label.startsWith('PreSignUp'));
+    if (preSignUp) {
+      this.alarm('SignupSurgeAlarm', {
+        name: 'signup flood: someone is abusing the signup form',
+        description:
+          'Far more accounts are being created than this service ever sees. ' +
+          'Each one sends an SMS, so this burns the monthly SMS budget and ' +
+          'ends with families unable to receive login codes.',
+        metric: preSignUp.fn.metricInvocations({
+          period: cdk.Duration.minutes(5),
+          statistic: 'Sum',
+        }),
+        threshold: 20,
+        evaluationPeriods: 1,
+      });
+    }
+
+    this.alarm('SmsSpendAlarm', {
+      name: 'SMS budget half spent',
+      description:
+        'Monthly SMS spend has passed half the cap. At the cap, SNS stops ' +
+        'sending and NO parent can receive a login code until the calendar ' +
+        'month rolls over. Check for signup abuse before raising the limit.',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/SNS',
+        metricName: 'SMSMonthToDateSpentUSD',
+        statistic: 'Maximum',
+        period: cdk.Duration.minutes(15),
+      }),
+      threshold: SMS_SPEND_ALARM_USD,
       evaluationPeriods: 1,
     });
   }

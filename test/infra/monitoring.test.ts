@@ -43,6 +43,8 @@ const EXPECTED_ALARM_SUFFIXES = [
   'login broken: VerifyAuthChallenge (checks the SMS code) trigger failing',
   'DynamoDB throttling: IEP documents',
   'DynamoDB throttling: user profiles',
+  'signup flood: someone is abusing the signup form',
+  'SMS budget half spent',
 ];
 
 function synth(environment: string): Template {
@@ -234,6 +236,33 @@ describe.each([
       // 4 invocations is one document's retries; the alarm must need more.
       expect(alarm.Threshold).toBeGreaterThan(4);
     }
+  });
+
+  // WHY (2026-09-09 incident): 1,045 signups and 1,558 SMS sends arrived in
+  // one hour. The OTP rate limiter keys on sha256(phone)#hour, so 1,045
+  // distinct numbers were never limited, and it ended only when SNS hit the
+  // $50 monthly cap, leaving real families unable to receive a login code for
+  // the rest of the month. Neither of these alarms existed; either would have
+  // caught it in minutes.
+  test('a signup flood is alarmed on, well below the SMS cap', () => {
+    const surge = alarms.find(
+      (a) => a.AlarmName === `${namePrefix}signup flood: someone is abusing the signup form`,
+    );
+    expect(surge).toBeDefined();
+    expect(surge!.MetricName).toBe('Invocations');
+    // Cognito triggers are not retried, so one invocation is one real attempt.
+    // Organic traffic for this service is ~1/day; 1,045/hour was the attack.
+    expect(surge!.Threshold).toBeLessThanOrEqual(50);
+  });
+
+  test('SMS spend alarms below the cap, not at it', () => {
+    const spend = alarms.find((a) => a.AlarmName === `${namePrefix}SMS budget half spent`);
+    expect(spend).toBeDefined();
+    expect(spend!.Namespace).toBe('AWS/SNS');
+    expect(spend!.MetricName).toBe('SMSMonthToDateSpentUSD');
+    // At the cap login is ALREADY down and stays down until the month rolls
+    // over, so an alarm at the cap is an alarm that reports a finished outage.
+    expect(spend!.Threshold).toBeLessThan(50);
   });
 
   // Every Cognito trigger gets its own alarm: an error in any of them locks
