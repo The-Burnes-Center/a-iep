@@ -12,6 +12,7 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as path from 'path';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import { getEnvironment, getResourceName, tagResource } from '../../tags';
@@ -251,6 +252,25 @@ export class MonitoringStack extends Construct {
    * of step with the alarms.
    */
   private addDailyBrief(kmsKey: kms.IKey, components: BriefComponent[]): void {
+    // The manifest goes in Parameter Store, not an environment variable.
+    //
+    // Lambda caps ALL environment variables at 4KB combined, and this one
+    // alone measured 4,745 bytes at 23 components: the deploy failed, and it
+    // failed at CloudFormation rather than in CI. Trimming it to fit would
+    // only move the failure to whoever adds the 24th component, so the size
+    // ceiling has to go away rather than be squeezed under. Advanced tier
+    // because standard parameters share the same 4KB limit.
+    //
+    // It cannot be a file in the lambda asset: the manifest carries function
+    // names, which are CloudFormation tokens that do not exist until deploy.
+    const manifestJson = JSON.stringify(components);
+    const manifestParameter = new ssm.StringParameter(this, 'DailyBriefComponents', {
+      parameterName: `/a-iep/${this.env}/daily-brief/components`,
+      stringValue: manifestJson,
+      tier: ssm.ParameterTier.ADVANCED,
+      description: 'What the daily brief reports on, and what each component is for',
+    });
+
     const brief = new lambda.Function(this, 'DailyBriefFunction', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'handler.lambda_handler',
@@ -264,7 +284,7 @@ export class MonitoringStack extends Construct {
       environment: {
         ALERT_TOPIC_ARN: this.alertTopic.topicArn,
         ENVIRONMENT: this.env,
-        BRIEF_COMPONENTS: JSON.stringify(components),
+        BRIEF_COMPONENTS_PARAM: manifestParameter.parameterName,
         // Scoped so a staging brief never reports production's alarms. They
         // share an account and the name prefix is all that separates them.
         ALARM_PREFIX: `${getResourceName('a-iep')} `,
@@ -283,6 +303,7 @@ export class MonitoringStack extends Construct {
       resources: ['*'],
     }));
     this.alertTopic.grantPublish(brief);
+    manifestParameter.grantRead(brief);
 
     // 13:00 UTC is 9am Eastern, which is when someone is actually reading.
     const schedule = new events.Rule(this, 'DailyBriefSchedule', {

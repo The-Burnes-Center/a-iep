@@ -25,12 +25,18 @@ import boto3
 
 cloudwatch = boto3.client('cloudwatch')
 sns = boto3.client('sns')
+ssm = boto3.client('ssm')
 
 ALERT_TOPIC_ARN = os.environ['ALERT_TOPIC_ARN']
 ENVIRONMENT = os.environ.get('ENVIRONMENT', 'unknown')
 # What to report on: [{label, functionName, purpose}], built in CDK so this
 # lambda never needs editing when a component is added.
-COMPONENTS = json.loads(os.environ.get('BRIEF_COMPONENTS', '[]'))
+#
+# Read from Parameter Store rather than an environment variable, because
+# Lambda caps all environment variables at 4KB combined and this manifest is
+# already larger than that. Read once per cold start, not per invocation: it
+# runs daily, so every run is a cold start anyway.
+BRIEF_COMPONENTS_PARAM = os.environ.get('BRIEF_COMPONENTS_PARAM', '')
 ALARM_PREFIX = os.environ.get('ALARM_PREFIX', '')
 
 IS_PROD = ENVIRONMENT in ('prod', 'production')
@@ -40,6 +46,23 @@ OK = ':white_check_mark:'
 IDLE = ':zzz:'
 PROBLEM = ':rotating_light:'
 WARN = ':warning:'
+
+
+def _components():
+    """The manifest, or an empty list if it cannot be read.
+
+    An unreadable manifest degrades to a brief that reports the firing alarms
+    and nothing else, which is worse than the full brief but far better than
+    no brief: silence is the one outcome this whole thing exists to remove.
+    """
+    if not BRIEF_COMPONENTS_PARAM:
+        return []
+    try:
+        value = ssm.get_parameter(Name=BRIEF_COMPONENTS_PARAM)['Parameter']['Value']
+        return json.loads(value)
+    except Exception as error:  # noqa: BLE001 - see docstring
+        print(f'Could not read the brief manifest: {error}')
+        return []
 
 
 def _metric_queries(components):
@@ -132,8 +155,9 @@ def build_brief(now=None):
     day = now.date().isoformat()
     env_label = 'prod' if IS_PROD else 'staging'
 
-    totals = _totals(COMPONENTS, start, now) if COMPONENTS else {}
-    lines, problems, ran, idle = _component_lines(COMPONENTS, totals)
+    components = _components()
+    totals = _totals(components, start, now) if components else {}
+    lines, problems, ran, idle = _component_lines(components, totals)
     firing = _alarms_now()
 
     if problems or firing:

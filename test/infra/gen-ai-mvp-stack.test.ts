@@ -1201,6 +1201,70 @@ describe('on-demand single-language translation', () => {
   });
 });
 
+// Lambda caps ALL environment variables at 4KB COMBINED, and CloudFormation
+// only says so at deploy time. A manifest of 23 components measured 4,745
+// bytes and took the staging deploy down with it, after CI had gone green.
+//
+// Tokens are the reason this needs care: an unresolved `${Token[...]}` is
+// shorter than the value it becomes, so a naive measurement understates the
+// real size. Each is counted as a generous fixed width instead, which is why
+// the budget below is well under 4096 rather than at it.
+describe('Lambda environment variables fit inside the 4KB limit', () => {
+  // Staging only, and that is the worst case on purpose: every staging
+  // resource name carries an extra "staging", so if it fits here it fits in
+  // production.
+  const LAMBDA_ENV_LIMIT_BYTES = 4096;
+  // An unresolved `${Token[...]}` is shorter than the name it becomes, so
+  // measuring the synthesized text understates the deployed size. Each token
+  // is charged a generous fixed width instead.
+  const ASSUMED_TOKEN_BYTES = 140;
+
+  // Walks the value rather than measuring its JSON. A large env var
+  // synthesizes as an Fn::Join whose parts hold the real text, so charging
+  // the whole object a flat token width undercounts it by thousands of bytes.
+  // That mistake made the first version of this test pass against the exact
+  // manifest that broke the deploy.
+  const measureValue = (value: unknown): number => {
+    if (typeof value === 'string') {
+      const tokens = (value.match(/\$\{Token\[/g) ?? []).length;
+      return value.length + tokens * ASSUMED_TOKEN_BYTES;
+    }
+    if (Array.isArray(value)) {
+      return value.reduce<number>((total, item) => total + measureValue(item), 0);
+    }
+    if (value && typeof value === 'object') {
+      const object = value as Record<string, unknown>;
+      if ('Fn::Join' in object) {
+        const [delimiter, parts] = object['Fn::Join'] as [string, unknown[]];
+        const joined: number = parts.reduce<number>(
+          (total, part) => total + measureValue(part), 0);
+        return joined + delimiter.length * Math.max(0, parts.length - 1);
+      }
+      // A Ref or GetAtt: resolves to one resource name at deploy.
+      return ASSUMED_TOKEN_BYTES;
+    }
+    return 0;
+  };
+
+  const measure = (variables: Record<string, unknown>): number =>
+    Object.entries(variables).reduce(
+      (total, [key, value]) => total + key.length + measureValue(value), 0);
+
+  test('no function is close to the limit', () => {
+    const functions = Object.entries(template.findResources('AWS::Lambda::Function'));
+    expect(functions.length).toBeGreaterThan(0);
+
+    const oversized = functions
+      .map(([logicalId, resource]) => ({
+        logicalId,
+        bytes: measure((resource as any).Properties?.Environment?.Variables ?? {}),
+      }))
+      .filter((f) => f.bytes >= LAMBDA_ENV_LIMIT_BYTES);
+
+    expect(oversized).toEqual([]);
+  });
+});
+
 describe('Lambda runtimes', () => {
   // One approved runtime per language keeps deprecation upgrades atomic and
   // matches CI's pinned toolchains (python 3.12 in the pytest job, node 20 in

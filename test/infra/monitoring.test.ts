@@ -398,30 +398,34 @@ describe('the daily brief', () => {
     }
   });
 
+  // The manifest lives in Parameter Store, not an environment variable:
+  // Lambda caps all environment variables at 4KB combined and this one
+  // measured past it, taking a staging deploy down after CI went green.
   test('every monitored component reaches the brief with a purpose', () => {
     const template = synth('production');
-    const fn = Object.values(template.findResources('AWS::Lambda::Function'))
+    const parameters = Object.values(template.findResources('AWS::SSM::Parameter'))
       .map((r: any) => r.Properties)
-      .find((p: any) => String(p.Description).includes('daily A-IEP health brief'));
-    expect(fn).toBeDefined();
+      .filter((p: any) => String(p.Name ?? '').includes('daily-brief'));
+    expect(parameters).toHaveLength(1);
 
     // The manifest embeds function-name tokens, so it synthesizes as an
-    // Fn::Join rather than a string. Rebuilding it with the tokens replaced
-    // by a placeholder checks the far more useful property: that what the
-    // lambda receives at runtime is well-formed JSON, tokens and all.
-    const raw = fn.Environment.Variables.BRIEF_COMPONENTS;
+    // Fn::Join. Rebuilding it with the tokens replaced by a placeholder
+    // checks the property that matters: that what the lambda reads at
+    // runtime is well-formed JSON, tokens and all.
+    const raw = parameters[0].Value;
     const joined = typeof raw === 'string'
       ? raw
       : (raw['Fn::Join'][1] as any[])
           .map((part) => (typeof part === 'string' ? part : 'resolved-name'))
           .join(raw['Fn::Join'][0]);
     const manifest = JSON.parse(joined);
+
     // Pipeline, auth triggers and API handlers: every lambda a parent's
     // experience depends on.
     expect(manifest.length).toBeGreaterThanOrEqual(20);
     for (const component of manifest) {
       // A line without a purpose is decoration: "0 runs" cannot be judged
-      // without knowing whether the thing is meant to run.
+      // without knowing whether the thing was meant to run.
       expect(component.purpose.length).toBeGreaterThan(10);
       expect(component.label.length).toBeGreaterThan(0);
     }

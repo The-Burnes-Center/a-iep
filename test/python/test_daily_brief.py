@@ -28,17 +28,18 @@ COMPONENTS = [
 def brief(monkeypatch):
     monkeypatch.setenv('ALERT_TOPIC_ARN', 'arn:aws:sns:us-east-1:123456789012:alerts')
     monkeypatch.setenv('ENVIRONMENT', 'production')
-    monkeypatch.setenv('BRIEF_COMPONENTS', json.dumps(COMPONENTS))
+    monkeypatch.setenv('BRIEF_COMPONENTS_PARAM', '/a-iep/prod/daily-brief/components')
     monkeypatch.setenv('ALARM_PREFIX', 'a-iep ')
     with mock_aws():
         yield load_lambda_module('daily-brief', ALIAS, module_name='handler')
     unload(ALIAS)
 
 
-def _stub(module, totals, firing=()):
+def _stub(module, totals, firing=(), components=None):
     """totals: {functionName: (invocations, errors)}."""
-    module._totals = lambda components, start, end: {
-        i: list(totals.get(c['functionName'], (0, 0))) for i, c in enumerate(components)
+    module._components = lambda: list(COMPONENTS if components is None else components)
+    module._totals = lambda comps, start, end: {
+        i: list(totals.get(c['functionName'], (0, 0))) for i, c in enumerate(comps)
     }
     module._alarms_now = lambda: list(firing)
 
@@ -126,3 +127,38 @@ def test_it_publishes_as_a_custom_notification(brief):
     payload = json.loads(published[0]['Message'])
     assert payload['source'] == 'custom'
     assert payload['content']['textType'] == 'client-markdown'
+
+
+def test_an_unreadable_manifest_still_produces_a_brief(brief, monkeypatch):
+    """Degrading to a thinner brief beats degrading to silence.
+
+    The manifest lives in Parameter Store because it outgrew the 4KB Lambda
+    environment limit. If that read fails, the components cannot be listed,
+    but a firing alarm still must reach someone: no news is the exact outcome
+    this whole thing exists to remove.
+    """
+    def explode(**kwargs):
+        raise RuntimeError('Parameter Store unavailable')
+
+    brief.ssm = type('S', (), {'get_parameter': staticmethod(explode)})()
+    brief._alarms_now = lambda: ['a-iep login codes are not being delivered']
+
+    content = brief.build_brief(now=NOW)['content']
+
+    assert '1 problem(s)' in content['title']
+    assert 'a-iep login codes are not being delivered' in content['description']
+
+
+def test_the_manifest_is_read_from_the_configured_parameter(brief):
+    """And from nowhere else: it is environment-scoped."""
+    asked = []
+    brief.ssm = type('S', (), {
+        'get_parameter': staticmethod(
+            lambda **kw: asked.append(kw['Name']) or {'Parameter': {'Value': json.dumps(COMPONENTS)}}),
+    })()
+    brief._totals = lambda comps, start, end: {i: [1, 0] for i in range(len(comps))}
+    brief._alarms_now = lambda: []
+
+    brief.build_brief(now=NOW)
+
+    assert asked == ['/a-iep/prod/daily-brief/components']
