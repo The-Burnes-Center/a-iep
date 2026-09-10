@@ -555,8 +555,14 @@ describe('Cognito custom-auth wiring', () => {
       // API keys included, one bug away from a caller-influenced read.
       expect(actions).toEqual(['ssm:GetParameter']);
       const resources = ([] as any[]).concat(st.Resource).map((r) => JSON.stringify(r));
-      expect(resources.every((r) => r.includes('/turnstile/secret'))).toBe(true);
+      // Two exact parameters are legitimate here and nothing else is: the
+      // secret itself, and (staging only) the E2E bypass token. The property
+      // that matters is that each grant names ONE parameter, so widening
+      // either one to a prefix fails this.
+      expect(resources.every((r) =>
+        r.includes('/turnstile/secret') || r.includes('/e2e-turnstile-bypass'))).toBe(true);
       expect(resources.some((r) => r.includes('turnstile/*'))).toBe(false);
+      expect(resources.some((r) => r.includes('e2e-turnstile-bypass*'))).toBe(false);
     }
   });
 
@@ -1671,6 +1677,26 @@ describe('production synth: the OTP test backdoor must not exist', () => {
     // Sweeps IAM policies and everything else in one pass: the string simply
     // must not appear anywhere in the production template.
     expect(JSON.stringify(prodTemplate.toJSON())).not.toContain('/a-iep/staging/test-otp');
+  });
+
+  // The signup endpoint's Turnstile bypass, which exists only so the E2E
+  // suite can complete an account creation: a real widget refuses automated
+  // browsers, which is the entire product. In production there must be no
+  // env var, no SSM grant and no parameter reference, so the bypass branch in
+  // signup-endpoint.js is unreachable rather than merely unused.
+  test('no production lambda can bypass the signup bot check', () => {
+    const functions = Object.entries(prodTemplate.findResources('AWS::Lambda::Function'));
+    expect(functions.length).toBeGreaterThanOrEqual(20);
+
+    const offenders = functions
+      .filter(([, fn]: [string, any]) => 'E2E_BYPASS_PARAM' in (fn.Properties?.Environment?.Variables ?? {}))
+      .map(([logicalId]) => logicalId);
+    expect(offenders).toEqual([]);
+
+    // And nothing anywhere may even name the parameter, which also covers the
+    // IAM grant.
+    expect(JSON.stringify(prodTemplate.toJSON()))
+      .not.toContain('/a-iep/staging/e2e-turnstile-bypass');
   });
 
   // A custom SMS sender takes over ALL of a pool's SMS delivery. On staging

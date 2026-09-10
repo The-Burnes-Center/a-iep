@@ -11,7 +11,7 @@
  */
 import { Page, expect } from '@playwright/test';
 import { appUrl } from './config';
-import { fetchOtp } from './aws';
+import { fetchOtp, fetchTurnstileBypassToken } from './aws';
 
 /** The English copy the flows key on (single place to update when the
  * translation files change; values mirror src/translations/en.json). */
@@ -37,7 +37,42 @@ export const EN = {
 /** Once one of these is reached, login + onboarding are behind us. */
 export const IN_APP_PATHS = ['/summary-and-translations', '/iep-documents'];
 
+/**
+ * Put the staging bypass token on every signup request this page makes.
+ *
+ * Done at the NETWORK layer, deliberately, rather than by teaching the app a
+ * test mode. The browser cannot solve a real Turnstile challenge, so something
+ * has to substitute the token; doing it here means no bypass code exists in
+ * the shipped frontend at all, and the only thing that can be misconfigured is
+ * a staging-only server-side check that production is never given.
+ *
+ * The endpoint additionally requires one of TEST_PHONE_NUMBERS, so this
+ * rewrite cannot create an account on a number a person could receive a text
+ * on, even if the token leaked.
+ */
+export async function allowSignupPastTurnstile(page: Page): Promise<void> {
+  const token = await fetchTurnstileBypassToken();
+  await page.route('**/auth/signup', async (route) => {
+    const request = route.request();
+    let body: Record<string, unknown> = {};
+    try {
+      body = JSON.parse(request.postData() ?? '{}');
+    } catch {
+      // Leave a malformed body alone: the endpoint's own 400 path is a thing
+      // worth being able to test.
+      await route.continue();
+      return;
+    }
+    await route.continue({
+      postData: JSON.stringify({ ...body, turnstileToken: token }),
+    });
+  });
+}
+
 export async function gotoLogin(page: Page): Promise<void> {
+  // Before the first navigation, so the route is in place for any signup the
+  // page makes. Harmless on flows that never sign up.
+  await allowSignupPastTurnstile(page);
   await page.goto(appUrl('/login'));
   await expect(phoneInput(page)).toBeVisible();
 }

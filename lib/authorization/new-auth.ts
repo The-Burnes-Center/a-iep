@@ -85,6 +85,15 @@ const TEST_PHONE_NUMBERS = [
 // ssm:PutParameter to exactly this subtree.
 const TEST_OTP_PARAM_PREFIX = '/a-iep/staging/test-otp';
 
+// Staging-only bypass for the signup bot check, same gate and same reasoning
+// as the OTP backdoor above. Turnstile refuses automated browsers by design,
+// so the real widget and an automated signup cannot both work; staging keeps
+// the real widget for anyone testing by hand, and only the E2E runner holds
+// this. The endpoint additionally requires one of TEST_PHONE_NUMBERS, so a
+// leaked token cannot create an account on a number a person could receive a
+// text on. Created out of band, like every other credential here.
+const E2E_TURNSTILE_BYPASS_PARAM = '/a-iep/staging/e2e-turnstile-bypass';
+
 /**
  * Props for NewAuthorizationStack
  */
@@ -514,6 +523,21 @@ export class NewAuthorizationStack extends Construct {
         `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${TURNSTILE_SECRET_PARAM}`,
       ],
     }));
+
+    // Production gets no env var and no grant, so the bypass branch in the
+    // endpoint is unreachable there rather than merely unused. Pinned on both
+    // sides in test/infra/gen-ai-mvp-stack.test.ts.
+    if (getEnvironment() !== 'prod') {
+      signupFunction.addEnvironment('E2E_BYPASS_PARAM', E2E_TURNSTILE_BYPASS_PARAM);
+      signupFunction.addEnvironment('TEST_PHONE_NUMBERS', TEST_PHONE_NUMBERS.join(','));
+      signupFunction.addToRolePolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['ssm:GetParameter'],
+        resources: [
+          `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${E2E_TURNSTILE_BYPASS_PARAM}`,
+        ],
+      }));
+    }
 
     tagResource(signupFunction, { Resource: 'Lambda', Function: 'SignupEndpoint' });
 

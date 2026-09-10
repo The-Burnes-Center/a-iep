@@ -232,3 +232,34 @@ export async function deleteTestUserIfExists(phone: string): Promise<void> {
     if ((error as Error).name !== 'UserNotFoundException') throw error;
   }
 }
+
+/**
+ * The staging-only token that gets this suite past the Turnstile bot check.
+ *
+ * Turnstile refuses automated browsers. That is the entire product, so a real
+ * widget and an automated signup cannot both work, and staging keeps the real
+ * widget for anyone testing by hand. Without this the signup journey cannot
+ * run at all, and that journey is the coverage that caught a phone-signup bug
+ * which had been broken for over a month.
+ *
+ * The token alone is not enough to create an account: the endpoint also
+ * requires one of TEST_PHONE_NUMBERS, and production is not given the
+ * parameter, the environment variable or the IAM grant.
+ */
+let cachedBypassToken: string | undefined;
+export async function fetchTurnstileBypassToken(): Promise<string> {
+  if (cachedBypassToken === undefined) {
+    const result = await ssm.send(new GetParameterCommand({
+      Name: '/a-iep/staging/e2e-turnstile-bypass',
+      WithDecryption: true,
+    }));
+    const value = result.Parameter?.Value;
+    if (!value) {
+      throw new Error(
+        'The Turnstile bypass parameter is missing or empty, so no signup in this ' +
+        'suite can succeed. Create /a-iep/staging/e2e-turnstile-bypass.');
+    }
+    cachedBypassToken = value;
+  }
+  return cachedBypassToken;
+}

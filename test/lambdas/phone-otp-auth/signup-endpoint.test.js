@@ -315,3 +315,103 @@ describe('signup endpoint', () => {
         logged.mockRestore();
     });
 });
+
+describe('the staging-only Turnstile bypass', () => {
+    // Turnstile refuses automated browsers by design, so the real widget and
+    // an automated signup cannot both work. Staging keeps the real widget for
+    // people; only the E2E runner has a way past it. Every assertion here is
+    // about that door staying shut everywhere else.
+    const BYPASS = 'bypass-token-value';
+    const TEST_NUMBER = '+15555550120';
+
+    const withBypass = (extra = {}) => ({
+        body: JSON.stringify({ phoneNumber: TEST_NUMBER, turnstileToken: BYPASS, ...extra }),
+        requestContext: { http: { sourceIp: '203.0.113.10' } },
+    });
+
+    beforeEach(() => {
+        jest.resetModules();
+        mockCognitoSend.mockReset().mockResolvedValue({});
+        mockDdbSend.mockReset().mockResolvedValue({ Attributes: { attempts: 1 } });
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true, status: 200, json: async () => ({ success: true }),
+        });
+        process.env.USER_POOL_ID = 'us-east-1_test';
+        process.env.SIGNUP_RATE_LIMIT_TABLE = 'signup-limits';
+        process.env.TURNSTILE_SECRET_PARAM = '/a-iep/test/turnstile/secret';
+        process.env.E2E_BYPASS_PARAM = '/a-iep/staging/e2e-turnstile-bypass';
+        process.env.TEST_PHONE_NUMBERS = TEST_NUMBER;
+        // The secret exists, so the real check WOULD run without the bypass.
+        mockSsmSend.mockReset().mockImplementation((cmd) =>
+            Promise.resolve({
+                Parameter: {
+                    Value: cmd.input.Name === process.env.E2E_BYPASS_PARAM ? BYPASS : 'real-secret',
+                },
+            }));
+    });
+
+    afterEach(() => {
+        delete process.env.E2E_BYPASS_PARAM;
+        delete process.env.TEST_PHONE_NUMBERS;
+        delete global.fetch;
+    });
+
+    test('a test number with the bypass token skips Cloudflare entirely', async () => {
+        const response = await load()(withBypass());
+
+        expect(response.statusCode).toBe(200);
+        // The point of the whole mechanism: no call to siteverify.
+        expect(global.fetch).not.toHaveBeenCalled();
+        expect(commandsOfKind('create')).toHaveLength(1);
+    });
+
+    test('the bypass does nothing for a real phone number', async () => {
+        // The guard that makes a leaked token worthless: it can only ever
+        // create an account on a number no handset can receive a text on.
+        // Cloudflare rejects it, as it would any string that is not one of
+        // its own tokens.
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true, status: 200, json: async () => ({ success: false, 'error-codes': ['invalid-input-response'] }),
+        });
+
+        const response = await load()({
+            body: JSON.stringify({ phoneNumber: '+15551234567', turnstileToken: BYPASS }),
+            requestContext: { http: { sourceIp: '203.0.113.10' } },
+        });
+
+        // Falls through to the real check, and is refused by it.
+        expect(global.fetch).toHaveBeenCalled();
+        expect(response.statusCode).toBe(403);
+        expect(commandsOfKind('create')).toHaveLength(0);
+    });
+
+    test('production has no bypass at all, so a test number is still checked', async () => {
+        // CDK sets E2E_BYPASS_PARAM only when the environment is not prod.
+        delete process.env.E2E_BYPASS_PARAM;
+
+        await load()(withBypass());
+
+        expect(global.fetch).toHaveBeenCalled();
+    });
+
+    test('a wrong token does not open the door', async () => {
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true, status: 200, json: async () => ({ success: false, 'error-codes': ['invalid-input-response'] }),
+        });
+
+        const response = await load()(withBypass({ turnstileToken: 'not-the-token' }));
+
+        expect(global.fetch).toHaveBeenCalled();
+        expect(response.statusCode).toBe(403);
+    });
+
+    test('using the bypass is recorded, never silent', async () => {
+        const logged = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        await load()(withBypass());
+
+        const out = logged.mock.calls.map((a) => a.join(' ')).join('\n');
+        expect(out).toContain('SIGNUP_E2E_BYPASS');
+        logged.mockRestore();
+    });
+});
