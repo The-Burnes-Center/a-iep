@@ -618,7 +618,7 @@
           "ResultPath": "$.error"
         }
       ],
-      "End": true
+      "Next": "PurgeRedactedOCR"
     },
     "FailedAtFinalizeResults": {
       "Type": "Pass",
@@ -651,6 +651,46 @@
           "BackoffRate": 2
         }
       ],
+      "End": true
+    },
+    "PurgeRedactedOCR": {
+      "Type": "Task",
+      "Resource": "${DDBServiceArn}",
+      "Comment": "Delete the redacted OCR once the summary exists. The summary, sections and translations are the product; the redacted text is an intermediate we have no further use for, and redaction is best-effort rather than a guarantee.",
+      "Parameters": {
+        "operation": "delete_ocr_data",
+        "params": {
+          "iep_id.$": "$.iep_id",
+          "child_id.$": "$.child_id",
+          "user_id.$": "$.user_id",
+          "data_type": "redacted_ocr_result"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "RedactedOCRPurgeSkipped",
+          "ResultPath": "$.purge_error"
+        }
+      ],
+      "End": true
+    },
+    "RedactedOCRPurgeSkipped": {
+      "Type": "Pass",
+      "Comment": "The purge failed and the document is still complete. Left behind rather than failing the run; the DDB service error alarm is what surfaces it.",
       "End": true
     }
   }

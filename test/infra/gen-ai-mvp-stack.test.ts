@@ -36,6 +36,17 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 // Anything added here must survive the same scrutiny.
 const PUBLIC_ROUTE_KEYS = ['POST /referral/click', 'POST /auth/signup'];
 
+// The one pipeline state whose failure must NOT reach RecordFailure, and only
+// one. PurgeRedactedOCR runs AFTER the document is finished, so recording a
+// failure there would mark a completed document as failed: the parent would
+// see an error for a summary they already have, and the document-failure
+// alarm would fire for a document that did not fail. Leaving the redacted
+// text behind is the lesser harm and a sweep can collect it; losing a
+// parent's upload cannot be undone.
+//
+// Named rather than pattern-matched, so a second state cannot quietly join it.
+const CATCH_EXEMPT_STATES = ['PurgeRedactedOCR'];
+
 // Lambdas aws-cdk-lib injects for its own custom resources (log retention,
 // auto-delete-objects, bucket notifications, bucket deployment). Their
 // runtimes are managed by the library, not by us, so the runtime pin below
@@ -440,6 +451,35 @@ describe('Cognito custom-auth wiring', () => {
       (trail.EventSelectors as any[]).flatMap((s) => s.DataResources ?? []),
     );
     expect(tableRefs).not.toContain('OtpRateLimitTable');
+  });
+
+  // Data minimisation: the redacted OCR is an intermediate, and redaction is
+  // best-effort rather than a guarantee, so keeping it after the summary
+  // exists is holding a copy of a child's IEP text for no reason.
+  test('the pipeline purges the redacted OCR once the summary exists', () => {
+    const states = parseStateMachineDefinition(template, 'IEPProcessingStateMachine').States;
+
+    // AFTER the summary is written, never before: the parsing agent reads
+    // this text, so purging earlier would break the product itself.
+    expect(states.FinalizeResults.Next).toBe('PurgeRedactedOCR');
+    expect(states.PurgeRedactedOCR.Parameters.params.data_type).toBe('redacted_ocr_result');
+    expect(states.PurgeRedactedOCR.Parameters.operation).toBe('delete_ocr_data');
+  });
+
+  // A cleanup failure must not turn a finished document into a failed one.
+  // The parent already has their summary; RecordFailure would tell them
+  // otherwise, and would also fire the document-failure alarm for a document
+  // that did not fail.
+  test('a failed purge does not mark the document failed', () => {
+    const states = parseStateMachineDefinition(template, 'IEPProcessingStateMachine').States;
+    const purge: any = states.PurgeRedactedOCR;
+
+    expect(purge).toBeDefined();
+    const catches: any[] = purge.Catch ?? [];
+    expect(catches).toHaveLength(1);
+    // Anywhere but RecordFailure: the document is already finished.
+    expect(catches[0].Next).toBe('RedactedOCRPurgeSkipped');
+    expect(states.RedactedOCRPurgeSkipped).toMatchObject({ Type: 'Pass', End: true });
   });
 
   // The change that actually closes the hole. Cognito's SignUp API is public
@@ -993,6 +1033,12 @@ describe('IEP processing state machine', () => {
     const states: Record<string, any> = definition.States;
     expect(states.RecordFailure).toMatchObject({ Type: 'Task' });
 
+    // The exemption only counts if the state actually exists; a rename would
+    // otherwise silently exempt nothing and hide a real regression.
+    for (const exempt of CATCH_EXEMPT_STATES) {
+      expect(states[exempt]).toBeDefined();
+    }
+
     /** Does this catch target land on RecordFailure, at most one Pass away? */
     const reachesRecordFailure = (next: string): boolean => {
       if (next === 'RecordFailure') return true;
@@ -1002,7 +1048,9 @@ describe('IEP processing state machine', () => {
 
     const offenders = Object.entries(states)
       .filter(([name, state]: [string, any]) =>
-        name !== 'RecordFailure' && (state.Type === 'Task' || state.Type === 'Parallel'))
+        name !== 'RecordFailure'
+        && !CATCH_EXEMPT_STATES.includes(name)
+        && (state.Type === 'Task' || state.Type === 'Parallel'))
       .filter(([, state]: [string, any]) => {
         const catches: any[] = state.Catch ?? [];
         return !catches.some((c) =>
@@ -1011,6 +1059,13 @@ describe('IEP processing state machine', () => {
       .map(([name]) => name);
 
     expect(offenders).toEqual([]);
+
+    // The exempt state must still CATCH, just somewhere else. An uncaught
+    // failure would abort the execution and is a different bug.
+    for (const exempt of CATCH_EXEMPT_STATES) {
+      const catches: any[] = states[exempt].Catch ?? [];
+      expect(catches.some((c) => (c.ErrorEquals ?? []).includes('States.ALL'))).toBe(true);
+    }
   });
 
   // Guards the catch-all test against renames hollowing it out: the OCR,
@@ -1068,6 +1123,7 @@ describe('IEP processing state machine', () => {
 
       expect(caught.length).toBeGreaterThan(0);
       for (const [source, next] of caught) {
+        if (CATCH_EXEMPT_STATES.includes(source as string)) continue;
         // Never straight to RecordFailure: that is what made failed_step a lie.
         expect(next).toBe(`FailedAt${source}`);
         const marker = states[next as string];
