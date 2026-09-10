@@ -61,6 +61,15 @@ export interface UserInterfaceProps {
   readonly cognitoDomain : string;
 }
 
+// Cloudflare Turnstile site key. Public by design: it identifies the widget
+// and is served in the page to every visitor, so there is nothing to protect.
+// The SECRET that validates the token it produces is a different value, lives
+// in Parameter Store as a SecureString, and is read only by the server side.
+//
+// One key covers both environments today. Overridable per deploy for when
+// that stops being true.
+const TURNSTILE_SITE_KEY = process.env.TURNSTILE_SITE_KEY || '0x4AAAAAAEvXtpdIJHNkU_vK';
+
 export class UserInterface extends Construct {
   public readonly websiteDistribution: cf.CloudFrontWebDistribution;
 
@@ -116,13 +125,7 @@ export class UserInterface extends Construct {
       federatedSignInProvider : OIDCIntegrationName,
       enabledLanguages : resolveEnabledLanguages(),
       enabledFeatures : resolveEnabledFeatures(),
-      // Public key, safe in the bundle. Empty until TURNSTILE_SITE_KEY is set
-      // for the deploy, which is the same switch as the secret parameter the
-      // trigger reads: no key, no widget, and the trigger treats signups as
-      // unverified rather than refusing them.
-      ...(process.env.TURNSTILE_SITE_KEY
-        ? { turnstileSiteKey: process.env.TURNSTILE_SITE_KEY }
-        : {}),
+      turnstileSiteKey : TURNSTILE_SITE_KEY,
       // Gates prod-only frontend integrations (Google Analytics), since
       // staging and prod are otherwise identical production builds.
       environment : getEnvironment()

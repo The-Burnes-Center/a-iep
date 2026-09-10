@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useContext, useState } from 'react';
 import {
   signIn, signUp, confirmSignIn, confirmSignUp, resendSignUpCode,
   resetPassword, confirmResetPassword, getCurrentUser, signOut,
@@ -26,6 +26,7 @@ import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import { useAuth } from '../common/auth-provider';
 import { cognitoErrorKey } from '../common/helpers/cognito-error-helper';
 import { useTurnstile } from '../common/hooks/use-turnstile';
+import { AppContext } from '../common/app-context';
 import AuthHeader from './AuthHeader';
 import PasswordInput from './PasswordInput';
 import PasswordRequirements from './PasswordRequirements';
@@ -120,6 +121,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   // account. Sign-in needs none: an unknown number never reaches the trigger
   // that sends an SMS, so signup is the only path worth challenging.
   const turnstile = useTurnstile();
+  const appConfig = useContext(AppContext);
   const [showMobileLogin, setShowMobileLogin] = useState(true);  
   const [mobileLoading, setMobileLoading] = useState(false);
   const [smsCode, setSmsCode] = useState('');
@@ -307,58 +309,41 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           // User doesn't exist, create them first
           // console.log('Creating new user for phone:', formattedPhone);
           
-          // Generate a secure random password
-          // The parent never learns this password, but the app client allows
-          // USER_PASSWORD_AUTH and USER_SRP_AUTH, so a guessable value would be a
-          // way to sign in without the SMS code. 128 bits from the platform CSPRNG;
-          // the prefix satisfies the pool's upper/lower/digit/symbol policy.
-          const randomSuffix = Array.from(
-            crypto.getRandomValues(new Uint8Array(16)),
-            (byte) => byte.toString(16).padStart(2, '0'),
-          ).join('');
-          const tempPassword = `TempPass123!${randomSuffix}`;
-          
           try {
-            // v6: attributes/clientMetadata move under options.
-            const signUpResult = await signUp({
-              username: formattedPhone,
-              password: tempPassword,
-              options: {
-                userAttributes: {
-                  phone_number: formattedPhone,
-                  // 'locale' is how the OTP login SMS gets localized: Cognito
-                  // doesn't forward sign-in clientMetadata to that trigger
-                  locale: language,
-                },
-                clientMetadata: {
-                  language,
-                  // Verified server-side in the PreSignUp trigger. Sent only
-                  // when the widget produced one; whether an unverified
-                  // signup is accepted is the server's call, not this form's.
-                  ...(turnstile.token ? { turnstileToken: turnstile.token } : {}),
-                },
-              },
+            // The account is created by OUR endpoint, not by Cognito's public
+            // SignUp API, which the pool now refuses. That API was reachable
+            // by anyone holding the app client id, which necessarily ships in
+            // this bundle, and is how the 2026-09-09 abuse run created a
+            // thousand accounts without ever loading this page.
+            //
+            // No password is chosen here any more. The endpoint generates one
+            // the moment the account exists and nobody, including this code,
+            // ever sees it.
+            const response = await fetch(`${appConfig.httpEndpoint}auth/signup`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                phoneNumber: formattedPhone,
+                language,
+                // Verified server-side. Absent when no widget is configured,
+                // in which case the server decides whether to accept it.
+                ...(turnstile.token ? { turnstileToken: turnstile.token } : {}),
+              }),
             });
 
-            // v6 renamed userConfirmed -> isSignUpComplete
-            if (signUpResult.isSignUpComplete) {
-              // The PreSignUp trigger auto-confirmed the account, so Cognito
-              // minted no signup code and there is nothing to collect here:
-              // go straight to the login OTP, which is now the ONLY SMS a new
-              // parent receives.
-              setIsNewUserSignup(true);
-              await applyPhoneSignInResult(await signInWithPhone(formattedPhone), 'auth.smsCodeSentNewUser');
-            } else {
-              // userConfirmed === false means the trigger did not take effect.
-              // Fall back to the old two-code flow rather than stranding the
-              // parent on a screen waiting for a code that never comes.
-              setIsNewUserConfirmation(true);
-              setPendingPhoneNumber(formattedPhone);
-              setIsNewUserSignup(true); // Mark as new user signup
-              setSmsCodeSent(true);
-              setSuccessMessage('auth.smsCodeSentNewUser');
+            if (!response.ok) {
+              // 429 is a rate limit and 403 a failed anti-abuse check. Both
+              // are deliberate refusals a parent can act on by waiting or
+              // retrying, so they must not read as a generic failure.
+              throw Object.assign(new Error('signup refused'), {
+                name: response.status === 429 ? 'TooManyRequestsException' : 'SignupRefused',
+              });
             }
 
+            // The account exists and is confirmed, so the login OTP is the
+            // only SMS a new parent receives.
+            setIsNewUserSignup(true);
+            await applyPhoneSignInResult(await signInWithPhone(formattedPhone), 'auth.smsCodeSentNewUser');
           } catch (signUpError) {
             console.error('Phone sign-up failed:', errCode(signUpError) ?? 'unknown');
             if (errCode(signUpError) === 'UsernameExistsException') {

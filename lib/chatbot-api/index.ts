@@ -122,6 +122,23 @@ export class ChatBotApi extends Construct {
     });
 
     const s3GetKnowledgeAPIIntegration = new HttpLambdaIntegration('S3GetKnowledgeAPIIntegration', this.lambdaFunctions.getS3KnowledgeFunction);
+    // Signup. The ONE unauthenticated route, necessarily: there is no token
+    // to authorize with before an account exists. Everything that would
+    // normally be an authorizer's job (anti-abuse, rate limiting, destination
+    // policy) happens inside the handler instead, in that order.
+    //
+    // This route only becomes a control because the pool refuses self-service
+    // signup. Before that, Cognito's public SignUp API was reachable from
+    // anywhere and is exactly what the 2026-09-09 run used.
+    const signupIntegration = new HttpLambdaIntegration(
+      'SignupAPIIntegration', authentication.signupFunction);
+    this.httpAPI.restAPI.addRoutes({
+      path: "/auth/signup",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: signupIntegration,
+      authorizer: new apigwv2.HttpNoneAuthorizer(),
+    })
+
     this.httpAPI.restAPI.addRoutes({
       path: "/s3-knowledge-bucket-data",
       methods: [apigwv2.HttpMethod.POST],

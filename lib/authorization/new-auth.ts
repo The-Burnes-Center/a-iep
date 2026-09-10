@@ -111,6 +111,10 @@ export class NewAuthorizationStack extends Construct {
    *  budget fails closed on a DynamoDB error, so throttling here stops
    *  login outright rather than just slowing it. */
   public otpRateLimitTable!: dynamodb.Table;
+  /** The only way to create an account, once the pool refuses self-service
+   *  signup. Exposed so ChatbotAPI can put an unauthenticated route on it:
+   *  there is no token to authorize with before an account exists. */
+  public signupFunction!: lambda.Function;
   public readonly userPoolClient: UserPoolClient;
 
   constructor(scope: Construct, id: string, props?: NewAuthorizationStackProps) {
@@ -159,7 +163,21 @@ export class NewAuthorizationStack extends Construct {
       // Staging only; production keeps Cognito's native SMS delivery, so it
       // registers no key and no custom sender (pinned by the infra suite).
       ...(customSenderKey ? { customSenderKmsKey: customSenderKey } : {}),
-      selfSignUpEnabled: true,
+      // FALSE, and this is the change that actually closes the hole.
+      //
+      // Cognito's SignUp API is public: any caller with the app client id,
+      // which necessarily ships in the browser bundle, can create accounts.
+      // On 2026-09-09 that is precisely what happened, without the attacker
+      // ever loading the site. Everything we can enforce in our own code is
+      // downstream of that, so while this stayed true the front door was open
+      // no matter what we put behind it.
+      //
+      // With it false, AdminCreateUser is the only route in, and only the
+      // signup endpoint holds that permission. The cost is that neither
+      // PreSignUp_SignUp nor PostConfirmation_ConfirmSignUp fires any more,
+      // so auto-confirm and the password rotation both move into that
+      // endpoint. See signup-endpoint.js.
+      selfSignUpEnabled: false,
       mfa: cognito.Mfa.OPTIONAL,
       autoVerify: { email: true, phone: true },
       signInAliases: {
@@ -435,6 +453,58 @@ export class NewAuthorizationStack extends Construct {
 
     // UpdateItem on the SMS rate-limit counter
     otpRateLimitTable.grantWriteData(createAuthChallengeFunction);
+
+    // ── The signup endpoint ────────────────────────────────────────────────
+    // Lives here rather than with the API lambdas because it needs the pool
+    // and the rate-limit table, and because it is part of the auth flow: it
+    // does what PreSignUp and PostConfirmation used to do for a self-service
+    // signup, in one place where it can be read.
+    const signupFunction = new lambda.Function(this, 'SignupEndpointFunction', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
+      handler: 'signup-endpoint.handler',
+      environment: {
+        USER_POOL_ID: userPool.userPoolId,
+        // Same table as the OTP limiter: identical schema (pk plus a TTL on
+        // expiresAt), different key prefixes, and signup is roughly a daily
+        // event so it adds no meaningful load.
+        SIGNUP_RATE_LIMIT_TABLE: otpRateLimitTable.tableName,
+        SIGNUP_ALLOWED_COUNTRY_CODES: SMS_ALLOWED_COUNTRY_CODES.join(','),
+        TURNSTILE_SECRET_PARAM,
+        // Staging only, and only because the E2E suite signs up repeatedly
+        // from one CI address, which no rule can tell apart from abuse.
+        // Production keeps the compiled floors.
+        ...(getEnvironment() !== 'prod'
+          ? { MAX_SIGNUPS_PER_IP_HOUR: '40', MAX_SIGNUPS_PER_HOUR: '80' }
+          : {}),
+      },
+      // One outbound call to Cloudflare, bounded at 5s inside the handler.
+      timeout: cdk.Duration.seconds(30),
+      logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
+      description: 'Creates accounts; the only path once self-service signup is off',
+    });
+    this.signupFunction = signupFunction;
+
+    otpRateLimitTable.grantWriteData(signupFunction);
+
+    // Exactly two actions, on exactly this pool. AdminCreateUser without
+    // AdminSetUserPassword would leave every new account holding a password
+    // the caller was given, which is the takeover this pair prevents.
+    signupFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['cognito-idp:AdminCreateUser', 'cognito-idp:AdminSetUserPassword'],
+      resources: [userPool.userPoolArn],
+    }));
+
+    signupFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['ssm:GetParameter'],
+      resources: [
+        `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${TURNSTILE_SECRET_PARAM}`,
+      ],
+    }));
+
+    tagResource(signupFunction, { Resource: 'Lambda', Function: 'SignupEndpoint' });
 
     // Allow reading user profiles to localize the OTP SMS. grantReadData
     // (rather than a manual GetItem policy) also grants kms:Decrypt on the

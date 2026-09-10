@@ -1,0 +1,104 @@
+{
+  "title": "A-IEP Production Test Round",
+  "creator": "A-IEP / Burnes Center",
+  "meta": [
+    [["Site", "https://a-iep.org"]],
+    [["Scope", "Full end-to-end journey: sign-in, onboarding, upload, summary, translations, profile, referral invites, sign-out"]],
+    [["Deadline", "Aug 6th, 2026 (Thursday)"]],
+    [["Time needed", "About 30 minutes"]],
+    [["Questions", "Dhruv, kamaleshkumar.d@ai4impact.ai"]]
+  ],
+  "blocks": [
+    { "type": "heading", "text": "Read this first" },
+    {
+      "type": "bullets",
+      "items": [
+        [{ "t": "Use the Sample-IEP-for-Testing.pdf. ", "b": true }, "It is a made-up IEP for a made-up child. Never upload a real student's IEP: this is the live production system and real IEPs are protected records."],
+        [{ "t": "Test on your phone browser first. ", "b": true }, "The app is built mobile-first. A desktop pass afterwards is a bonus, not the main event."],
+        [{ "t": "Signing in sends a real text message, ", "b": true }, "so use a phone you have with you."],
+        [{ "t": "Processing takes several minutes. ", "b": true }, "After you press Upload, the wait is expected. Go make coffee, then come back. (i.e. 2-5 mins max)"],
+        [{ "t": "Write down everything, ", "b": true }, "including small things: typos, odd wording, cramped layout, a screen that felt slow."]
+      ]
+    },
+
+    { "type": "heading", "text": "1. Getting in" },
+    {
+      "type": "table",
+      "widths": [16, 42, 42],
+      "labelColumn": true,
+      "header": ["", "A. You do NOT have an account", "B. You already have an account"],
+      "rows": [
+        [
+          [[{ "t": "Do this", "b": true }]],
+          [
+            ["Open the site, tap Log in, choose the phone option and enter your mobile number."],
+            ["Enter the code you get by text. The account is created for you on first sign-in."]
+          ],
+          [
+            ["Open the site, tap Log in, and use the same number (or email and password) as before."],
+            ["Enter the code you get by text."]
+          ]
+        ],
+        [
+          [[{ "t": "Should happen", "b": true }]],
+          [
+            ["The code arrives in about a minute, and onboarding starts (section 2)."],
+            [{ "t": "Note: You will get 2 OTP's when signing up for the first time", "b": true }]
+          ],
+          "The code arrives, and you land on your documents page with your previous document still there."
+        ],
+        [
+          [[{ "t": "Also try", "b": true }]],
+          "Change the language on the login screen before asking for the code. The text message and the screens should both follow that language.",
+          "Enter a wrong code once on purpose. You should get a clear error, not a blank screen or a crash."
+        ]
+      ]
+    },
+
+    { "type": "heading", "text": "2. Onboarding (new accounts only)" },
+    {
+      "type": "steps",
+      "items": [
+        [{ "t": "Pick your preferred language. ", "b": true }, "Choose one that is not English (Spanish, Chinese or Vietnamese) so you can check the translation later."],
+        [{ "t": "Swipe through the intro slides. ", "b": true }, "The text should be in your chosen language, and nothing should be cut off."],
+        [{ "t": "Read and accept the consent form. ", "b": true }, "Before you accept, try to reach the IEP tool. It should hold you on the consent step."],
+        [{ "t": "You should land on the document upload page.", "b": true }]
+      ]
+    },
+
+    { "type": "heading", "text": "3. The main journey" },
+    {
+      "type": "steps",
+      "items": [
+        [{ "t": "Upload. ", "b": true }, "Upload Sample-IEP-for-Testing.pdf and note the time. Also try a file it should refuse, such as a photo (.png): you should get a readable message, not silence."],
+        [{ "t": "Processing. ", "b": true }, "A processing state should appear. Leave the tab, come back, then refresh the page. The status should survive all three."],
+        [{ "t": "Summary. ", "b": true }, "When it finishes you should see a summary for \"Alex Example\". Read it the way a parent would: is it plain language, does it match the PDF, does anything look made up?"],
+        [{ "t": "Translation. ", "b": true }, "Switch between English and your chosen language. The two should genuinely differ, and both should read naturally. Flag anything left untranslated."],
+        [{ "t": "Key Insights. ", "b": true }, "Open every section: Strengths, Eligibility, Present Levels, Goals, Services, Accommodations, Placement, Key People, Consent. Each should open, hold real content, and point to page numbers."],
+        [{ "t": "Download. ", "b": true }, "Download the summary as a PDF and open it. Check that the language, the accent marks and any non-Latin characters survived."],
+        [{ "t": "Replace. ", "b": true }, "Upload the same file again to replace the document. Processing should restart, finish, and leave no trace of the old summary."],
+        [{ "t": "Profile. ", "b": true }, "Change your preferred language in the Account Center and reload. The change should stick, and the tool will ask you to re-upload if the translations don't exist for that language."],
+        [{ "t": "Other pages. ", "b": true }, "Visit FAQs, Parent Rights, Resources, About and Privacy Policy, both signed in and signed out. Watch for broken links, English leaking into a translated page, and text that is unreadable on a small screen."],
+        [{ "t": "Sign out, then sign back in. ", "b": true }, "Your document, language and profile should all still be there."],
+        [{ "t": "Optional, and do it last. ", "b": true }, "To test account deletion: Account Center, then Delete account. You can sign up again afterwards with the same number."]
+      ]
+    },
+
+    { "type": "heading", "text": "4. Invites (pair up for this one)" },
+    { "type": "paragraph", "text": "This one is brand new in production, so nobody outside the team has ever tried it.", "after": 100 },
+    {
+      "type": "steps",
+      "items": [
+        ["Find it. Account Center, then Invite Other Parents. You should see \"Your invite link\" ending in /r/ and a short code, a Copy button, and share buttons for WhatsApp, text and email."],
+        ["Open your own link. Copy it and open it in a private or incognito window. It should land on the A-IEP home page, not an error and not a login wall."],
+        ["Join through it. In that private window, sign up as a brand new parent (pair with a teammate who has not signed up yet, or use a second number or email) and finish onboarding."],
+        ["Check your numbers. Back on your Invite page, refresh. \"Link visits\" and \"Parents joined\" should both have gone up."],
+        ["Check the privacy line. \"Recent joins\" should only say that a parent joined, with a date."],
+        ["Try the share buttons. WhatsApp, text and email should each open with the link already filled in."]
+      ]
+    },
+
+    { "type": "heading", "text": "5. Your feedback" },
+    { "type": "note", "text": "Screenshots help a lot. Attach them, or paste them under the table." }
+  ]
+}

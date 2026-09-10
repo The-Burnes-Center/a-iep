@@ -22,11 +22,19 @@ import * as path from 'path';
 import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 
-// The one deliberately unauthenticated route: the referral click beacon is
-// hit by visitors who are not signed in yet, stores no PII, and only bumps
-// counters for known active codes (lib/chatbot-api/index.ts). Anything else
-// added here must survive the same scrutiny.
-const PUBLIC_ROUTE_KEYS = ['POST /referral/click'];
+// The deliberately unauthenticated routes. Each one has to justify itself,
+// because this list is the API's attack surface.
+//
+//   /referral/click  hit by visitors who are not signed in yet, stores no
+//                    PII, and only bumps counters for known active codes.
+//   /auth/signup     there is no token before an account exists, so this
+//                    cannot be authorized. Everything an authorizer would do
+//                    happens inside the handler instead: destination policy,
+//                    per-source and global rate limits, then anti-abuse
+//                    verification, cheapest check first.
+//
+// Anything added here must survive the same scrutiny.
+const PUBLIC_ROUTE_KEYS = ['POST /referral/click', 'POST /auth/signup'];
 
 // Lambdas aws-cdk-lib injects for its own custom resources (log retention,
 // auto-delete-objects, bucket notifications, bucket deployment). Their
@@ -229,7 +237,7 @@ describe('HTTP API authorization', () => {
   // data (child profiles, IEP documents, referral admin); a route that synths
   // without the JWT authorizer is a public leak, so this must fail for any
   // new or existing route that isn't explicitly in PUBLIC_ROUTE_KEYS.
-  test('every route requires the JWT authorizer except the referral click beacon', () => {
+  test('every route requires the JWT authorizer except the two public ones', () => {
     const routes = template.findResources('AWS::ApiGatewayV2::Route');
 
     // Sanity floor: if the API "lost" this many routes, the template is
@@ -248,14 +256,14 @@ describe('HTTP API authorization', () => {
   // Pins the exemption itself: the beacon must exist (visitors aren't signed
   // in yet, so wiring JWT onto it silently kills referral attribution) and
   // must stay the ONLY unauthenticated route.
-  test('POST /referral/click is the single deliberately public route', () => {
+  test('exactly the expected routes are public, and no others', () => {
     const routes = template.findResources('AWS::ApiGatewayV2::Route');
 
     const publicRoutes = Object.values(routes)
       .map((route: any) => route.Properties)
       .filter((p: any) => p.AuthorizationType !== 'JWT');
 
-    expect(publicRoutes.map((p: any) => p.RouteKey)).toEqual(PUBLIC_ROUTE_KEYS);
+    expect(publicRoutes.map((p: any) => p.RouteKey).sort()).toEqual([...PUBLIC_ROUTE_KEYS].sort());
     for (const p of publicRoutes) {
       expect(p.AuthorizationType ?? 'NONE').toBe('NONE');
       expect(p.AuthorizerId).toBeUndefined();
@@ -325,7 +333,11 @@ describe('Cognito custom-auth wiring', () => {
 
     const rotationStatements = policies
       .flatMap((policy: any) => policy.Properties?.PolicyDocument?.Statement ?? [])
-      .filter((statement: any) => [statement.Action].flat().includes('cognito-idp:AdminSetUserPassword'));
+      // AdminDisableUser is what distinguishes the PostConfirmation trigger's
+      // grant from the signup endpoint's, which also rotates a password but
+      // on an account it just created and cannot disable one.
+      .filter((statement: any) => [statement.Action].flat().includes('cognito-idp:AdminSetUserPassword'))
+      .filter((statement: any) => [statement.Action].flat().includes('cognito-idp:AdminDisableUser'));
 
     expect(rotationStatements).toHaveLength(1);
     const statement: any = rotationStatements[0];
@@ -428,6 +440,43 @@ describe('Cognito custom-auth wiring', () => {
       (trail.EventSelectors as any[]).flatMap((s) => s.DataResources ?? []),
     );
     expect(tableRefs).not.toContain('OtpRateLimitTable');
+  });
+
+  // The change that actually closes the hole. Cognito's SignUp API is public
+  // and the app client id necessarily ships in the browser bundle, so while
+  // self-service signup was on, anyone could create accounts without ever
+  // loading the site. That is what happened on 2026-09-09. Every control we
+  // write lives downstream of this setting.
+  test('self-service signup is OFF: the public SignUp API is closed', () => {
+    template.hasResourceProperties('AWS::Cognito::UserPool', Match.objectLike({
+      AdminCreateUserConfig: Match.objectLike({ AllowAdminCreateUserOnly: true }),
+    }));
+  });
+
+  test('signup is reachable without a token, because there cannot be one yet', () => {
+    const routes = Object.values(template.findResources('AWS::ApiGatewayV2::Route'))
+      .map((r: any) => r.Properties);
+    const signup = routes.find((r: any) => r.RouteKey === 'POST /auth/signup');
+
+    expect(signup).toBeDefined();
+    expect(signup.AuthorizationType).toBe('NONE');
+  });
+
+  // AdminCreateUser without AdminSetUserPassword leaves every new account
+  // holding a password its creator was handed. The pair is the control that
+  // kept ~1,030 abuse accounts unusable, and it is only a pair if both
+  // permissions travel together.
+  test('the signup endpoint can create a user AND replace its password, on one pool', () => {
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[]);
+    const cognitoAdmin = statements.filter((st) =>
+      JSON.stringify(st.Action).includes('cognito-idp:AdminCreateUser'));
+
+    expect(cognitoAdmin).toHaveLength(1);
+    const actions = ([] as string[]).concat(cognitoAdmin[0].Action).sort();
+    expect(actions).toEqual(['cognito-idp:AdminCreateUser', 'cognito-idp:AdminSetUserPassword']);
+    // Scoped to the pool, never '*': this role can mint accounts.
+    expect(JSON.stringify(cognitoAdmin[0].Resource)).not.toContain('"*"');
   });
 
   // The signup abuse control. It only works because it runs in the trigger:
