@@ -8,11 +8,19 @@
  * sees (which screen, which message, where they land) plus what must NOT
  * happen (no second SMS, no confirmation step, no account created).
  *
- * The single most valuable case here is `isSignUpComplete === false`. A PreSignUp
- * trigger now auto-confirms phone-only signups so a new parent gets exactly
- * ONE SMS, and the two-code path is the fallback for when that trigger does
- * not take effect. No E2E journey can cover it: a journey cannot assert
- * "exactly one SMS" and exercise the two-SMS path at the same time.
+ * The contract these exist to protect is that a new parent receives exactly
+ * ONE SMS. No E2E journey can assert that: a journey proves a code arrived,
+ * not that a second one did not.
+ *
+ * The two-code fallback these used to cover is gone. Accounts are now created
+ * by our own endpoint with the phone already verified, so there is no
+ * unconfirmed state for Cognito to mint a second code into, and no
+ * `isSignUpComplete` to branch on. The confirmation SCREEN still exists for
+ * accounts left unconfirmed by the old flow, which is why its tests remain.
+ *
+ * The boundary mocked here is Amplify's `Auth` plus `fetch`, because signup
+ * no longer goes through Amplify at all: Cognito's public SignUp API is
+ * closed, and account creation is a call to our endpoint.
  */
 import React from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -22,6 +30,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import CustomLogin from "./CustomLogin";
 import { AuthProvider, useAuth } from "../common/auth-provider";
 import { LanguageContext } from "../common/language-context";
+import { AppContext } from "../common/app-context";
 import type { SupportedLanguage } from "../common/languages";
 
 const Auth = vi.hoisted(() => ({
@@ -35,6 +44,13 @@ const Auth = vi.hoisted(() => ({
   signOut: vi.fn(),
 }));
 vi.mock("aws-amplify/auth", () => Auth);
+
+/** The signup endpoint. Amplify no longer creates accounts. */
+const signupFetch = vi.fn();
+beforeEach(() => {
+  signupFetch.mockReset().mockResolvedValue({ ok: true, status: 200, json: async () => ({ created: true }) });
+  vi.stubGlobal("fetch", signupFetch);
+});
 
 const PHONE_DIGITS = "5551234567";
 const PHONE_E164 = "+15551234567";
@@ -66,8 +82,13 @@ const renderLogin = (language: SupportedLanguage = "en") => {
     enabledLanguages: ["en", "es", "zh", "vi", "ar"] as SupportedLanguage[],
   };
 
+  // The real component reads the API endpoint from here, so a bare render
+  // would exercise a code path production never takes.
+  const appConfig = { httpEndpoint: "https://api.example.test/" } as never;
+
   render(
     <MemoryRouter initialEntries={["/login"]}>
+      <AppContext.Provider value={appConfig}>
       <LanguageContext.Provider value={languageValue}>
         <AuthProvider>
           {/* Outside <Routes> so it survives the post-login navigation */}
@@ -78,6 +99,7 @@ const renderLogin = (language: SupportedLanguage = "en") => {
           </Routes>
         </AuthProvider>
       </LanguageContext.Provider>
+      </AppContext.Provider>
     </MemoryRouter>,
   );
 
@@ -226,7 +248,6 @@ describe("unknown number falls back to sign-up", () => {
       // client has PreventUserExistenceErrors on, so an unknown number surfaces
       // as a failed auth rather than a missing user.
       Auth.signIn.mockRejectedValueOnce(cognitoError(code));
-      Auth.signUp.mockResolvedValue({ isSignUpComplete: true });
       Auth.signIn.mockResolvedValueOnce({
         isSignedIn: false,
         nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
@@ -237,14 +258,21 @@ describe("unknown number falls back to sign-up", () => {
       await submitPhone(user);
 
       expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
-      expect(Auth.signUp).toHaveBeenCalledTimes(1);
-      expect(Auth.signUp.mock.calls[0][0]).toMatchObject({
-        username: PHONE_E164,
-        options: {
-          userAttributes: { phone_number: PHONE_E164, locale: "vi" },
-          clientMetadata: { language: "vi" },
-        },
+
+      // Our endpoint, not Amplify. Cognito's public SignUp API is closed, and
+      // going back to it would reopen the door the endpoint exists to shut.
+      expect(Auth.signUp).not.toHaveBeenCalled();
+      expect(signupFetch).toHaveBeenCalledTimes(1);
+      const [url, init] = signupFetch.mock.calls[0];
+      expect(String(url)).toContain("auth/signup");
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(init.body)).toMatchObject({
+        phoneNumber: PHONE_E164,
+        language: "vi",
       });
+      // No password crosses this boundary any more. The endpoint mints one
+      // the account's owner never learns.
+      expect(init.body).not.toContain("password");
     },
   );
 
@@ -260,7 +288,7 @@ describe("unknown number falls back to sign-up", () => {
     expect(onOtpScreen()).toBe(false);
   });
 
-  test("a number created between the two calls retries the sign-in instead of failing", async () => {
+  test("a number created between the two calls is not a race any more", async () => {
     Auth.signIn.mockRejectedValueOnce(cognitoError("UserNotFoundException"));
     Auth.signUp.mockRejectedValue(cognitoError("UsernameExistsException"));
     Auth.signIn.mockResolvedValueOnce({
@@ -273,15 +301,18 @@ describe("unknown number falls back to sign-up", () => {
     await submitPhone(user);
 
     expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
-    expect(screen.getByText("auth.smsCodeSent")).toBeInTheDocument();
+    // The endpoint answers 200 with created:false rather than throwing, so
+    // there is no UsernameExists branch to fall into and the parent simply
+    // continues to the code screen. Saying "that number is taken" would also
+    // be the account enumeration PreventUserExistenceErrors exists to stop.
+    expect(screen.getByText("auth.smsCodeSentNewUser")).toBeInTheDocument();
     expect(Auth.signIn).toHaveBeenCalledTimes(2);
   });
 });
 
-describe("single-SMS signup (isSignUpComplete: true)", () => {
+describe("single-SMS signup", () => {
   const arrangeAutoConfirmedSignup = () => {
     Auth.signIn.mockRejectedValueOnce(cognitoError("UserNotFoundException"));
-    Auth.signUp.mockResolvedValue({ isSignUpComplete: true });
     Auth.signIn.mockResolvedValueOnce({
       isSignedIn: false,
       nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
@@ -302,7 +333,7 @@ describe("single-SMS signup (isSignUpComplete: true)", () => {
     // confirm — asking for one would strand the parent on a dead screen.
     expect(Auth.confirmSignUp).not.toHaveBeenCalled();
     expect(Auth.resendSignUpCode).not.toHaveBeenCalled();
-    expect(Auth.signUp).toHaveBeenCalledTimes(1);
+    expect(signupFetch).toHaveBeenCalledTimes(1);
   });
 
   test("the one code the parent receives is the custom-auth code, and it logs them in", async () => {
@@ -330,15 +361,20 @@ describe("single-SMS signup (isSignUpComplete: true)", () => {
   });
 });
 
-describe("two-code fallback (isSignUpComplete: false)", () => {
+describe("an account left unconfirmed by the old signup flow", () => {
   /**
-   * The PreSignUp trigger did not take effect, so Cognito minted a signup code
-   * and the parent must confirm the account before the login OTP is issued.
-   * Unreachable from an E2E journey that asserts a single SMS.
+   * New accounts are created already verified, so this state can no longer be
+   * produced. Accounts made before that change can still be sitting in it,
+   * and they surface as UserNotConfirmedException on sign-in: Cognito mints a
+   * signup code and the parent must confirm before any login OTP is issued.
+   *
+   * Kept, and re-pointed at the path that can still reach it. The screen is
+   * live for real people; only the way in has changed. Still unreachable from
+   * an E2E journey that asserts a single SMS.
    */
   const arrangeUnconfirmedSignup = async () => {
-    Auth.signIn.mockRejectedValueOnce(cognitoError("UserNotFoundException"));
-    Auth.signUp.mockResolvedValue({ isSignUpComplete: false });
+    Auth.signIn.mockRejectedValueOnce(cognitoError("UserNotConfirmedException"));
+    Auth.resendSignUpCode.mockResolvedValue({});
     const { user } = renderLogin();
 
     fillPhone();
@@ -350,13 +386,16 @@ describe("two-code fallback (isSignUpComplete: false)", () => {
   test("collects the signup code without asking Cognito for a second SMS", async () => {
     await arrangeUnconfirmedSignup();
 
-    expect(screen.getByText("auth.smsCodeSentNewUser")).toBeInTheDocument();
+    // A different prompt from a new signup, because this parent already has
+    // an account and is being asked to finish confirming it.
+    expect(screen.getByText("auth.phoneAccountConfirmPrompt")).toBeInTheDocument();
     expect(onOtpScreen()).toBe(true);
-    // The code already in flight is Cognito's signup code. Starting custom auth
-    // here would send a second SMS and the parent would not know which to type.
-    // (Call 1 is the probe that threw UserNotFoundException.)
+    // Exactly one code: the resent signup code. Starting custom auth here
+    // would send a second SMS and the parent would not know which to type.
+    // (Call 1 is the probe that threw UserNotConfirmedException.)
     expect(Auth.signIn).toHaveBeenCalledTimes(1);
-    expect(Auth.resendSignUpCode).not.toHaveBeenCalled();
+    expect(Auth.resendSignUpCode).toHaveBeenCalledTimes(1);
+    expect(signupFetch).not.toHaveBeenCalled();
   });
 
   test("the first code confirms the account, then a login code is requested", async () => {

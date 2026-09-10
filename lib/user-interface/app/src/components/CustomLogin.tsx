@@ -319,7 +319,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             // No password is chosen here any more. The endpoint generates one
             // the moment the account exists and nobody, including this code,
             // ever sees it.
-            const response = await fetch(`${appConfig.httpEndpoint}auth/signup`, {
+            const response = await fetch(`${appConfig?.httpEndpoint ?? '/'}auth/signup`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
