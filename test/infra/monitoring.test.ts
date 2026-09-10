@@ -445,3 +445,51 @@ describe('the daily brief', () => {
     expect(prefixes[1]).toContain('staging');
   });
 });
+
+// CloudWatch caps an alarm period at 86,400 seconds. Above that it cannot
+// aggregate the metric, so the alarm sees no datapoints; combined with
+// treatMissingData BREACHING that produces an alarm which is permanently red
+// and permanently wrong, whatever the thing it watches is doing. A 26-hour
+// heartbeat shipped exactly that, and nothing in CI knew: CloudFormation
+// accepts the template and CloudWatch accepts the alarm.
+describe('alarm periods are ones CloudWatch can actually evaluate', () => {
+  const CLOUDWATCH_MAX_PERIOD_SECONDS = 86_400;
+
+  test.each(['production', 'staging'])('%s', (environment) => {
+    const alarms = Object.entries(synth(environment).findResources('AWS::CloudWatch::Alarm'));
+    expect(alarms.length).toBeGreaterThan(0);
+
+    const tooLong = alarms
+      .map(([logicalId, resource]) => ({
+        logicalId,
+        period: (resource as any).Properties.Period,
+        // Metric-math alarms carry the period on each member metric instead.
+        memberPeriods: ((resource as any).Properties.Metrics ?? [])
+          .map((m: any) => m.MetricStat?.Period)
+          .filter(Boolean),
+      }))
+      .filter((a) =>
+        (a.period ?? 0) > CLOUDWATCH_MAX_PERIOD_SECONDS ||
+        a.memberPeriods.some((p: number) => p > CLOUDWATCH_MAX_PERIOD_SECONDS));
+
+    expect(tooLong).toEqual([]);
+  });
+
+  // The other half of the same limit: period x evaluationPeriods is the
+  // window CloudWatch looks at, and it may not exceed a day either.
+  test.each(['production', 'staging'])('%s evaluation windows', (environment) => {
+    const alarms = Object.entries(synth(environment).findResources('AWS::CloudWatch::Alarm'));
+
+    const tooWide = alarms
+      .map(([logicalId, resource]) => {
+        const props = (resource as any).Properties;
+        const period = props.Period
+          ?? (props.Metrics ?? []).map((m: any) => m.MetricStat?.Period).find(Boolean)
+          ?? 0;
+        return { logicalId, window: period * (props.EvaluationPeriods ?? 1) };
+      })
+      .filter((a) => a.window > CLOUDWATCH_MAX_PERIOD_SECONDS);
+
+    expect(tooWide).toEqual([]);
+  });
+});

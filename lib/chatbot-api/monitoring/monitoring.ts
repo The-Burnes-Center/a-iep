@@ -321,10 +321,22 @@ export class MonitoringStack extends Construct {
       description:
         'The once-a-day summary did not go out, so "no news" no longer means ' +
         'anything. Nothing is broken for families.',
-      metric: brief.metricInvocations({ period: cdk.Duration.hours(26), statistic: 'Sum' }),
+      // 24 one-hour periods, not one 26-hour period. CloudWatch caps an alarm
+      // period at 86,400 seconds; above that it cannot aggregate, so it sees
+      // no datapoints, treats every one as breaching, and sits in ALARM
+      // forever no matter what the function does. The first version of this
+      // alarm was written that way and was broken from the moment it deployed:
+      // permanently red, and permanently wrong.
+      //
+      // Invocations emits nothing when a function does not run, so each empty
+      // hour breaches and 24 consecutive empty hours mean a full day has
+      // passed with no brief. The single daily run keeps at least one hour in
+      // any 24-hour window populated, so this cannot flap on cadence alone.
+      metric: brief.metricInvocations({ period: cdk.Duration.hours(1), statistic: 'Sum' }),
       threshold: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
-      evaluationPeriods: 1,
+      evaluationPeriods: 24,
+      datapointsToAlarm: 24,
       treatMissingData: cloudwatch.TreatMissingData.BREACHING,
     });
   }
@@ -384,6 +396,8 @@ export class MonitoringStack extends Construct {
       threshold: number;
       evaluationPeriods: number;
       comparisonOperator?: cloudwatch.ComparisonOperator;
+      /** Defaults to evaluationPeriods (all of them must breach). */
+      datapointsToAlarm?: number;
       treatMissingData?: cloudwatch.TreatMissingData;
       /** Defaults to alarmTopic (via the formatter). Only the formatter's own
        *  alarm overrides this, to bypass the component it is reporting on. */
@@ -398,6 +412,7 @@ export class MonitoringStack extends Construct {
       metric: opts.metric,
       threshold: opts.threshold,
       evaluationPeriods: opts.evaluationPeriods,
+      datapointsToAlarm: opts.datapointsToAlarm,
       comparisonOperator:
         opts.comparisonOperator ?? cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: opts.treatMissingData ?? cloudwatch.TreatMissingData.NOT_BREACHING,

@@ -50,15 +50,21 @@ _CONSOLE = f'https://console.aws.amazon.com/cloudwatch/home?region={REGION}'
 _SEVERITY_ICON = {
     'critical': ':red_circle:',
     'medium': ':large_yellow_circle:',
-    'low': ':large_green_circle:',
+    'low': ':large_blue_circle:',
 }
 _STAGING_ICON = {
     'critical': ':large_yellow_circle:',
     'medium': ':large_yellow_circle:',
-    'low': ':large_green_circle:',
+    'low': ':large_blue_circle:',
 }
-# A cleared alarm is not a severity, so it gets its own mark. Reusing the green
-# circle would make "resolved" and "low priority" indistinguishable.
+# Blue for low, not green, and this was learned the hard way. Green was the
+# obvious choice for "not urgent", but green reads as "everything is fine"
+# before anyone gets to the words, so a firing low-priority alarm arrived
+# looking like good news: a green circle above the sentence "the daily health
+# brief has stopped running".
+#
+# So no firing alarm is ever green, at any severity. Green and the tick belong
+# to states where nothing is wrong, and nothing else may borrow them.
 _CLEARED_ICON = ':white_check_mark:'
 
 # The marker MonitoringStack prefixes onto every alarm description. Stripped

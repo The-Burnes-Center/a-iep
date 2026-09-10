@@ -173,7 +173,7 @@ def test_colour_is_severity_not_environment(prod_formatter):
     """
     for tier, icon in (('critical', ':red_circle:'),
                        ('medium', ':large_yellow_circle:'),
-                       ('low', ':large_green_circle:')):
+                       ('low', ':large_blue_circle:')):
         title = prod_formatter.build_notification(
             _alarm(AlarmDescription=f'[{tier}] Something happened.'),
         )['content']['title']
@@ -220,18 +220,25 @@ def test_an_alarm_with_no_tier_still_formats(prod_formatter):
     assert content['description'].startswith('No tier on this one.')
 
 
-def test_a_cleared_alarm_is_not_confusable_with_a_low_priority_one(prod_formatter):
-    """Green means "not urgent", so a recovery needs its own mark."""
+def test_no_firing_alarm_is_ever_green(formatter, prod_formatter):
+    """Green reads as "fine" before anyone reaches the words.
+
+    A low-priority alarm once arrived as a green circle above the sentence
+    "the daily health brief has stopped running", which looks like good news
+    and is not. Green and the tick belong to states where nothing is wrong.
+    """
+    for fmt in (formatter, prod_formatter):
+        for tier in ('critical', 'medium', 'low'):
+            title = fmt.build_notification(
+                _alarm(AlarmDescription=f'[{tier}] Something is wrong.'),
+            )['content']['title']
+            assert ':large_green_circle:' not in title, tier
+            assert ':white_check_mark:' not in title, tier
+
     cleared = prod_formatter.build_notification(
         _alarm(NewStateValue='OK', OldStateValue='ALARM'),
     )['content']['title']
-    low = prod_formatter.build_notification(
-        _alarm(AlarmDescription='[low] Nothing is broken.'),
-    )['content']['title']
-
     assert ':white_check_mark:' in cleared
-    assert ':large_green_circle:' not in cleared
-    assert ':large_green_circle:' in low
 
 
 # ---------------------------------------------------------------------------
