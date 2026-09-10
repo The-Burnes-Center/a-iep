@@ -3,6 +3,7 @@ import * as cf from "aws-cdk-lib/aws-cloudfront";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
+import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import {
   ExecSyncOptionsWithBufferEncoding,
@@ -61,29 +62,28 @@ export interface UserInterfaceProps {
   readonly cognitoDomain : string;
 }
 
-// Cloudflare Turnstile site key. Public by design: it identifies the widget
-// and is served in the page to every visitor, so there is nothing to protect.
-// The SECRET that validates the token it produces is a different value, lives
-// in Parameter Store as a SecureString, and is read only by the server side.
+// Cloudflare Turnstile site key, read from Parameter Store at deploy time.
 //
-// PRODUCTION gets the real key. Everywhere else gets Cloudflare's official
-// always-passes test key, and the reason is that a widget a script can solve
-// is not a widget: refusing automated browsers is the entire product. With
-// the real key on staging, every E2E signup is refused with
-// SIGNUP_REFUSED reason=missing-token, and we lose the journey coverage that
-// once caught a signup bug that had been broken for over a month. That is a
-// worse trade than staging never seeing a real challenge.
+// Not a literal in this file, and not a default in the code. The site key is
+// served in the page to every visitor, so it is not a secret in the
+// cryptographic sense; keeping it out of the repo is a discipline rather than
+// a containment measure. One place for every externally-issued value means
+// there is no judgement call each time about which ones are safe to publish,
+// and rotating one never needs a code change.
 //
-// The whole path still runs on staging: the widget renders, Cloudflare issues
-// a token, the endpoint posts it to siteverify, and siteverify accepts it. It
-// is the verdict that is fixed, not the plumbing. The staging SecureString
-// must hold the matching test secret (1x000...AA) for that to hold together;
-// a real secret against a test token fails closed, which is the safe way for
-// that mismatch to land.
-const TURNSTILE_TEST_SITE_KEY = '1x00000000000000000000AA';
-const TURNSTILE_PROD_SITE_KEY = '0x4AAAAAAEvXtpdIJHNkU_vK';
-const TURNSTILE_SITE_KEY = process.env.TURNSTILE_SITE_KEY
-  || (getEnvironment() === 'prod' ? TURNSTILE_PROD_SITE_KEY : TURNSTILE_TEST_SITE_KEY);
+// The parameter is per environment, which is also how production and staging
+// end up with different keys. That difference is deliberate: a challenge a
+// script can solve is not a challenge, so the real key and automated signup
+// coverage cannot both exist in one environment. Production gets the enforcing
+// key; staging gets one whose verdict is fixed, so the E2E suite can still
+// exercise the signup journey end to end (widget renders, token issued,
+// siteverify called and accepted). It is the verdict that is fixed, not the
+// plumbing.
+//
+// Both this and the matching secret are created out of band. See the
+// Turnstile section of README.md; a missing parameter fails the deploy loudly,
+// which is the right way for that to land.
+const TURNSTILE_SITE_KEY_PARAM = `/a-iep/${getEnvironment()}/turnstile/site-key`;
 
 export class UserInterface extends Construct {
   public readonly websiteDistribution: cf.CloudFrontWebDistribution;
@@ -140,7 +140,8 @@ export class UserInterface extends Construct {
       federatedSignInProvider : OIDCIntegrationName,
       enabledLanguages : resolveEnabledLanguages(),
       enabledFeatures : resolveEnabledFeatures(),
-      turnstileSiteKey : TURNSTILE_SITE_KEY,
+      turnstileSiteKey : ssm.StringParameter.valueForStringParameter(
+        this, TURNSTILE_SITE_KEY_PARAM),
       // Gates prod-only frontend integrations (Google Analytics), since
       // staging and prod are otherwise identical production builds.
       environment : getEnvironment()

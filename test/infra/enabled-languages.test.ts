@@ -103,53 +103,44 @@ describe('enabled languages per environment', () => {
 });
 
 /**
- * The Turnstile site key, which is environment-split for a reason that is easy
- * to undo by accident.
+ * The Turnstile site key must not be a literal anywhere in the tree.
  *
- * Production must carry the real key, because the bot check is the point.
- * Everywhere else must carry Cloudflare's always-passes TEST key, because a
- * challenge a script can solve is not a challenge: with the real key on
- * staging every E2E signup is refused (SIGNUP_REFUSED reason=missing-token)
- * and the suite loses the journey that once caught a signup bug which had
- * been broken for over a month.
+ * It is read from Parameter Store per environment, which is what lets
+ * production and staging carry different keys without a code change. That
+ * difference is deliberate and load-bearing: a challenge a script can solve is
+ * not a challenge, so the enforcing key and automated signup coverage cannot
+ * both exist in one environment.
  *
- * Both directions are pinned. Shipping the test key to prod would silently
- * accept every bot; shipping the real key to staging would silently delete
- * signup coverage. Neither failure raises anything at deploy time.
+ * This asserts the mechanism rather than the values, because the values are
+ * exactly what must not be committed. A key pasted back into the source as a
+ * default is the regression it is here to catch, and a default is the tempting
+ * shape: it makes a local build "just work" and silently ships whatever was
+ * hardcoded to whichever environment forgets to override it.
  */
-describe('the Turnstile site key per environment', () => {
-  const siteKeyFor = (environment: string): string => {
-    const saved = process.env.ENVIRONMENT;
-    const savedOverride = process.env.TURNSTILE_SITE_KEY;
-    process.env.ENVIRONMENT = environment;
-    delete process.env.TURNSTILE_SITE_KEY;
-    try {
-      const source = fs.readFileSync(
-        path.join(__dirname, '../../lib/user-interface/index.ts'), 'utf8');
-      const prodKey = /TURNSTILE_PROD_SITE_KEY = '([^']+)'/.exec(source)![1];
-      const testKey = /TURNSTILE_TEST_SITE_KEY = '([^']+)'/.exec(source)![1];
-      /* eslint-disable @typescript-eslint/no-var-requires */
-      const { getEnvironment } = require('../../lib/tags');
-      /* eslint-enable @typescript-eslint/no-var-requires */
-      return getEnvironment() === 'prod' ? prodKey : testKey;
-    } finally {
-      process.env.ENVIRONMENT = saved;
-      if (savedOverride !== undefined) process.env.TURNSTILE_SITE_KEY = savedOverride;
-    }
-  };
+describe('the Turnstile site key is configuration, not code', () => {
+  const sourceFiles = [
+    '../../lib/user-interface/index.ts',
+    '../../lib/user-interface/app/vite.config.ts',
+  ].map((rel) => fs.readFileSync(path.join(__dirname, rel), 'utf8'));
 
-  // Cloudflare's documented dummy keys. 1x... always passes, which is what
-  // makes an automated signup possible at all.
-  const ALWAYS_PASSES = '1x00000000000000000000AA';
+  // Cloudflare issues site keys as 0x/1x/2x/3x followed by base62. The dummy
+  // testing keys share that shape, so one pattern covers real and test alike.
+  const KEY_SHAPE = /['"`][0-3]x[A-Za-z0-9_-]{20,}['"`]/;
 
-  test('production ships the real key, never a test key', () => {
-    const key = siteKeyFor('production');
-    expect(key).not.toBe(ALWAYS_PASSES);
-    // Every Cloudflare dummy key starts 1x/2x/3x; a real one does not.
-    expect(key).not.toMatch(/^[123]x0{20}A[AB]$/);
+  test.each(sourceFiles.map((src, i) => [i, src]))(
+    'source file %i contains no Turnstile key literal', (_i, source) => {
+      expect(source as string).not.toMatch(KEY_SHAPE);
+    });
+
+  test('the key is read from a per-environment parameter', () => {
+    const source = sourceFiles[0];
+    expect(source).toContain('turnstile/site-key');
+    expect(source).toContain('valueForStringParameter');
   });
 
-  test('staging ships the always-passes test key, so E2E can sign up', () => {
-    expect(siteKeyFor('staging')).toBe(ALWAYS_PASSES);
+  // No default. A fallback key would be shipped by any environment whose
+  // parameter is missing, which is precisely the case that should fail loudly.
+  test('there is no hardcoded fallback if the parameter is missing', () => {
+    expect(sourceFiles[1]).toContain("process.env.TURNSTILE_SITE_KEY || ''");
   });
 });

@@ -13,7 +13,9 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { useTurnstile } from './use-turnstile';
 import { AppContext } from '../app-context';
 
-const SITE_KEY = '0x4AAAAAAEvXtpdIJHNkU_vK';
+// Any non-empty value: this exercises the widget lifecycle, not
+// Cloudflare. Real keys live in Parameter Store, never in the repo.
+const SITE_KEY = 'test-site-key';
 
 type Options = { callback: (token: string) => void };
 let rendered: { node: HTMLElement; id: string; options: Options }[] = [];

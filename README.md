@@ -223,6 +223,60 @@ aws ssm put-parameter --name "/ai-iep/OPENAI_API_KEY" --value "your-openai-key" 
 aws ssm put-parameter --name "/ai-iep/MISTRAL_API_KEY" --value "your-mistral-key" --type "SecureString" --overwrite
 ```
 
+### 3a. Configure the signup bot check (Cloudflare Turnstile)
+
+Turnstile sits in front of account creation. It needs two values **per
+environment**, under `/a-iep/<env>/...` where `<env>` is `prod` or `dev` (`dev`
+is what the staging stack deploys as, see `getEnvironment()` in `lib/tags.ts`).
+
+```bash
+aws ssm put-parameter --name "/a-iep/<env>/turnstile/site-key" --value "<site-key>" --type "String" --overwrite
+aws ssm put-parameter --name "/a-iep/<env>/turnstile/secret" --value "<secret-key>" --type "SecureString" --overwrite
+```
+
+Both come from one widget in the Cloudflare dashboard, and they are a matched
+pair: a site key from one widget with a secret from another fails every check.
+That fails closed, so signups are refused rather than let through, but it looks
+like an outage.
+
+**The site key is not in this repository and must not be added to it.** There
+is no hardcoded fallback anywhere, so a missing parameter fails the deploy
+loudly. That is deliberate: a default would be silently shipped by whichever
+environment forgot to set the value, which is exactly the case that needs to be
+noticed.
+
+**Production and non-production deliberately use different widgets.**
+Production uses a real, enforcing one. Everywhere else must use a widget whose
+verdict always passes (Cloudflare publishes dummy keys for this; take the
+always-passes pair from their testing documentation). A challenge a script can
+solve is not a challenge, so an enforcing key and automated signup coverage
+cannot coexist in one environment: with an enforcing key on staging, every E2E
+signup is refused and the suite loses its account-creation journey. The rest of
+the path still runs there, so only the verdict is fixed, not the plumbing.
+
+The secret's existence is the on switch. Until it exists, signups are accepted
+unverified and every request logs `TURNSTILE_NOT_CONFIGURED`, which raises the
+`the signup bot check is switched off` alarm. Enabling or disabling it needs no
+deploy.
+
+A local build needs neither value: with `TURNSTILE_SITE_KEY` unset, no widget
+renders and no token is sent, which the server already treats as the
+not-configured state.
+
+### 3b. Optional: SMS sending policy
+
+These bound how many login codes the service will send, and to where. All are
+optional, because the code compiles in floors and resolves the SSM, environment
+and compiled values toward whichever is **tighter** -- so a missing or
+malformed parameter narrows the service rather than widening it. They exist so
+a limit can be changed during an incident without a deploy.
+
+```bash
+aws ssm put-parameter --name "/a-iep/<env>/sms-policy/allowed-prefixes" --value "+1" --type "String" --overwrite
+aws ssm put-parameter --name "/a-iep/<env>/sms-policy/max-per-hour" --value "50" --type "String" --overwrite
+aws ssm put-parameter --name "/a-iep/<env>/sms-policy/max-per-day" --value "100" --type "String" --overwrite
+```
+
 ### 4. Configure Application Settings
 Update `lib/constants.ts` with your configuration:
 ```typescript
