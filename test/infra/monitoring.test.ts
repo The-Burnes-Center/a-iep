@@ -48,6 +48,7 @@ const EXPECTED_ALARM_SUFFIXES = [
   'login codes being requested for numbers we do not serve',
   'login codes are being refused: the sending limit is reached',
   'login codes are not being delivered',
+  'the pipeline cannot write to its database',
 ];
 
 /**

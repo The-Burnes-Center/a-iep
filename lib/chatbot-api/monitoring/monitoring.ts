@@ -450,6 +450,47 @@ export class MonitoringStack extends Construct {
       defaultValue: 0,
     });
 
+    // Every database failure in the pipeline, including the ones nothing else
+    // can see.
+    //
+    // The DDB service REPORTS failures rather than raising them: it catches
+    // everything and returns a 500 status in its result. So its Lambda Errors
+    // metric stays at zero through a total database outage, and an alarm on
+    // Errors cannot fire. The step lambdas check the status code; the state
+    // machine, which calls this function directly for progress updates, for
+    // recording failures, and for purging the redacted OCR, does not.
+    //
+    // That left the worst case invisible: if record_failure itself fails, a
+    // parent's document is stuck at PROCESSING with no failure recorded and
+    // nothing raised anywhere.
+    new logs.MetricFilter(this, 'DdbServiceErrorFilter', {
+      logGroup: ddbServiceFunction.logGroup,
+      filterPattern: logs.FilterPattern.literal('DDB_SERVICE_ERROR'),
+      metricNamespace,
+      metricName: 'DdbServiceErrors',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
+    this.alarm('DdbServiceErrorAlarm', {
+      severity: 'medium',
+      name: 'the pipeline cannot write to its database',
+      description:
+        'Document progress, failures or cleanup are not being recorded. A ' +
+        'parent may see a progress bar that never moves, or an upload that ' +
+        'never reports what went wrong.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'DdbServiceErrors',
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(15),
+      }),
+      // Each state-machine task retries three times, so one genuinely failing
+      // write logs four times. Above that means more than one document.
+      threshold: 5,
+      evaluationPeriods: 1,
+    });
+
     this.alarm('DocumentsFailingAlarm', {
       severity: 'medium',
       name: 'document pipeline failing',

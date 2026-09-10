@@ -177,6 +177,21 @@ def lambda_handler(event, context):
             raise ValueError(f"Unknown operation: {operation}")
             
     except Exception as e:
+        # DDB_SERVICE_ERROR is a stable marker, not prose: a metric filter
+        # alarms on it, and rewording this line would disarm that alarm.
+        #
+        # It has to be a log marker because of the return below. Every failure
+        # here is REPORTED rather than raised, so the Lambda Errors metric
+        # stays at zero and an alarm on it can never fire. The step lambdas
+        # check the status code, but the state machine calls this function
+        # directly for update_progress, record_failure and the redacted-OCR
+        # purge, and nothing there reads it: those failures were completely
+        # silent until this marker existed.
+        #
+        # Only the operation and the exception class are logged. The message
+        # can quote document content, which is why record_failure summarises
+        # error text before storing it.
+        print(f"DDB_SERVICE_ERROR operation={event.get('operation', 'unknown')} kind={type(e).__name__}")
         print(f"DDB Service error: {str(e)}")
         print(traceback.format_exc())
         return {

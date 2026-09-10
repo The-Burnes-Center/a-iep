@@ -553,3 +553,42 @@ def test_the_guard_does_not_break_the_normal_path(service):
     item = service.documents.get_item(Key=KEY)['Item']
     assert item['userId'] == USER, 'the guard must not disturb existing attributes'
     assert 'contentS3Reference' in item
+
+
+def test_a_failure_logs_the_marker_its_alarm_watches(service, capsys):
+    """DDB_SERVICE_ERROR is a contract with a metric filter in monitoring.ts.
+
+    It has to be a log marker rather than a raised exception, because this
+    function REPORTS failures instead of raising them: it returns a 500 status
+    and the Lambda Errors metric stays at zero. The step lambdas check that
+    status; the state machine, which calls this function directly for progress
+    updates, for recording failures and for purging the redacted OCR, does not.
+    So without this line those failures are invisible everywhere.
+
+    Rewording the marker without changing the filter would disarm the alarm
+    while every test still passed, which is why the string is pinned here.
+    """
+    service.module.lambda_handler({'operation': 'no_such_operation'}, None)
+
+    logged = capsys.readouterr().out
+    assert 'DDB_SERVICE_ERROR' in logged
+    assert 'operation=no_such_operation' in logged
+    # The exception CLASS, never its message: the message can quote document
+    # content, which is why record_failure summarises error text before it is
+    # stored anywhere.
+    assert 'kind=ValueError' in logged
+
+
+def test_the_marker_carries_no_document_content(service, capsys):
+    """A marker that leaked content would be worse than no marker."""
+    service.module.lambda_handler(
+        {'operation': 'save_ocr_data', 'params': {'iep_id': IEP, 'child_id': CHILD,
+                                                  'data_type': 'not_a_valid_type',
+                                                  'ocr_data': {'secret': 'child name here'}}},
+        None,
+    )
+
+    marker_lines = [l for l in capsys.readouterr().out.splitlines() if 'DDB_SERVICE_ERROR' in l]
+    assert marker_lines, 'the marker must be emitted'
+    for line in marker_lines:
+        assert 'child name here' not in line
