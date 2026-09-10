@@ -33,6 +33,17 @@ const SMS_ALLOWED_COUNTRY_CODES = ['+1'];
 //   <prefix>/max-per-day-global      positive integer
 const SMS_POLICY_PARAM_PREFIX = `/a-iep/${getEnvironment()}/sms-policy`;
 
+// Where the Cloudflare Turnstile secret lives. Created OUT OF BAND as a
+// SecureString, never by CDK: a secret written here would be a secret
+// published in a public repo.
+//
+// Enforcement switches on the moment the parameter exists, with no deploy.
+// CDK passes the NAME and the trigger reads the VALUE, so until someone
+// creates it, pre-sign-up treats signups as unverified and says so in the
+// logs. That is the only safe rollout order, because failing closed on a
+// parameter nobody has created yet would break every signup.
+const TURNSTILE_SECRET_PARAM = `/a-iep/${getEnvironment()}/turnstile/secret`;
+
 // ── Staging-only E2E test backdoor: the shared allowlist ─────────────────
 // The Playwright suite signs in as real Cognito users whose numbers are drawn
 // from the NANP-fictional 555-01XX block (+1 555 555-01XX can never be
@@ -310,10 +321,26 @@ export class NewAuthorizationStack extends Construct {
       runtime: lambda.Runtime.NODEJS_20_X,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'pre-sign-up.handler',
+      environment: {
+        TURNSTILE_SECRET_PARAM,
+      },
+      // Turnstile adds one outbound call to Cloudflare, bounded at 5s in the
+      // trigger, so 30s stays comfortable.
       timeout: cdk.Duration.seconds(30),
       logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
       description: 'Auto-confirm phone-only signups so only one OTP SMS is sent'
     });
+
+    // Read-only, and exactly one parameter. This trigger runs on every
+    // self-service signup, so a wildcard here would put the whole hierarchy,
+    // including the API keys, one bug away from a caller-influenced read.
+    preSignUpFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['ssm:GetParameter'],
+      resources: [
+        `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${TURNSTILE_SECRET_PARAM}`,
+      ],
+    }));
 
     // Define Auth Challenge Function
     const defineAuthChallengeFunction = new lambda.Function(this, 'DefineAuthChallengeFunction', {

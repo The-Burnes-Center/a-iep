@@ -116,6 +116,13 @@ export class UserInterface extends Construct {
       federatedSignInProvider : OIDCIntegrationName,
       enabledLanguages : resolveEnabledLanguages(),
       enabledFeatures : resolveEnabledFeatures(),
+      // Public key, safe in the bundle. Empty until TURNSTILE_SITE_KEY is set
+      // for the deploy, which is the same switch as the secret parameter the
+      // trigger reads: no key, no widget, and the trigger treats signups as
+      // unverified rather than refusing them.
+      ...(process.env.TURNSTILE_SITE_KEY
+        ? { turnstileSiteKey: process.env.TURNSTILE_SITE_KEY }
+        : {}),
       // Gates prod-only frontend integrations (Google Analytics), since
       // staging and prod are otherwise identical production builds.
       environment : getEnvironment()

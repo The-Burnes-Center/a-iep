@@ -29,6 +29,16 @@ export interface AppConfig {
       // Deployment environment, set by CDK. Gates prod-only integrations
       // (Google Analytics). Absent on local dev configs, which disables them.
       environment? : "prod" | "dev",
+      // Cloudflare Turnstile site key. Public by design: it identifies the
+      // widget, and the secret that validates its token lives in Parameter
+      // Store and is only ever read by the PreSignUp trigger.
+      //
+      // Absent means no widget is rendered, which is the local-dev and
+      // not-yet-configured state. The trigger is what actually enforces the
+      // check, so a missing key here weakens nothing on its own: it just
+      // means signups arrive without a token, and whether that is refused is
+      // decided server-side.
+      turnstileSiteKey? : string,
 }
 
 export type LoadingStatus = "pending" | "loading" | "finished" | "error";

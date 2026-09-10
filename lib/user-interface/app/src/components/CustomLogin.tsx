@@ -25,6 +25,7 @@ import { useLanguage, SupportedLanguage } from '../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import { useAuth } from '../common/auth-provider';
 import { cognitoErrorKey } from '../common/helpers/cognito-error-helper';
+import { useTurnstile } from '../common/hooks/use-turnstile';
 import AuthHeader from './AuthHeader';
 import PasswordInput from './PasswordInput';
 import PasswordRequirements from './PasswordRequirements';
@@ -115,6 +116,10 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   
   // Mobile login state variables
   const [phoneNumber, setPhoneNumber] = useState('+1 ');
+  // Supplies the anti-abuse token the PreSignUp trigger requires for a NEW
+  // account. Sign-in needs none: an unknown number never reaches the trigger
+  // that sends an SMS, so signup is the only path worth challenging.
+  const turnstile = useTurnstile();
   const [showMobileLogin, setShowMobileLogin] = useState(true);  
   const [mobileLoading, setMobileLoading] = useState(false);
   const [smsCode, setSmsCode] = useState('');
@@ -325,7 +330,13 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                   // doesn't forward sign-in clientMetadata to that trigger
                   locale: language,
                 },
-                clientMetadata: { language },
+                clientMetadata: {
+                  language,
+                  // Verified server-side in the PreSignUp trigger. Sent only
+                  // when the widget produced one; whether an unverified
+                  // signup is accepted is the server's call, not this form's.
+                  ...(turnstile.token ? { turnstileToken: turnstile.token } : {}),
+                },
               },
             });
 
@@ -381,6 +392,12 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       
     } catch (error) {
       console.error('Phone authentication failed:', errCode(error) ?? 'unknown');
+
+      // Turnstile tokens are single-use, so whatever went wrong, the one we
+      // hold is spent. Without this a retry sends a used token, the trigger
+      // refuses it, and the form looks broken for a reason a parent cannot
+      // see or fix.
+      turnstile.reset();
 
       // In this flow InvalidParameterException means the phone number was
       // rejected, so it gets the phone-specific message
@@ -1145,6 +1162,14 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                   />
                 </Form.Group>
                 
+                {/* Cloudflare Turnstile. Renders nothing when no site key is
+                    configured, which is the local-dev and not-yet-rolled-out
+                    state. Placed above the button so a parent who does get an
+                    interactive challenge sees it before trying to submit. */}
+                {turnstile.isEnabled && (
+                  <div ref={turnstile.containerRef} className="mb-3" />
+                )}
+
                 <AlertMessages error={error} successMessage={successMessage} />
                 
                 <div className="d-grid gap-2">

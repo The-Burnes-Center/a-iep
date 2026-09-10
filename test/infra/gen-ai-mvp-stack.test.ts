@@ -430,6 +430,37 @@ describe('Cognito custom-auth wiring', () => {
     expect(tableRefs).not.toContain('OtpRateLimitTable');
   });
 
+  // The signup abuse control. It only works because it runs in the trigger:
+  // the 2026-09-09 run never loaded the site, it called the public SignUp API
+  // directly, so anything enforced in the browser was not in its path.
+  test('pre-sign-up can read the Turnstile secret, and only that', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
+      Handler: 'pre-sign-up.handler',
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({
+          TURNSTILE_SECRET_PARAM: Match.stringLikeRegexp('^/a-iep/.+/turnstile/secret$'),
+        }),
+      }),
+    }));
+
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[]);
+    const onTurnstile = statements.filter((st) =>
+      JSON.stringify(st.Resource ?? '').includes('turnstile'));
+    expect(onTurnstile.length).toBeGreaterThan(0);
+
+    for (const st of onTurnstile) {
+      const actions = ([] as string[]).concat(st.Action);
+      // Read-only, and one exact parameter. This trigger runs on every
+      // self-service signup, so a wildcard would put the whole hierarchy,
+      // API keys included, one bug away from a caller-influenced read.
+      expect(actions).toEqual(['ssm:GetParameter']);
+      const resources = ([] as any[]).concat(st.Resource).map((r) => JSON.stringify(r));
+      expect(resources.every((r) => r.includes('/turnstile/secret'))).toBe(true);
+      expect(resources.some((r) => r.includes('turnstile/*'))).toBe(false);
+    }
+  });
+
   // A-IEP serves United States families, so +1 is every real destination.
   // Widening this to a country the service does not serve removes a
   // load-bearing abuse control. The lambda defaults to +1 on its own; this

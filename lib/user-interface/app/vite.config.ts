@@ -60,6 +60,9 @@ export default defineConfig({
                 process.env.AWS_USER_POOLS_WEB_CLIENT_ID,
               enabledLanguages: resolveEnabledLanguages(),
               enabledFeatures: resolveEnabledFeatures(),
+              ...(process.env.TURNSTILE_SITE_KEY
+                ? { turnstileSiteKey: process.env.TURNSTILE_SITE_KEY }
+                : {}),
               config: {
                 api_endpoint: `https://${process.env.API_DISTRIBUTION_DOMAIN_NAME}/api`,
                 websocket_endpoint: `wss://${process.env.API_DISTRIBUTION_DOMAIN_NAME}/socket`,
