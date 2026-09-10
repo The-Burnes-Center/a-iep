@@ -261,6 +261,108 @@ describe('create-auth-challenge', () => {
         expect(mockSnsSend).not.toHaveBeenCalled();
     });
 
+    describe('destination allowlist', () => {
+        // The control that stops SMS-pumping fraud. On 2026-09-09 an attacker
+        // texted 1,024 numbers, each exactly once, across a dozen high-cost
+        // country codes; MAX_SMS_PER_HOUR never fired because it keys on a
+        // single phone number, and the account's $50 monthly SNS budget was
+        // gone in 13 minutes, taking login down in prod AND staging.
+        //
+        // Every test here asserts the thing that must NOT happen: no SNS
+        // publish, and no draw on the rate-limit counter.
+        const TANZANIA = '+255712345678';
+
+        const eventTo = (phone, session = [HANDSHAKE_PASS]) =>
+            baseEvent(session, { userAttributes: { phone_number: phone } });
+
+        afterEach(() => {
+            delete process.env.SMS_ALLOWED_COUNTRY_CODES;
+        });
+
+        test('a non-+1 destination is refused before SNS or the rate-limit counter', async () => {
+            const event = await handler(eventTo(TANZANIA));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(updateCalls()).toHaveLength(0);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+        });
+
+        test('the refusal tells the caller why, rather than "try again"', async () => {
+            const event = await handler(eventTo(TANZANIA));
+
+            // Retrying an unsupported country never succeeds, so the generic
+            // failure copy would be a lie.
+            expect(event.response.publicChallengeParameters).toEqual({
+                error: 'This phone number is not supported. A-IEP can only send codes to United States numbers.',
+            });
+        });
+
+        test('an unset env var fails CLOSED to +1, it does not allow everything', async () => {
+            delete process.env.SMS_ALLOWED_COUNTRY_CODES;
+
+            const blocked = await handler(eventTo(TANZANIA));
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(blocked.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+
+            const allowed = await handler(eventTo(PHONE));
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+            expect(allowed.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        });
+
+        test('an empty or whitespace env var also fails CLOSED to +1', async () => {
+            process.env.SMS_ALLOWED_COUNTRY_CODES = ' , ';
+
+            const blocked = await handler(eventTo(TANZANIA));
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(blocked.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+
+            const allowed = await handler(eventTo(PHONE));
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+        });
+
+        test('the allowlist is configurable, so a new country needs no code change', async () => {
+            process.env.SMS_ALLOWED_COUNTRY_CODES = '+1, +255';
+
+            const event = await handler(eventTo(TANZANIA));
+
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+            expect(mockSnsSend.mock.calls[0][0].input.PhoneNumber).toBe(TANZANIA);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        });
+
+        test('narrowing the allowlist blocks even the E2E backdoor number', async () => {
+            // The check sits ahead of the isTestNumber branch on purpose, so
+            // the allowlist still holds if the fictional-block regex widens.
+            process.env.TEST_PHONE_NUMBERS = '+15555550111';
+            process.env.TEST_OTP_PARAM_PREFIX = '/a-iep/staging/e2e-otp';
+            process.env.SMS_ALLOWED_COUNTRY_CODES = '+44';
+
+            const event = await handler(eventTo('+15555550111'));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(mockSsmSend).not.toHaveBeenCalled();
+            expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+        });
+
+        test('the refusal logs the country code but never the full number', async () => {
+            const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            await handler(eventTo(TANZANIA));
+
+            const messages = logged.mock.calls.map((args) => args.join(' ')).join('\n');
+            expect(messages).toContain('+255');
+            expect(messages).not.toContain(TANZANIA);
+            logged.mockRestore();
+        });
+
+        test('the language handshake round is unaffected: it sends nothing anyway', async () => {
+            const event = await handler(eventTo(TANZANIA, []));
+
+            expect(event.response.challengeMetadata).toBe('LANGUAGE_HANDSHAKE');
+            expect(mockSnsSend).not.toHaveBeenCalled();
+        });
+    });
+
     describe('staging test-number backdoor', () => {
         // Staging (lib/authorization/new-auth.ts) allowlists NANP-fictional
         // numbers whose OTPs are stashed in SSM Parameter Store for the E2E
