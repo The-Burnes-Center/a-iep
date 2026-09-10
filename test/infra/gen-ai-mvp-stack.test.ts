@@ -384,32 +384,6 @@ describe('Cognito custom-auth wiring', () => {
     expect(props.TimeToLiveSpecification).toEqual({ AttributeName: 'expiresAt', Enabled: true });
   });
 
-  // A message the provider accepts and then fails to deliver is otherwise
-  // invisible: the publish succeeds, an id comes back, and nothing records
-  // that it never arrived. This role is what lets SNS write that down.
-  test('SNS can write SMS delivery outcomes, and only that', () => {
-    template.hasResourceProperties('AWS::IAM::Role', Match.objectLike({
-      AssumeRolePolicyDocument: Match.objectLike({
-        Statement: Match.arrayWith([
-          Match.objectLike({ Principal: { Service: 'sns.amazonaws.com' } }),
-        ]),
-      }),
-    }));
-
-    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
-      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[]);
-    const deliveryStatus = statements.filter((st) =>
-      JSON.stringify(st.Action).includes('logs:PutMetricFilter'),
-    );
-    expect(deliveryStatus.length).toBeGreaterThan(0);
-    for (const st of deliveryStatus) {
-      // Logs only. This role is assumable by an AWS service, so anything
-      // beyond writing logs would be a standing grant to SNS.
-      const actions = ([] as string[]).concat(st.Action);
-      expect(actions.every((a) => a.startsWith('logs:'))).toBe(true);
-    }
-  });
-
   // Data events are the only record that an IEP document or a profile row was
   // READ. Without them the question "was anything taken" has no answer, only
   // an absence of evidence, and a trail cannot be made to cover the past.
@@ -1326,6 +1300,71 @@ describe('Python lambda assets exclude __pycache__', () => {
   // excluding nothing.
   test('the shared exclude constant actually lists __pycache__', () => {
     expect(SOURCE).toContain("const PYTHON_ASSET_EXCLUDES = ['__pycache__'];");
+  });
+});
+
+describe('production synth: SMS delivery-status logging', () => {
+  let prodTemplate: Template;
+  let saved: string | undefined;
+
+  beforeAll(() => {
+    saved = process.env.ENVIRONMENT;
+    process.env.ENVIRONMENT = 'production';
+    jest.resetModules();
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const { GenAiMvpStack } = require('../../lib/gen-ai-mvp-stack');
+    /* eslint-enable @typescript-eslint/no-var-requires */
+    const app = new App({ context: { 'aws:cdk:bundling-stacks': [] } });
+    prodTemplate = Template.fromStack(new GenAiMvpStack(app, 'AIEPStack', {}));
+  }, 180_000);
+
+  afterAll(() => {
+    process.env.ENVIRONMENT = saved;
+    jest.resetModules();
+  });
+
+  // A message the provider accepts and then fails to deliver is otherwise
+  // invisible: the publish succeeds, an id comes back, and nothing records
+  // that it never arrived. This role is what lets SNS write that down.
+  test('SNS can write SMS delivery outcomes, and only that', () => {
+    prodTemplate.hasResourceProperties('AWS::IAM::Role', Match.objectLike({
+      AssumeRolePolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({ Principal: { Service: 'sns.amazonaws.com' } }),
+        ]),
+      }),
+    }));
+
+    const statements = Object.values(prodTemplate.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[]);
+    const deliveryStatus = statements.filter((st) =>
+      JSON.stringify(st.Action).includes('logs:PutMetricFilter'),
+    );
+    expect(deliveryStatus.length).toBeGreaterThan(0);
+    for (const st of deliveryStatus) {
+      // Logs only. This role is assumable by an AWS service, so anything
+      // beyond writing logs would be a standing grant to SNS.
+      const actions = ([] as string[]).concat(st.Action);
+      expect(actions.every((a) => a.startsWith('logs:'))).toBe(true);
+    }
+  });
+
+
+  // The SNS setting this role serves is account-level, so there is exactly
+  // one of it. A copy per environment would model it as though each had its
+  // own: whichever role the account setting names is the one in use, so
+  // tearing down the other environment would silently end delivery logging
+  // for both, with nothing in either stack hinting at it.
+  test('the role exists in production and NOT in staging', () => {
+    const prodRoles = Object.values(prodTemplate.findResources('AWS::IAM::Role'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => String(p.RoleName ?? '').includes('sms-delivery-status'));
+    const stagingRoles = Object.values(template.findResources('AWS::IAM::Role'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => String(p.RoleName ?? '').includes('sms-delivery-status'));
+
+    expect(prodRoles).toHaveLength(1);
+    expect(stagingRoles).toHaveLength(0);
   });
 });
 

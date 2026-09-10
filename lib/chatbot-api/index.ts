@@ -70,7 +70,11 @@ export class ChatBotApi extends Construct {
     // Data-event audit logging for the FERPA stores. See AuditTrail: the
     // organisation trail is management-events only, so object and item reads
     // are currently unrecorded everywhere.
-    new SmsDeliveryStatusRole(this, 'SmsDeliveryStatusRole');
+    // Production only: the SNS setting this serves is account-level, so one
+    // role exists for the whole account. See SmsDeliveryStatusRole.
+    if (getEnvironment() === 'prod') {
+      new SmsDeliveryStatusRole(this, 'SmsDeliveryStatusRole');
+    }
 
     new AuditTrail(this, 'AuditTrail', {
       documentBucket: this.buckets.knowledgeBucket,

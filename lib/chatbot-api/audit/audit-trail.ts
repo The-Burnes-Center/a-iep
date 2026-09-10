@@ -109,12 +109,17 @@ export class AuditTrail extends Construct {
  * the shape of the 2026-09-09 outage, where the trigger logged successful
  * sends for hours while no code reached anyone.
  *
- * The role is created here; switching delivery status logging ON is an
- * ACCOUNT-level SNS setting (SetSMSAttributes) shared by both environments,
- * so it is deliberately not done from a stack. Two stacks writing the same
- * account attribute would fight, and the call also carries MonthlySpendLimit,
- * which is currently the last line of defence on spend and must not be
- * clobbered by a deploy. It is a one-time ops step against this role's ARN.
+ * Created in PRODUCTION ONLY, because the setting it serves is account-level
+ * and there is exactly one of it. A copy per environment models it as though
+ * each had its own, which is false and actively misleading: whichever role
+ * the account setting happens to name is the one in use, so a teardown of the
+ * other environment silently ends delivery logging for both, and nothing in
+ * either stack hints at that. One account-level thing, one role.
+ *
+ * Switching delivery status logging ON is still a deliberate ops step rather
+ * than something a deploy does. Two stacks writing the same account attribute
+ * would fight, and the call also carries MonthlySpendLimit, which is the last
+ * line of defence on spend and must not be clobbered by a deploy.
  */
 export class SmsDeliveryStatusRole extends Construct {
   public readonly role: iam.Role;
