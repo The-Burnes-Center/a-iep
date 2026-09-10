@@ -90,6 +90,9 @@ const RATE_LIMITED_SHAPE = {
 };
 
 const updateCalls = () => mockDdbSend.mock.calls.filter(([cmd]) => cmd instanceof UpdateCommand);
+// Per-phone rows are keyed by sha256(phone) + hour bucket; the global budget
+// rows on the same table are keyed 'GLOBAL#...'.
+const perPhoneUpdates = () => updateCalls().filter(([cmd]) => /^[0-9a-f]{64}#\d+$/.test(cmd.input.Key.pk));
 
 describe('create-auth-challenge', () => {
     beforeEach(() => {
@@ -131,7 +134,11 @@ describe('create-auth-challenge', () => {
         expect(publish.PhoneNumber).toBe(PHONE);
         expect(publish.Message).toContain(code);
         expect(publish.MessageAttributes['AWS.SNS.SMS.SMSType'].StringValue).toBe('Transactional');
-        expect(publish.MessageAttributes['AWS.SNS.SMS.MaxPrice'].StringValue).toBe('0.50');
+        // Was '0.50', which permitted essentially every destination on earth
+        // and so bounded nothing. '0.05' clears US (~$0.006) and Canadian
+        // (~$0.021) traffic with headroom while SNS itself refuses the
+        // premium international routes that SMS pumping monetizes.
+        expect(publish.MessageAttributes['AWS.SNS.SMS.MaxPrice'].StringValue).toBe('0.05');
 
         // Metadata must round-trip for the reuse/expiry logic downstream.
         const metadata = JSON.parse(event.response.challengeMetadata);
@@ -188,17 +195,28 @@ describe('create-auth-challenge', () => {
         expect(mockSnsSend).toHaveBeenCalledTimes(1);
     });
 
-    test('each fresh OTP counts against the hourly per-phone budget in DynamoDB', async () => {
+    test('each fresh OTP counts against the per-phone AND both global budgets', async () => {
         await handler(baseEvent([HANDSHAKE_PASS]));
 
-        const updates = updateCalls();
-        expect(updates).toHaveLength(1);
-        const { TableName, Key, UpdateExpression } = updates[0][0].input;
-        expect(TableName).toBe('test-otp-rate-limit');
-        expect(UpdateExpression).toContain('ADD smsCount');
-        // Keys are sha256(phone) + hour bucket; raw numbers never hit the table.
-        expect(Key.pk).toMatch(/^[0-9a-f]{64}#\d+$/);
-        expect(Key.pk).not.toContain(PHONE.slice(1));
+        // Selected by key shape, not by index: the per-phone row is no longer
+        // the only counter, and asserting on ordering would make this test
+        // fail for a reason that has nothing to do with what it checks.
+        const keys = updateCalls().map(([cmd]) => cmd.input.Key.pk);
+        const perPhone = keys.filter((pk) => /^[0-9a-f]{64}#\d+$/.test(pk));
+
+        expect(perPhone).toHaveLength(1);
+        expect(keys).toEqual(expect.arrayContaining([
+            expect.stringMatching(/^GLOBAL#H#\d+$/),
+            expect.stringMatching(/^GLOBAL#D#\d+$/),
+        ]));
+
+        for (const [cmd] of updateCalls()) {
+            const { TableName, UpdateExpression, Key } = cmd.input;
+            expect(TableName).toBe('test-otp-rate-limit');
+            expect(UpdateExpression).toContain('ADD smsCount');
+            // Raw numbers never hit the table, on any row.
+            expect(Key.pk).not.toContain(PHONE.slice(1));
+        }
     });
 
     test('an exhausted SMS budget blocks the send with the rate-limit error shape', async () => {
@@ -222,22 +240,41 @@ describe('create-auth-challenge', () => {
         expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
     });
 
-    test('a DynamoDB outage fails open: the login SMS still goes out', async () => {
+    // Inverted deliberately, and this is the sharpest trade-off in the file.
+    // It used to assert the SMS still goes out during a DynamoDB outage, on
+    // the reasoning that an outage must not lock everyone out of login. The
+    // global budget now fails CLOSED, so it does lock login. That is the
+    // right way round: an unmetered send window is what 2026-09-09 cost, and
+    // DynamoDB already holds the profiles and documents the whole app runs
+    // on, so during its outage there is no working product to log in to. A
+    // DynamoDB outage costs minutes; a drained SNS budget costs every family
+    // their login until the calendar month rolls over.
+    test('a DynamoDB outage fails CLOSED: no unmetered SMS goes out', async () => {
         mockDdbSend.mockImplementation(async (cmd) => {
             if (cmd instanceof UpdateCommand) throw new Error('DynamoDB unavailable');
             return {};
         });
         const event = await handler(baseEvent([HANDSHAKE_PASS]));
-        expect(mockSnsSend).toHaveBeenCalledTimes(1);
-        expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        expect(mockSnsSend).not.toHaveBeenCalled();
+        expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+        expect(event.response.publicChallengeParameters).toEqual({
+            error: 'Text messaging is temporarily unavailable. Please try again in a little while.',
+        });
     });
 
-    test('no rate-limit table configured skips the check but still texts', async () => {
+    // This pin was inverted deliberately. It used to assert that a missing
+    // table still texts, which was true of the per-phone limiter alone. The
+    // global budget now runs first and fails CLOSED, so an unmetered send is
+    // no longer reachable: without the counter there is nothing bounding
+    // spend, and 2026-09-09 is what unbounded spend costs. CDK always sets
+    // this env var on both stacks, so a missing table is a deploy fault and
+    // should be loud rather than quietly unmetered.
+    test('no rate-limit table configured refuses to send rather than texting unmetered', async () => {
         delete process.env.OTP_RATE_LIMIT_TABLE;
         const event = await handler(baseEvent([HANDSHAKE_PASS]));
         expect(updateCalls()).toHaveLength(0);
-        expect(mockSnsSend).toHaveBeenCalledTimes(1);
-        expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        expect(mockSnsSend).not.toHaveBeenCalled();
+        expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
     });
 
     test('SNS failure produces the error challenge shape instead of throwing', async () => {
@@ -259,6 +296,111 @@ describe('create-auth-challenge', () => {
         expect(event.response.publicChallengeParameters).toEqual(ERROR_SHAPE);
         expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
         expect(mockSnsSend).not.toHaveBeenCalled();
+    });
+
+    describe('global SMS budget', () => {
+        // The control that bounds total spend. The per-phone limiter cannot:
+        // on 2026-09-09, 1,024 numbers each used once meant it never fired.
+        //
+        // It is sized to bind BEFORE the account's SNS monthly cap, because
+        // SNS does not throw once that cap is hit. Publish returns a
+        // MessageId and drops the message, so the handler logs success and a
+        // parent is told a code is coming that will never arrive. Refusing
+        // here is what turns a silent drop into an error someone can act on.
+        const BUDGET_SHAPE = {
+            error: 'Text messaging is temporarily unavailable. Please try again in a little while.',
+        };
+
+        // Counts every UpdateCommand for a given key prefix as its own window,
+        // so the hourly and daily ceilings can be driven independently.
+        const countsBy = (counts) => {
+            mockDdbSend.mockImplementation(async (cmd) => {
+                if (!(cmd instanceof UpdateCommand)) return {};
+                const pk = cmd.input.Key.pk;
+                const match = Object.keys(counts).find((prefix) => pk.startsWith(prefix));
+                return { Attributes: { smsCount: match ? counts[match] : 1 } };
+            });
+        };
+
+        afterEach(() => {
+            delete process.env.MAX_SMS_PER_HOUR_GLOBAL;
+            delete process.env.MAX_SMS_PER_DAY_GLOBAL;
+        });
+
+        test('the hourly ceiling stops a run that never repeats a number', async () => {
+            // The exact 2026-09-09 shape: a first-ever send for this phone, so
+            // the per-phone counter reads 1 and would happily allow it.
+            countsBy({ 'GLOBAL#H#': 101, 'GLOBAL#D#': 101 });
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+        });
+
+        test('the daily ceiling stops a run spread thin enough to clear the hourly one', async () => {
+            countsBy({ 'GLOBAL#H#': 5, 'GLOBAL#D#': 201 });
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
+        });
+
+        test('the boundary: the 100th hourly and 200th daily send still go out', async () => {
+            countsBy({ 'GLOBAL#H#': 100, 'GLOBAL#D#': 200 });
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        });
+
+        test('the ceilings are overridable for incident response', async () => {
+            process.env.MAX_SMS_PER_HOUR_GLOBAL = '3';
+            countsBy({ 'GLOBAL#H#': 4, 'GLOBAL#D#': 4 });
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
+        });
+
+        test('an unparseable override falls back to the compiled ceiling, it does not disable it', async () => {
+            process.env.MAX_SMS_PER_HOUR_GLOBAL = 'unlimited';
+            countsBy({ 'GLOBAL#H#': 101, 'GLOBAL#D#': 101 });
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
+        });
+
+        test('the global counters carry a TTL so a spent window expires', async () => {
+            await handler(baseEvent([HANDSHAKE_PASS]));
+
+            const globals = updateCalls().filter(([cmd]) => cmd.input.Key.pk.startsWith('GLOBAL#'));
+            expect(globals).toHaveLength(2);
+            for (const [cmd] of globals) {
+                expect(cmd.input.ExpressionAttributeValues[':expiry'])
+                    .toBeGreaterThan(Math.floor(Date.now() / 1000));
+            }
+        });
+
+        test('the backdoor test path draws on no budget, because it sends no SMS', async () => {
+            process.env.TEST_PHONE_NUMBERS = '+15555550111';
+            process.env.TEST_OTP_PARAM_PREFIX = '/a-iep/staging/e2e-otp';
+            countsBy({ 'GLOBAL#H#': 101, 'GLOBAL#D#': 101 });
+
+            const event = await handler(
+                baseEvent([HANDSHAKE_PASS], { userAttributes: { phone_number: '+15555550111' } })
+            );
+
+            expect(updateCalls()).toHaveLength(0);
+            expect(mockSsmSend).toHaveBeenCalledTimes(1);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        });
     });
 
     describe('destination allowlist', () => {
@@ -419,8 +561,10 @@ describe('create-auth-challenge', () => {
             expect(mockSsmSend).not.toHaveBeenCalled();
             expect(mockSnsSend).toHaveBeenCalledTimes(1);
             expect(mockSnsSend.mock.calls[0][0].input.PhoneNumber).toBe('+15551234567');
-            // The real send pays the SMS budget as usual.
-            expect(updateCalls()).toHaveLength(1);
+            // The real send pays the SMS budget as usual: the per-phone
+            // counter, plus the two global windows.
+            expect(perPhoneUpdates()).toHaveLength(1);
+            expect(updateCalls()).toHaveLength(3);
             expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
         });
 
@@ -441,7 +585,8 @@ describe('create-auth-challenge', () => {
 
             expect(mockSsmSend).not.toHaveBeenCalled();
             expect(mockSnsSend).toHaveBeenCalledTimes(1);
-            expect(updateCalls()).toHaveLength(1);
+            expect(perPhoneUpdates()).toHaveLength(1);
+            expect(updateCalls()).toHaveLength(3);
             expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
         });
 
