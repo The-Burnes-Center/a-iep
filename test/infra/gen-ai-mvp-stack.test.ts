@@ -397,6 +397,41 @@ describe('Cognito custom-auth wiring', () => {
     }));
   });
 
+  // The SMS ceilings are read at runtime from Parameter Store so the deployed
+  // calibration is not published with the source. Two properties matter and
+  // neither is obvious from reading the lambda: the role may only READ, and
+  // only within its own subtree. A wildcard here would let the auth trigger
+  // read the rest of the hierarchy, which includes API keys.
+  test('create-auth-challenge reads its SMS policy, and only that, from SSM', () => {
+    const policies = Object.values(template.findResources('AWS::IAM::Policy'));
+    const statements = policies.flatMap(
+      (p: any) => p.Properties.PolicyDocument.Statement as any[],
+    );
+    // Selected by the subtree they name, so other lambdas' unrelated SSM
+    // grants (API keys, the staging OTP backdoor) are not swept in.
+    const onPolicySubtree = statements.filter((st) =>
+      JSON.stringify(st.Resource ?? '').includes('sms-policy'),
+    );
+    expect(onPolicySubtree.length).toBeGreaterThan(0);
+
+    for (const st of onPolicySubtree) {
+      const actions = ([] as string[]).concat(st.Action);
+      // Read-only: nothing may rewrite its own ceilings.
+      expect(actions.every((a) => a.startsWith('ssm:Get'))).toBe(true);
+      // Scoped: never the whole parameter hierarchy.
+      const resources = ([] as any[]).concat(st.Resource).map((r) => JSON.stringify(r));
+      expect(resources.every((r) => r.includes('sms-policy'))).toBe(true);
+    }
+
+    // And nothing anywhere may write into that subtree.
+    const writers = statements.filter(
+      (st) =>
+        JSON.stringify(st.Resource ?? '').includes('sms-policy') &&
+        JSON.stringify(st.Action).includes('ssm:Put'),
+    );
+    expect(writers).toHaveLength(0);
+  });
+
   // create-auth-challenge fails open (or falls back to English SMS) when its
   // table wiring is missing, so the env vars are load-bearing: the rate-limit
   // counter and the profile lookup for OTP localization.

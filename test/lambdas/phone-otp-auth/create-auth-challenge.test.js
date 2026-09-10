@@ -38,6 +38,9 @@ jest.mock('@aws-sdk/client-ssm', () => ({
     PutParameterCommand: class {
         constructor(input) { this.input = input; }
     },
+    GetParametersCommand: class {
+        constructor(input) { this.input = input; }
+    },
 }), { virtual: true });
 
 jest.mock('@aws-sdk/client-dynamodb', () => ({ DynamoDBClient: class {} }), { virtual: true });
@@ -56,8 +59,11 @@ jest.mock('@aws-sdk/lib-dynamodb', () => {
 }, { virtual: true });
 
 const { UpdateCommand } = require('@aws-sdk/lib-dynamodb');
-const { PutParameterCommand } = require('@aws-sdk/client-ssm');
-const { handler } = require('../../../lib/chatbot-api/functions/phone-otp-auth/create-auth-challenge');
+const { PutParameterCommand, GetParametersCommand } = require('@aws-sdk/client-ssm');
+const {
+    handler,
+    resetSmsPolicyCache,
+} = require('../../../lib/chatbot-api/functions/phone-otp-auth/create-auth-challenge');
 const { getMessages } = require('../../../lib/chatbot-api/functions/phone-otp-auth/messages');
 
 const PHONE = '+15555550100';
@@ -105,6 +111,14 @@ describe('create-auth-challenge', () => {
         });
         process.env.OTP_RATE_LIMIT_TABLE = 'test-otp-rate-limit';
         delete process.env.USER_PROFILES_TABLE;
+        // The resolved policy is cached in module scope for five minutes, so
+        // without this a test would silently inherit the previous test's
+        // ceilings and pass for the wrong reason.
+        resetSmsPolicyCache();
+        delete process.env.SMS_POLICY_PARAM_PREFIX;
+        delete process.env.SMS_ALLOWED_COUNTRY_CODES;
+        delete process.env.MAX_SMS_PER_HOUR_GLOBAL;
+        delete process.env.MAX_SMS_PER_DAY_GLOBAL;
         // The backdoor must not exist unless a test opts in explicitly.
         delete process.env.TEST_PHONE_NUMBERS;
         delete process.env.TEST_OTP_PARAM_PREFIX;
@@ -316,7 +330,7 @@ describe('create-auth-challenge', () => {
         test('the hourly ceiling stops a run that never repeats a number', async () => {
             // A first-ever send for this recipient, so the per-recipient
             // counter reads 1 and would allow it on its own.
-            countsBy({ 'GLOBAL#H#': 101, 'GLOBAL#D#': 101 });
+            countsBy({ 'GLOBAL#H#': 51, 'GLOBAL#D#': 51 });
 
             const event = await handler(baseEvent([HANDSHAKE_PASS]));
 
@@ -326,7 +340,7 @@ describe('create-auth-challenge', () => {
         });
 
         test('the daily ceiling stops a run spread thin enough to clear the hourly one', async () => {
-            countsBy({ 'GLOBAL#H#': 5, 'GLOBAL#D#': 201 });
+            countsBy({ 'GLOBAL#H#': 5, 'GLOBAL#D#': 101 });
 
             const event = await handler(baseEvent([HANDSHAKE_PASS]));
 
@@ -334,8 +348,8 @@ describe('create-auth-challenge', () => {
             expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
         });
 
-        test('the boundary: the 100th hourly and 200th daily send still go out', async () => {
-            countsBy({ 'GLOBAL#H#': 100, 'GLOBAL#D#': 200 });
+        test('the boundary: a send exactly at each floor still goes out', async () => {
+            countsBy({ 'GLOBAL#H#': 50, 'GLOBAL#D#': 100 });
 
             const event = await handler(baseEvent([HANDSHAKE_PASS]));
 
@@ -353,9 +367,9 @@ describe('create-auth-challenge', () => {
             expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
         });
 
-        test('an unparseable override falls back to the compiled ceiling, it does not disable it', async () => {
+        test('an unparseable override falls back to the compiled floor, it does not disable it', async () => {
             process.env.MAX_SMS_PER_HOUR_GLOBAL = 'unlimited';
-            countsBy({ 'GLOBAL#H#': 101, 'GLOBAL#D#': 101 });
+            countsBy({ 'GLOBAL#H#': 51, 'GLOBAL#D#': 51 });
 
             const event = await handler(baseEvent([HANDSHAKE_PASS]));
 
@@ -377,7 +391,7 @@ describe('create-auth-challenge', () => {
         test('the backdoor test path draws on no budget, because it sends no SMS', async () => {
             process.env.TEST_PHONE_NUMBERS = '+15555550111';
             process.env.TEST_OTP_PARAM_PREFIX = '/a-iep/staging/e2e-otp';
-            countsBy({ 'GLOBAL#H#': 101, 'GLOBAL#D#': 101 });
+            countsBy({ 'GLOBAL#H#': 51, 'GLOBAL#D#': 51 });
 
             const event = await handler(
                 baseEvent([HANDSHAKE_PASS], { userAttributes: { phone_number: '+15555550111' } })
@@ -386,6 +400,125 @@ describe('create-auth-challenge', () => {
             expect(updateCalls()).toHaveLength(0);
             expect(mockSsmSend).toHaveBeenCalledTimes(1);
             expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        });
+    });
+
+    describe('SMS policy from Parameter Store', () => {
+        // The deployed ceilings live outside this repo so they are not
+        // published with the source. Every layer of the fallback must narrow
+        // the service rather than widen it, which is what these assert.
+        const PREFIX = '/a-iep/test/sms-policy';
+        const BUDGET_SHAPE = {
+            error: 'Text messaging is temporarily unavailable. Please try again in a little while.',
+        };
+
+        const paramsReturn = (values) => {
+            mockSsmSend.mockImplementation(async (cmd) => {
+                if (cmd instanceof GetParametersCommand) {
+                    return {
+                        Parameters: Object.entries(values).map(([name, Value]) => ({
+                            Name: `${PREFIX}/${name}`, Value,
+                        })),
+                    };
+                }
+                return { Version: 1 };
+            });
+        };
+
+        // Drives the GLOBAL rows only. The per-recipient counter stays at a
+        // first send, so anything these tests observe is the global ceiling
+        // rather than MAX_SMS_PER_HOUR firing first.
+        const globalCount = (n) => mockDdbSend.mockImplementation(async (cmd) => {
+            if (!(cmd instanceof UpdateCommand)) return {};
+            return { Attributes: { smsCount: cmd.input.Key.pk.startsWith('GLOBAL#') ? n : 1 } };
+        });
+
+        beforeEach(() => {
+            process.env.SMS_POLICY_PARAM_PREFIX = PREFIX;
+        });
+
+        test('the store supplies the ceiling actually enforced', async () => {
+            paramsReturn({ 'max-per-hour-global': '10' });
+            globalCount(11); // over the store's 10, under the compiled floor of 50
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
+        });
+
+        test('the store supplies the destination allowlist', async () => {
+            paramsReturn({ 'allowed-country-codes': '+44' });
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            // PHONE is +1, which the store's list excludes.
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+        });
+
+        test('an unreadable store falls back to the floor, it does not fail open', async () => {
+            mockSsmSend.mockImplementation(async (cmd) => {
+                if (cmd instanceof GetParametersCommand) throw new Error('SSM unavailable');
+                return { Version: 1 };
+            });
+            globalCount(51); // over the compiled floor of 50
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
+        });
+
+        test('a missing parameter falls back rather than being read as unlimited', async () => {
+            paramsReturn({}); // parameter absent entirely
+            globalCount(51);
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
+        });
+
+        test('a malformed allowlist entry invalidates the whole list, it is not partly applied', async () => {
+            // A half-applied allowlist is a policy nobody wrote, so this must
+            // fall back to the compiled default rather than honour '+44'.
+            paramsReturn({ 'allowed-country-codes': '+44, not-a-prefix' });
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+        });
+
+        test('a zero or negative ceiling is rejected rather than bricking login', async () => {
+            paramsReturn({ 'max-per-hour-global': '0' });
+            globalCount(10); // under the compiled floor of 50
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        });
+
+        test('the store is read once and cached, not on every login', async () => {
+            paramsReturn({ 'max-per-hour-global': '40' });
+
+            await handler(baseEvent([HANDSHAKE_PASS]));
+            await handler(baseEvent([HANDSHAKE_PASS]));
+
+            const reads = mockSsmSend.mock.calls.filter(([cmd]) => cmd instanceof GetParametersCommand);
+            expect(reads).toHaveLength(1);
+        });
+
+        test('the policy read is scoped to the configured prefix', async () => {
+            paramsReturn({ 'max-per-hour-global': '40' });
+
+            await handler(baseEvent([HANDSHAKE_PASS]));
+
+            const [[cmd]] = mockSsmSend.mock.calls.filter(([c]) => c instanceof GetParametersCommand);
+            for (const name of cmd.input.Names) {
+                expect(name.startsWith(`${PREFIX}/`)).toBe(true);
+            }
         });
     });
 

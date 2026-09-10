@@ -15,7 +15,23 @@ import { CfnUserPool } from 'aws-cdk-lib/aws-cognito';
 // in the United States, so +1 covers every real user, and refusing anything
 // else is a load-bearing abuse control. The fictional test numbers below are
 // NANP and so are already covered by +1.
+//
+// Deliberately still in source: an allowlist of countries a public-interest
+// service will text is worth being publicly auditable, and knowing it is +1
+// helps nobody attack it. The numeric ceilings are the opposite case and are
+// NOT here; see SMS_POLICY_PARAM_PREFIX.
 const SMS_ALLOWED_COUNTRY_CODES = ['+1'];
+
+// Where the operational SMS ceilings live. The parameters under this prefix
+// are created OUT OF BAND, never by CDK: a value set in this repo would be a
+// value published in it, which is the whole thing this avoids. The lambda
+// falls back to compiled floors that are tighter than the real numbers, so a
+// missing or unreadable parameter narrows the service instead of widening it.
+//
+//   <prefix>/allowed-country-codes   e.g. "+1"
+//   <prefix>/max-per-hour-global     positive integer
+//   <prefix>/max-per-day-global      positive integer
+const SMS_POLICY_PARAM_PREFIX = `/a-iep/${getEnvironment()}/sms-policy`;
 
 // ── Staging-only E2E test backdoor: the shared allowlist ─────────────────
 // The Playwright suite signs in as real Cognito users whose numbers are drawn
@@ -336,12 +352,24 @@ export class NewAuthorizationStack extends Construct {
         // well as defaulted in the lambda so the value is pinned by
         // test/infra rather than resting on the lambda default alone.
         SMS_ALLOWED_COUNTRY_CODES: SMS_ALLOWED_COUNTRY_CODES.join(','),
+        SMS_POLICY_PARAM_PREFIX,
         ...(userProfilesTable && { USER_PROFILES_TABLE: userProfilesTable.tableName })
       },
       timeout: cdk.Duration.seconds(30),
       logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
       description: 'Create Auth Challenge for Phone OTP authentication'
     });
+
+    // Read-only, and scoped to exactly the policy subtree: this role must
+    // never be able to read the rest of the parameter hierarchy, and must
+    // never be able to write its own ceilings.
+    createAuthChallengeFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['ssm:GetParameter', 'ssm:GetParameters'],
+      resources: [
+        `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${SMS_POLICY_PARAM_PREFIX}/*`,
+      ],
+    }));
 
     // Add SNS permissions for sending SMS
     createAuthChallengeFunction.addToRolePolicy(new iam.PolicyStatement({
