@@ -75,6 +75,7 @@ export class UserInterface extends Construct {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       autoDeleteObjects: false,
       enforceSSL: true,
+      minimumTLSVersion: 1.2,
       versioned: true,
     });
 
@@ -85,6 +86,7 @@ export class UserInterface extends Construct {
       websiteIndexDocument: "index.html",
       websiteErrorDocument: "index.html",
       enforceSSL: true,
+      minimumTLSVersion: 1.2,
       versioned: true,
       serverAccessLogsBucket: uploadLogsBucket,
     });

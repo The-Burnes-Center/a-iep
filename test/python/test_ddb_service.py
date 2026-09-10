@@ -187,6 +187,128 @@ def test_record_failure_purges_unredacted_artifacts(service):
 # orchestrator, and nothing in the pipeline itself moves the row again — this
 # sweep (expire_stale_pending_uploads) is what actually reclaims it.
 
+# The failure marker is the only aggregate signal that documents are failing:
+# a failed document produces a SUCCESSFUL state machine execution (every Task
+# catches into record_failure, which ends the machine normally), so
+# ExecutionsFailed stays at zero through a total outage. MonitoringStack's
+# DocumentFailureFilter counts this line and alarms on the rate, so the exact
+# token matters as much as any assertion about DynamoDB.
+# ---------------------------------------------------------------------------
+# The failure text must never reach CloudWatch verbatim.
+#
+# $.error.Cause is Step Functions' Lambda envelope, and the message inside can
+# quote FERPA-protected content: a pydantic ValidationError from parsing_agent
+# names the section text it rejected. CLAUDE.md is explicit that document
+# content never gets logged. The exception CLASS is kept because it is the most
+# useful triage fact and cannot contain content.
+# ---------------------------------------------------------------------------
+# A realistic pydantic failure: the shape that leaks. The quoted value here
+# stands in for a child's IEP section text.
+LEAKY_CAUSE = json.dumps({
+    'errorMessage': (
+        "1 validation error for SingleLanguageIEP\n"
+        "sections.2.content\n"
+        "  Input should be a valid string "
+        "[type=string_type, input_value='Jordan requires extended time and a "
+        "read-aloud accommodation for all assessments', input_type=dict]"
+    ),
+    'errorType': 'ValidationError',
+    'requestId': 'abc-123',
+    'stackTrace': ['  File \"/var/task/handler.py\", line 1\n'],
+})
+
+QUOTED_SECTION_TEXT = 'Jordan requires extended time'
+
+
+def test_the_failure_reason_is_never_logged_verbatim(service, capsys):
+    seed_document(service)
+
+    status, _ = op(service, 'record_failure', **IDS,
+                   error_message=LEAKY_CAUSE, failed_step='parsing_agent')
+    assert status == 200
+
+    logged = capsys.readouterr().out
+    # The whole point: the quoted IEP text must not be anywhere in the logs.
+    assert QUOTED_SECTION_TEXT not in logged
+    assert 'input_value' not in logged
+    # But the class survives, because it is what tells an operator whether to
+    # look at our schema or at a third party.
+    assert 'ValidationError' in logged
+
+
+def test_the_exception_class_and_size_survive_redaction(service, capsys):
+    seed_document(service)
+
+    op(service, 'record_failure', **IDS,
+       error_message=LEAKY_CAUSE, failed_step='parsing_agent')
+
+    logged = capsys.readouterr().out
+    inner = json.loads(LEAKY_CAUSE)['errorMessage']
+    assert f'{len(inner)} chars' in logged
+
+
+def test_a_plain_sentence_reason_is_reduced_to_its_length(service, capsys):
+    # The pending-upload sweep passes prose, not the Lambda envelope.
+    seed_document(service, status='PENDING_UPLOAD')
+    reason = 'Upload never completed: no document reached the pipeline within 15 minutes'
+
+    op(service, 'record_failure', **IDS, error_message=reason,
+       failed_step='PENDING_UPLOAD', only_if_status_in=['PENDING_UPLOAD'])
+
+    logged = capsys.readouterr().out
+    assert reason not in logged
+    assert f'{len(reason)} chars' in logged
+
+
+def test_the_failure_reason_is_still_kept_on_the_record(service):
+    # Redaction is about CloudWatch, not about losing the reason. The row is
+    # inside the CMK-encrypted FERPA store and is returned to no caller, so it
+    # stays the diagnostic record of last resort.
+    seed_document(service)
+
+    op(service, 'record_failure', **IDS,
+       error_message=LEAKY_CAUSE, failed_step='parsing_agent')
+
+    assert item(service)['error_message'] == LEAKY_CAUSE
+
+
+def test_record_failure_logs_the_marker_the_alarm_counts(service, capsys):
+    seed_document(service)
+
+    status, _ = op(service, 'record_failure', **IDS,
+                   error_message='OCR provider exploded', failed_step='mistral_ocr')
+    assert status == 200
+
+    logged = capsys.readouterr().out
+    # RECORD_FAILURE is the literal filter pattern in
+    # lib/chatbot-api/monitoring/monitoring.ts; renaming one without the other
+    # silently stops the alarm counting.
+    marker = [line for line in logged.splitlines() if 'RECORD_FAILURE' in line]
+    assert len(marker) == 1, logged
+    assert f'iep={IEP}' in marker[0]
+    assert 'step=mistral_ocr' in marker[0]
+    # Scoped to the marker line on purpose. The exception text from a failing
+    # step can quote document content (a pydantic validation error naming the
+    # value it rejected, for one), so the marker carries ids and the step only.
+    # The handler's own event dump DOES still log error_message: that is
+    # pre-existing, tracked separately, and not something this line adds to.
+    assert 'OCR provider exploded' not in marker[0]
+
+
+def test_record_failure_logs_no_marker_when_there_was_nothing_to_fail(service, capsys):
+    # The document moved on (or was deleted), so no failure is recorded and the
+    # alarm must not count one: otherwise the sweep's guarded no-ops would look
+    # like an outage.
+    seed_document(service, status='PROCESSED')
+
+    status, body = op(service, 'record_failure', **IDS,
+                      error_message='too late', failed_step='PENDING_UPLOAD',
+                      only_if_status_in=['PENDING_UPLOAD'])
+    assert status == 200
+
+    assert 'RECORD_FAILURE' not in capsys.readouterr().out
+
+
 def test_record_failure_guard_skips_a_row_that_already_moved_on(service):
     seed_document(service, status='PROCESSING')  # pipeline already claimed it
     status, body = op(service, 'record_failure', **IDS,

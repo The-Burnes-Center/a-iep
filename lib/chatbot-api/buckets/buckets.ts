@@ -45,6 +45,12 @@ export class S3BucketStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
+      // enforceSSL alone denies plaintext HTTP and still permits TLS 1.0/1.1.
+      // Found open on 2026-09-08 alongside the CloudFront TLSv1 default; this
+      // bucket is families' IEP documents, so 1.2 is the floor. CDK emits a
+      // second Deny keyed on NumericLessThan s3:TlsVersion, and throws at
+      // synth if enforceSSL above is ever turned off.
+      minimumTLSVersion: 1.2,
       encryption: props?.encryptionKey ? s3.BucketEncryption.KMS : s3.BucketEncryption.S3_MANAGED,
       encryptionKey: props?.encryptionKey,
       cors: [{
@@ -118,20 +124,14 @@ export class S3BucketStack extends cdk.Stack {
     ));
 
 
-    // Add back the deny statement for non-HTTPS requests
-    this.knowledgeBucket.addToResourcePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.DENY,
-      principals: [new iam.AnyPrincipal()],
-      actions: ['s3:*'],
-      resources: [
-        this.knowledgeBucket.bucketArn,
-        `${this.knowledgeBucket.bucketArn}/*`
-      ],
-      conditions: {
-        'Bool': {
-          'aws:SecureTransport': 'false'
-        }
-      }
-    }));
+    // No hand-written aws:SecureTransport deny here on purpose. One used to
+    // sit at this spot commented "add back the deny statement for non-HTTPS
+    // requests", which read as belt-and-braces but was not: CDK's
+    // enforceSSL emits a byte-identical statement, and
+    // PostProcessPolicyDocument dedupes by exact JSON equality, so only one
+    // was ever deployed (verified against the live prod bucket policy,
+    // 2026-09-08). The duplicate made this corner look better defended than
+    // it was, which is part of why the missing TLS floor above went unnoticed.
+    // The deny is asserted by behaviour in test/infra, not by this prop.
   }
 }

@@ -11,6 +11,28 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import { CfnUserPool } from 'aws-cdk-lib/aws-cognito';
 
+// Allowed OTP destinations, as E.164 dialling prefixes. A-IEP serves families
+// in the United States, so +1 covers every real user, and refusing anything
+// else is a load-bearing abuse control. The fictional test numbers below are
+// NANP and so are already covered by +1.
+//
+// Deliberately still in source: an allowlist of countries a public-interest
+// service will text is worth being publicly auditable, and knowing it is +1
+// helps nobody attack it. The numeric ceilings are the opposite case and are
+// NOT here; see SMS_POLICY_PARAM_PREFIX.
+const SMS_ALLOWED_COUNTRY_CODES = ['+1'];
+
+// Where the operational SMS ceilings live. The parameters under this prefix
+// are created OUT OF BAND, never by CDK: a value set in this repo would be a
+// value published in it, which is the whole thing this avoids. The lambda
+// falls back to compiled floors that are tighter than the real numbers, so a
+// missing or unreadable parameter narrows the service instead of widening it.
+//
+//   <prefix>/allowed-country-codes   e.g. "+1"
+//   <prefix>/max-per-hour-global     positive integer
+//   <prefix>/max-per-day-global      positive integer
+const SMS_POLICY_PARAM_PREFIX = `/a-iep/${getEnvironment()}/sms-policy`;
+
 // ── Staging-only E2E test backdoor: the shared allowlist ─────────────────
 // The Playwright suite signs in as real Cognito users whose numbers are drawn
 // from the NANP-fictional 555-01XX block (+1 555 555-01XX can never be
@@ -69,7 +91,15 @@ export interface NewAuthorizationStackProps extends cdk.StackProps {
  * - Applies standard tags and outputs resource ARNs/IDs.
  */
 export class NewAuthorizationStack extends Construct {
+  /** The custom-auth triggers, so MonitoringStack can alarm on each one:
+   *  an error in any of these locks families out. Label is the name a
+   *  human reads in Slack. */
+  public readonly authTriggerFunctions: { label: string; fn: lambda.Function; purpose: string }[] = [];
   public readonly userPool: UserPool;
+  /** Exposed so monitoring can alarm on throttling: the service-wide SMS
+   *  budget fails closed on a DynamoDB error, so throttling here stops
+   *  login outright rather than just slowing it. */
+  public otpRateLimitTable!: dynamodb.Table;
   public readonly userPoolClient: UserPoolClient;
 
   constructor(scope: Construct, id: string, props?: NewAuthorizationStackProps) {
@@ -300,7 +330,7 @@ export class NewAuthorizationStack extends Construct {
     // InitiateAuth, so in-session state can never rate-limit SMS sends).
     // Keys are sha256(phone) + hour bucket, so no raw phone numbers are
     // stored, and rows expire via TTL, keeping the table tiny.
-    const otpRateLimitTable = new dynamodb.Table(this, 'OtpRateLimitTable', {
+    const otpRateLimitTable = this.otpRateLimitTable = new dynamodb.Table(this, 'OtpRateLimitTable', {
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'expiresAt',
@@ -322,12 +352,28 @@ export class NewAuthorizationStack extends Construct {
       handler: 'create-auth-challenge.handler',
       environment: {
         OTP_RATE_LIMIT_TABLE: otpRateLimitTable.tableName,
+        // Both environments serve United States families only. Set here as
+        // well as defaulted in the lambda so the value is pinned by
+        // test/infra rather than resting on the lambda default alone.
+        SMS_ALLOWED_COUNTRY_CODES: SMS_ALLOWED_COUNTRY_CODES.join(','),
+        SMS_POLICY_PARAM_PREFIX,
         ...(userProfilesTable && { USER_PROFILES_TABLE: userProfilesTable.tableName })
       },
       timeout: cdk.Duration.seconds(30),
       logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
       description: 'Create Auth Challenge for Phone OTP authentication'
     });
+
+    // Read-only, and scoped to exactly the policy subtree: this role must
+    // never be able to read the rest of the parameter hierarchy, and must
+    // never be able to write its own ceilings.
+    createAuthChallengeFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['ssm:GetParameter', 'ssm:GetParameters'],
+      resources: [
+        `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${SMS_POLICY_PARAM_PREFIX}/*`,
+      ],
+    }));
 
     // Add SNS permissions for sending SMS
     createAuthChallengeFunction.addToRolePolicy(new iam.PolicyStatement({
@@ -434,6 +480,18 @@ export class NewAuthorizationStack extends Construct {
     if (userProfilesTable) {
       userProfilesTable.grantReadWriteData(verifyAuthChallengeFunction);
     }
+
+    // Collected for MonitoringStack, which alarms on each one's Errors. The
+    // labels are what a human reads in Slack, so they name the effect on a
+    // family where that is not obvious from the trigger name.
+    this.authTriggerFunctions.push(
+      { label: 'PreSignUp', fn: preSignUpFunction , purpose: 'auto-confirms a phone signup so a new parent gets one code, not two' },
+      { label: 'DefineAuthChallenge', fn: defineAuthChallengeFunction , purpose: 'decides each step of the login challenge; runs on every sign-in' },
+      { label: 'CreateAuthChallenge (sends the SMS code)', fn: createAuthChallengeFunction , purpose: 'generates and texts the login code; runs on every sign-in' },
+      { label: 'VerifyAuthChallenge (checks the SMS code)', fn: verifyAuthChallengeFunction , purpose: 'checks the code a parent typed; runs on every sign-in' },
+      { label: 'CustomMessage', fn: customMessageFunction , purpose: 'wording for the codes Cognito itself sends' },
+      { label: 'PreAuthentication', fn: preAuthenticationFunction , purpose: 'runs just before a sign-in is accepted' },
+    );
 
     // Allow Cognito to invoke the Lambda functions
     [preSignUpFunction, defineAuthChallengeFunction, createAuthChallengeFunction, verifyAuthChallengeFunction, customMessageFunction, preAuthenticationFunction].forEach(func => {

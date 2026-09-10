@@ -384,6 +384,100 @@ describe('Cognito custom-auth wiring', () => {
     expect(props.TimeToLiveSpecification).toEqual({ AttributeName: 'expiresAt', Enabled: true });
   });
 
+  // Data events are the only record that an IEP document or a profile row was
+  // READ. Without them the question "was anything taken" has no answer, only
+  // an absence of evidence, and a trail cannot be made to cover the past.
+  test('object and item reads on the FERPA stores are audited', () => {
+    const trails = Object.values(template.findResources('AWS::CloudTrail::Trail'))
+      .map((r: any) => r.Properties);
+    expect(trails).toHaveLength(1);
+    const [trail] = trails;
+
+    // Tamper-evidence: a log that can be altered afterwards is not evidence.
+    expect(trail.EnableLogFileValidation).toBe(true);
+
+    const dataResources = (trail.EventSelectors as any[]).flatMap((s) => s.DataResources ?? []);
+    const byType = (t: string) => dataResources.filter((d) => d.Type === t);
+
+    // Reads, not just writes: a write shows up in the data, an exfiltration
+    // shows up nowhere else.
+    for (const selector of trail.EventSelectors as any[]) {
+      expect(selector.ReadWriteType).toBe('All');
+    }
+    expect(byType('AWS::S3::Object')).toHaveLength(1);
+    expect(byType('AWS::DynamoDB::Table')[0].Values).toHaveLength(3);
+  });
+
+  // The audit log is the only copy of the evidence for anything already
+  // recorded, so a stack teardown must not take it.
+  test('the audit log bucket is retained', () => {
+    const buckets = Object.entries(template.findResources('AWS::S3::Bucket'))
+      .filter(([logicalId]) => logicalId.includes('AuditLog'));
+    expect(buckets).toHaveLength(1);
+    expect(buckets[0][1].DeletionPolicy).toBe('Retain');
+  });
+
+  // The OTP counter holds hashes and counters, no personal data, and is
+  // written several times per login. Auditing it would be most of the volume
+  // for none of the value, so its absence is deliberate rather than an
+  // oversight, and this says so out loud.
+  test('the OTP rate-limit table is deliberately NOT audited', () => {
+    const trail = Object.values(template.findResources('AWS::CloudTrail::Trail'))
+      .map((r: any) => r.Properties)[0];
+    const tableRefs = JSON.stringify(
+      (trail.EventSelectors as any[]).flatMap((s) => s.DataResources ?? []),
+    );
+    expect(tableRefs).not.toContain('OtpRateLimitTable');
+  });
+
+  // A-IEP serves United States families, so +1 is every real destination.
+  // Widening this to a country the service does not serve removes a
+  // load-bearing abuse control. The lambda defaults to +1 on its own; this
+  // pins the value actually deployed.
+  test('create-auth-challenge only texts +1 destinations', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
+      Handler: 'create-auth-challenge.handler',
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({ SMS_ALLOWED_COUNTRY_CODES: '+1' }),
+      }),
+    }));
+  });
+
+  // The SMS ceilings are read at runtime from Parameter Store so the deployed
+  // calibration is not published with the source. Two properties matter and
+  // neither is obvious from reading the lambda: the role may only READ, and
+  // only within its own subtree. A wildcard here would let the auth trigger
+  // read the rest of the hierarchy, which includes API keys.
+  test('create-auth-challenge reads its SMS policy, and only that, from SSM', () => {
+    const policies = Object.values(template.findResources('AWS::IAM::Policy'));
+    const statements = policies.flatMap(
+      (p: any) => p.Properties.PolicyDocument.Statement as any[],
+    );
+    // Selected by the subtree they name, so other lambdas' unrelated SSM
+    // grants (API keys, the staging OTP backdoor) are not swept in.
+    const onPolicySubtree = statements.filter((st) =>
+      JSON.stringify(st.Resource ?? '').includes('sms-policy'),
+    );
+    expect(onPolicySubtree.length).toBeGreaterThan(0);
+
+    for (const st of onPolicySubtree) {
+      const actions = ([] as string[]).concat(st.Action);
+      // Read-only: nothing may rewrite its own ceilings.
+      expect(actions.every((a) => a.startsWith('ssm:Get'))).toBe(true);
+      // Scoped: never the whole parameter hierarchy.
+      const resources = ([] as any[]).concat(st.Resource).map((r) => JSON.stringify(r));
+      expect(resources.every((r) => r.includes('sms-policy'))).toBe(true);
+    }
+
+    // And nothing anywhere may write into that subtree.
+    const writers = statements.filter(
+      (st) =>
+        JSON.stringify(st.Resource ?? '').includes('sms-policy') &&
+        JSON.stringify(st.Action).includes('ssm:Put'),
+    );
+    expect(writers).toHaveLength(0);
+  });
+
   // create-auth-challenge fails open (or falls back to English SMS) when its
   // table wiring is missing, so the env vars are load-bearing: the rate-limit
   // counter and the profile lookup for OTP localization.
@@ -625,6 +719,139 @@ describe('S3 data protection', () => {
   });
 });
 
+// ── Encryption ──────────────────────────────────────────────────────────
+// WHY: on 2026-09-08 an audit found the encryption posture correct in the
+// live account but pinned by nothing. `encryptionKey` and `environmentEncryption`
+// are optional props threaded through from lib/chatbot-api/index.ts, so
+// dropping one downgrades a store from the CMK to an AWS-owned key, synths
+// clean, deploys green, and shows up nowhere: the same failure shape as the
+// bucket rename above, which also passed every check that existed at the time.
+// The same audit found both live CloudFront distributions on a TLSv1 floor
+// for the same reason, so the in-transit floor is pinned here too.
+//
+// "Encrypted" is not the property that matters, since AWS encrypts these at
+// rest by default regardless. The property is WHICH key: only the CMK gives
+// per-decrypt CloudTrail records and a revocation path over children's IEPs.
+describe('encryption at rest and in transit', () => {
+  // Resolved from the template rather than hardcoded: the assertions below
+  // must break if the key is swapped, not if its logical ID is refactored.
+  const appKmsKeyLogicalId = (): string => {
+    const keys = resourcesMatching(template, 'AWS::KMS::Key', 'AppKmsKey');
+    // Vacuity floor: no CMK means every pin below is asserting nothing.
+    expect(keys).toHaveLength(1);
+    return keys[0][0];
+  };
+
+  const referencesAppKmsKey = (value: unknown): boolean =>
+    JSON.stringify(value ?? null).includes(appKmsKeyLogicalId());
+
+  test('the knowledge bucket encrypts objects with the application CMK', () => {
+    const buckets = resourcesMatching(template, 'AWS::S3::Bucket', 'KnowledgeSourceBucket');
+    expect(buckets).toHaveLength(1);
+
+    const rules = buckets[0][1].Properties?.BucketEncryption?.ServerSideEncryptionConfiguration ?? [];
+    expect(rules).toHaveLength(1);
+
+    const applied = rules[0].ServerSideEncryptionByDefault;
+    // Not 'AES256': SSE-S3 would still read as "encrypted at rest" in the
+    // console while dropping the audit trail and the revocation path.
+    expect(applied?.SSEAlgorithm).toBe('aws:kms');
+    expect(referencesAppKmsKey(applied?.KMSMasterKeyID)).toBe(true);
+  });
+
+  test('every user-data table encrypts with the application CMK', () => {
+    const tables = Object.entries(template.findResources('AWS::DynamoDB::Table'))
+      .filter(([logicalId]) => USER_DATA_TABLE_HINTS.some((hint) => logicalId.includes(hint)));
+    expect(tables).toHaveLength(USER_DATA_TABLE_HINTS.length);
+
+    const offenders = tables
+      .filter(([, table]: [string, any]) => {
+        const sse = table.Properties?.SSESpecification;
+        return sse?.SSEEnabled !== true
+          || sse?.SSEType !== 'KMS'
+          || !referencesAppKmsKey(sse?.KMSMasterKeyId);
+      })
+      .map(([logicalId]) => logicalId);
+
+    // The OtpRateLimitTable is deliberately absent from this list: its rows
+    // are sha256(phone)#hour counters that TTL out within the hour, so the
+    // AWS-owned default key is the right call and a CMK would only add cost.
+    expect(offenders).toEqual([]);
+  });
+
+  test('the application log group encrypts with the application CMK', () => {
+    const groups = resourcesMatching(template, 'AWS::Logs::LogGroup', 'LoggingLogGroup');
+    expect(groups).toHaveLength(1);
+    expect(referencesAppKmsKey(groups[0][1].Properties?.KmsKeyId)).toBe(true);
+  });
+
+  // Every lambda that touches document content, profiles, or a decrypted API
+  // key holds its configuration in environment variables. The Cognito trigger
+  // lambdas under NewAuthorization are exempt on purpose: their environments
+  // carry table names and the fictional-number allowlist, no secret and no
+  // document reference. If that ever changes, delete the exemption.
+  test('every data-plane lambda encrypts its environment with the application CMK', () => {
+    const dataPlane = Object.entries(template.findResources('AWS::Lambda::Function'))
+      .filter(([logicalId]) => logicalId.startsWith('ChatbotAPI'));
+    // 18 at the time of writing; the floor catches a filter that stops matching.
+    expect(dataPlane.length).toBeGreaterThanOrEqual(15);
+
+    const offenders = dataPlane
+      .filter(([, fn]: [string, any]) => !referencesAppKmsKey(fn.Properties?.KmsKeyArn))
+      .map(([logicalId]) => logicalId);
+
+    expect(offenders).toEqual([]);
+  });
+
+  // enforceSSL renders as a Deny statement on the bucket's resource policy,
+  // which is the only one of the two that binds a caller holding a presigned
+  // URL: presigned GETs are evaluated against the bucket policy, so without
+  // this a link could be replayed over plaintext HTTP.
+  // Both TLS pins below assert the rendered Deny rather than the CDK prop.
+  // That matters here: buckets.ts once carried a hand-written
+  // aws:SecureTransport deny next to enforceSSL, CDK emits a byte-identical
+  // statement, and PostProcessPolicyDocument dedupes them to one. A pin on
+  // the prop would have passed either way and told us nothing about the
+  // policy that actually ships.
+  const bucketsWithoutDeny = (matches: (statement: any) => boolean): string[] => {
+    const buckets = Object.keys(template.findResources('AWS::S3::Bucket'));
+    // Knowledge, website, website logs, CloudFront logs.
+    expect(buckets.length).toBeGreaterThanOrEqual(4);
+
+    const policies = Object.values(template.findResources('AWS::S3::BucketPolicy'));
+
+    return buckets.filter((bucketLogicalId) => !policies.some((policy: any) => {
+      const doc = policy.Properties ?? {};
+      if (!JSON.stringify(doc.Bucket ?? null).includes(bucketLogicalId)) return false;
+      return (doc.PolicyDocument?.Statement ?? []).some((statement: any) =>
+        statement.Effect === 'Deny'
+        && [statement.Action ?? []].flat().includes('s3:*')
+        && matches(statement));
+    }));
+  };
+
+  // enforceSSL renders as a Deny statement on the bucket's resource policy,
+  // which is the only one of the two that binds a caller holding a presigned
+  // URL: presigned GETs are evaluated against the bucket policy, so without
+  // this a link could be replayed over plaintext HTTP.
+  test('every bucket denies requests that are not over TLS', () => {
+    expect(bucketsWithoutDeny(
+      (statement) => statement.Condition?.Bool?.['aws:SecureTransport'] === 'false'
+    )).toEqual([]);
+  });
+
+  // The floor, not just the scheme. enforceSSL on its own denies plaintext
+  // HTTP and happily accepts TLS 1.0 and 1.1, which is where all four buckets
+  // sat until 2026-09-08: the same shape as the CloudFront TLSv1 default
+  // found the same day. minimumTLSVersion adds this second Deny, and CDK
+  // throws at synth if enforceSSL is turned off underneath it.
+  test('every bucket denies TLS below 1.2', () => {
+    expect(bucketsWithoutDeny(
+      (statement) => statement.Condition?.NumericLessThan?.['s3:TlsVersion'] === 1.2
+    )).toEqual([]);
+  });
+});
+
 describeDurableStoreRetention('staging', () => template);
 
 /**
@@ -673,17 +900,33 @@ describe('IEP processing state machine', () => {
   // A processing failure that never reaches RecordFailure leaves the document
   // stuck at PROCESSING forever — the parent sees an eternal spinner and the
   // failure is invisible to us (no failed_step, no error_message in DDB).
+  //
+  // Catches now reach RecordFailure through a one-state FailedAt<Step> Pass
+  // that injects the failing step's name, so this resolves that hop instead of
+  // requiring Next === 'RecordFailure' directly. The pin was updated, not
+  // relaxed: the hop is allowed only if it is a Pass that goes straight to
+  // RecordFailure, so an arbitrary chain, a Choice that could route elsewhere,
+  // or a dead end still fails. Its intent is unchanged, that every failure
+  // ARRIVES at RecordFailure.
   test('every task and parallel state catches States.ALL into RecordFailure', () => {
     const definition = stateMachineDefinition();
-    expect(definition.States.RecordFailure).toMatchObject({ Type: 'Task' });
+    const states: Record<string, any> = definition.States;
+    expect(states.RecordFailure).toMatchObject({ Type: 'Task' });
 
-    const offenders = Object.entries(definition.States)
+    /** Does this catch target land on RecordFailure, at most one Pass away? */
+    const reachesRecordFailure = (next: string): boolean => {
+      if (next === 'RecordFailure') return true;
+      const hop = states[next];
+      return Boolean(hop) && hop.Type === 'Pass' && hop.Next === 'RecordFailure';
+    };
+
+    const offenders = Object.entries(states)
       .filter(([name, state]: [string, any]) =>
         name !== 'RecordFailure' && (state.Type === 'Task' || state.Type === 'Parallel'))
       .filter(([, state]: [string, any]) => {
         const catches: any[] = state.Catch ?? [];
         return !catches.some((c) =>
-          (c.ErrorEquals ?? []).includes('States.ALL') && c.Next === 'RecordFailure');
+          (c.ErrorEquals ?? []).includes('States.ALL') && reachesRecordFailure(c.Next));
       })
       .map(([name]) => name);
 
@@ -724,6 +967,44 @@ describe('IEP processing state machine', () => {
     const timeout = stateMachineDefinition().TimeoutSeconds;
     expect(timeout).toBe(21600);
     expect(timeout).toBeGreaterThan(WORST_CASE_RUN_SECONDS);
+  });
+
+  // WHY: failed_step was `$$.State.Name` read INSIDE RecordFailure, so it
+  // resolved to the literal string "RecordFailure" for every failure the
+  // pipeline has ever recorded. All six failures in production carry that
+  // value, and none of them names the stage that actually broke, which is the
+  // first thing anyone triaging wants and the field the document-pipeline
+  // alarm's runbook points at.
+  //
+  // The fix routes each Task's Catch through a Pass that injects its own name,
+  // so these assertions pin the wiring rather than the outcome: a Catch that
+  // goes straight to RecordFailure again, or a marker whose Result drifts from
+  // its state name, silently restores a field that lies.
+  describe('a failure names the stage that failed', () => {
+    test('every Catch is routed through a marker that injects its own step name', () => {
+      const states = stateMachineDefinition().States;
+      const caught = Object.entries<any>(states)
+        .flatMap(([name, state]) => (state.Catch ?? []).map((c: any) => [name, c.Next]));
+
+      expect(caught.length).toBeGreaterThan(0);
+      for (const [source, next] of caught) {
+        // Never straight to RecordFailure: that is what made failed_step a lie.
+        expect(next).toBe(`FailedAt${source}`);
+        const marker = states[next as string];
+        expect(marker.Type).toBe('Pass');
+        // The literal must match the state it catches for, or the field names
+        // the wrong stage, which is worse than naming none.
+        expect(marker.Result).toBe(source);
+        expect(marker.ResultPath).toBe('$.failed_step');
+        expect(marker.Next).toBe('RecordFailure');
+      }
+    });
+
+    test('RecordFailure reads the injected step, not its own state name', () => {
+      const params = stateMachineDefinition().States.RecordFailure.Parameters.params;
+      expect(params['failed_step.$']).toBe('$.failed_step');
+      expect(params['failed_step.$']).not.toBe('$$.State.Name');
+    });
   });
 });
 
@@ -920,6 +1201,70 @@ describe('on-demand single-language translation', () => {
   });
 });
 
+// Lambda caps ALL environment variables at 4KB COMBINED, and CloudFormation
+// only says so at deploy time. A manifest of 23 components measured 4,745
+// bytes and took the staging deploy down with it, after CI had gone green.
+//
+// Tokens are the reason this needs care: an unresolved `${Token[...]}` is
+// shorter than the value it becomes, so a naive measurement understates the
+// real size. Each is counted as a generous fixed width instead, which is why
+// the budget below is well under 4096 rather than at it.
+describe('Lambda environment variables fit inside the 4KB limit', () => {
+  // Staging only, and that is the worst case on purpose: every staging
+  // resource name carries an extra "staging", so if it fits here it fits in
+  // production.
+  const LAMBDA_ENV_LIMIT_BYTES = 4096;
+  // An unresolved `${Token[...]}` is shorter than the name it becomes, so
+  // measuring the synthesized text understates the deployed size. Each token
+  // is charged a generous fixed width instead.
+  const ASSUMED_TOKEN_BYTES = 140;
+
+  // Walks the value rather than measuring its JSON. A large env var
+  // synthesizes as an Fn::Join whose parts hold the real text, so charging
+  // the whole object a flat token width undercounts it by thousands of bytes.
+  // That mistake made the first version of this test pass against the exact
+  // manifest that broke the deploy.
+  const measureValue = (value: unknown): number => {
+    if (typeof value === 'string') {
+      const tokens = (value.match(/\$\{Token\[/g) ?? []).length;
+      return value.length + tokens * ASSUMED_TOKEN_BYTES;
+    }
+    if (Array.isArray(value)) {
+      return value.reduce<number>((total, item) => total + measureValue(item), 0);
+    }
+    if (value && typeof value === 'object') {
+      const object = value as Record<string, unknown>;
+      if ('Fn::Join' in object) {
+        const [delimiter, parts] = object['Fn::Join'] as [string, unknown[]];
+        const joined: number = parts.reduce<number>(
+          (total, part) => total + measureValue(part), 0);
+        return joined + delimiter.length * Math.max(0, parts.length - 1);
+      }
+      // A Ref or GetAtt: resolves to one resource name at deploy.
+      return ASSUMED_TOKEN_BYTES;
+    }
+    return 0;
+  };
+
+  const measure = (variables: Record<string, unknown>): number =>
+    Object.entries(variables).reduce(
+      (total, [key, value]) => total + key.length + measureValue(value), 0);
+
+  test('no function is close to the limit', () => {
+    const functions = Object.entries(template.findResources('AWS::Lambda::Function'));
+    expect(functions.length).toBeGreaterThan(0);
+
+    const oversized = functions
+      .map(([logicalId, resource]) => ({
+        logicalId,
+        bytes: measure((resource as any).Properties?.Environment?.Variables ?? {}),
+      }))
+      .filter((f) => f.bytes >= LAMBDA_ENV_LIMIT_BYTES);
+
+    expect(oversized).toEqual([]);
+  });
+});
+
 describe('Lambda runtimes', () => {
   // One approved runtime per language keeps deprecation upgrades atomic and
   // matches CI's pinned toolchains (python 3.12 in the pytest job, node 20 in
@@ -1022,6 +1367,71 @@ describe('Python lambda assets exclude __pycache__', () => {
   });
 });
 
+describe('production synth: SMS delivery-status logging', () => {
+  let prodTemplate: Template;
+  let saved: string | undefined;
+
+  beforeAll(() => {
+    saved = process.env.ENVIRONMENT;
+    process.env.ENVIRONMENT = 'production';
+    jest.resetModules();
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const { GenAiMvpStack } = require('../../lib/gen-ai-mvp-stack');
+    /* eslint-enable @typescript-eslint/no-var-requires */
+    const app = new App({ context: { 'aws:cdk:bundling-stacks': [] } });
+    prodTemplate = Template.fromStack(new GenAiMvpStack(app, 'AIEPStack', {}));
+  }, 180_000);
+
+  afterAll(() => {
+    process.env.ENVIRONMENT = saved;
+    jest.resetModules();
+  });
+
+  // A message the provider accepts and then fails to deliver is otherwise
+  // invisible: the publish succeeds, an id comes back, and nothing records
+  // that it never arrived. This role is what lets SNS write that down.
+  test('SNS can write SMS delivery outcomes, and only that', () => {
+    prodTemplate.hasResourceProperties('AWS::IAM::Role', Match.objectLike({
+      AssumeRolePolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({ Principal: { Service: 'sns.amazonaws.com' } }),
+        ]),
+      }),
+    }));
+
+    const statements = Object.values(prodTemplate.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[]);
+    const deliveryStatus = statements.filter((st) =>
+      JSON.stringify(st.Action).includes('logs:PutMetricFilter'),
+    );
+    expect(deliveryStatus.length).toBeGreaterThan(0);
+    for (const st of deliveryStatus) {
+      // Logs only. This role is assumable by an AWS service, so anything
+      // beyond writing logs would be a standing grant to SNS.
+      const actions = ([] as string[]).concat(st.Action);
+      expect(actions.every((a) => a.startsWith('logs:'))).toBe(true);
+    }
+  });
+
+
+  // The SNS setting this role serves is account-level, so there is exactly
+  // one of it. A copy per environment would model it as though each had its
+  // own: whichever role the account setting names is the one in use, so
+  // tearing down the other environment would silently end delivery logging
+  // for both, with nothing in either stack hinting at it.
+  test('the role exists in production and NOT in staging', () => {
+    const prodRoles = Object.values(prodTemplate.findResources('AWS::IAM::Role'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => String(p.RoleName ?? '').includes('sms-delivery-status'));
+    const stagingRoles = Object.values(template.findResources('AWS::IAM::Role'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => String(p.RoleName ?? '').includes('sms-delivery-status'));
+
+    expect(prodRoles).toHaveLength(1);
+    expect(stagingRoles).toHaveLength(0);
+  });
+});
+
 describe('production synth: the OTP test backdoor must not exist', () => {
   // THE CROWN JEWEL OF THE BACKDOOR CHANGE. Staging diverts OTPs for
   // allowlisted fictional numbers into SSM (see the staging pins above); the
@@ -1114,4 +1524,53 @@ describe('production synth: the OTP test backdoor must not exist', () => {
   // naming pins matter most for production (that is where 50 of 102 documents
   // were lost), and a second top-level synth would double the suite's runtime.
   describeDurableStoreRetention('production', () => prodTemplate);
+});
+
+describe('custom-certificate synth: the CloudFront TLS floor', () => {
+  // The viewerCertificate block in lib/user-interface/generate-app.ts only
+  // renders when ACM_CERTIFICATE_ARN and DOMAIN are both set, which is how
+  // the real deploys run and how a-iep.org and dev.a-iep.org got their certs.
+  // The shared synth above leaves both unset, so it produces the default
+  // *.cloudfront.net certificate and cannot see this field at all. That blind
+  // spot is exactly why the TLSv1 floor survived: pay for a third synth.
+  let certTemplate: Template;
+  let savedAcmArn: string | undefined;
+  let savedDomain: string | undefined;
+
+  beforeAll(() => {
+    savedAcmArn = process.env.ACM_CERTIFICATE_ARN;
+    savedDomain = process.env.DOMAIN;
+    process.env.ACM_CERTIFICATE_ARN =
+      'arn:aws:acm:us-east-1:123456789012:certificate/11111111-2222-3333-4444-555555555555';
+    process.env.DOMAIN = 'example.test';
+
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const { GenAiMvpStack } = require('../../lib/gen-ai-mvp-stack');
+    const { stackName } = require('../../lib/constants');
+    /* eslint-enable @typescript-eslint/no-var-requires */
+
+    const app = new App({ context: { 'aws:cdk:bundling-stacks': [] } });
+    certTemplate = Template.fromStack(new GenAiMvpStack(app, stackName, {}));
+  }, 180_000);
+
+  afterAll(() => {
+    process.env.ACM_CERTIFICATE_ARN = savedAcmArn;
+    process.env.DOMAIN = savedDomain;
+  });
+
+  test('the distribution serves the custom certificate over TLS 1.2 or better', () => {
+    const distributions = Object.values(certTemplate.findResources('AWS::CloudFront::Distribution'));
+    expect(distributions).toHaveLength(1);
+
+    const viewerCertificate = (distributions[0] as any).Properties?.DistributionConfig?.ViewerCertificate;
+    // Vacuity floor: with the env vars unset this object is the default
+    // certificate and carries no MinimumProtocolVersion, so the pin below
+    // would pass against undefined === undefined if the block stopped
+    // rendering. Prove the custom certificate is the one under test first.
+    expect(viewerCertificate?.AcmCertificateArn).toBe(process.env.ACM_CERTIFICATE_ARN);
+    expect(viewerCertificate?.SslSupportMethod).toBe('sni-only');
+
+    // CloudFormation's own default here is 'TLSv1', which also permits 3DES.
+    expect(viewerCertificate?.MinimumProtocolVersion).toBe('TLSv1.2_2021');
+  });
 });

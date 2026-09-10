@@ -38,6 +38,9 @@ jest.mock('@aws-sdk/client-ssm', () => ({
     PutParameterCommand: class {
         constructor(input) { this.input = input; }
     },
+    GetParametersCommand: class {
+        constructor(input) { this.input = input; }
+    },
 }), { virtual: true });
 
 jest.mock('@aws-sdk/client-dynamodb', () => ({ DynamoDBClient: class {} }), { virtual: true });
@@ -56,8 +59,11 @@ jest.mock('@aws-sdk/lib-dynamodb', () => {
 }, { virtual: true });
 
 const { UpdateCommand } = require('@aws-sdk/lib-dynamodb');
-const { PutParameterCommand } = require('@aws-sdk/client-ssm');
-const { handler } = require('../../../lib/chatbot-api/functions/phone-otp-auth/create-auth-challenge');
+const { PutParameterCommand, GetParametersCommand } = require('@aws-sdk/client-ssm');
+const {
+    handler,
+    resetSmsPolicyCache,
+} = require('../../../lib/chatbot-api/functions/phone-otp-auth/create-auth-challenge');
 const { getMessages } = require('../../../lib/chatbot-api/functions/phone-otp-auth/messages');
 
 const PHONE = '+15555550100';
@@ -90,6 +96,9 @@ const RATE_LIMITED_SHAPE = {
 };
 
 const updateCalls = () => mockDdbSend.mock.calls.filter(([cmd]) => cmd instanceof UpdateCommand);
+// Per-phone rows are keyed by sha256(phone) + hour bucket; the global budget
+// rows on the same table are keyed 'GLOBAL#...'.
+const perPhoneUpdates = () => updateCalls().filter(([cmd]) => /^[0-9a-f]{64}#\d+$/.test(cmd.input.Key.pk));
 
 describe('create-auth-challenge', () => {
     beforeEach(() => {
@@ -102,6 +111,14 @@ describe('create-auth-challenge', () => {
         });
         process.env.OTP_RATE_LIMIT_TABLE = 'test-otp-rate-limit';
         delete process.env.USER_PROFILES_TABLE;
+        // The resolved policy is cached in module scope for five minutes, so
+        // without this a test would silently inherit the previous test's
+        // ceilings and pass for the wrong reason.
+        resetSmsPolicyCache();
+        delete process.env.SMS_POLICY_PARAM_PREFIX;
+        delete process.env.SMS_ALLOWED_COUNTRY_CODES;
+        delete process.env.MAX_SMS_PER_HOUR_GLOBAL;
+        delete process.env.MAX_SMS_PER_DAY_GLOBAL;
         // The backdoor must not exist unless a test opts in explicitly.
         delete process.env.TEST_PHONE_NUMBERS;
         delete process.env.TEST_OTP_PARAM_PREFIX;
@@ -131,7 +148,9 @@ describe('create-auth-challenge', () => {
         expect(publish.PhoneNumber).toBe(PHONE);
         expect(publish.Message).toContain(code);
         expect(publish.MessageAttributes['AWS.SNS.SMS.SMSType'].StringValue).toBe('Transactional');
-        expect(publish.MessageAttributes['AWS.SNS.SMS.MaxPrice'].StringValue).toBe('0.50');
+        // Pinned: SNS declines anything dearer, which is a lock on spend
+        // independent of the destination allowlist.
+        expect(publish.MessageAttributes['AWS.SNS.SMS.MaxPrice'].StringValue).toBe('0.05');
 
         // Metadata must round-trip for the reuse/expiry logic downstream.
         const metadata = JSON.parse(event.response.challengeMetadata);
@@ -188,17 +207,28 @@ describe('create-auth-challenge', () => {
         expect(mockSnsSend).toHaveBeenCalledTimes(1);
     });
 
-    test('each fresh OTP counts against the hourly per-phone budget in DynamoDB', async () => {
+    test('each fresh OTP counts against the per-phone AND both global budgets', async () => {
         await handler(baseEvent([HANDSHAKE_PASS]));
 
-        const updates = updateCalls();
-        expect(updates).toHaveLength(1);
-        const { TableName, Key, UpdateExpression } = updates[0][0].input;
-        expect(TableName).toBe('test-otp-rate-limit');
-        expect(UpdateExpression).toContain('ADD smsCount');
-        // Keys are sha256(phone) + hour bucket; raw numbers never hit the table.
-        expect(Key.pk).toMatch(/^[0-9a-f]{64}#\d+$/);
-        expect(Key.pk).not.toContain(PHONE.slice(1));
+        // Selected by key shape, not by index: the per-phone row is no longer
+        // the only counter, and asserting on ordering would make this test
+        // fail for a reason that has nothing to do with what it checks.
+        const keys = updateCalls().map(([cmd]) => cmd.input.Key.pk);
+        const perPhone = keys.filter((pk) => /^[0-9a-f]{64}#\d+$/.test(pk));
+
+        expect(perPhone).toHaveLength(1);
+        expect(keys).toEqual(expect.arrayContaining([
+            expect.stringMatching(/^GLOBAL#H#\d+$/),
+            expect.stringMatching(/^GLOBAL#D#\d+$/),
+        ]));
+
+        for (const [cmd] of updateCalls()) {
+            const { TableName, UpdateExpression, Key } = cmd.input;
+            expect(TableName).toBe('test-otp-rate-limit');
+            expect(UpdateExpression).toContain('ADD smsCount');
+            // Raw numbers never hit the table, on any row.
+            expect(Key.pk).not.toContain(PHONE.slice(1));
+        }
     });
 
     test('an exhausted SMS budget blocks the send with the rate-limit error shape', async () => {
@@ -222,22 +252,33 @@ describe('create-auth-challenge', () => {
         expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
     });
 
-    test('a DynamoDB outage fails open: the login SMS still goes out', async () => {
+    // Inverted deliberately, and it is the sharpest trade-off in the file.
+    // This used to assert the SMS still goes out during a DynamoDB outage.
+    // It now fails closed instead: DynamoDB holds the profiles and documents
+    // the app runs on, so there is no usable product during its outage
+    // anyway, and an unmetered send path costs more and for longer.
+    test('a DynamoDB outage fails CLOSED: no unmetered SMS goes out', async () => {
         mockDdbSend.mockImplementation(async (cmd) => {
             if (cmd instanceof UpdateCommand) throw new Error('DynamoDB unavailable');
             return {};
         });
         const event = await handler(baseEvent([HANDSHAKE_PASS]));
-        expect(mockSnsSend).toHaveBeenCalledTimes(1);
-        expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        expect(mockSnsSend).not.toHaveBeenCalled();
+        expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+        expect(event.response.publicChallengeParameters).toEqual({
+            error: 'Text messaging is temporarily unavailable. Please try again in a little while.',
+        });
     });
 
-    test('no rate-limit table configured skips the check but still texts', async () => {
+    // Inverted deliberately: this used to assert a missing table still texts.
+    // CDK always sets this env var on both stacks, so its absence is a deploy
+    // fault, and an unmetered send path is not an acceptable way to degrade.
+    test('no rate-limit table configured refuses to send rather than texting unmetered', async () => {
         delete process.env.OTP_RATE_LIMIT_TABLE;
         const event = await handler(baseEvent([HANDSHAKE_PASS]));
         expect(updateCalls()).toHaveLength(0);
-        expect(mockSnsSend).toHaveBeenCalledTimes(1);
-        expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        expect(mockSnsSend).not.toHaveBeenCalled();
+        expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
     });
 
     test('SNS failure produces the error challenge shape instead of throwing', async () => {
@@ -259,6 +300,385 @@ describe('create-auth-challenge', () => {
         expect(event.response.publicChallengeParameters).toEqual(ERROR_SHAPE);
         expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
         expect(mockSnsSend).not.toHaveBeenCalled();
+    });
+
+    describe('global SMS budget', () => {
+        // The control that bounds total spend, which the per-recipient
+        // limiter structurally cannot. Sized to bind before the provider's
+        // own account ceiling, so a refusal surfaces as a real error rather
+        // than a message the provider accepts and never delivers.
+        const BUDGET_SHAPE = {
+            error: 'Text messaging is temporarily unavailable. Please try again in a little while.',
+        };
+
+        // Counts every UpdateCommand for a given key prefix as its own window,
+        // so the hourly and daily ceilings can be driven independently.
+        const countsBy = (counts) => {
+            mockDdbSend.mockImplementation(async (cmd) => {
+                if (!(cmd instanceof UpdateCommand)) return {};
+                const pk = cmd.input.Key.pk;
+                const match = Object.keys(counts).find((prefix) => pk.startsWith(prefix));
+                return { Attributes: { smsCount: match ? counts[match] : 1 } };
+            });
+        };
+
+        afterEach(() => {
+            delete process.env.MAX_SMS_PER_HOUR_GLOBAL;
+            delete process.env.MAX_SMS_PER_DAY_GLOBAL;
+        });
+
+        test('the hourly ceiling stops a run that never repeats a number', async () => {
+            // A first-ever send for this recipient, so the per-recipient
+            // counter reads 1 and would allow it on its own.
+            countsBy({ 'GLOBAL#H#': 51, 'GLOBAL#D#': 51 });
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+        });
+
+        test('the daily ceiling stops a run spread thin enough to clear the hourly one', async () => {
+            countsBy({ 'GLOBAL#H#': 5, 'GLOBAL#D#': 101 });
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
+        });
+
+        test('the boundary: a send exactly at each floor still goes out', async () => {
+            countsBy({ 'GLOBAL#H#': 50, 'GLOBAL#D#': 100 });
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        });
+
+        test('the ceilings are overridable for incident response', async () => {
+            process.env.MAX_SMS_PER_HOUR_GLOBAL = '3';
+            countsBy({ 'GLOBAL#H#': 4, 'GLOBAL#D#': 4 });
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
+        });
+
+        test('an unparseable override falls back to the compiled floor, it does not disable it', async () => {
+            process.env.MAX_SMS_PER_HOUR_GLOBAL = 'unlimited';
+            countsBy({ 'GLOBAL#H#': 51, 'GLOBAL#D#': 51 });
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
+        });
+
+        test('the global counters carry a TTL so a spent window expires', async () => {
+            await handler(baseEvent([HANDSHAKE_PASS]));
+
+            const globals = updateCalls().filter(([cmd]) => cmd.input.Key.pk.startsWith('GLOBAL#'));
+            expect(globals).toHaveLength(2);
+            for (const [cmd] of globals) {
+                expect(cmd.input.ExpressionAttributeValues[':expiry'])
+                    .toBeGreaterThan(Math.floor(Date.now() / 1000));
+            }
+        });
+
+        test('the backdoor test path draws on no budget, because it sends no SMS', async () => {
+            process.env.TEST_PHONE_NUMBERS = '+15555550111';
+            process.env.TEST_OTP_PARAM_PREFIX = '/a-iep/staging/e2e-otp';
+            countsBy({ 'GLOBAL#H#': 51, 'GLOBAL#D#': 51 });
+
+            const event = await handler(
+                baseEvent([HANDSHAKE_PASS], { userAttributes: { phone_number: '+15555550111' } })
+            );
+
+            expect(updateCalls()).toHaveLength(0);
+            expect(mockSsmSend).toHaveBeenCalledTimes(1);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        });
+    });
+
+    describe('log markers the alarms key on', () => {
+        // These strings are a contract with the metric filters in
+        // lib/chatbot-api/monitoring. Rewording one silently disarms an
+        // alarm, which is a failure that looks like success, so each marker
+        // is pinned here rather than left to prose.
+        const errorLog = () => jest.spyOn(console, 'error').mockImplementation(() => {});
+
+        test('a refused destination emits SMS_REFUSED_DESTINATION', async () => {
+            const logged = errorLog();
+            await handler(baseEvent([HANDSHAKE_PASS], {
+                userAttributes: { phone_number: '+255712345678' },
+            }));
+            const out = logged.mock.calls.map((a) => a.join(' ')).join('\n');
+            expect(out).toContain('SMS_REFUSED_DESTINATION');
+            logged.mockRestore();
+        });
+
+        test('an exhausted global ceiling emits SMS_BUDGET_EXHAUSTED', async () => {
+            const logged = errorLog();
+            mockDdbSend.mockImplementation(async (cmd) => {
+                if (!(cmd instanceof UpdateCommand)) return {};
+                return { Attributes: { smsCount: cmd.input.Key.pk.startsWith('GLOBAL#') ? 999 : 1 } };
+            });
+            await handler(baseEvent([HANDSHAKE_PASS]));
+            const out = logged.mock.calls.map((a) => a.join(' ')).join('\n');
+            expect(out).toContain('SMS_BUDGET_EXHAUSTED');
+            logged.mockRestore();
+        });
+
+        test('a broken send emits SMS_SEND_FAILED', async () => {
+            const logged = errorLog();
+            mockSnsSend.mockRejectedValue(new Error('SNS unavailable'));
+            await handler(baseEvent([HANDSHAKE_PASS]));
+            const out = logged.mock.calls.map((a) => a.join(' ')).join('\n');
+            expect(out).toContain('SMS_SEND_FAILED');
+            logged.mockRestore();
+        });
+
+        test('a deliberate refusal does NOT emit SMS_SEND_FAILED', async () => {
+            // Otherwise every working control would page as a delivery
+            // outage, and the alarm would be trained into noise.
+            const logged = errorLog();
+            await handler(baseEvent([HANDSHAKE_PASS], {
+                userAttributes: { phone_number: '+255712345678' },
+            }));
+            const out = logged.mock.calls.map((a) => a.join(' ')).join('\n');
+            expect(out).toContain('SMS_REFUSED_DESTINATION');
+            expect(out).not.toContain('SMS_SEND_FAILED');
+            logged.mockRestore();
+        });
+
+        test('no marker at all on a healthy send', async () => {
+            const logged = errorLog();
+            await handler(baseEvent([HANDSHAKE_PASS]));
+            const out = logged.mock.calls.map((a) => a.join(' ')).join('\n');
+            expect(out).not.toContain('SMS_SEND_FAILED');
+            expect(out).not.toContain('SMS_BUDGET_EXHAUSTED');
+            expect(out).not.toContain('SMS_REFUSED_DESTINATION');
+            logged.mockRestore();
+        });
+    });
+
+    describe('SMS policy from Parameter Store', () => {
+        // The deployed ceilings live outside this repo so they are not
+        // published with the source. Every layer of the fallback must narrow
+        // the service rather than widen it, which is what these assert.
+        const PREFIX = '/a-iep/test/sms-policy';
+        const BUDGET_SHAPE = {
+            error: 'Text messaging is temporarily unavailable. Please try again in a little while.',
+        };
+
+        const paramsReturn = (values) => {
+            mockSsmSend.mockImplementation(async (cmd) => {
+                if (cmd instanceof GetParametersCommand) {
+                    return {
+                        Parameters: Object.entries(values).map(([name, Value]) => ({
+                            Name: `${PREFIX}/${name}`, Value,
+                        })),
+                    };
+                }
+                return { Version: 1 };
+            });
+        };
+
+        // Drives the GLOBAL rows only. The per-recipient counter stays at a
+        // first send, so anything these tests observe is the global ceiling
+        // rather than MAX_SMS_PER_HOUR firing first.
+        const globalCount = (n) => mockDdbSend.mockImplementation(async (cmd) => {
+            if (!(cmd instanceof UpdateCommand)) return {};
+            return { Attributes: { smsCount: cmd.input.Key.pk.startsWith('GLOBAL#') ? n : 1 } };
+        });
+
+        beforeEach(() => {
+            process.env.SMS_POLICY_PARAM_PREFIX = PREFIX;
+        });
+
+        test('the store supplies the ceiling actually enforced', async () => {
+            paramsReturn({ 'max-per-hour-global': '10' });
+            globalCount(11); // over the store's 10, under the compiled floor of 50
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
+        });
+
+        test('the store supplies the destination allowlist', async () => {
+            paramsReturn({ 'allowed-country-codes': '+44' });
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            // PHONE is +1, which the store's list excludes.
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+        });
+
+        test('an unreadable store falls back to the floor, it does not fail open', async () => {
+            mockSsmSend.mockImplementation(async (cmd) => {
+                if (cmd instanceof GetParametersCommand) throw new Error('SSM unavailable');
+                return { Version: 1 };
+            });
+            globalCount(51); // over the compiled floor of 50
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
+        });
+
+        test('a missing parameter falls back rather than being read as unlimited', async () => {
+            paramsReturn({}); // parameter absent entirely
+            globalCount(51);
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(event.response.publicChallengeParameters).toEqual(BUDGET_SHAPE);
+        });
+
+        test('a malformed allowlist entry invalidates the whole list, it is not partly applied', async () => {
+            // A half-applied allowlist is a policy nobody wrote, so this must
+            // fall back to the compiled default rather than honour '+44'.
+            paramsReturn({ 'allowed-country-codes': '+44, not-a-prefix' });
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+        });
+
+        test('a zero or negative ceiling is rejected rather than bricking login', async () => {
+            paramsReturn({ 'max-per-hour-global': '0' });
+            globalCount(10); // under the compiled floor of 50
+
+            const event = await handler(baseEvent([HANDSHAKE_PASS]));
+
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        });
+
+        test('the store is read once and cached, not on every login', async () => {
+            paramsReturn({ 'max-per-hour-global': '40' });
+
+            await handler(baseEvent([HANDSHAKE_PASS]));
+            await handler(baseEvent([HANDSHAKE_PASS]));
+
+            const reads = mockSsmSend.mock.calls.filter(([cmd]) => cmd instanceof GetParametersCommand);
+            expect(reads).toHaveLength(1);
+        });
+
+        test('the policy read is scoped to the configured prefix', async () => {
+            paramsReturn({ 'max-per-hour-global': '40' });
+
+            await handler(baseEvent([HANDSHAKE_PASS]));
+
+            const [[cmd]] = mockSsmSend.mock.calls.filter(([c]) => c instanceof GetParametersCommand);
+            for (const name of cmd.input.Names) {
+                expect(name.startsWith(`${PREFIX}/`)).toBe(true);
+            }
+        });
+    });
+
+    describe('destination allowlist', () => {
+        // Destinations this service has no reason to text are refused before
+        // any spend. Every test here asserts the thing that must NOT happen:
+        // no SNS publish, and no draw on the counters.
+        const TANZANIA = '+255712345678';
+
+        const eventTo = (phone, session = [HANDSHAKE_PASS]) =>
+            baseEvent(session, { userAttributes: { phone_number: phone } });
+
+        afterEach(() => {
+            delete process.env.SMS_ALLOWED_COUNTRY_CODES;
+        });
+
+        test('a non-+1 destination is refused before SNS or the rate-limit counter', async () => {
+            const event = await handler(eventTo(TANZANIA));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(updateCalls()).toHaveLength(0);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+        });
+
+        test('the refusal tells the caller why, rather than "try again"', async () => {
+            const event = await handler(eventTo(TANZANIA));
+
+            // Retrying an unsupported country never succeeds, so the generic
+            // failure copy would be a lie.
+            expect(event.response.publicChallengeParameters).toEqual({
+                error: 'This phone number is not supported. A-IEP can only send codes to United States numbers.',
+            });
+        });
+
+        test('an unset env var fails CLOSED to +1, it does not allow everything', async () => {
+            delete process.env.SMS_ALLOWED_COUNTRY_CODES;
+
+            const blocked = await handler(eventTo(TANZANIA));
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(blocked.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+
+            const allowed = await handler(eventTo(PHONE));
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+            expect(allowed.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        });
+
+        test('an empty or whitespace env var also fails CLOSED to +1', async () => {
+            process.env.SMS_ALLOWED_COUNTRY_CODES = ' , ';
+
+            const blocked = await handler(eventTo(TANZANIA));
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(blocked.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+
+            const allowed = await handler(eventTo(PHONE));
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+        });
+
+        test('the allowlist is configurable, so a new country needs no code change', async () => {
+            process.env.SMS_ALLOWED_COUNTRY_CODES = '+1, +255';
+
+            const event = await handler(eventTo(TANZANIA));
+
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+            expect(mockSnsSend.mock.calls[0][0].input.PhoneNumber).toBe(TANZANIA);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+        });
+
+        test('narrowing the allowlist blocks even the E2E backdoor number', async () => {
+            // The check sits ahead of the isTestNumber branch on purpose, so
+            // the allowlist still holds if the fictional-block regex widens.
+            process.env.TEST_PHONE_NUMBERS = '+15555550111';
+            process.env.TEST_OTP_PARAM_PREFIX = '/a-iep/staging/e2e-otp';
+            process.env.SMS_ALLOWED_COUNTRY_CODES = '+44';
+
+            const event = await handler(eventTo('+15555550111'));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(mockSsmSend).not.toHaveBeenCalled();
+            expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+        });
+
+        test('the refusal logs the country code but never the full number', async () => {
+            const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            await handler(eventTo(TANZANIA));
+
+            const messages = logged.mock.calls.map((args) => args.join(' ')).join('\n');
+            expect(messages).toContain('+255');
+            expect(messages).not.toContain(TANZANIA);
+            logged.mockRestore();
+        });
+
+        test('the language handshake round is unaffected: it sends nothing anyway', async () => {
+            const event = await handler(eventTo(TANZANIA, []));
+
+            expect(event.response.challengeMetadata).toBe('LANGUAGE_HANDSHAKE');
+            expect(mockSnsSend).not.toHaveBeenCalled();
+        });
     });
 
     describe('staging test-number backdoor', () => {
@@ -317,8 +737,10 @@ describe('create-auth-challenge', () => {
             expect(mockSsmSend).not.toHaveBeenCalled();
             expect(mockSnsSend).toHaveBeenCalledTimes(1);
             expect(mockSnsSend.mock.calls[0][0].input.PhoneNumber).toBe('+15551234567');
-            // The real send pays the SMS budget as usual.
-            expect(updateCalls()).toHaveLength(1);
+            // The real send pays the SMS budget as usual: the per-phone
+            // counter, plus the two global windows.
+            expect(perPhoneUpdates()).toHaveLength(1);
+            expect(updateCalls()).toHaveLength(3);
             expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
         });
 
@@ -339,7 +761,8 @@ describe('create-auth-challenge', () => {
 
             expect(mockSsmSend).not.toHaveBeenCalled();
             expect(mockSnsSend).toHaveBeenCalledTimes(1);
-            expect(updateCalls()).toHaveLength(1);
+            expect(perPhoneUpdates()).toHaveLength(1);
+            expect(updateCalls()).toHaveLength(3);
             expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
         });
 
