@@ -182,6 +182,19 @@ describe.each([
 
     // Its action points at the alert topic (Chatbot) directly, not the raw one.
     expect(JSON.stringify(selfAlarm!.AlarmActions)).toContain(alertTopicRefs[0]);
+
+    // But its RECOVERY goes back through the formatter, and the asymmetry is
+    // deliberate. When this fires the formatter cannot be trusted, so the
+    // alert takes the direct route; when it clears the formatter is by
+    // definition working, so the recovery can be formatted -- and the
+    // formatter's coming-online suppression applies. Without that, first
+    // deploy posts a raw card reading "1 datapoint [0.0] was not greater than
+    // or equal to the threshold (1.0)" under a green tick, which tells a
+    // reader nothing and trains them to skim the channel.
+    const rawTopicId = Object.entries(template.findResources('AWS::SNS::Topic'))
+      .filter(([, r]: [string, any]) => r.Properties.TopicName === expectedTopicName)
+      .map(([id]) => id)[0];
+    expect(JSON.stringify(selfAlarm!.OKActions)).toContain(rawTopicId);
   });
 
   // Every other alarm goes the long way round, through the formatter, so that

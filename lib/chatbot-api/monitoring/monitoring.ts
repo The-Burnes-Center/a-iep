@@ -478,7 +478,20 @@ export class MonitoringStack extends Construct {
     alarm.addAlarmAction(new actions.SnsAction(target));
     // Recovery is as newsworthy as the failure: without this, Slack shows an
     // outage starting and never ending.
-    alarm.addOkAction(new actions.SnsAction(target));
+    //
+    // The OK goes through the FORMATTER even for the two alarms whose ALARM
+    // action deliberately bypasses it. The asymmetry is the point. When one of
+    // those fires, the formatter cannot be trusted, so the alert takes the
+    // direct route and degrades to Chatbot's raw card. When it clears, the
+    // formatter is by definition working, so the recovery can be formatted --
+    // and, more usefully, the formatter's coming-online suppression applies.
+    //
+    // Without this, an alarm moving INSUFFICIENT_DATA -> OK on first deploy
+    // posts a raw card reading "1 datapoint [0.0] was not greater than or
+    // equal to the threshold (1.0)" under a green tick, which says nothing to
+    // a reader and trains them to skim the channel. That is the same noise the
+    // formatter already suppresses for every other alarm.
+    alarm.addOkAction(new actions.SnsAction(this.alarmTopic));
     this.alarms.push(alarm);
     return alarm;
   }
