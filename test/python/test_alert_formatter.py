@@ -34,6 +34,10 @@ def _alarm(**overrides):
         'AlarmDescription': 'Documents are failing at the Mistral OCR step, so '
                             'every upload reaching this stage is affected.',
         'NewStateValue': 'ALARM',
+        # CloudWatch always sends this. It was missing here, and a fixture
+        # that omits a field AWS always sends is how a rule keyed on that
+        # field goes untested.
+        'OldStateValue': 'OK',
         'NewStateReason': 'Threshold Crossed: 1 datapoint [8.0 (08/09/26 18:14:00)] '
                           'was greater than or equal to the threshold (5.0).',
         'StateChangeTime': '2026-09-08T18:19:58.123+0000',
@@ -245,16 +249,53 @@ def test_an_alarm_with_no_resource_still_produces_an_alert(formatter):
 
 def test_recovery_is_quiet_and_asks_for_nothing(formatter):
     content = formatter.build_notification(
-        _alarm(NewStateValue='OK',
+        _alarm(NewStateValue='OK', OldStateValue='ALARM',
                NewStateReason='Threshold Crossed: 1 datapoint [0.0 (08/09/26 18:40:00)] '
                               'was not greater than or equal to the threshold (5.0).'),
     )['content']
 
-    assert 'Recovered' in content['title']
+    # "Cleared", not "Recovered": the alarm names are problem statements, so
+    # "Recovered: login codes are not being delivered" reads as a claim that
+    # codes are not being delivered.
+    assert 'Cleared' in content['title']
+    assert 'Recovered' not in content['title']
     assert ':large_green_circle:' in content['title']
     # Next steps on a recovery imply work that is already done.
     assert 'nextSteps' not in content
     assert 'No action needed' in content['description']
+
+
+def test_an_alarm_coming_online_is_not_announced_as_a_recovery(formatter):
+    """A new alarm goes INSUFFICIENT_DATA -> OK the moment it has data.
+
+    The OK action fires, so a deploy announced four "Recovered" messages for
+    problems that never happened. Nothing was wrong, so there is no news, and
+    the message is dropped rather than reworded.
+    """
+    sns = formatter.sns
+    topic = sns.create_topic(Name='a-iep-alerts-staging')['TopicArn']
+    formatter.ALERT_TOPIC_ARN = topic
+
+    event = {'Records': [
+        {'Sns': {'Message': json.dumps(
+            _alarm(NewStateValue='OK', OldStateValue='INSUFFICIENT_DATA'))}},
+    ]}
+
+    assert json.loads(formatter.lambda_handler(event, None)['body'])['published'] == 0
+
+
+def test_a_real_recovery_is_still_announced(formatter):
+    """The suppression must not swallow the end of an actual outage."""
+    sns = formatter.sns
+    topic = sns.create_topic(Name='a-iep-alerts-staging')['TopicArn']
+    formatter.ALERT_TOPIC_ARN = topic
+
+    event = {'Records': [
+        {'Sns': {'Message': json.dumps(
+            _alarm(NewStateValue='OK', OldStateValue='ALARM'))}},
+    ]}
+
+    assert json.loads(formatter.lambda_handler(event, None)['body'])['published'] == 1
 
 
 def test_the_same_alarm_threads_instead_of_filling_the_channel(formatter):
@@ -316,7 +357,8 @@ def test_every_record_in_a_batch_is_handled(formatter):
 
     event = {'Records': [
         {'Sns': {'Message': json.dumps(_alarm())}},
-        {'Sns': {'Message': json.dumps(_alarm(NewStateValue='OK'))}},
+        {'Sns': {'Message': json.dumps(
+            _alarm(NewStateValue='OK', OldStateValue='ALARM'))}},
         {'Sns': {'Message': 'junk'}},
     ]}
     assert json.loads(formatter.lambda_handler(event, None)['body'])['published'] == 3

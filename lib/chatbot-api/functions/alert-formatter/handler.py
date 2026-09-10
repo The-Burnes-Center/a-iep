@@ -160,16 +160,21 @@ def build_notification(alarm):
     env_label = 'prod' if IS_PROD else 'staging'
     icon = ':large_green_circle:' if recovered else (
         ':red_circle:' if IS_PROD else ':large_orange_circle:')
-    title = f'{icon} {"Recovered" if recovered else headline} · {env_label}'
-    if recovered:
-        title = f'{icon} Recovered: {headline} · {env_label}'
+    # "Recovered: login codes are not being delivered" reads as a statement
+    # that codes are not being delivered. The alarm names are problem
+    # statements, so a recovery has to say the ALARM cleared, not restate the
+    # problem in the present tense.
+    title = (
+        f'{icon} Cleared · {headline} · {env_label}' if recovered
+        else f'{icon} {headline} · {env_label}'
+    )
 
     # One line. The alarm description is written as the impact statement, so
     # it is used as-is rather than wrapped in more words.
     description = (alarm.get('AlarmDescription') or '').strip()
     observed = _observed_phrase(alarm)
     if recovered:
-        description = 'Back to normal. No action needed.'
+        description = 'This alarm has stopped firing. No action needed.'
     elif IS_PROD:
         # Recoveries never page: good news that buzzes a phone at 3am is how a
         # channel gets muted.
@@ -238,6 +243,19 @@ def build_notification(alarm):
     }
 
 
+def _is_alarm_coming_online(alarm):
+    """True for an OK that is an alarm starting up, not an outage ending.
+
+    A recovery is only news if something was actually wrong, which means the
+    previous state was ALARM. Every other route into OK is an alarm gaining
+    enough data to evaluate.
+    """
+    return (
+        alarm.get('NewStateValue') == 'OK'
+        and alarm.get('OldStateValue') != 'ALARM'
+    )
+
+
 def lambda_handler(event, context):
     published = 0
     for record in event.get('Records', []):
@@ -257,6 +275,18 @@ def lambda_handler(event, context):
             print('Passing through a message that is not a CloudWatch alarm')
             sns.publish(TopicArn=ALERT_TOPIC_ARN, Message=raw)
             published += 1
+            continue
+
+        if _is_alarm_coming_online(alarm):
+            # A brand-new alarm starts in INSUFFICIENT_DATA and moves to OK as
+            # soon as it has data. That is not a recovery, but the OK action
+            # fires all the same, so a deploy announces "Recovered: login codes
+            # are not being delivered" for something that never broke. Four of
+            # those arrived at 2am on 2026-09-10 and read as a real outage.
+            #
+            # Dropped rather than reworded: there is no news here at all.
+            print(f"Suppressing coming-online OK for {alarm.get('AlarmName')} "
+                  f"(was {alarm.get('OldStateValue')})")
             continue
 
         notification = build_notification(alarm)
