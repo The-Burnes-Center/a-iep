@@ -206,6 +206,7 @@ export class MonitoringStack extends Construct {
     this.addTableThrottleAlarms(props.tables);
     this.addAbuseAlarms(props.authTriggerFunctions);
     this.addSmsPathAlarms(props.authTriggerFunctions);
+    this.addSmsDeliveryFailureAlarm();
     this.addTranslationAndUsageAlarms(props.translationStateMachine);
     this.addDailyBrief(props.kmsKey, [
       ...props.pipelineFunctions,
@@ -703,24 +704,71 @@ export class MonitoringStack extends Construct {
       evaluationPeriods: 1,
     });
 
-    // Delivery failures counted by SNS itself, which is the only way to see a
-    // message that was accepted and then not delivered. Needs SMS delivery
-    // status logging enabled on the account; without it this stays flat, so
-    // it is a complement to SMS_SEND_FAILED rather than a replacement.
-    this.alarm('SmsDeliveryFailureAlarm', {
+    // The provider-side failure alarm lives in addSmsDeliveryFailureAlarm,
+    // not here: it reads an account-level log group and is created once, in
+    // production only.
+  }
+
+  /**
+   * SMS the provider accepted and then did not deliver.
+   *
+   * This replaces an alarm on AWS/SNS NumberOfNotificationsFailed, which was
+   * the obvious metric and the wrong one: SNS does not emit it when a direct
+   * publish is dropped for exceeding the account spend cap. That alarm sat in
+   * OK with no datapoints while three login codes in a row were accepted and
+   * binned, which is an alarm that cannot fire for the case it was built for.
+   * There was no way to notice except by being in the outage it was meant to
+   * catch.
+   *
+   * The delivery-status log group is the signal that actually moves. It only
+   * exists once delivery status logging is switched on, which is an
+   * account-level SNS setting and a deliberate ops step.
+   *
+   * Created in production only, for the same reason as the role: one
+   * account-level log group, one filter. Two would double-count every
+   * failure, since staging and production share it.
+   *
+   * Threshold is 1. A document may fail for benign reasons and a rate makes
+   * sense there; an undelivered login code has no benign volume, because
+   * every one of them is a parent who cannot get in.
+   */
+  private addSmsDeliveryFailureAlarm(): void {
+    if (this.env !== 'prod') {
+      return;
+    }
+    const stack = cdk.Stack.of(this);
+    const metricNamespace = 'AI-IEP/Auth';
+    const metricName = 'SmsDeliveryFailed';
+
+    new logs.MetricFilter(this, 'SmsDeliveryFailureFilter', {
+      logGroup: logs.LogGroup.fromLogGroupName(
+        this,
+        'SmsDeliveryFailureLogGroup',
+        `sns/${stack.region}/${stack.account}/DirectPublishToPhoneNumber/Failure`,
+      ),
+      // SNS writes one JSON record per attempt; only FAILURE counts, since
+      // successes land in the sibling group at the configured sampling rate.
+      filterPattern: logs.FilterPattern.stringValue('$.status', '=', 'FAILURE'),
+      metricNamespace,
+      metricName,
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
+    this.alarm('SmsDeliveryFailedAlarm', {
       severity: 'critical',
-      name: 'the SMS provider is failing to deliver login codes',
+      name: 'login codes are being accepted and then not delivered',
       description:
-        'Codes are being accepted for sending and then not arriving. Parents ' +
-        'see "code sent" and no code, which looks to them like the app is ' +
-        'broken.',
+        'The SMS provider took the message and dropped it, so a parent is ' +
+        'told a code is coming and none arrives. Usually the monthly SMS ' +
+        'spend cap, which stops delivery for everyone until it is raised.',
       metric: new cloudwatch.Metric({
-        namespace: 'AWS/SNS',
-        metricName: 'NumberOfNotificationsFailed',
+        namespace: metricNamespace,
+        metricName,
         statistic: 'Sum',
         period: cdk.Duration.minutes(15),
       }),
-      threshold: 5,
+      threshold: 1,
       evaluationPeriods: 1,
     });
   }

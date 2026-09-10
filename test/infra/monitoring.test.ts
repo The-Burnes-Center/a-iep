@@ -48,7 +48,6 @@ const EXPECTED_ALARM_SUFFIXES = [
   'login codes being requested for numbers we do not serve',
   'login codes are being refused: the sending limit is reached',
   'login codes are not being delivered',
-  'the SMS provider is failing to deliver login codes',
 ];
 
 /**
@@ -491,5 +490,54 @@ describe('alarm periods are ones CloudWatch can actually evaluate', () => {
       .filter((a) => a.window > CLOUDWATCH_MAX_PERIOD_SECONDS);
 
     expect(tooWide).toEqual([]);
+  });
+});
+
+describe('undelivered login codes', () => {
+  // This alarm exists because its predecessor could not fire. It watched
+  // AWS/SNS NumberOfNotificationsFailed, which is the obvious metric and the
+  // wrong one: SNS does not emit it when a direct publish is dropped for
+  // exceeding the account spend cap. It sat in OK, with no datapoints at all,
+  // while three login codes in a row were accepted and binned.
+  //
+  // The delivery-status log group is what actually moves, so that is what is
+  // read now.
+  test('the alarm reads the delivery log, not a metric that stays empty', () => {
+    const template = synth('production');
+
+    template.hasResourceProperties('AWS::Logs::MetricFilter', Match.objectLike({
+      MetricTransformations: Match.arrayWith([
+        Match.objectLike({ MetricName: 'SmsDeliveryFailed', MetricNamespace: 'AI-IEP/Auth' }),
+      ]),
+    }));
+
+    const onTheEmptyMetric = Object.values(template.findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => p.MetricName === 'NumberOfNotificationsFailed');
+    expect(onTheEmptyMetric).toEqual([]);
+  });
+
+  // One undelivered code is one parent who cannot get in. Unlike a failing
+  // document, there is no benign volume of these to tolerate.
+  test('a single undelivered code is enough to alarm', () => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes('accepted and then not delivered'));
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Threshold).toBe(1);
+  });
+
+  // The log group is account-level and shared by both environments, so a
+  // filter in each would count every failure twice.
+  test('the filter is created once, in production only', () => {
+    const countFilters = (environment: string) =>
+      Object.values(synth(environment).findResources('AWS::Logs::MetricFilter'))
+        .map((r: any) => r.Properties)
+        .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('SmsDeliveryFailed'))
+        .length;
+
+    expect(countFilters('production')).toBe(1);
+    expect(countFilters('staging')).toBe(0);
   });
 });
