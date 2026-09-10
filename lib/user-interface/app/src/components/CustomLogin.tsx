@@ -1152,7 +1152,19 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                     state. Placed above the button so a parent who does get an
                     interactive challenge sees it before trying to submit. */}
                 {turnstile.isEnabled && (
-                  <div ref={turnstile.containerRef} className="mb-3" />
+                  <div className="mb-3 d-flex justify-content-center">
+                    <div ref={turnstile.containerRef} />
+                  </div>
+                )}
+                {/* The check could not run at all, so the server will refuse
+                    this signup with a 403 no matter how many times a parent
+                    retries. Say what happened while they can still act on
+                    it, rather than letting them find out as a generic
+                    failure after filling the form in. */}
+                {turnstile.hasFailed && (
+                  <Alert variant="warning" className="mb-3">
+                    {t('auth.errorTurnstileUnavailable')}
+                  </Alert>
                 )}
 
                 <AlertMessages error={error} successMessage={successMessage} />

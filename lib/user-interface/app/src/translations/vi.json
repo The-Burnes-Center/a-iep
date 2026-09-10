@@ -5,7 +5,6 @@
     "consent.button": "Đồng ý và Tiếp tục",
     "consent.tooltip": "Vui lòng đánh dấu vào ô để tiếp tục",
     "consent.error.saveFailedRetry": "Không thể lưu sự đồng ý. Vui lòng thử lại.",
-    
     "child.title": "Về con của bạn",
     "child.name.label": "Tên",
     "child.name.placeholder": "Nhập tên của trẻ",
@@ -15,13 +14,11 @@
     "child.button.save": "Lưu & Tiếp tục",
     "child.error.updateFailed": "Không thể cập nhật thông tin của con bạn",
     "child.error.addFailed": "Không thể thêm thông tin của con bạn",
-
     "parent.title": "Thông Tin Phụ Huynh",
     "parent.name.label": "Tên Phụ Huynh",
     "parent.name.placeholder": "Nhập tên phụ huynh",
     "parent.button.saving": "Đang lưu...",
     "parent.button.save": "Lưu & Tiếp Tục",
-    
     "welcome.upload.title": "Tải lên IEP",
     "welcome.upload.description": "Tải lên và quản lý tài liệu IEP của bạn",
     "welcome.summary.title": "Tóm tắt và Dịch thuật",
@@ -33,7 +30,6 @@
     "welcomeIntro.body1": "AIEP giúp bạn hiểu các tài liệu IEP của con mình bằng những bản tóm tắt dễ đọc và bản dịch sang ngôn ngữ bạn chọn.",
     "welcomeIntro.body2": "Bạn sẽ không còn cảm thấy lạc lõng trong các cuộc họp IEP: AIEP chuyển những thuật ngữ giáo dục phức tạp thành lời lẽ đơn giản, dễ hiểu.",
     "welcomeIntro.button.continue": "Tiếp tục",
-  
     "common.back": "Quay lại",
     "common.previous": "Quay lại",
     "common.next": "Tiếp theo",
@@ -45,10 +41,8 @@
     "common.loading": "Đang tải...",
     "common.saving": "Đang lưu...",
     "common.tryAgain": "Thử lại",
-
     "tutorial.appTutorial.title": "Chúng ta đang làm gì bây giờ?",
     "tutorial.parentRights.title": "Quyền của bạn với tư cách là phụ huynh:",
-  
     "rights.title": "Quyền của bạn với tư cách là Phụ huynh",
     "rights.description": "Xin chào! Chúng tôi ở đây để giúp bạn hiểu rõ hơn về Chương trình Giáo dục Cá nhân hóa (IEP) của con bạn. Việc điều hướng quy trình này có thể khiến bạn cảm thấy quá tải, nhưng bạn có những quyền quan trọng với tư cách là phụ huynh. Dưới đây là một số điều bạn nên biết:",
     "rights.bulletPoints.1": "Bạn có thể yêu cầu một phiên dịch viên cho các cuộc họp IEP để đảm bảo giao tiếp rõ ràng.",
@@ -57,7 +51,6 @@
     "rights.bulletPoints.4": "Bạn có quyền yêu cầu một cuộc họp IEP bất cứ lúc nào, không chỉ trong buổi đánh giá hàng năm, và nhà trường phải lên lịch trong vòng 30 ngày.",
     "rights.bulletPoints.5": "Nếu quản trị viên không có mặt tại cuộc họp, bạn có quyền sắp xếp lại lịch họp vào thời điểm họ có thể tham dự.",
     "rights.bulletPoints.6": "Theo luật, người quản lý hồ sơ của bạn phải cung cấp cho bạn một cuốn sách nhỏ về quyền phụ huynh trước cuộc họp IEP.",
-  
     "summary.back": "← Quay lại",
     "summary.loading": "Đang tải tóm tắt IEP...",
     "summary.noDocuments": "Không tìm thấy tài liệu. Vui lòng tải lên tài liệu IEP trước.",
@@ -98,14 +91,12 @@
     "summary.translate.error.notAllowed": "Bạn không có quyền dịch tài liệu này.",
     "summary.translate.error.notFound": "Chúng tôi không tìm thấy tài liệu này. Vui lòng tải lên lại.",
     "summary.lastUpdate": "Cập nhật lần cuối:",
-
     "tts.listen": "Nghe",
     "tts.pause": "Tạm dừng",
     "tts.generating": "Đang chuẩn bị âm thanh…",
     "tts.error": "Âm thanh không khả dụng. Nhấn để thử lại.",
     "summary.showLess": "Thu Gọn",
     "summary.readMore": "Đọc Thêm",
-
     "sections.studentInfo": "Về Học Sinh",
     "sections.accommodations": "Điều Chỉnh Hỗ Trợ",
     "sections.goals": "Mục Tiêu",
@@ -113,18 +104,17 @@
     "sections.placement": "Vị Trí Sắp Xếp",
     "sections.keyPeople": "Những Người Chủ Chốt",
     "sections.presentLevels": "Mức Độ Hiệu Suất Hiện Tại",
-    "sections.strengths": "Điểm Mạnh", 
+    "sections.strengths": "Điểm Mạnh",
     "sections.eligibility": "Điều kiện hội đủ",
     "sections.informedConsent": "Chấp thuận sau khi được thông báo",
     "sections.assistiveTechnology": "Công nghệ hỗ trợ",
     "sections.stateTesting": "Kiểm tra của tiểu bang",
     "sections.foundIn": "Tìm thấy trong",
     "sections.pages": "trang",
-  
     "upload.title": "Tải lên tài liệu IEP",
     "upload.maxSize": "Kích thước tệp tối đa: 100MB.",
     "upload.fileError.format": "Định dạng tệp không được hỗ trợ",
-    "upload.fileError.size": "Kích thước tệp vượt quá giới hạn 100MB", 
+    "upload.fileError.size": "Kích thước tệp vượt quá giới hạn 100MB",
     "upload.supportedFormats": "Định dạng được hỗ trợ:",
     "upload.error.general": "Đã xảy ra lỗi trong quá trình tải lên",
     "upload.success": "Tệp đã được tải lên thành công!",
@@ -133,7 +123,6 @@
     "upload.selectFile": "Chọn Tệp",
     "upload.noFileSelected": "Chưa Chọn Tệp",
     "upload.replaceDocument": "THAY THẾ TÀI LIỆU IEP",
-    
     "current.loading": "Đang tải...",
     "current.title": "Để xem tóm tắt tài liệu IEP hiện có, hãy nhấp vào bên dưới",
     "current.documentOnFile": "Tài liệu IEP hiện tại trong hồ sơ",
@@ -142,15 +131,12 @@
     "current.paragraph1": "Hành động này sẽ thay thế tài liệu IEP hiện tại của bạn và tạo một bản tóm tắt mới.",
     "current.header2": "Bạn không có IEP của mình?",
     "current.paragraph2": "Bạn có thể yêu cầu từ nhân viên phụ trách hồ sơ của bạn bất cứ lúc nào.",
-    
     "document.back": "← Quay lại",
     "document.updateAlert": "Tài liệu đã được cập nhật. Thông tin tài liệu hiện tại của bạn sẽ được làm mới.",
-
     "update.profile.child": "Trẻ",
     "update.profile.name": "Tên",
     "update.profile.schoolCity": "Thành phố của Trường",
     "update.profile.noChildrenAdded": "Chưa thêm trẻ nào",
-
     "profile.title": "Thông Tin Hồ Sơ",
     "profile.parentName": "Tên Phụ Huynh",
     "profile.button.update": "Cập Nhật Hồ Sơ",
@@ -167,7 +153,6 @@
     "profile.error.update": "Không thể cập nhật hồ sơ",
     "profile.error.serviceUnavailable": "Dịch vụ không khả dụng",
     "profile.loading": "Đang tải...",
-
     "revoke.title": "Thu Hồi Sự Đồng Ý",
     "revoke.description1": "Bằng cách thu hồi sự đồng ý của bạn, bạn sẽ không thể sử dụng công cụ Trợ giúp IEP nữa. Dữ liệu của bạn sẽ bị xóa khỏi hệ thống của chúng tôi.",
     "revoke.description2": "Thu hồi sự đồng ý sẽ đăng xuất bạn khỏi ứng dụng ngay lập tức. Bạn có thể khôi phục sự đồng ý của mình bằng cách đăng nhập lại và chấp nhận biểu mẫu đồng ý.",
@@ -175,7 +160,6 @@
     "revoke.button.revoke": "Thu Hồi & Đăng Xuất",
     "revoke.button.processing": "Đang xử lý...",
     "revoke.error.failed": "Không thể thu hồi sự đồng ý. Vui lòng thử lại.",
-
     "delete.title": "Xóa Tài Khoản",
     "delete.description1": "⚠️ Hành động này là vĩnh viễn và không thể hoàn tác.",
     "delete.description2": "Xóa tài khoản của bạn sẽ xóa vĩnh viễn:",
@@ -187,7 +171,6 @@
     "delete.button.delete": "Xóa Tài Khoản Vĩnh Viễn",
     "delete.button.processing": "Đang xóa...",
     "delete.error.failed": "Không thể xóa tài khoản. Vui lòng thử lại.",
-
     "auth.title": "Đăng Nhập",
     "auth.email": "Email",
     "auth.enterEmail": "Nhập địa chỉ email",
@@ -226,6 +209,7 @@
     "auth.errorInvalidPassword": "Mật khẩu không đáp ứng yêu cầu",
     "auth.errorInvalidParameter": "Tham số không hợp lệ",
     "auth.errorGeneric": "Đã xảy ra lỗi",
+    "auth.errorTurnstileUnavailable": "Chúng tôi không thể chạy bước kiểm tra bảo mật. Vui lòng kiểm tra kết nối internet hoặc thử trình duyệt khác.",
     "auth.errorSignUp": "Đã xảy ra lỗi trong quá trình đăng ký",
     "auth.errorVerification": "Lỗi xác minh tài khoản của bạn",
     "auth.errorResendCode": "Lỗi khi gửi lại mã xác nhận",
@@ -284,20 +268,16 @@
     "auth.phoneAccountConfirmPrompt": "Vui lòng nhập mã xác minh đã gửi đến điện thoại của bạn để xác nhận tài khoản.",
     "auth.accountConfirmedSuccess": "Tài khoản đã được xác nhận và đăng nhập thành công!",
     "auth.phoneVerificationSuccess": "Xác minh điện thoại thành công!",
-
     "onboarding.carousel.heading.accessible": "Tài Liệu IEP Dễ Hiểu",
     "onboarding.carousel.heading.summarize": "Tóm Tắt",
-    "onboarding.carousel.heading.translate": "Dịch Thuật", 
+    "onboarding.carousel.heading.translate": "Dịch Thuật",
     "onboarding.carousel.heading.advocate": "Ủng Hộ",
     "onboarding.carousel.paragraph.accessible": "AIEP giúp bạn hiểu tài liệu IEP của con mình.",
     "onboarding.carousel.paragraph.summarize": "Công cụ phân tích các khía cạnh chính của IEP một cách dễ hiểu.",
     "onboarding.carousel.paragraph.translate": "AIEP dịch tóm tắt tài liệu IEP sang ngôn ngữ bạn chọn.",
     "onboarding.carousel.paragraph.advocate": "Ủng hộ giáo dục con bạn bằng cách tìm hiểu IEP và quyền lợi.",
-
     "rights.header.title.green": "Dữ liệu của bạn an toàn",
     "rights.header.title.pink": "Quyền của phụ huynh",
-
-
     "rights.slide1.title": "Bạn có thể yêu cầu phiên dịch",
     "rights.slide1.content": "Bạn có thể yêu cầu một phiên dịch viên cho các cuộc họp IEP để đảm bảo giao tiếp rõ ràng.",
     "rights.slide2.title": "Bạn có thể dành thời gian",
@@ -318,18 +298,15 @@
     "rights.slide9.content": "Mỗi khi bạn thấy một từ màu xanh, bạn có thể nhấp vào đó để xem định nghĩa của nó. Khi hoàn tất, nhấp vào X để quay lại bản tóm tắt.",
     "rights.slide10.title": "So sánh nội dung với IEP gốc",
     "rights.slide10.content": "Bên dưới tiêu đề của mỗi thông tin quan trọng, bạn sẽ thấy số trang nơi chúng tôi lấy thông tin. Nếu có điều gì không đúng, hãy luôn kiểm tra lại!",
-
     "privacy.slide1.title": "IEP của bạn sẽ không bị thay đổi",
     "privacy.slide1.content": "Chúng tôi đang tạo một tài liệu riêng với bản tóm tắt của bạn. Bạn sẽ có thể tải xuống dưới dạng PDF.",
     "privacy.slide2.title": "Chúng tôi quan tâm đến quyền riêng tư của bạn",
     "privacy.slide2.content": "Chúng tôi đang loại bỏ thông tin cá nhân của bạn khỏi các bản tóm tắt. Chúng tôi sẽ không lưu trữ bất kỳ thông tin cá nhân nào của bạn hoặc con bạn.",
-
     "carousel.section.hint": "Vuốt hoặc chạm vào mũi tên để tìm hiểu thêm",
     "carousel.section.whatAiepDoes": "AIEP làm gì",
     "carousel.section.yourRights": "Quyền của bạn",
     "carousel.section.whatYouWillSeeNext": "Tìm mọi thứ ở đâu",
     "carousel.rights.indicator": "{number}. {title}",
-
     "appTutorial.slide1.title": "Chúng tôi đang làm gì ngay bây giờ?",
     "appTutorial.slide1.content": "Chúng tôi đang tóm tắt các khía cạnh quan trọng của IEP của bạn. Trước tiên bạn sẽ thấy tổng quan về tài liệu, sau đó là tóm tắt cho từng phần quan trọng.",
     "appTutorial.slide2.title": "Chúng tôi đang làm gì ngay bây giờ?",
@@ -342,42 +319,35 @@
     "appTutorial.slide5.content": "Tài liệu IEP của bạn sẽ không bị thay đổi. Bạn có thể tải xuống các bản tóm tắt chúng tôi đang tạo bằng cách nhấp vào nút tải xuống.",
     "appTutorial.slide6.title": "Chúng tôi đang làm gì ngay bây giờ?",
     "appTutorial.slide6.content": "Chúng tôi đang tạo một bảng thuật ngữ để giúp bạn hiểu tài liệu. Bạn có thể nhấp vào các từ được tô sáng và đọc định nghĩa của chúng trên bảng sẽ xuất hiện.",
-
     "tutorial.exampleVideo": "Video Ví Dụ :",
-
     "glossary.header": "Bảng chú giải",
-
     "navigation.home": "Trang chủ",
     "navigation.summary": "Tóm tắt",
     "navigation.support": "Hỗ trợ",
     "navigation.faqs": "Câu Hỏi Thường Gặp",
     "navigation.hub": "Trung tâm",
     "navigation.account": "Tài khoản",
-    "navigation.about": "Giới thiệu", 
+    "navigation.about": "Giới thiệu",
     "navigation.rights": "Quyền lợi",
     "navigation.processing": "Tài liệu của bạn đang được xử lý...",
     "navigation.uploadIEP": "Tải lên IEP",
-
     "footer.tagline": "Thiết kế AI\ncùng với và cho\ncộng đồng",
     "footer.home": "Trang chủ",
     "footer.uploadIEP": "Tải lên IEP",
     "footer.supportCenter": "Trung Tâm Hỗ Trợ",
     "footer.aboutUs": "Về Chúng Tôi",
     "footer.faqs": "Câu Hỏi Thường Gặp",
-
     "accountCenter.title": "Trung Tâm Tài Khoản",
     "accountCenter.updateProfile": "Cập Nhật Hồ Sơ Của Bạn",
     "accountCenter.changeLanguage": "Thay đổi ngôn ngữ của bạn",
     "accountCenter.deleteAccount": "Xóa tài khoản của bạn",
     "accountCenter.logOut": "Đăng xuất",
     "accountCenter.adminConsole": "Bảng quản trị",
-    
     "supportCenter.title": "Trung Tâm Hỗ Trợ",
     "supportCenter.frequentlyAskedQuestions": "Câu Hỏi Thường Gặp",
     "supportCenter.goToOnboarding": "Đến Trang Giới Thiệu",
     "supportCenter.resources": "Tài Nguyên",
     "supportCenter.aboutTheApp": "Về Ứng Dụng",
-
     "about.breadcrumb.supportCenter": "TRUNG TÂM HỖ TRỢ",
     "about.breadcrumb.about": "GIỚI THIỆU",
     "about.projectTitle": "Dự Án AI-EP: Thiết Kế AI\ncùng với và cho Cộng Đồng",
@@ -414,7 +384,6 @@
     "about.goToWebsite": "ĐẾN TRANG WEB",
     "about.privacyPolicy": "Chính Sách Bảo Mật",
     "about.learnMore": "TÌM HIỂU THÊM",
-
     "resources.title": "Tài Nguyên",
     "resources.breadcrumb.supportCenter": "TRUNG TÂM HỖ TRỢ",
     "resources.breadcrumb.resources": "TÀI NGUYÊN",
@@ -428,7 +397,6 @@
     "resources.rulaManual.title": "Hướng Dẫn Quyền Lợi Theo Đạo Luật Lanterman (RULA)",
     "resources.rulaManual.description": "Hướng dẫn chi tiết để hiểu quyền lợi và dịch vụ có sẵn theo Đạo Luật Dịch Vụ Khuyết Tật Phát Triển Lanterman của California.",
     "resources.buttonText": "XEM TÀI NGUYÊN",
-
     "updateProfile.breadcrumb.account": "TÀI KHOẢN",
     "updateProfile.breadcrumb.updateProfile": "CẬP NHẬT HỒ SƠ",
     "updateProfile.title": "Cập Nhật Hồ Sơ",
@@ -438,18 +406,15 @@
     "updateProfile.loading": "Đang tải...",
     "updateProfile.error.serviceUnavailable": "Dịch vụ không khả dụng",
     "updateProfile.error.saveFailed": "Không thể lưu thông tin phụ huynh",
-
     "changeLanguage.breadcrumb.account": "TÀI KHOẢN",
     "changeLanguage.breadcrumb.changeLanguage": "THAY ĐỔI NGÔN NGỮ",
     "changeLanguage.title": "Ngôn Ngữ Của Bạn",
     "changeLanguage.description": "Bản tóm tắt gốc của IEP sẽ luôn được tạo bằng tiếng Anh. Chúng tôi có thể dịch bản tóm tắt này sang ngôn ngữ bạn chọn.",
     "changeLanguage.label.translation": "DỊCH THUẬT",
     "changeLanguage.loading": "Đang tải...",
-
     "preferredLanguage.update.title": "Cập nhật tùy chọn ngôn ngữ",
     "preferredLanguage.update.description": "Chọn ngôn ngữ bạn muốn dùng cho bản dịch IEP",
     "preferredLanguage.error.updateFailed": "Không thể cập nhật tùy chọn ngôn ngữ",
-
     "deleteAccount.breadcrumb.account": "TÀI KHOẢN",
     "deleteAccount.breadcrumb.deleteAccount": "XÓA TÀI KHOẢN",
     "deleteAccount.title": "Xóa Tài Khoản",
@@ -460,7 +425,6 @@
     "deleteAccount.button.deleteMyAccount": "Xóa Tài Khoản Của Tôi",
     "deleteAccount.loading": "Đang tải...",
     "deleteAccount.error.serviceUnavailable": "Dịch vụ không khả dụng",
-
     "privacyPolicy.breadcrumb.about": "GIỚI THIỆU",
     "privacyPolicy.breadcrumb.privacyPolicy": "CHÍNH SÁCH BẢO MẬT",
     "privacyPolicy.title": "Chính Sách Bảo Mật của The GovLab AIEP",
@@ -517,15 +481,12 @@
     "privacyPolicy.contact.intro": "Nếu bạn có câu hỏi về Chính Sách Bảo Mật này, vui lòng liên hệ với chúng tôi tại:",
     "privacyPolicy.contact.organization": "The GovLab",
     "privacyPolicy.contact.email": "Email:",
-
     "hero.title": "Chương trình Giáo dục\nCá nhân hóa, dễ dàng tiếp cận",
     "hero.description": "Công cụ AIEP có thể giúp bạn hiểu các tài liệu IEP của con bạn.",
     "hero.howToUseTool": "CÁCH SỬ DỤNG CÔNG CỤ NÀY",
-
     "landing.greenBanner.title": "Tất cả trẻ em đều xứng đáng được giáo dục, bất kể nhu cầu của chúng",
     "landing.greenBanner.description": "Giống như cây cối, mỗi đứa trẻ học theo cách riêng của mình. Một số cần ánh sáng, một số cần bóng mát, một số nở hoa nhanh, những đứa khác mất thời gian. Công cụ AIEP giúp các gia đình chăm sóc nhu cầu giáo dục của con mình.",
     "landing.greenBanner.createAccountButton": "TẠO TÀI KHOẢN",
-
     "landingHero.aboutAIEP": "Giới thiệu về AI cho IEPs",
     "landingHero.title.aiep": "AIEP",
     "landingHero.title.isAn": "là một dự án",
@@ -538,11 +499,9 @@
     "landingHero.title.communityCenteredAI": "nguyên tắc AI lấy cộng đồng làm trung tâm",
     "landingHero.title.principles": "Nguyên tắc",
     "landingHero.projectBy": "Một dự án của:",
-
     "greenSection.title": "AI cho IEPs (AIEP) là một công cụ AI miễn phí, mã nguồn mở được xây dựng cùng với các gia đình để giúp phụ huynh và người chăm sóc hiểu, dịch và sử dụng Chương trình Giáo dục Cá nhân hóa (IEPs).",
     "greenSection.description1": "IEPs là các tài liệu ràng buộc pháp lý xác định các dịch vụ, hỗ trợ và điều chỉnh mà học sinh khuyết tật có quyền nhận được. Tuy nhiên, đối với nhiều gia đình, đặc biệt là các gia đình đa ngôn ngữ, IEPs khó đọc, khó điều hướng và khó sử dụng như công cụ vận động. AIEP tồn tại để thay đổi điều đó.",
     "greenSection.description2": "AIEP nhằm giúp các gia đình chuyển từ sự bối rối sang sự rõ ràng, và từ việc tiếp nhận thông tin thụ động sang sự tham gia tự tin vào hành trình giáo dục của con em mình.",
-
     "landingContainer.communityCenteredAI.title": "Cách tiếp cận AI lấy cộng đồng làm trung tâm",
     "landingContainer.communityCenteredAI.intro": "AIEP cũng là minh chứng cho AI lấy cộng đồng làm trung tâm trong thực tế.",
     "landingContainer.communityCenteredAI.text1": "Hầu hết các hệ thống AI được xây dựng sau cánh cửa đóng kín, với các quy tắc và giả định được nhúng trong mã hoặc lệnh mà người dùng không bao giờ nhìn thấy. Trong AIEP, nhiều hướng dẫn cốt lõi của hệ thống được viết bằng ngôn ngữ đơn giản và được tinh chỉnh liên tục thông qua phản hồi của cộng đồng, một quy trình mà nhóm gọi là \"mở hộp lệnh\".",
@@ -553,7 +512,6 @@
     "landingContainer.communityCenteredAI.item3": "Cách bản dịch giữ nguyên ý nghĩa, không chỉ từ ngữ",
     "landingContainer.communityCenteredAI.item4": "Cách xử lý quyền riêng tư và bảo vệ dữ liệu",
     "landingContainer.communityCenteredAI.conclusion": "AIEP cho thấy rằng các hệ thống AI có thể minh bạch, có sự tham gia và có trách nhiệm giải trình, đặc biệt trong các bối cảnh vì lợi ích công cộng.",
-
     "landingContainer.whyAiepExists.title": "Tại sao AIEP tồn tại",
     "landingContainer.whyAiepExists.intro": "Hơn 7,5 triệu học sinh tại Hoa Kỳ nhận được các dịch vụ giáo dục đặc biệt. Đối với mỗi em, một IEP định hình trải nghiệm học tập hàng ngày và kết quả dài hạn.",
     "landingContainer.whyAiepExists.subtitle": "IEPs thường:",
@@ -563,7 +521,6 @@
     "landingContainer.whyAiepExists.item4": "Không thể tiếp cận đối với các gia đình không nói tiếng Anh thông thạo",
     "landingContainer.whyAiepExists.consequences": "Kết quả là, các gia đình có thể bỏ lỡ các chi tiết quan trọng về dịch vụ, mục tiêu hoặc vị trí, hoặc gặp khó khăn trong việc đặt câu hỏi có hiểu biết trong các cuộc họp IEP. Những rào cản này có thể gây ra hậu quả thực sự cho học sinh.",
     "landingContainer.whyAiepExists.conclusion": "AIEP được tạo ra để đáp ứng những gì chính các gia đình đã xác định là một vấn đề mang tính hệ thống: tài liệu chi phối việc giáo dục con em họ thường không thể đọc được đối với họ.",
-
     "landingContainer.privacyAndTrust.title": "Được thiết kế cho quyền riêng tư và sự tin cậy",
     "landingContainer.privacyAndTrust.intro": "IEPs chứa thông tin cá nhân rất nhạy cảm. Ngay từ đầu, các gia đình đã nhấn mạnh rằng quyền riêng tư là không thể thương lượng.",
     "landingContainer.privacyAndTrust.subtitle": "AIEP được xây dựng với các nguyên tắc bảo mật theo thiết kế, bao gồm:",
@@ -573,7 +530,6 @@
     "landingContainer.privacyAndTrust.item4": "Khả năng cho các gia đình xóa dữ liệu của họ bất cứ lúc nào",
     "landingContainer.privacyAndTrust.conclusion": "Sự tin cậy được xây dựng thông qua các lựa chọn thiết kế tôn trọng người dùng và dữ liệu của họ.",
     "landingContainer.privacyAndTrust.diagramAlt": "Sơ đồ cho thấy cách AIEP bảo vệ quyền riêng tư của bạn: AWS Comprehend phát hiện và xóa dữ liệu cá nhân, sau đó OpenAI tạo tóm tắt và bản dịch mà không lưu trữ thông tin của bạn",
-
     "landingContainer.whatAiepDoes.title": "AIEP làm gì",
     "landingContainer.whatAiepDoes.subtitle": "AIEP hỗ trợ các gia đình trước, trong và sau các cuộc họp IEP bằng cách giúp họ:",
     "landingContainer.whatAiepDoes.item1": "Dịch IEPs sang nhiều ngôn ngữ trong khi vẫn giữ nguyên ý nghĩa pháp lý và giáo dục",
@@ -582,7 +538,6 @@
     "landingContainer.whatAiepDoes.item4": "Chuẩn bị câu hỏi và điểm thảo luận cho các cuộc họp IEP",
     "landingContainer.whatAiepDoes.item5": "Điều hướng IEPs một cách tự tin, không phải phỏng đoán",
     "landingContainer.whatAiepDoes.conclusion": "Công cụ được thiết kế để hiển thị các chi tiết cụ thể, có ý nghĩa pháp lý mà các gia đình cần để bảo vệ quyền lợi cho con em mình, thay vì đưa ra một bản tóm tắt chung chung.",
-
     "landingContainer.moreThanATool.title": "Không chỉ là một công cụ",
     "landingContainer.moreThanATool.intro": "Mặc dù AIEP là một nguồn tài nguyên thiết thực cho các gia đình, nó cũng là một phần của nỗ lực rộng lớn hơn để suy nghĩ lại cách AI được phát triển cho các hệ thống công cộng.",
     "landingContainer.moreThanATool.subtitle": "Thông qua AIEP, nhóm đã tạo ra:",
@@ -591,7 +546,6 @@
     "landingContainer.moreThanATool.item3": "Tài liệu học tập về hiểu biết AI công dân",
     "landingContainer.moreThanATool.item4": "Các bài viết công khai chia sẻ bài học và thất bại, không chỉ thành công",
     "landingContainer.moreThanATool.conclusion": "Cùng nhau, những nguồn tài nguyên này hỗ trợ các gia đình, nhà giáo dục, nhà hoạch định chính sách và chuyên gia công nghệ đang làm việc để xây dựng AI phục vụ lợi ích công cộng.",
-
     "landingContainer.builtWithFamilies.title": "Được xây dựng cùng với các gia đình, không chỉ cho họ",
     "landingContainer.builtWithFamilies.intro": "AIEP được đồng thiết kế với hơn 150 phụ huynh và người chăm sóc ở Vùng Vịnh San Francisco, cùng với các chuyên gia giáo dục đặc biệt và giáo viên.",
     "landingContainer.builtWithFamilies.subtitle": "Từ những nguyên mẫu đầu tiên, các gia đình đã định hình:",
@@ -601,7 +555,6 @@
     "landingContainer.builtWithFamilies.item4": "Những gì công cụ không nên làm",
     "landingContainer.builtWithFamilies.codesigners": "Thay vì coi các gia đình là \"người dùng cuối\", AIEP coi họ là đồng thiết kế và chuyên gia về trải nghiệm sống của chính họ.",
     "landingContainer.builtWithFamilies.conclusion": "Cách tiếp cận này phản ánh niềm tin cốt lõi của dự án: những người bị ảnh hưởng nhiều nhất bởi một hệ thống nên giúp định hình cách công nghệ tương tác với nó.",
-
     "landingContainer.research.title": "Câu hỏi nghiên cứu của chúng tôi",
     "landingContainer.research.subtitle": "Song song với phát triển công cụ, chúng tôi quan tâm đến việc khám phá:",
     "landingContainer.research.item1": "Làm thế nào các thành viên cộng đồng có thể được giáo dục một cách có ý nghĩa về AI để họ có thể tham gia vào thiết kế của nó?",
@@ -609,7 +562,6 @@
     "landingContainer.research.item3": "Làm thế nào những hiểu biết của cộng đồng có thể được chuyển thành các quyết định kỹ thuật và tính năng thực tế?",
     "landingContainer.research.item4": "Tăng cường công bằng trong thiết kế AI cho các nhóm dân số bị loại trừ trong lịch sử?",
     "landingContainer.research.conclusion": "Những hiểu biết từ nghiên cứu này không chỉ thông tin cho AIEP, mà còn cho các cuộc trò chuyện rộng hơn về AI có trách nhiệm trong các hệ thống công cộng.",
-
     "landingCards.aiepTool.top": "Dùng thử",
     "landingCards.aiepTool.middle": "Công cụ AIEP",
     "landingCards.aiepTool.bottom": "để tóm tắt hoặc dịch IEP của bạn",
@@ -628,7 +580,6 @@
     "landingCards.playbook.top": "Đọc",
     "landingCards.playbook.middle": "Sổ tay Hướng dẫn",
     "landingCards.playbook.bottom": "của chúng tôi để học cách tạo AI lấy cộng đồng làm trung tâm",
-
     "landingContainer.cta.exploreMore.pretext": "Khám phá thêm",
     "landingContainer.cta.exploreMore.title": "AI lấy cộng đồng làm trung tâm",
     "landingContainer.cta.writing.pretext": "Đọc những gì chúng tôi đang",
@@ -637,7 +588,6 @@
     "landingContainer.cta.course.title": "Khóa học",
     "landingContainer.cta.research.pretext": "Xem",
     "landingContainer.cta.research.title": "Nghiên cứu của chúng tôi",
-
     "landingContainer.aboutProject.title": "Về dự án",
     "landingContainer.aboutProject.text1": "AI for IEPs là dự án của Trung tâm Burnes vì Thay đổi Xã hội và AI for Impact, được phát triển với sự hợp tác của Innovate Public Schools và các gia đình ở California.",
     "landingContainer.aboutProject.text2": "Dự án được hỗ trợ bởi các khoản tài trợ từ Chan Zuckerberg Initiative và Trung tâm Burnes vì Thay đổi Xã hội.",
@@ -647,10 +597,8 @@
     "landingContainer.cta.learnHow.title": "AIEP được xây dựng",
     "landingContainer.cta.explore.pretext": "Khám phá",
     "landingContainer.cta.explore.title": "AI lấy cộng đồng làm trung tâm",
-
     "landing.howTo.titlePrefix": "Cách sử dụng",
     "landing.howTo.titleSuffix": "công cụ AIEP",
-
     "landing.howTo.card1.title": "Tải lên IEP vào công cụ",
     "landing.howTo.card1.text": "Sau khi đăng ký, bạn sẽ có thể tải lên tài liệu IEP của con bạn dưới dạng tệp tài liệu (doc hoặc docx) hoặc PDF.",
     "landing.howTo.card2.title": "Dịch IEP sang ngôn ngữ bạn muốn",
@@ -670,7 +618,6 @@
     "auth.resendFailed": "Không thể gửi lại mã xác minh. Vui lòng thử lại.",
     "auth.sessionExpired": "Phiên đã hết hạn. Vui lòng bắt đầu lại.",
     "auth.verificationFailed": "Xác minh mã không thành công. Vui lòng thử lại.",
-
     "welcome.invite.title": "Mời phụ huynh khác",
     "welcome.invite.description": "Chia sẻ AIEP với những gia đình có thể cần",
     "invite.breadcrumb.home": "Trang chủ",

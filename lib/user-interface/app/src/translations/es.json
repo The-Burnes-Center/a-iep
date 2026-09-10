@@ -5,7 +5,6 @@
     "consent.button": "Aceptar y continuar",
     "consent.tooltip": "Por favor marque la casilla para continuar",
     "consent.error.saveFailedRetry": "Error al guardar el consentimiento. Por favor, inténtelo de nuevo.",
-    
     "child.title": "Sobre su hijo/a",
     "child.name.label": "Nombre",
     "child.name.placeholder": "Ingrese el nombre del niño/a",
@@ -15,13 +14,11 @@
     "child.button.save": "Guardar y continuar",
     "child.error.updateFailed": "Error al actualizar la información de su hijo",
     "child.error.addFailed": "Error al agregar a su hijo",
-
     "parent.title": "Información del Padre/Madre",
     "parent.name.label": "Nombre del Padre/Madre",
     "parent.name.placeholder": "Ingrese el nombre del padre/madre",
     "parent.button.saving": "Guardando...",
     "parent.button.save": "Guardar y Continuar",
-    
     "welcome.upload.title": "Subir IEP",
     "welcome.upload.description": "Suba y administre sus documentos IEP",
     "welcome.summary.title": "Resumen y Traducción",
@@ -33,7 +30,6 @@
     "welcomeIntro.body1": "AIEP le ayuda a entender los documentos del IEP de su hijo con resúmenes fáciles de leer y traducciones en el idioma que prefiera.",
     "welcomeIntro.body2": "Nunca vuelva a sentirse perdido en una reunión del IEP: AIEP convierte el lenguaje técnico de la educación en palabras sencillas y claras.",
     "welcomeIntro.button.continue": "Continuar",
-  
     "common.back": "Atrás",
     "common.previous": "Anterior",
     "common.next": "Siguiente",
@@ -45,10 +41,8 @@
     "common.loading": "Cargando...",
     "common.saving": "Guardando...",
     "common.tryAgain": "Intentar de nuevo",
-
     "tutorial.appTutorial.title": "¿Qué estamos haciendo ahora mismo?",
     "tutorial.parentRights.title": "Sus derechos como padre:",
-
     "rights.title": "Sus Derechos como Padre",
     "rights.description": "¡Hola! Estamos aquí para ayudarle a entender mejor el Programa de Educación Individualizada (IEP) de su hijo. Navegar por este proceso puede resultar abrumador, pero usted tiene derechos importantes como padre. Aquí hay algunas cosas que debe saber:",
     "rights.bulletPoints.1": "Puede solicitar un traductor para las reuniones del IEP para garantizar una comunicación clara.",
@@ -57,7 +51,6 @@
     "rights.bulletPoints.4": "Tiene derecho a solicitar una reunión de IEP en cualquier momento, no solo en la revisión anual, y la escuela debe programarla dentro de los 30 días.",
     "rights.bulletPoints.5": "Si un administrador no está presente en la reunión, tiene derecho a reprogramarla para cuando pueda asistir.",
     "rights.bulletPoints.6": "Por ley, su administrador de caso debe proporcionarle un folleto con sus derechos como padre antes de la reunión del IEP.",
-
     "summary.back": "← Atrás",
     "summary.loading": "Cargando resumen del IEP...",
     "summary.noDocuments": "No se encontraron documentos. Por favor, suba un documento IEP primero.",
@@ -98,21 +91,19 @@
     "summary.translate.error.notAllowed": "No tiene permiso para traducir este documento.",
     "summary.translate.error.notFound": "No pudimos encontrar este documento. Vuelva a subirlo.",
     "summary.lastUpdate": "Última actualización:",
-
     "tts.listen": "Escuchar",
     "tts.pause": "Pausar",
     "tts.generating": "Preparando el audio…",
     "tts.error": "Audio no disponible. Toca para reintentar.",
     "summary.showLess": "Mostrar Menos",
     "summary.readMore": "Leer Más",
-
     "sections.studentInfo": "Sobre el Estudiante",
     "sections.accommodations": "Adaptaciones",
     "sections.goals": "Objetivos",
     "sections.services": "Servicios",
     "sections.placement": "Ubicación",
     "sections.keyPeople": "Personas Clave",
-    "sections.strengths": "Fortalezas", 
+    "sections.strengths": "Fortalezas",
     "sections.eligibility": "Elegibilidad",
     "sections.informedConsent": "Consentimiento Informado",
     "sections.presentLevels": "Niveles Actuales de Desempeño",
@@ -120,11 +111,10 @@
     "sections.stateTesting": "Pruebas estatales",
     "sections.foundIn": "Encontrado en",
     "sections.pages": "páginas",
-
     "upload.title": "Subir Documento IEP",
     "upload.maxSize": "Tamaño máximo de archivo: 100MB.",
     "upload.fileError.format": "Formato de archivo no compatible",
-    "upload.fileError.size": "El tamaño del archivo excede el límite de 100MB", 
+    "upload.fileError.size": "El tamaño del archivo excede el límite de 100MB",
     "upload.supportedFormats": "Formatos compatibles:",
     "upload.error.general": "Ocurrió un error durante la carga",
     "upload.success": "¡El archivo se ha subido correctamente!",
@@ -133,7 +123,6 @@
     "upload.selectFile": "Elegir archivo",
     "upload.noFileSelected": "Sin archivo",
     "upload.replaceDocument": "REEMPLAZAR DOCUMENTO IEP",
-    
     "current.loading": "Cargando...",
     "current.title": "Para ver el resumen de su documento IEP existente, haga clic a continuación",
     "current.documentOnFile": "Documento IEP actual en archivo",
@@ -142,10 +131,8 @@
     "current.paragraph1": "Esta acción reemplazará su resumen IEP actual y generará uno nuevo.",
     "current.header2": "¿No tienes tu IEP?",
     "current.paragraph2": "Puedes solicitarlo al trabajador social encargado en cualquier momento.",
-    
     "document.back": "← Atrás",
     "document.updateAlert": "El documento ha sido actualizado. La información de su documento actual se actualizará.",
-
     "profile.title": "Información del Perfil",
     "profile.parentName": "Nombre del Padre/Madre",
     "profile.button.update": "Actualizar Perfil",
@@ -162,7 +149,6 @@
     "profile.error.update": "Error al actualizar el perfil",
     "profile.error.serviceUnavailable": "Servicio no disponible",
     "profile.loading": "Cargando...",
-
     "revoke.title": "Revocar Consentimiento",
     "revoke.description1": "Al revocar su consentimiento, ya no podrá usar la herramienta de Ayuda con el IEP. Sus datos serán eliminados de nuestro sistema.",
     "revoke.description2": "Revocar el consentimiento cerrará su sesión inmediatamente en la aplicación. Puede restaurar su consentimiento volviendo a iniciar sesión y aceptando el formulario de consentimiento.",
@@ -170,7 +156,6 @@
     "revoke.button.revoke": "Revocar y Cerrar Sesión",
     "revoke.button.processing": "Procesando...",
     "revoke.error.failed": "Error al revocar el consentimiento. Por favor, inténtelo de nuevo.",
-
     "delete.title": "Eliminar Cuenta",
     "delete.description1": "⚠️ Esta acción es permanente y no se puede deshacer.",
     "delete.description2": "Eliminar su cuenta removerá permanentemente:",
@@ -182,7 +167,6 @@
     "delete.button.delete": "Eliminar Cuenta Para Siempre",
     "delete.button.processing": "Eliminando...",
     "delete.error.failed": "Error al eliminar la cuenta. Por favor, inténtelo de nuevo.",
-
     "auth.title": "Iniciar Sesión",
     "auth.email": "Correo electrónico",
     "auth.enterEmail": "Ingrese su correo electrónico",
@@ -221,6 +205,7 @@
     "auth.errorInvalidPassword": "La contraseña no cumple con los requisitos",
     "auth.errorInvalidParameter": "Parámetro inválido proporcionado",
     "auth.errorGeneric": "Ha ocurrido un error",
+    "auth.errorTurnstileUnavailable": "No pudimos realizar la verificación de seguridad. Revise su conexión a internet o pruebe con otro navegador.",
     "auth.errorSignUp": "Ha ocurrido un error durante el registro",
     "auth.errorVerification": "Error al verificar su cuenta",
     "auth.errorResendCode": "Error al reenviar el código de verificación",
@@ -238,7 +223,6 @@
     "auth.emailLogin": "Iniciar Sesión por Correo",
     "auth.phoneNumber": "Número de Teléfono",
     "auth.enterPhoneNumber": "Ingrese su número móvil (ej: +1234567890)",
-  
     "auth.sendSmsCode": "Enviar Código SMS",
     "auth.verificationCodeSms": "Código de Verificación",
     "auth.enterSmsCode": "Ingrese código de 6 dígitos",
@@ -279,20 +263,16 @@
     "auth.phoneAccountConfirmPrompt": "Por favor, ingrese el código de verificación enviado a su teléfono para confirmar su cuenta.",
     "auth.accountConfirmedSuccess": "¡Cuenta confirmada e iniciada sesión exitosamente!",
     "auth.phoneVerificationSuccess": "¡Verificación telefónica exitosa!",
-
     "onboarding.carousel.heading.accessible": "Su Documento IEP, Accesible",
     "onboarding.carousel.heading.summarize": "Resumir",
-    "onboarding.carousel.heading.translate": "Traducir", 
+    "onboarding.carousel.heading.translate": "Traducir",
     "onboarding.carousel.heading.advocate": "Abogar",
     "onboarding.carousel.paragraph.accessible": "AIEP le ayuda a entender los documentos IEP de su hijo.",
     "onboarding.carousel.paragraph.summarize": "Desglosamos los aspectos clave de su IEP en lenguaje fácil de entender.",
     "onboarding.carousel.paragraph.translate": "AIEP traduce los resúmenes de documentos IEP a su idioma preferido.",
     "onboarding.carousel.paragraph.advocate": "Abogue por la educación de su hijo explorando el IEP y sus derechos.",
-
     "rights.header.title.green": "Sus datos están seguros",
     "rights.header.title.pink": "Sus derechos",
-
-
     "rights.slide1.title": "Puede solicitar un traductor",
     "rights.slide1.content": "Puede solicitar un traductor para las reuniones del IEP para garantizar una comunicación clara.",
     "rights.slide2.title": "Puede tomarse su tiempo",
@@ -313,18 +293,15 @@
     "rights.slide9.content": "Cada vez que vea una palabra azul, podrá hacer clic en ella para mostrar su definición. Cuando termine, haga clic en la X para volver a su resumen.",
     "rights.slide10.title": "Compare el contenido con el IEP original",
     "rights.slide10.content": "Debajo del título de cada idea clave, encontrará el número de página de donde obtuvimos la información. Si algo no le parece correcto, ¡siempre verifique!",
-
     "privacy.slide1.title": "Su IEP no será modificado",
     "privacy.slide1.content": "Estamos creando un documento separado con su resumen. Podrá descargarlo como PDF.",
     "privacy.slide2.title": "Nos importa su privacidad",
     "privacy.slide2.content": "Estamos eliminando su información personal de los resúmenes. No almacenaremos ningún detalle personal suyo o de su hijo.",
-
     "carousel.section.hint": "Deslice o toque las flechas para saber más",
     "carousel.section.whatAiepDoes": "Lo que hace AIEP",
     "carousel.section.yourRights": "Sus derechos",
     "carousel.section.whatYouWillSeeNext": "Dónde encontrar cada cosa",
     "carousel.rights.indicator": "{number}. {title}",
-
     "appTutorial.slide1.title": "¿Qué estamos haciendo ahora?",
     "appTutorial.slide1.content": "Estamos resumiendo los aspectos clave de su IEP. Primero verá una descripción general del documento, y luego un resumen de cada una de las secciones clave.",
     "appTutorial.slide2.title": "¿Qué estamos haciendo ahora?",
@@ -337,42 +314,35 @@
     "appTutorial.slide5.content": "Su documento IEP no será modificado. Puede descargar los resúmenes que estamos creando haciendo clic en el botón de descarga.",
     "appTutorial.slide6.title": "¿Qué estamos haciendo ahora?",
     "appTutorial.slide6.content": "Estamos creando un glosario para ayudarle a entender el documento. Puede hacer clic sobre las palabras resaltadas y leer sus definiciones en el panel que aparecerá.",
-
     "tutorial.exampleVideo": "Video de Ejemplo :",
-
     "glossary.header": "Glosario",
-
     "navigation.home": "Inicio",
     "navigation.summary": "Resumen",
     "navigation.support": "Soporte",
     "navigation.faqs": "Preguntas Frecuentes",
-    "navigation.account": "Cuenta", 
+    "navigation.account": "Cuenta",
     "navigation.about": "Acerca de",
     "navigation.rights": "Derechos",
     "navigation.processing": "Su documento está siendo procesado...",
     "navigation.uploadIEP": "Cargar un IEP",
     "navigation.hub": "Centro",
-
     "footer.tagline": "Diseñando IA\ncon y para\nlas comunidades",
     "footer.home": "Inicio",
     "footer.uploadIEP": "Cargar un IEP",
     "footer.supportCenter": "Centro de Soporte",
     "footer.aboutUs": "Acerca de Nosotros",
     "footer.faqs": "Preguntas Frecuentes",
-
     "accountCenter.title": "Centro de Cuenta",
     "accountCenter.updateProfile": "Actualizar Su Perfil",
     "accountCenter.changeLanguage": "Cambiar su idioma",
     "accountCenter.deleteAccount": "Eliminar su cuenta",
     "accountCenter.logOut": "Cerrar sesión",
     "accountCenter.adminConsole": "Consola de administración",
-    
     "supportCenter.title": "Centro de Soporte",
     "supportCenter.frequentlyAskedQuestions": "Preguntas Frecuentes",
     "supportCenter.goToOnboarding": "Ir a la Incorporación",
     "supportCenter.resources": "Recursos",
     "supportCenter.aboutTheApp": "Acerca de la Aplicación",
-
     "about.breadcrumb.supportCenter": "CENTRO DE SOPORTE",
     "about.breadcrumb.about": "ACERCA DE",
     "about.projectTitle": "El Proyecto AI-EP: Diseñando IA\ncon y para las Comunidades",
@@ -409,7 +379,6 @@
     "about.goToWebsite": "IR AL SITIO WEB",
     "about.privacyPolicy": "Política de Privacidad",
     "about.learnMore": "MÁS INFORMACIÓN",
-
     "resources.title": "Recursos",
     "resources.breadcrumb.supportCenter": "CENTRO DE SOPORTE",
     "resources.breadcrumb.resources": "RECURSOS",
@@ -423,7 +392,6 @@
     "resources.rulaManual.title": "Manual de Derechos Bajo la Ley Lanterman (RULA)",
     "resources.rulaManual.description": "Guía detallada para entender sus derechos y servicios disponibles bajo la Ley de Servicios para Discapacidades del Desarrollo Lanterman de California.",
     "resources.buttonText": "VER RECURSOS",
-
     "updateProfile.breadcrumb.account": "CUENTA",
     "updateProfile.breadcrumb.updateProfile": "ACTUALIZAR PERFIL",
     "updateProfile.title": "Actualizar Perfil",
@@ -433,18 +401,15 @@
     "updateProfile.loading": "Cargando...",
     "updateProfile.error.serviceUnavailable": "Servicio no disponible",
     "updateProfile.error.saveFailed": "Error al guardar la información del padre",
-
     "changeLanguage.breadcrumb.account": "CUENTA",
     "changeLanguage.breadcrumb.changeLanguage": "CAMBIAR IDIOMA",
     "changeLanguage.title": "Su Idioma",
     "changeLanguage.description": "El resumen original de su IEP siempre se generará en inglés. Podemos traducir este resumen al idioma de su elección.",
     "changeLanguage.label.translation": "TRADUCCIÓN",
     "changeLanguage.loading": "Cargando...",
-
     "preferredLanguage.update.title": "Actualizar preferencias de idioma",
     "preferredLanguage.update.description": "Seleccione su idioma preferido para las traducciones del IEP",
     "preferredLanguage.error.updateFailed": "Error al actualizar la preferencia de idioma",
-
     "deleteAccount.breadcrumb.account": "CUENTA",
     "deleteAccount.breadcrumb.deleteAccount": "ELIMINAR CUENTA",
     "deleteAccount.title": "Eliminar Cuenta",
@@ -455,7 +420,6 @@
     "deleteAccount.button.deleteMyAccount": "Eliminar Mi Cuenta",
     "deleteAccount.loading": "Cargando...",
     "deleteAccount.error.serviceUnavailable": "Servicio no disponible",
-
     "privacyPolicy.breadcrumb.about": "ACERCA DE",
     "privacyPolicy.breadcrumb.privacyPolicy": "POLÍTICA DE PRIVACIDAD",
     "privacyPolicy.title": "Política de Privacidad de The GovLab AIEP",
@@ -512,15 +476,12 @@
     "privacyPolicy.contact.intro": "Si tiene preguntas sobre esta Política de Privacidad, contáctenos en:",
     "privacyPolicy.contact.organization": "The GovLab",
     "privacyPolicy.contact.email": "Correo electrónico:",
-
     "hero.title": "Planes de Educación\nIndividualizados, hechos accesibles",
     "hero.description": "La herramienta AIEP puede ayudarle a entender los documentos IEP de su hijo.",
     "hero.howToUseTool": "CÓMO USAR ESTA HERRAMIENTA",
-
     "landing.greenBanner.title": "Todos los niños merecen educación, sin importar sus necesidades",
     "landing.greenBanner.description": "Así como las plantas, cada niño aprende a su manera. Algunos necesitan luz, otros sombra, algunos florecen rápido, otros toman su tiempo. La herramienta AIEP ayuda a las familias a cuidar las necesidades educativas de sus hijos.",
     "landing.greenBanner.createAccountButton": "CREAR CUENTA",
-
     "landingHero.aboutAIEP": "Acerca de AI para IEPs",
     "landingHero.title.aiep": "AIEP",
     "landingHero.title.isAn": "es un proyecto de",
@@ -533,11 +494,9 @@
     "landingHero.title.communityCenteredAI": "principios de IA centrada en la comunidad",
     "landingHero.title.principles": "Principios",
     "landingHero.projectBy": "Un proyecto de:",
-
     "greenSection.title": "AI para IEPs (AIEP) es una herramienta de IA gratuita y de código abierto creada con familias para ayudar a padres y cuidadores a entender, traducir y utilizar los Programas de Educación Individualizada (IEPs).",
     "greenSection.description1": "Los IEPs son documentos legalmente vinculantes que definen los servicios, apoyos y adaptaciones que un estudiante con discapacidad tiene derecho a recibir. Sin embargo, para muchas familias, especialmente las familias multilingües, los IEPs son difíciles de leer, navegar y usar como herramientas de defensa. AIEP existe para cambiar eso.",
     "greenSection.description2": "AIEP tiene como objetivo ayudar a las familias a pasar de la confusión a la claridad, y de la recepción pasiva de información a la participación segura en el camino educativo de su hijo.",
-
     "landingContainer.communityCenteredAI.title": "Un enfoque de IA centrado en la comunidad",
     "landingContainer.communityCenteredAI.intro": "AIEP es también una demostración de la IA centrada en la comunidad en la práctica.",
     "landingContainer.communityCenteredAI.text1": "La mayoría de los sistemas de IA se construyen a puertas cerradas, con reglas y suposiciones integradas en código o instrucciones que los usuarios nunca ven. En AIEP, muchas de las instrucciones centrales del sistema están escritas en lenguaje sencillo y se refinan iterativamente a través de la retroalimentación de la comunidad, un proceso que el equipo llama \"desempaquetar el prompt\".",
@@ -548,7 +507,6 @@
     "landingContainer.communityCenteredAI.item3": "Cómo las traducciones preservan el significado, no solo las palabras",
     "landingContainer.communityCenteredAI.item4": "Cómo se manejan la privacidad y la protección de datos",
     "landingContainer.communityCenteredAI.conclusion": "AIEP demuestra que los sistemas de IA pueden ser transparentes, participativos y responsables, especialmente en contextos de interés público.",
-
     "landingContainer.whyAiepExists.title": "Por qué existe AIEP",
     "landingContainer.whyAiepExists.intro": "Más de 7.5 millones de estudiantes en los Estados Unidos reciben servicios de educación especial. Para cada uno de ellos, un IEP da forma a las experiencias de aprendizaje diarias y a los resultados a largo plazo.",
     "landingContainer.whyAiepExists.subtitle": "Los IEPs a menudo son:",
@@ -558,7 +516,6 @@
     "landingContainer.whyAiepExists.item4": "Inaccesibles para familias que no hablan inglés con fluidez",
     "landingContainer.whyAiepExists.consequences": "Como resultado, las familias pueden perder detalles críticos sobre servicios, metas o ubicaciones, o tener dificultades para hacer preguntas informadas durante las reuniones del IEP. Estas barreras pueden tener consecuencias reales para los estudiantes.",
     "landingContainer.whyAiepExists.conclusion": "AIEP fue creado en respuesta a lo que las propias familias identificaron como un problema sistémico: el documento que rige la educación de su hijo a menudo es ilegible para ellas.",
-
     "landingContainer.privacyAndTrust.title": "Diseñado para la privacidad y la confianza",
     "landingContainer.privacyAndTrust.intro": "Los IEPs contienen información personal altamente sensible. Desde el principio, las familias enfatizaron que la privacidad era innegociable.",
     "landingContainer.privacyAndTrust.subtitle": "AIEP está construido con principios de privacidad por diseño, incluyendo:",
@@ -568,7 +525,6 @@
     "landingContainer.privacyAndTrust.item4": "La capacidad de las familias para eliminar sus datos en cualquier momento",
     "landingContainer.privacyAndTrust.conclusion": "La confianza se gana a través de decisiones de diseño que respetan a los usuarios y sus datos.",
     "landingContainer.privacyAndTrust.diagramAlt": "Diagrama que muestra cómo AIEP protege tu privacidad: AWS Comprehend detecta y elimina datos personales, luego OpenAI crea resúmenes y traducciones sin almacenar tu información",
-
     "landingContainer.whatAiepDoes.title": "Lo que hace AIEP",
     "landingContainer.whatAiepDoes.subtitle": "AIEP apoya a las familias antes, durante y después de las reuniones del IEP ayudándoles a:",
     "landingContainer.whatAiepDoes.item1": "Traducir IEPs a múltiples idiomas preservando el significado legal y educativo",
@@ -577,7 +533,6 @@
     "landingContainer.whatAiepDoes.item4": "Preparar preguntas y puntos de discusión para las reuniones del IEP",
     "landingContainer.whatAiepDoes.item5": "Navegar los IEPs con confianza, no con suposiciones",
     "landingContainer.whatAiepDoes.conclusion": "La herramienta está diseñada para mostrar los detalles específicos y legalmente significativos que las familias necesitan para defender a su hijo, en lugar de ofrecer un resumen genérico.",
-
     "landingContainer.moreThanATool.title": "Más que una herramienta",
     "landingContainer.moreThanATool.intro": "Si bien AIEP es un recurso práctico para las familias, también es parte de un esfuerzo más amplio para repensar cómo se desarrolla la IA para los sistemas públicos.",
     "landingContainer.moreThanATool.subtitle": "A través de AIEP, el equipo ha producido:",
@@ -586,7 +541,6 @@
     "landingContainer.moreThanATool.item3": "Materiales de aprendizaje para la alfabetización cívica en IA",
     "landingContainer.moreThanATool.item4": "Publicaciones que comparten lecciones y fracasos, no solo éxitos",
     "landingContainer.moreThanATool.conclusion": "Juntos, estos recursos apoyan a las familias, educadores, formuladores de políticas y tecnólogos que trabajan para construir una IA que sirva al bien público.",
-
     "landingContainer.builtWithFamilies.title": "Construido con familias, no solo para ellas",
     "landingContainer.builtWithFamilies.intro": "AIEP fue co-diseñado con más de 150 padres y cuidadores en el Área de la Bahía de San Francisco, junto con expertos en educación especial y educadores.",
     "landingContainer.builtWithFamilies.subtitle": "Desde los primeros prototipos, las familias dieron forma a:",
@@ -596,7 +550,6 @@
     "landingContainer.builtWithFamilies.item4": "Lo que la herramienta no debería hacer",
     "landingContainer.builtWithFamilies.codesigners": "En lugar de tratar a las familias como \"usuarios finales\", AIEP las trata como co-diseñadores y expertos en su propia experiencia vivida.",
     "landingContainer.builtWithFamilies.conclusion": "Este enfoque refleja una creencia fundamental del proyecto: las personas más afectadas por un sistema deben ayudar a dar forma a cómo la tecnología interactúa con él.",
-
     "landingContainer.research.title": "Nuestras preguntas de investigación",
     "landingContainer.research.subtitle": "Junto con el desarrollo de herramientas, estamos interesados en explorar:",
     "landingContainer.research.item1": "¿Cómo pueden los miembros de la comunidad ser educados significativamente sobre IA para que puedan participar en su diseño?",
@@ -604,7 +557,6 @@
     "landingContainer.research.item3": "¿Cómo pueden las perspectivas de la comunidad traducirse en decisiones técnicas y características reales?",
     "landingContainer.research.item4": "¿Aumentar la equidad en el diseño de IA para poblaciones históricamente excluidas?",
     "landingContainer.research.conclusion": "Las percepciones de esta investigación informan no solo a AIEP, sino conversaciones más amplias sobre IA responsable en sistemas públicos.",
-
     "landingCards.aiepTool.top": "Prueba la",
     "landingCards.aiepTool.middle": "Herramienta AIEP",
     "landingCards.aiepTool.bottom": "para resumir o traducir tu IEP",
@@ -623,7 +575,6 @@
     "landingCards.playbook.top": "Lee nuestro",
     "landingCards.playbook.middle": "Manual de Estrategias",
     "landingCards.playbook.bottom": "para aprender a crear IA centrada en la comunidad",
-
     "landingContainer.cta.exploreMore.pretext": "Explorar más",
     "landingContainer.cta.exploreMore.title": "IA centrada en la comunidad",
     "landingContainer.cta.writing.pretext": "Lee lo que estamos",
@@ -632,7 +583,6 @@
     "landingContainer.cta.course.title": "Curso",
     "landingContainer.cta.research.pretext": "Ver nuestra",
     "landingContainer.cta.research.title": "Investigación",
-
     "landingContainer.aboutProject.title": "Sobre el proyecto",
     "landingContainer.aboutProject.text1": "AI for IEPs es un proyecto del Burnes Center for Social Change y su AI for Impact, desarrollado en colaboración con Innovate Public Schools y familias en California.",
     "landingContainer.aboutProject.text2": "El proyecto fue apoyado por subvenciones de la Chan Zuckerberg Initiative y el Burnes Center for Social Change.",
@@ -642,10 +592,8 @@
     "landingContainer.cta.learnHow.title": "se construyó AIEP",
     "landingContainer.cta.explore.pretext": "Explora",
     "landingContainer.cta.explore.title": "IA centrada en la comunidad",
-
     "landing.howTo.titlePrefix": "Cómo usar la",
     "landing.howTo.titleSuffix": "herramienta AIEP",
-
     "landing.howTo.card1.title": "Sube un IEP a la herramienta",
     "landing.howTo.card1.text": "Después de registrarte, podrás subir el documento IEP de tu hijo como un archivo de documento (doc o docx) o un PDF.",
     "landing.howTo.card2.title": "Traduce el IEP a tu idioma preferido",
@@ -670,7 +618,6 @@
     "update.profile.name": "Nombre",
     "update.profile.noChildrenAdded": "Aún no se han agregado hijos",
     "update.profile.schoolCity": "Ciudad de la escuela",
-
     "welcome.invite.title": "Invita a otros padres",
     "welcome.invite.description": "Comparte AIEP con familias que puedan necesitarlo",
     "invite.breadcrumb.home": "Inicio",
@@ -698,4 +645,4 @@
     "invite.joins.item": "Un padre se unió",
     "invite.error": "No pudimos cargar tu enlace de invitación. Inténtalo de nuevo más tarde.",
     "invite.loading": "Cargando..."
-  }
+}

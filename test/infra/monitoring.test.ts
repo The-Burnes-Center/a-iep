@@ -48,7 +48,21 @@ const EXPECTED_ALARM_SUFFIXES = [
   'login codes being requested for numbers we do not serve',
   'login codes are being refused: the sending limit is reached',
   'login codes are not being delivered',
+  'the SMS provider is rejecting login codes',
   'the pipeline cannot write to its database',
+  // The signup endpoint. It is the ONLY way to create an account, because
+  // Cognito's public SignUp API is closed, and for its first day it had no
+  // alarm of any kind: not in pipelineFunctions, not in authTriggerFunctions,
+  // not in apiFunctions, no metric filter on any of its markers.
+  'signup broken: nobody can create an account',
+  'signup throttled: nobody can create an account',
+  'sign-ups are being refused in bulk',
+  'signup broken: accounts are not being created',
+  'new accounts may be reachable by whoever created them',
+  'the signup bot check is switched off',
+  // The alerting path watching itself, both halves of it.
+  'alerts are not reaching the formatter',
+  'the daily health brief is failing',
 ];
 
 /**
@@ -64,6 +78,21 @@ const SMS_MARKERS: [string, string][] = [
   ['SMS_REFUSED_DESTINATION', 'SmsRefusedDestination'],
   ['SMS_BUDGET_EXHAUSTED', 'SmsBudgetExhausted'],
   ['SMS_SEND_FAILED', 'SmsSendFailed'],
+];
+
+/**
+ * The same contract, for the signup endpoint.
+ *
+ * Nearly every way that function turns a family away is a deliberate 4xx
+ * refusal that raises nothing, so Lambda Errors stays flat through a total
+ * signup outage and these markers are the only signal there is. The lambda
+ * side is pinned in test/lambdas/phone-otp-auth/signup-endpoint.test.js.
+ */
+const SIGNUP_MARKERS: [string, string][] = [
+  ['SIGNUP_REFUSED', 'SignupRefused'],
+  ['SIGNUP_FAILED', 'SignupFailed'],
+  ['SIGNUP_ORPHANED', 'SignupOrphaned'],
+  ['TURNSTILE_NOT_CONFIGURED', 'TurnstileNotConfigured'],
 ];
 
 function synth(environment: string): Template {
@@ -129,13 +158,21 @@ describe.each([
   });
 
   // WHY: a broken formatter breaks every alert while every alarm still fires,
-  // which looks exactly like a healthy system. Its own alarm therefore must
-  // NOT route through it. Routing it through the formatter would be the
+  // which looks exactly like a healthy system. Its own alarms therefore must
+  // NOT route through it. Routing them through the formatter would be the
   // canonical alarm that cannot fire.
-  test('the alerting-is-broken alarm bypasses the formatter', () => {
-    const selfAlarm = alarms.find(
-      (a) => a.AlarmName === `${namePrefix}alerting itself is broken`,
-    );
+  //
+  // There are two, because "the formatter ran and raised" and "the formatter
+  // was never invoked" are different failures with no overlap. The second was
+  // added after an audit found nothing at all watched SNS delivery from the
+  // alarm topic to the formatter: subscription deleted, invoke permission
+  // lost, or SNS giving up retrying would each drop every alert silently,
+  // with the formatter's own Errors flat at zero.
+  test.each([
+    'alerting itself is broken',
+    'alerts are not reaching the formatter',
+  ])('the "%s" alarm bypasses the formatter', (name) => {
+    const selfAlarm = alarms.find((a) => a.AlarmName === `${namePrefix}${name}`);
     expect(selfAlarm).toBeDefined();
 
     const alertTopicRefs = Object.entries(template.findResources('AWS::SNS::Topic'))
@@ -154,8 +191,12 @@ describe.each([
       .filter(([, r]: [string, any]) => r.Properties.TopicName === expectedTopicName)
       .map(([id]) => id)[0];
 
+    const bypassByDesign = [
+      `${namePrefix}alerting itself is broken`,
+      `${namePrefix}alerts are not reaching the formatter`,
+    ];
     const routedElsewhere = alarms
-      .filter((a) => a.AlarmName !== `${namePrefix}alerting itself is broken`)
+      .filter((a) => !bypassByDesign.includes(a.AlarmName))
       .filter((a) => !JSON.stringify(a.AlarmActions).includes(rawTopicId))
       .map((a) => a.AlarmName);
 
@@ -321,6 +362,44 @@ describe.each([
       expect(alarm.Threshold).toBe(1);
       expect(alarm.MetricName).toBe('Errors');
     }
+  });
+});
+
+describe('the signup endpoint is watched at all', () => {
+  // It is the only way to create an account, and for its first day it was in
+  // none of the three monitoring lists: no Errors alarm, no Throttles alarm,
+  // no metric filter on any of its six markers. This describe block exists so
+  // that a future change dropping it from the list fails here.
+  test.each(SIGNUP_MARKERS)('%s is counted into %s', (marker, metricName) => {
+    for (const environment of ['production', 'staging']) {
+      synth(environment).hasResourceProperties('AWS::Logs::MetricFilter', {
+        FilterPattern: marker,
+        MetricTransformations: Match.arrayWith([
+          Match.objectLike({ MetricName: metricName, MetricNamespace: 'AI-IEP/Auth' }),
+        ]),
+      });
+    }
+  });
+
+  // An account created but not secured is reachable by whoever created it,
+  // which is the hole the PostConfirmation rotation closed for the ~1,030
+  // accounts of the 2026-09-09 run. One is enough.
+  test('one unsecured account is enough to alarm', () => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes('reachable by whoever created them'));
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Threshold).toBe(1);
+  });
+
+  // The endpoint is in the daily brief too, so a day with zero signups is
+  // visible rather than merely un-alarmed.
+  test('the endpoint reaches the daily brief', () => {
+    const manifest = JSON.stringify(
+      synth('production').findResources('AWS::SSM::Parameter'));
+
+    expect(manifest).toContain('the only way to create an account');
   });
 });
 
@@ -495,27 +574,52 @@ describe('alarm periods are ones CloudWatch can actually evaluate', () => {
 });
 
 describe('undelivered login codes', () => {
-  // This alarm exists because its predecessor could not fire. It watched
-  // AWS/SNS NumberOfNotificationsFailed, which is the obvious metric and the
-  // wrong one: SNS does not emit it when a direct publish is dropped for
-  // exceeding the account spend cap. It sat in OK, with no datapoints at all,
-  // while three login codes in a row were accepted and binned.
+  // This pin was wrong, and it is corrected here rather than deleted.
   //
-  // The delivery-status log group is what actually moves, so that is what is
-  // read now.
-  test('the alarm reads the delivery log, not a metric that stays empty', () => {
-    const template = synth('production');
+  // It asserted that NO alarm watches AWS/SNS NumberOfNotificationsFailed, on
+  // the reasoning that SNS does not emit that metric when a direct publish is
+  // dropped at the account spend cap. The account's own data says otherwise:
+  // SNS recorded 390 failures in the 19:00 hour on 2026-09-09 and 392 across
+  // the day, under PhoneNumber=PhoneNumberDirect. The metric moved exactly
+  // when it should have.
+  //
+  // What was actually broken was the DIMENSION. The original alarm queried
+  // the metric with no dimensions at all, and that series has never had a
+  // single datapoint. So the fix was one dimension, not a replacement, and
+  // the correct assertion is not "no such alarm" but "no such alarm on the
+  // empty series".
+  test('the delivery-failure metric alarm names a dimension that exists', () => {
+    // Two alarms share this metric name: SMS delivery (below) and alert
+    // delivery from the alarm topic to the formatter. Both are dimensioned,
+    // and a zero-dimension one is the bug, so assert on the whole set.
+    const alarms = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => p.MetricName === 'NumberOfNotificationsFailed');
 
-    template.hasResourceProperties('AWS::Logs::MetricFilter', Match.objectLike({
+    expect(alarms.length).toBeGreaterThan(0);
+    for (const alarm of alarms) {
+      // Load-bearing: without a dimension the alarm watches a series with no
+      // data and sits green through a total outage, which is what it did.
+      expect(alarm.Dimensions).toBeDefined();
+      expect(alarm.Dimensions.length).toBeGreaterThan(0);
+    }
+
+    const sms = alarms.find((p: any) => String(p.AlarmName).includes('SMS provider is rejecting'));
+    expect(sms.Dimensions).toEqual([
+      { Name: 'PhoneNumber', Value: 'PhoneNumberDirect' },
+    ]);
+  });
+
+  // Two independent signals, kept deliberately. The metric needs no ops step
+  // and works in both environments; the log filter carries the REASON but
+  // only exists where delivery-status logging is switched on. Neither
+  // subsumes the other, and this alarm has already been wrong twice.
+  test('the delivery log is read as well as the metric', () => {
+    synth('production').hasResourceProperties('AWS::Logs::MetricFilter', Match.objectLike({
       MetricTransformations: Match.arrayWith([
         Match.objectLike({ MetricName: 'SmsDeliveryFailed', MetricNamespace: 'AI-IEP/Auth' }),
       ]),
     }));
-
-    const onTheEmptyMetric = Object.values(template.findResources('AWS::CloudWatch::Alarm'))
-      .map((r: any) => r.Properties)
-      .filter((p: any) => p.MetricName === 'NumberOfNotificationsFailed');
-    expect(onTheEmptyMetric).toEqual([]);
   });
 
   // One undelivered code is one parent who cannot get in. Unlike a failing

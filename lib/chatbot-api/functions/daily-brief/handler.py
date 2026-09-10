@@ -49,20 +49,27 @@ WARN = ':warning:'
 
 
 def _components():
-    """The manifest, or an empty list if it cannot be read.
+    """`(components, could_not_read)`.
 
     An unreadable manifest degrades to a brief that reports the firing alarms
     and nothing else, which is worse than the full brief but far better than
     no brief: silence is the one outcome this whole thing exists to remove.
+
+    The second element exists because degrading quietly was worse than not
+    degrading at all. With an empty manifest and nothing firing, this reported
+    `all green (0 ran, 0 idle)` -- a green tick for a brief that had measured
+    nothing whatsoever. A brief that cannot read its own manifest has to say
+    so in the headline, or it is a daily assurance that nothing is wrong,
+    issued by something that did not look.
     """
     if not BRIEF_COMPONENTS_PARAM:
-        return []
+        return [], True
     try:
         value = ssm.get_parameter(Name=BRIEF_COMPONENTS_PARAM)['Parameter']['Value']
-        return json.loads(value)
+        return json.loads(value), False
     except Exception as error:  # noqa: BLE001 - see docstring
-        print(f'Could not read the brief manifest: {error}')
-        return []
+        print(f'BRIEF_MANIFEST_UNREADABLE {type(error).__name__}')
+        return [], True
 
 
 def _metric_queries(components):
@@ -155,20 +162,33 @@ def build_brief(now=None):
     day = now.date().isoformat()
     env_label = 'prod' if IS_PROD else 'staging'
 
-    components = _components()
+    components, manifest_unreadable = _components()
     totals = _totals(components, start, now) if components else {}
     lines, problems, ran, idle = _component_lines(components, totals)
     firing = _alarms_now()
 
-    if problems or firing:
+    count = problems + len(firing)
+    if count:
+        # Problems lead, whether or not the manifest read. A firing alarm is
+        # the thing someone has to act on.
         icon = WARN
-        count = problems + len(firing)
         headline = f'A-IEP daily brief — {day} — {count} problem(s) in the last 24h'
+    elif manifest_unreadable:
+        # Never green. This brief checked nothing, and "all green" here would
+        # be the most misleading line the channel can carry: a daily assurance
+        # that nothing is wrong, issued by something that did not look.
+        icon = WARN
+        headline = f'A-IEP daily brief — {day} — could not read what it is meant to check'
     else:
         icon = OK
         headline = f'A-IEP daily brief — {day} — all green ({ran} ran, {idle} idle)'
 
     body = list(lines)
+    if manifest_unreadable:
+        body.append(
+            'The list of things to check could not be read, so nothing below '
+            'was measured. Any alarms firing right now are still listed.'
+        )
     if firing:
         # Named, not counted: "2 alarms firing" sends someone to a console to
         # find out which, which is the thing this is supposed to save.

@@ -487,12 +487,23 @@ export class NewAuthorizationStack extends Construct {
 
     otpRateLimitTable.grantWriteData(signupFunction);
 
-    // Exactly two actions, on exactly this pool. AdminCreateUser without
+    // Exactly three actions, on exactly this pool. AdminCreateUser without
     // AdminSetUserPassword would leave every new account holding a password
     // the caller was given, which is the takeover this pair prevents.
+    //
+    // AdminDeleteUser is the rollback for the gap between those two: an
+    // account that is created and then cannot be secured has to be removed,
+    // because it can neither sign in (it is stuck in FORCE_CHANGE_PASSWORD)
+    // nor sign up again (the number is taken). Scoped to this pool, and the
+    // endpoint only ever calls it on a user it just created in the same
+    // invocation.
     signupFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: ['cognito-idp:AdminCreateUser', 'cognito-idp:AdminSetUserPassword'],
+      actions: [
+        'cognito-idp:AdminCreateUser',
+        'cognito-idp:AdminSetUserPassword',
+        'cognito-idp:AdminDeleteUser',
+      ],
       resources: [userPool.userPoolArn],
     }));
 

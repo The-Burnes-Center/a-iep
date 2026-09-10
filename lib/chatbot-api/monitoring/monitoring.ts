@@ -133,6 +133,16 @@ export interface MonitoringProps {
   readonly pipelineFunctions: MonitoredFunction[];
   /** Cognito custom-auth triggers. An error here blocks login or signup. */
   readonly authTriggerFunctions: MonitoredFunction[];
+  /**
+   * The signup endpoint. Separate from the lists above because it is the ONLY
+   * way to create an account: Cognito's public SignUp API is closed
+   * (AllowAdminCreateUserOnly), so if this is down, nobody can join at all.
+   *
+   * It had no alarms of any kind for its first day of life, which is how the
+   * front door ends up being the least-watched thing in the system: it was
+   * built during an incident, wired into the API, and never added to a list.
+   */
+  readonly signupFunction: MonitoredFunction;
   /** Request-path lambdas behind the HTTP API. */
   readonly apiFunctions: MonitoredFunction[];
   /** The lambda that runs record_failure, whose log group is filtered. */
@@ -207,11 +217,13 @@ export class MonitoringStack extends Construct {
     this.addAbuseAlarms(props.authTriggerFunctions);
     this.addSmsPathAlarms(props.authTriggerFunctions);
     this.addSmsDeliveryFailureAlarm();
+    this.addSignupPathAlarms(props.signupFunction);
     this.addTranslationAndUsageAlarms(props.translationStateMachine);
     this.addDailyBrief(props.kmsKey, [
       ...props.pipelineFunctions,
       ...props.authTriggerFunctions,
       ...props.apiFunctions,
+      props.signupFunction,
     ].map(({ label, fn, purpose }) => ({
       label,
       functionName: fn.functionName,
@@ -340,6 +352,23 @@ export class MonitoringStack extends Construct {
       datapointsToAlarm: 24,
       treatMissingData: cloudwatch.TreatMissingData.BREACHING,
     });
+
+    // The heartbeat above cannot see this one. Lambda emits Invocations for a
+    // FAILED invocation exactly as it does for a successful one, so a brief
+    // that raises every single morning still lands one datapoint an hour and
+    // keeps "has the brief stopped running" permanently green. The schedule
+    // firing and the brief being sent are two different facts, and only the
+    // second one is the point.
+    this.alarm('DailyBriefFailingAlarm', {
+      severity: 'medium',
+      name: 'the daily health brief is failing',
+      description:
+        'The once-a-day summary ran but could not be sent, so "no news" no ' +
+        'longer means anything. Nothing is broken for families.',
+      metric: brief.metricErrors({ period: cdk.Duration.hours(1), statistic: 'Sum' }),
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
   }
 
   private addAlertFormatter(kmsKey: kms.IKey): lambda.Function {
@@ -376,6 +405,33 @@ export class MonitoringStack extends Construct {
       evaluationPeriods: 1,
       // Straight to Chatbot: routing this through the thing that is broken
       // would be the alarm that cannot fire.
+      topic: this.alertTopic,
+    });
+
+    // The alarm above only covers a formatter that runs and raises. It says
+    // nothing about a formatter that is never CALLED: if this subscription is
+    // deleted, the invoke permission is lost, or SNS gives up retrying, then
+    // Errors stays at zero forever and every alarm in this file is silently
+    // dropped on the way to Slack. The channel goes quiet and quiet is
+    // exactly what it means when nothing is wrong.
+    //
+    // Also straight to alertTopic, for the same reason as above.
+    this.alarm('AlertDeliveryFailingAlarm', {
+      severity: 'critical',
+      name: 'alerts are not reaching the formatter',
+      description:
+        'Alarms fired but could not be delivered for formatting, so they ' +
+        'never reached Slack. The channel looks quiet while something may be ' +
+        'wrong. Check CloudWatch alarms directly until this is fixed.',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/SNS',
+        metricName: 'NumberOfNotificationsFailed',
+        dimensionsMap: { TopicName: this.alarmTopic.topicName },
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
       topic: this.alertTopic,
     });
 
@@ -751,21 +807,33 @@ export class MonitoringStack extends Construct {
   }
 
   /**
-   * SMS the provider accepted and then did not deliver.
+   * SMS the provider accepted and then did not deliver. Two independent
+   * signals, deliberately.
    *
-   * This replaces an alarm on AWS/SNS NumberOfNotificationsFailed, which was
-   * the obvious metric and the wrong one: SNS does not emit it when a direct
-   * publish is dropped for exceeding the account spend cap. That alarm sat in
-   * OK with no datapoints while three login codes in a row were accepted and
-   * binned, which is an alarm that cannot fire for the case it was built for.
-   * There was no way to notice except by being in the outage it was meant to
-   * catch.
+   * The original alarm here watched AWS/SNS NumberOfNotificationsFailed with
+   * NO dimensions and sat in OK through the whole 2026-09-09 outage. It was
+   * replaced on the reasoning that SNS does not emit that metric for a direct
+   * publish dropped at the spend cap.
    *
-   * The delivery-status log group is the signal that actually moves. It only
-   * exists once delivery status logging is switched on, which is an
-   * account-level SNS setting and a deliberate ops step.
+   * **That reasoning was wrong, and the account's own data says so.** SNS
+   * recorded 390 failures in the 19:00 hour on 2026-09-09 and 392 across the
+   * day. The metric moved exactly when it should have. What was broken was
+   * the dimension: NumberOfNotificationsFailed exists as
+   * PhoneNumber=PhoneNumberDirect for SMS-to-a-number, and the zero-dimension
+   * series the alarm queried has never had a single datapoint. The right fix
+   * was one dimension, not a rewrite, and the metric alarm is restored below
+   * with it.
    *
-   * Created in production only, for the same reason as the role: one
+   * Both are kept because they fail in different directions. The metric is
+   * account-level and needs no ops step, so it works everywhere and survives
+   * someone switching delivery-status logging off. The log filter carries the
+   * REASON for each failure and distinguishes a spend cap from a bad number,
+   * but exists only where that logging is enabled. Neither one subsumes the
+   * other, and this is the alarm that has already been wrong twice.
+   *
+   * The log group only exists once delivery status logging is switched on,
+   * which is an account-level SNS setting and a deliberate ops step. It is
+   * created in production only, for the same reason as the role: one
    * account-level log group, one filter. Two would double-count every
    * failure, since staging and production share it.
    *
@@ -774,6 +842,28 @@ export class MonitoringStack extends Construct {
    * every one of them is a parent who cannot get in.
    */
   private addSmsDeliveryFailureAlarm(): void {
+    // The metric alarm is account-level but harmless to duplicate: unlike the
+    // log filter it creates no shared resource, and both environments benefit
+    // from seeing it. Staging alarms are informational by design.
+    this.alarm('SmsNotificationsFailedAlarm', {
+      severity: 'critical',
+      name: 'the SMS provider is rejecting login codes',
+      description:
+        'SNS is failing to send login codes, so parents are told a code is ' +
+        'coming and none arrives. Usually the monthly SMS spend cap, which ' +
+        'stops delivery for everyone until it is raised.',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/SNS',
+        metricName: 'NumberOfNotificationsFailed',
+        // Load-bearing. Without it this queries a series that does not exist.
+        dimensionsMap: { PhoneNumber: 'PhoneNumberDirect' },
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(15),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+
     if (this.env !== 'prod') {
       return;
     }
@@ -809,6 +899,124 @@ export class MonitoringStack extends Construct {
         statistic: 'Sum',
         period: cdk.Duration.minutes(15),
       }),
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+  }
+
+  /**
+   * The signup endpoint: the only way to create an account.
+   *
+   * Watched through markers as well as Errors, for the same reason
+   * create-auth-challenge is. Nearly every way this function turns a family
+   * away is a deliberate, correct REFUSAL that returns 4xx and raises
+   * nothing, so Lambda Errors stays flat through a total signup outage. A
+   * Turnstile outage in particular refuses every signup as a 403, which is
+   * not counted by the API's 5xx alarm either.
+   *
+   * Refusals are also the leading indicator of abuse, and they arrive while
+   * an attack is happening rather than after the money is gone. The
+   * pre-existing signup alarm counts PreSignUp invocations, i.e. signups that
+   * SUCCEEDED, so it can only see an attack that got through.
+   */
+  private addSignupPathAlarms(signup: MonitoredFunction): void {
+    const metricNamespace = 'AI-IEP/Auth';
+
+    this.alarm('SignupEndpointErrorsAlarm', {
+      severity: 'critical',
+      name: 'signup broken: nobody can create an account',
+      description:
+        'The signup endpoint is failing. Cognito\'s own signup is closed, so ' +
+        'this is the only way to join: no new family can create an account.',
+      metric: signup.fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+
+    this.alarm('SignupEndpointThrottledAlarm', {
+      severity: 'critical',
+      name: 'signup throttled: nobody can create an account',
+      description:
+        'The signup endpoint is being throttled, so new families are turned ' +
+        'away. Failing on capacity, not on a bug.',
+      metric: signup.fn.metricThrottles({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+
+    const markerMetric = (id: string, marker: string, metricName: string) => {
+      new logs.MetricFilter(this, id, {
+        logGroup: signup.fn.logGroup,
+        // Marker only, and pinned by the lambda's own unit tests: a reworded
+        // log line would disarm the alarm without failing anything.
+        filterPattern: logs.FilterPattern.literal(marker),
+        metricNamespace,
+        metricName,
+        metricValue: '1',
+        defaultValue: 0,
+      });
+      return new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName,
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+      });
+    };
+
+    this.alarm('SignupRefusedAlarm', {
+      severity: 'medium',
+      name: 'sign-ups are being refused in bulk',
+      description:
+        'Sign-ups are being turned away by the rate limits or the bot check. ' +
+        'Either an abuse run is under way and the limits are holding, or the ' +
+        'limits are too tight and real families cannot join.',
+      metric: markerMetric('SignupRefusedFilter', 'SIGNUP_REFUSED', 'SignupRefused'),
+      // Deliberately above the per-source floor of 3/hour, so one family
+      // mistyping their number twice never reaches Slack.
+      threshold: 10,
+      evaluationPeriods: 1,
+    });
+
+    this.alarm('SignupFailedAlarm', {
+      severity: 'critical',
+      name: 'signup broken: accounts are not being created',
+      description:
+        'Sign-ups are reaching Cognito and failing there. Families are ' +
+        'filling in the form and being told it did not work.',
+      metric: markerMetric('SignupFailedFilter', 'SIGNUP_FAILED', 'SignupFailed'),
+      threshold: 3,
+      evaluationPeriods: 1,
+    });
+
+    // The one that would have been silent forever. An account created without
+    // its password rotated is an account whoever created it can sign into,
+    // which is the exact hole the PostConfirmation trigger used to close.
+    this.alarm('SignupPasswordNotRotatedAlarm', {
+      severity: 'critical',
+      name: 'new accounts may be reachable by whoever created them',
+      description:
+        'An account was created but could not be secured afterwards, and ' +
+        'removing it also failed. Until this is cleared, treat accounts ' +
+        'created now as untrusted.',
+      metric: markerMetric('SignupOrphanedFilter', 'SIGNUP_ORPHANED', 'SignupOrphaned'),
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+
+    // Turnstile is configured out of band, by creating an SSM SecureString,
+    // so "deployed" and "switched on" are genuinely different states and the
+    // code cannot tell which one it is in. Without this alarm the difference
+    // between "the bot check is protecting signup" and "the bot check is off"
+    // is invisible from anywhere.
+    this.alarm('TurnstileNotConfiguredAlarm', {
+      severity: 'medium',
+      name: 'the signup bot check is switched off',
+      description:
+        'Sign-ups are being accepted without the bot check, because its ' +
+        'secret is missing. The rate limits still apply; the defence that ' +
+        'stops a script does not.',
+      metric: markerMetric(
+        'TurnstileNotConfiguredFilter', 'TURNSTILE_NOT_CONFIGURED', 'TurnstileNotConfigured'),
       threshold: 1,
       evaluationPeriods: 1,
     });
@@ -855,14 +1063,28 @@ export class MonitoringStack extends Construct {
         metricName: 'CallCount',
         dimensionsMap: {
           Type: 'API',
-          Resource: 'Decrypt',
+          // NOT 'Decrypt'. AWS/Usage has no per-operation Resource for KMS
+          // data-plane calls: it buckets every symmetric encrypt/decrypt/
+          // generate-data-key into this one name. Resource=Decrypt matches no
+          // series at all, so the first version of this alarm queried an
+          // empty metric and sat green through the exact runaway it was
+          // written for -- 32,101 calls in the 16:00 hour on 2026-09-08
+          // against a threshold of 10,000. Verified with list-metrics: the
+          // only KMS API Resource values in this account are
+          // CryptographicOperationsSymmetric, CreateGrant, RetireGrant,
+          // DescribeKey, GetKeyPolicy, GetKeyRotationStatus, ListAliases,
+          // ListKeys and ListResourceTags.
+          Resource: 'CryptographicOperationsSymmetric',
           Service: 'KMS',
           Class: 'None',
         },
         statistic: 'Sum',
         period: cdk.Duration.hours(1),
       }),
-      // Normal is a few hundred an hour across every project in the account.
+      // Measured on the real series, not guessed. With the sweeping agent
+      // switched off (06:00 UTC on 2026-09-10) this account runs 50-800 an
+      // hour; the sweep itself ran 22,000-32,000. 10,000 sits an order of
+      // magnitude above normal and well below the thing it has to catch.
       threshold: 10000,
       evaluationPeriods: 1,
     });

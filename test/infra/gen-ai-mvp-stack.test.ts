@@ -19,7 +19,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { App } from 'aws-cdk-lib';
+import { App, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 
 // The deliberately unauthenticated routes. Each one has to justify itself,
@@ -506,6 +506,12 @@ describe('Cognito custom-auth wiring', () => {
   // holding a password its creator was handed. The pair is the control that
   // kept ~1,030 abuse accounts unusable, and it is only a pair if both
   // permissions travel together.
+  //
+  // AdminDeleteUser joined them as the rollback for the gap BETWEEN the two.
+  // If the password rotation fails after the account exists, that account can
+  // neither sign in (it is stuck in FORCE_CHANGE_PASSWORD, so custom auth
+  // never runs) nor sign up again (the number is taken), so the number is
+  // permanently unusable unless the endpoint removes what it just made.
   test('the signup endpoint can create a user AND replace its password, on one pool', () => {
     const statements = Object.values(template.findResources('AWS::IAM::Policy'))
       .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[]);
@@ -514,8 +520,12 @@ describe('Cognito custom-auth wiring', () => {
 
     expect(cognitoAdmin).toHaveLength(1);
     const actions = ([] as string[]).concat(cognitoAdmin[0].Action).sort();
-    expect(actions).toEqual(['cognito-idp:AdminCreateUser', 'cognito-idp:AdminSetUserPassword']);
-    // Scoped to the pool, never '*': this role can mint accounts.
+    expect(actions).toEqual([
+      'cognito-idp:AdminCreateUser',
+      'cognito-idp:AdminDeleteUser',
+      'cognito-idp:AdminSetUserPassword',
+    ]);
+    // Scoped to the pool, never '*': this role can mint AND delete accounts.
     expect(JSON.stringify(cognitoAdmin[0].Resource)).not.toContain('"*"');
   });
 
@@ -933,6 +943,47 @@ describe('encryption at rest and in transit', () => {
   // statement, and PostProcessPolicyDocument dedupes them to one. A pin on
   // the prop would have passed either way and told us nothing about the
   // policy that actually ships.
+  // WHY: S3 allows exactly ONE policy document per bucket, so two
+  // AWS::S3::BucketPolicy resources naming the same bucket are not additive.
+  // Whichever deploys last overwrites the other, completely and silently.
+  //
+  // This is not hypothetical. buckets.ts created the bucket in the PARENT
+  // stack and its policy in S3BucketStack, which extends cdk.Stack, so synth
+  // emitted a SECOND top-level stack carrying a second policy for the live
+  // IEP bucket, referencing it by hard-coded name. CI only ever deploys the
+  // named parent stack, so the two never met -- but `cdk deploy --all`, which
+  // README.md documents, would have applied the sibling's two-statement
+  // policy over the real four-statement one, dropping both
+  // DenyIepDataOutsideAllowlist and the TLS 1.2 floor, and reporting success.
+  // The same shape as the 2026-06-22 bucket rename: routine documented
+  // command, silent security downgrade, green deploy.
+  test('no bucket has a second, competing policy in a sibling stack', () => {
+    const app = new App({ context: { 'aws:cdk:bundling-stacks': [] } });
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const { GenAiMvpStack } = require('../../lib/gen-ai-mvp-stack');
+    const { stackName } = require('../../lib/constants');
+    /* eslint-enable @typescript-eslint/no-var-requires */
+    const root = new GenAiMvpStack(app, stackName, {});
+
+    // Every stack synthesized from this app, not just the named one.
+    const policiesByBucket = new Map<string, string[]>();
+    for (const stack of app.node.findAll().filter((c): c is Stack => Stack.isStack(c))) {
+      const resources = Template.fromStack(stack)
+        .findResources('AWS::S3::BucketPolicy');
+      for (const [logicalId, resource] of Object.entries(resources)) {
+        const bucket = JSON.stringify((resource as any).Properties.Bucket);
+        policiesByBucket.set(bucket, [
+          ...(policiesByBucket.get(bucket) ?? []),
+          `${stack.stackName}/${logicalId}`,
+        ]);
+      }
+    }
+    void root;
+
+    const duplicated = [...policiesByBucket.entries()].filter(([, ids]) => ids.length > 1);
+    expect(duplicated).toEqual([]);
+  });
+
   const bucketsWithoutDeny = (matches: (statement: any) => boolean): string[] => {
     const buckets = Object.keys(template.findResources('AWS::S3::Bucket'));
     // Knowledge, website, website logs, CloudFront logs.

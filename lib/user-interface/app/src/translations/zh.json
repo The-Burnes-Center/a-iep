@@ -5,7 +5,6 @@
     "consent.button": "同意并继续",
     "consent.tooltip": "请勾选此框继续",
     "consent.error.saveFailedRetry": "保存同意失败。请重试。",
-    
     "child.title": "关于您的孩子",
     "child.name.label": "姓名",
     "child.name.placeholder": "输入孩子的姓名",
@@ -15,13 +14,11 @@
     "child.button.save": "保存并继续",
     "child.error.updateFailed": "更新孩子的信息失败",
     "child.error.addFailed": "添加孩子的信息失败",
-
     "parent.title": "家长信息",
     "parent.name.label": "家长姓名",
     "parent.name.placeholder": "请输入家长姓名",
     "parent.button.saving": "保存中...",
     "parent.button.save": "保存并继续",
-    
     "welcome.upload.title": "上传IEP",
     "welcome.upload.description": "上传和管理您的IEP文档",
     "welcome.summary.title": "摘要和翻译",
@@ -33,7 +30,6 @@
     "welcomeIntro.body1": "AIEP 通过简明易读的摘要和您所选语言的翻译，帮助您理解孩子的 IEP 文件。",
     "welcomeIntro.body2": "再也不用在 IEP 会议上感到无所适从，AIEP 会把复杂的教育术语转换成简单易懂的表达。",
     "welcomeIntro.button.continue": "继续",
-  
     "common.back": "返回",
     "common.previous": "返回",
     "common.next": "下一步",
@@ -45,10 +41,8 @@
     "common.loading": "加载中...",
     "common.saving": "保存中...",
     "common.tryAgain": "重试",
-
     "tutorial.appTutorial.title": "我们现在在做什么？",
     "tutorial.parentRights.title": "您作为家长的权利:",
-  
     "rights.title": "作为家长的权利",
     "rights.description": "你好！我们在这里帮助您更好地理解孩子的个性化教育计划(IEP)。这个过程可能会让人感到不知所措，但作为家长，您有重要的权利。以下是您应该了解的一些事项：",
     "rights.bulletPoints.1": "您可以为IEP会议请求一名翻译，以确保沟通清晰。",
@@ -57,7 +51,6 @@
     "rights.bulletPoints.4": "您有权随时要求召开IEP会议，而不仅仅是在年度审查时，学校必须在30天内安排会议。",
     "rights.bulletPoints.5": "如果管理人员缺席会议，您有权重新安排他们能够参加的时间。",
     "rights.bulletPoints.6": "根据法律，您的案例经理必须在IEP会议前向您提供一本关于家长权利的手册。",
-  
     "summary.back": "← 返回",
     "summary.loading": "正在加载IEP摘要...",
     "summary.noDocuments": "未找到文档。请先上传IEP文档。",
@@ -98,21 +91,19 @@
     "summary.translate.error.notAllowed": "您没有权限翻译此文档。",
     "summary.translate.error.notFound": "找不到此文档。请重新上传。",
     "summary.lastUpdate": "最后更新:",
-
     "tts.listen": "朗读",
     "tts.pause": "暂停",
     "tts.generating": "正在准备音频…",
     "tts.error": "音频不可用。点按重试。",
     "summary.showLess": "收起",
     "summary.readMore": "阅读更多",
-
     "sections.studentInfo": "关于学生",
     "sections.accommodations": "调整措施",
     "sections.goals": "目标",
     "sections.services": "服务",
     "sections.placement": "安置",
     "sections.keyPeople": "关键人员",
-    "sections.strengths": "优势", 
+    "sections.strengths": "优势",
     "sections.eligibility": "资格条件",
     "sections.informedConsent": "知情同意",
     "sections.presentLevels": "当前表现水平",
@@ -120,11 +111,10 @@
     "sections.stateTesting": "州测试",
     "sections.foundIn": "在",
     "sections.pages": "页面",
-  
     "upload.title": "上传IEP文档",
     "upload.maxSize": "最大文件大小：100MB。",
     "upload.fileError.format": "不支持的文件格式",
-    "upload.fileError.size": "文件大小超过100MB限制", 
+    "upload.fileError.size": "文件大小超过100MB限制",
     "upload.supportedFormats": "支持的格式：",
     "upload.error.general": "上传过程中出错",
     "upload.success": "文件已成功上传！",
@@ -133,7 +123,6 @@
     "upload.selectFile": "选择文件",
     "upload.noFileSelected": "未选择文件",
     "upload.replaceDocument": "替换IEP文档",
-    
     "current.loading": "加载中...",
     "current.title": "点击下方查看现有IEP文档的摘要",
     "current.documentOnFile": "当前存档的IEP文档",
@@ -142,13 +131,11 @@
     "current.paragraph1": "此操作将替换您当前的IEP文档并生成新的摘要。",
     "current.header2": "没有您的IEP吗？",
     "current.paragraph2": "您可以随时向您的个案工作者申请。",
-    
     "document.back": "← 返回",
     "document.updateAlert": "文档已更新。您当前的文档信息将会刷新。",
-
-  "profile.title": "个人资料信息",
-  "profile.parentName": "家长姓名",
-      "profile.button.update": "更新资料",
+    "profile.title": "个人资料信息",
+    "profile.parentName": "家长姓名",
+    "profile.button.update": "更新资料",
     "profile.button.updating": "更新中...",
     "profile.button.logOut": "退出登录",
     "profile.button.revokeConsent": "撤销同意",
@@ -159,10 +146,9 @@
     "profile.secondaryLanguage": "次要语言",
     "profile.preferredLanguage": "首选语言",
     "profile.noSecondaryLanguage": "未选择次要语言",
-  "profile.error.update": "更新个人资料失败",
-  "profile.error.serviceUnavailable": "服务不可用",
-  "profile.loading": "加载中...",
-
+    "profile.error.update": "更新个人资料失败",
+    "profile.error.serviceUnavailable": "服务不可用",
+    "profile.loading": "加载中...",
     "revoke.title": "撤销同意",
     "revoke.description1": "撤销您的同意后，您将无法再使用IEP助手工具。您的数据将从我们的系统中删除。",
     "revoke.description2": "撤销同意将立即让您退出应用程序。您可以通过重新登录并接受同意表格来恢复您的同意。",
@@ -170,7 +156,6 @@
     "revoke.button.revoke": "撤销并退出",
     "revoke.button.processing": "处理中...",
     "revoke.error.failed": "撤销同意失败。请重试。",
-
     "delete.title": "删除账号",
     "delete.description1": "⚠️ 此操作是永久性的，无法撤销。",
     "delete.description2": "删除您的账号将永久移除：",
@@ -182,7 +167,6 @@
     "delete.button.delete": "永久删除账号",
     "delete.button.processing": "删除中...",
     "delete.error.failed": "删除账号失败。请重试。",
-
     "auth.title": "登录",
     "auth.email": "电子邮箱",
     "auth.enterEmail": "输入电子邮箱",
@@ -221,6 +205,7 @@
     "auth.errorInvalidPassword": "密码不符合要求",
     "auth.errorInvalidParameter": "提供的参数无效",
     "auth.errorGeneric": "发生错误",
+    "auth.errorTurnstileUnavailable": "我们无法完成安全验证。请检查您的网络连接，或尝试使用其他浏览器。",
     "auth.errorSignUp": "注册过程中发生错误",
     "auth.errorVerification": "验证账号时出错",
     "auth.errorResendCode": "重新发送验证码时出错",
@@ -278,19 +263,16 @@
     "auth.phoneAccountConfirmPrompt": "请输入发送到您手机的验证码以确认您的账号。",
     "auth.accountConfirmedSuccess": "账号确认并登录成功！",
     "auth.phoneVerificationSuccess": "手机验证成功！",
-
     "onboarding.carousel.heading.accessible": "让IEP文档更易懂",
     "onboarding.carousel.heading.summarize": "总结文档内容",
-    "onboarding.carousel.heading.translate": "翻译", 
+    "onboarding.carousel.heading.translate": "翻译",
     "onboarding.carousel.heading.advocate": "维权",
     "onboarding.carousel.paragraph.accessible": "AIEP能够帮助您更好理解孩子的IEP文档",
     "onboarding.carousel.paragraph.summarize": "我们的工具会将您孩子的IEP中最重要的部分提取概括，一览无余",
     "onboarding.carousel.paragraph.translate": "AIEP还可以将文档的摘要部分翻译成您选择的任意语言，以供无障碍阅读",
     "onboarding.carousel.paragraph.advocate": "通过了解IEP以及各方的合法义务，您可以为您孩子有力争取自身的合法权益",
-
     "rights.header.title.green": "您的数据安全",
     "rights.header.title.pink": "家长的权利",
-
     "rights.slide1.title": "您可以要求翻译",
     "rights.slide1.content": "您可以为IEP会议请求一名翻译，以确保沟通清晰。",
     "rights.slide2.title": "您可以花时间考虑",
@@ -311,18 +293,15 @@
     "rights.slide9.content": "每当您看到蓝色字词时，点击它即可显示其定义。完成后，点击X返回摘要。",
     "rights.slide10.title": "将内容与原始IEP比较",
     "rights.slide10.content": "在每个关键信息的标题下方，您会看到我们获取信息的页码。如果有疑问，请务必核实！",
-
     "privacy.slide1.title": "您的IEP不会被更改",
     "privacy.slide1.content": "我们正在创建一个包含您摘要的单独文档。您将能够以PDF格式下载它。",
     "privacy.slide2.title": "我们关心您的隐私",
     "privacy.slide2.content": "我们正在从摘要中删除您的个人信息。我们不会存储您或您孩子的任何个人详细信息。",
-
     "carousel.section.hint": "滑动或点按箭头，了解更多",
     "carousel.section.whatAiepDoes": "AIEP 的作用",
     "carousel.section.yourRights": "您的权利",
     "carousel.section.whatYouWillSeeNext": "在哪里找到各项内容",
     "carousel.rights.indicator": "{number}. {title}",
-
     "appTutorial.slide1.title": "我们现在在做什么？",
     "appTutorial.slide1.content": "我们正在总结您IEP的关键方面。您将首先看到文档的总体概述，然后是每个关键部分的摘要。",
     "appTutorial.slide2.title": "我们现在在做什么？",
@@ -335,42 +314,35 @@
     "appTutorial.slide5.content": "您的IEP文档不会被更改。您可以通过点击下载按钮下载我们正在创建的摘要。",
     "appTutorial.slide6.title": "我们现在在做什么？",
     "appTutorial.slide6.content": "我们正在创建一个词汇表来帮助您理解文档。您可以点击突出显示的词语，在弹出的面板中阅读它们的定义。",
-
     "tutorial.exampleVideo": "示例视频 :",
-
     "glossary.header": "词汇表",
-
     "navigation.home": "首页",
     "navigation.summary": "摘要",
     "navigation.support": "支持",
     "navigation.faqs": "常见问题",
     "navigation.hub": "中心",
-    "navigation.account": "账号", 
+    "navigation.account": "账号",
     "navigation.about": "关于",
     "navigation.rights": "权利",
     "navigation.processing": "您的文档正在处理中...",
     "navigation.uploadIEP": "上传 IEP",
-
     "footer.tagline": "与社区\n共同设计\n人工智能",
     "footer.home": "首页",
     "footer.uploadIEP": "上传 IEP",
     "footer.supportCenter": "支持中心",
     "footer.aboutUs": "关于我们",
     "footer.faqs": "常见问题",
-
     "accountCenter.title": "账号中心",
     "accountCenter.updateProfile": "更新您的个人资料",
     "accountCenter.changeLanguage": "更改您的语言",
     "accountCenter.deleteAccount": "删除您的账号",
     "accountCenter.logOut": "退出登录",
     "accountCenter.adminConsole": "管理控制台",
-    
     "supportCenter.title": "支持中心",
     "supportCenter.frequentlyAskedQuestions": "常见问题",
     "supportCenter.goToOnboarding": "前往入门指南",
     "supportCenter.resources": "资源",
     "supportCenter.aboutTheApp": "关于应用",
-
     "about.breadcrumb.supportCenter": "支持中心",
     "about.breadcrumb.about": "关于",
     "about.projectTitle": "AI-EP 项目：与社区\n共同设计人工智能",
@@ -406,7 +378,6 @@
     "about.theGovLabDescription": "The GovLab 的使命是通过改变我们的治理方式来改善人们的生活。我们的目标是加强机构（包括但不限于政府）和人民的能力，以更加开放、协作、有效和合法的方式开展工作，做出更好的决策并解决公共问题。",
     "about.goToWebsite": "访问网站",
     "about.privacyPolicy": "隐私政策",
-
     "resources.title": "资源",
     "resources.breadcrumb.supportCenter": "支持中心",
     "resources.breadcrumb.resources": "资源",
@@ -420,7 +391,6 @@
     "resources.rulaManual.title": "兰特曼法案权利手册（RULA）",
     "resources.rulaManual.description": "详细指南，帮助您了解加利福尼亚州兰特曼发育障碍服务法案下可获得的权利和服务。",
     "resources.buttonText": "查看资源",
-
     "updateProfile.breadcrumb.account": "账号",
     "updateProfile.breadcrumb.updateProfile": "更新个人资料",
     "updateProfile.title": "更新个人资料",
@@ -430,18 +400,15 @@
     "updateProfile.loading": "加载中...",
     "updateProfile.error.serviceUnavailable": "服务不可用",
     "updateProfile.error.saveFailed": "保存家长信息失败",
-
     "changeLanguage.breadcrumb.account": "账号",
     "changeLanguage.breadcrumb.changeLanguage": "更改语言",
     "changeLanguage.title": "您的语言",
     "changeLanguage.description": "您的IEP原始摘要将始终以英语生成。我们可以将此摘要翻译为您选择的语言。",
     "changeLanguage.label.translation": "翻译",
     "changeLanguage.loading": "加载中...",
-
     "preferredLanguage.update.title": "更新语言偏好",
     "preferredLanguage.update.description": "选择您希望用于 IEP 翻译的语言",
     "preferredLanguage.error.updateFailed": "更新语言偏好失败",
-
     "deleteAccount.breadcrumb.account": "账号",
     "deleteAccount.breadcrumb.deleteAccount": "删除账号",
     "deleteAccount.title": "删除账号",
@@ -452,7 +419,6 @@
     "deleteAccount.button.deleteMyAccount": "删除我的账号",
     "deleteAccount.loading": "加载中...",
     "deleteAccount.error.serviceUnavailable": "服务不可用",
-
     "privacyPolicy.breadcrumb.about": "关于",
     "privacyPolicy.breadcrumb.privacyPolicy": "隐私政策",
     "privacyPolicy.title": "The GovLab AIEP 隐私政策",
@@ -509,15 +475,12 @@
     "privacyPolicy.contact.intro": "如果您对本隐私政策有疑问，请通过以下方式联系我们：",
     "privacyPolicy.contact.organization": "The GovLab",
     "privacyPolicy.contact.email": "电子邮件：",
-
     "hero.title": "个性化教育计划，\n让您轻松理解",
     "hero.description": "AIEP工具可以帮助您理解孩子的IEP文档。",
     "hero.howToUseTool": "如何使用此工具",
-
     "landing.greenBanner.title": "所有儿童都应该接受教育，无论他们的需求如何",
     "landing.greenBanner.description": "就像植物一样，每个孩子都以自己的方式学习。有些需要光，有些需要阴凉，有些开花很快，有些需要时间。AIEP工具帮助家庭照顾孩子的教育需求。",
     "landing.greenBanner.createAccountButton": "创建账号",
-
     "landingHero.aboutAIEP": "关于 AI for IEPs",
     "landingHero.title.aiep": "AIEP",
     "landingHero.title.isAn": "是一个",
@@ -530,11 +493,9 @@
     "landingHero.title.communityCenteredAI": "以社区为中心的AI",
     "landingHero.title.principles": "原则构建。",
     "landingHero.projectBy": "项目由:",
-
     "greenSection.title": "AI for IEPs (AIEP) 是一款免费、开源的AI工具，与家庭共同打造，帮助家长和照护者理解、翻译和使用个别化教育计划 (IEPs)。",
     "greenSection.description1": "IEPs是具有法律约束力的文件，定义了残疾学生有权获得的服务、支持和便利设施。然而，对于许多家庭，尤其是多语言家庭来说，IEPs难以阅读、导航和用作倡导工具。AIEP的存在就是为了改变这一现状。",
     "greenSection.description2": "AIEP旨在帮助家庭从困惑走向清晰，从被动接收信息转变为自信地参与孩子的教育旅程。",
-
     "landingContainer.communityCenteredAI.title": "以社区为中心的AI方法",
     "landingContainer.communityCenteredAI.intro": "AIEP也是以社区为中心的AI在实践中的示范。",
     "landingContainer.communityCenteredAI.text1": "大多数AI系统是在闭门造车的情况下构建的，规则和假设嵌入在用户永远看不到的代码或提示中。在AIEP中，系统的许多核心指令都是用简单的语言编写的，并通过社区反馈不断改进，团队将这一过程称为\"拆箱提示\"。",
@@ -545,7 +506,6 @@
     "landingContainer.communityCenteredAI.item3": "翻译如何保留含义，而不仅仅是字词",
     "landingContainer.communityCenteredAI.item4": "如何处理隐私和数据保护",
     "landingContainer.communityCenteredAI.conclusion": "AIEP表明，AI系统可以是透明的、参与式的和负责任的，尤其是在公共利益领域。",
-
     "landingContainer.whyAiepExists.title": "为什么AIEP存在",
     "landingContainer.whyAiepExists.intro": "美国有超过750万学生接受特殊教育服务。对于他们每个人来说，IEP塑造了日常学习体验和长期成果。",
     "landingContainer.whyAiepExists.subtitle": "IEPs通常：",
@@ -555,7 +515,6 @@
     "landingContainer.whyAiepExists.item4": "对于不流利说英语的家庭来说难以理解",
     "landingContainer.whyAiepExists.consequences": "因此，家庭可能会错过有关服务、目标或安置的关键细节，或在IEP会议期间难以提出有见地的问题。这些障碍可能对学生产生实际影响。",
     "landingContainer.whyAiepExists.conclusion": "AIEP是为了回应家庭自己发现的系统性问题而创建的：管理孩子教育的文件对他们来说往往是无法阅读的。",
-
     "landingContainer.privacyAndTrust.title": "为隐私和信任而设计",
     "landingContainer.privacyAndTrust.intro": "IEPs包含高度敏感的个人信息。从一开始，家庭就强调隐私是不可妥协的。",
     "landingContainer.privacyAndTrust.subtitle": "AIEP采用隐私设计原则构建，包括：",
@@ -565,7 +524,6 @@
     "landingContainer.privacyAndTrust.item4": "家庭可以随时删除其数据",
     "landingContainer.privacyAndTrust.conclusion": "信任是通过尊重用户及其数据的设计选择赢得的。",
     "landingContainer.privacyAndTrust.diagramAlt": "图示展示AIEP如何保护您的隐私：AWS Comprehend检测并删除个人数据，然后OpenAI创建摘要和翻译，而不存储您的信息",
-
     "landingContainer.whatAiepDoes.title": "AIEP的功能",
     "landingContainer.whatAiepDoes.subtitle": "AIEP在IEP会议前、中、后支持家庭，帮助他们：",
     "landingContainer.whatAiepDoes.item1": "将IEPs翻译成多种语言，同时保留法律和教育含义",
@@ -574,7 +532,6 @@
     "landingContainer.whatAiepDoes.item4": "为IEP会议准备问题和讨论要点",
     "landingContainer.whatAiepDoes.item5": "自信地浏览IEPs，而不是靠猜测",
     "landingContainer.whatAiepDoes.conclusion": "该工具旨在呈现家庭为孩子辩护所需的具体、具有法律意义的细节，而不是提供通用摘要。",
-
     "landingContainer.moreThanATool.title": "不仅仅是一个工具",
     "landingContainer.moreThanATool.intro": "虽然AIEP是家庭的实用资源，但它也是重新思考如何为公共系统开发AI的更广泛努力的一部分。",
     "landingContainer.moreThanATool.subtitle": "通过AIEP，团队已经创造了：",
@@ -583,7 +540,6 @@
     "landingContainer.moreThanATool.item3": "公民AI素养学习材料",
     "landingContainer.moreThanATool.item4": "分享经验和失败的公开文章，而不仅仅是成功",
     "landingContainer.moreThanATool.conclusion": "这些资源共同支持家庭、教育工作者、政策制定者和技术人员共同努力构建服务于公共利益的AI。",
-
     "landingContainer.builtWithFamilies.title": "与家庭共同构建，而不仅仅是为他们构建",
     "landingContainer.builtWithFamilies.intro": "AIEP与旧金山湾区150多名家长和照护者共同设计，同时还有特殊教育专家和教育工作者参与。",
     "landingContainer.builtWithFamilies.subtitle": "从最早的原型开始，家庭就参与塑造了：",
@@ -593,7 +549,6 @@
     "landingContainer.builtWithFamilies.item4": "工具不应该做什么",
     "landingContainer.builtWithFamilies.codesigners": "AIEP不是将家庭视为「最终用户」，而是将他们视为共同设计者和自身生活经验的专家。",
     "landingContainer.builtWithFamilies.conclusion": "这种方法反映了项目的核心信念：受系统影响最大的人应该帮助塑造技术与系统的互动方式。",
-
     "landingContainer.research.title": "我们的研究问题",
     "landingContainer.research.subtitle": "在工具开发的同时，我们有兴趣探索：",
     "landingContainer.research.item1": "如何让社区成员有意义地了解AI，以便他们可以参与其设计？",
@@ -601,7 +556,6 @@
     "landingContainer.research.item3": "如何将社区见解转化为真正的技术决策和功能？",
     "landingContainer.research.item4": "为历史上被排斥的人群增加AI设计的公平性？",
     "landingContainer.research.conclusion": "这项研究的见解不仅为AIEP提供信息，还为关于公共系统中负责任AI的更广泛对话提供信息。",
-
     "landingCards.aiepTool.top": "试用",
     "landingCards.aiepTool.middle": "AIEP工具",
     "landingCards.aiepTool.bottom": "来总结或翻译您的IEP",
@@ -620,7 +574,6 @@
     "landingCards.playbook.top": "阅读我们的",
     "landingCards.playbook.middle": "操作手册",
     "landingCards.playbook.bottom": "学习如何创建以社区为中心的AI",
-
     "landingContainer.cta.exploreMore.pretext": "探索更多",
     "landingContainer.cta.exploreMore.title": "以社区为中心的AI",
     "landingContainer.cta.writing.pretext": "阅读我们正在",
@@ -629,7 +582,6 @@
     "landingContainer.cta.course.title": "课程",
     "landingContainer.cta.research.pretext": "查看我们的",
     "landingContainer.cta.research.title": "研究",
-
     "landingContainer.aboutProject.title": "关于项目",
     "landingContainer.aboutProject.text1": "AI for IEPs是Burnes社会变革中心及其AI for Impact的项目，与Innovate Public Schools和加州家庭合作开发。",
     "landingContainer.aboutProject.text2": "该项目得到了Chan Zuckerberg Initiative和Burnes社会变革中心的资助支持。",
@@ -639,10 +591,8 @@
     "landingContainer.cta.learnHow.title": "AIEP是如何构建的",
     "landingContainer.cta.explore.pretext": "探索",
     "landingContainer.cta.explore.title": "以社区为中心的AI",
-
     "landing.howTo.titlePrefix": "如何使用",
     "landing.howTo.titleSuffix": "AIEP工具",
-
     "landing.howTo.card1.title": "将IEP上传到工具",
     "landing.howTo.card1.text": "注册后，您可以将孩子的IEP文档以文档文件（doc或docx）或PDF格式上传。",
     "landing.howTo.card2.title": "将IEP翻译成您偏好的语言",
@@ -668,7 +618,6 @@
     "update.profile.name": "姓名",
     "update.profile.noChildrenAdded": "尚未添加孩子",
     "update.profile.schoolCity": "学校所在城市",
-
     "welcome.invite.title": "邀请其他家长",
     "welcome.invite.description": "把 AIEP 分享给可能需要的家庭",
     "invite.breadcrumb.home": "首页",

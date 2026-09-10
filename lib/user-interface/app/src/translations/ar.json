@@ -5,7 +5,6 @@
     "consent.button": "الموافقة والمتابعة",
     "consent.tooltip": "يرجى تحديد المربع للمتابعة",
     "consent.error.saveFailedRetry": "فشل حفظ الموافقة. يرجى المحاولة مرة أخرى.",
-
     "child.title": "عن طفلك",
     "child.name.label": "الاسم",
     "child.name.placeholder": "أدخل اسم الطفل",
@@ -15,13 +14,11 @@
     "child.button.save": "حفظ ومتابعة",
     "child.error.updateFailed": "فشل تحديث معلومات طفلك",
     "child.error.addFailed": "فشلت إضافة طفلك",
-
     "parent.title": "عنك",
     "parent.name.label": "الاسم",
     "parent.name.placeholder": "أدخل اسم ولي الأمر",
     "parent.button.saving": "جارٍ الحفظ...",
     "parent.button.save": "ابدأ الآن",
-
     "welcome.upload.title": "رفع IEP",
     "welcome.upload.description": "ارفع مستندات IEP الخاصة بك وقم بإدارتها",
     "welcome.summary.title": "الملخص والترجمة",
@@ -33,7 +30,6 @@
     "welcomeIntro.body1": "يساعدك AIEP على فهم مستندات IEP الخاصة بطفلك من خلال ملخصات سهلة القراءة وترجمات باللغة التي تفضّلها.",
     "welcomeIntro.body2": "لن تشعر بعد الآن بالضياع في اجتماعات IEP، إذ يبسّط AIEP المصطلحات التعليمية المعقّدة إلى لغة واضحة وسهلة الفهم.",
     "welcomeIntro.button.continue": "متابعة",
-
     "common.back": "رجوع",
     "common.previous": "السابق",
     "common.next": "التالي",
@@ -45,10 +41,8 @@
     "common.loading": "جارٍ التحميل...",
     "common.saving": "جارٍ الحفظ...",
     "common.tryAgain": "حاول مرة أخرى",
-
     "tutorial.appTutorial.title": "ماذا نفعل الآن؟",
     "tutorial.parentRights.title": "حقوقك كولي أمر:",
-
     "rights.title": "حقوقك كولي أمر",
     "rights.description": "مرحبًا! نحن هنا لمساعدتك على فهم برنامج التعليم الفردي (IEP) الخاص بطفلك بشكل أفضل. قد تبدو هذه العملية مرهقة، لكن لديك حقوقًا مهمة كولي أمر. إليك بعض الأمور التي ينبغي أن تعرفها:",
     "rights.bulletPoints.1": "يمكنك طلب مترجم لاجتماعات IEP لضمان تواصل واضح.",
@@ -57,7 +51,6 @@
     "rights.bulletPoints.4": "لديك الحق في طلب اجتماع IEP في أي وقت، وليس فقط عند المراجعة السنوية، ويجب على المدرسة تحديد موعده خلال 30 يومًا.",
     "rights.bulletPoints.5": "إذا لم يكن أحد الإداريين حاضرًا في الاجتماع، فلديك الحق في إعادة جدولته إلى وقت يمكنه فيه الحضور.",
     "rights.bulletPoints.6": "بموجب القانون، يجب على مدير حالتك أن يقدم لك كتيبًا بحقوقك كولي أمر قبل اجتماع IEP.",
-
     "summary.back": "← رجوع",
     "summary.loading": "جارٍ تحميل ملخص IEP...",
     "summary.noDocuments": "لم يتم العثور على مستندات. يرجى رفع مستند IEP أولًا.",
@@ -98,14 +91,12 @@
     "summary.translate.error.notAllowed": "ليست لديك صلاحية ترجمة هذا المستند.",
     "summary.translate.error.notFound": "لم نتمكن من العثور على هذا المستند. يرجى رفعه مرة أخرى.",
     "summary.lastUpdate": "آخر تحديث:",
-
     "tts.listen": "استماع",
     "tts.pause": "إيقاف مؤقت",
     "tts.generating": "جارٍ تجهيز الصوت…",
     "tts.error": "الصوت غير متاح. انقر لإعادة المحاولة.",
     "summary.showLess": "عرض أقل",
     "summary.readMore": "قراءة المزيد",
-
     "sections.studentInfo": "عن الطالب",
     "sections.accommodations": "التسهيلات",
     "sections.goals": "الأهداف",
@@ -118,7 +109,6 @@
     "sections.informedConsent": "الموافقة المستنيرة",
     "sections.assistiveTechnology": "التقنيات المساعدة",
     "sections.stateTesting": "اختبارات الولاية",
-
     "upload.title": "رفع مستند IEP",
     "upload.maxSize": "الحد الأقصى لحجم الملف: 100 ميغابايت.",
     "upload.fileError.format": "صيغة الملف غير مدعومة",
@@ -131,12 +121,10 @@
     "upload.selectFile": "اختيار ملف",
     "upload.noFileSelected": "لم يتم اختيار ملف",
     "upload.replaceDocument": "تحديث مستند IEP",
-
     "update.profile.child": "الطفل",
     "update.profile.name": "الاسم",
     "update.profile.schoolCity": "مدينة المدرسة",
     "update.profile.noChildrenAdded": "لم تتم إضافة أطفال بعد",
-
     "current.loading": "جارٍ التحميل...",
     "current.title": "لعرض ملخص مستند IEP الحالي الخاص بك انقر أدناه",
     "current.documentOnFile": "مستند IEP الحالي المسجل في ملفك",
@@ -145,10 +133,8 @@
     "current.paragraph1": "سيؤدي هذا الإجراء إلى استبدال مستند IEP الحالي وإنشاء ملخص جديد.",
     "current.header2": "أليس لديك مستند IEP الخاص بك؟",
     "current.paragraph2": "يمكنك طلبه من مسؤول حالتك في أي وقت.",
-
     "document.back": "← رجوع",
     "document.updateAlert": "تم تحديث المستند. سيتم تحديث معلومات مستندك الحالي.",
-
     "profile.title": "معلومات الملف الشخصي",
     "profile.parentName": "اسم ولي الأمر",
     "profile.button.update": "تحديث الملف الشخصي",
@@ -165,7 +151,6 @@
     "profile.error.update": "فشل تحديث الملف الشخصي",
     "profile.error.serviceUnavailable": "الخدمة غير متاحة",
     "profile.loading": "جارٍ التحميل...",
-
     "revoke.title": "سحب الموافقة",
     "revoke.description1": "بسحب موافقتك، لن تتمكن بعد الآن من استخدام أداة مساعد IEP، وسيتم حذف بياناتك من نظامنا.",
     "revoke.description2": "سيؤدي سحب الموافقة إلى تسجيل خروجك من التطبيق فورًا. يمكنك استعادة موافقتك بتسجيل الدخول مرة أخرى وقبول نموذج الموافقة.",
@@ -173,7 +158,6 @@
     "revoke.button.revoke": "سحب الموافقة وتسجيل الخروج",
     "revoke.button.processing": "جارٍ المعالجة...",
     "revoke.error.failed": "فشل سحب الموافقة. يرجى المحاولة مرة أخرى.",
-
     "delete.title": "حذف الحساب",
     "delete.description1": "⚠️ هذا الإجراء نهائي ولا يمكن التراجع عنه.",
     "delete.description2": "سيؤدي حذف حسابك إلى الإزالة النهائية لما يلي:",
@@ -185,7 +169,6 @@
     "delete.button.delete": "حذف الحساب نهائيًا",
     "delete.button.processing": "جارٍ الحذف...",
     "delete.error.failed": "فشل حذف الحساب. يرجى المحاولة مرة أخرى.",
-
     "auth.title": "تسجيل الدخول",
     "auth.email": "البريد الإلكتروني",
     "auth.enterEmail": "أدخل البريد الإلكتروني",
@@ -224,6 +207,7 @@
     "auth.errorInvalidPassword": "كلمة المرور لا تستوفي المتطلبات",
     "auth.errorInvalidParameter": "تم إدخال قيمة غير صالحة",
     "auth.errorGeneric": "حدث خطأ. يرجى المحاولة مرة أخرى.",
+    "auth.errorTurnstileUnavailable": "تعذّر إجراء فحص الأمان. يرجى التحقق من اتصالك بالإنترنت أو تجربة متصفح آخر.",
     "auth.errorSignUp": "حدث خطأ أثناء إنشاء الحساب",
     "auth.errorVerification": "خطأ في التحقق من حسابك",
     "auth.errorResendCode": "خطأ في إعادة إرسال رمز التحقق",
@@ -241,7 +225,6 @@
     "auth.emailLogin": "عبر البريد الإلكتروني",
     "auth.phoneNumber": "رقم الهاتف",
     "auth.enterPhoneNumber": "أدخل رقم هاتفك المحمول (مثال: +1234567890)",
-
     "auth.sendSmsCode": "إرسال رمز SMS",
     "auth.verificationCodeSms": "رمز التحقق",
     "auth.enterSmsCode": "أدخل الرمز المكوّن من 6 أرقام",
@@ -289,7 +272,6 @@
     "auth.phoneAccountConfirmPrompt": "يرجى إدخال رمز التحقق المرسل إلى هاتفك لتأكيد حسابك.",
     "auth.accountConfirmedSuccess": "تم تأكيد الحساب وتسجيل الدخول بنجاح!",
     "auth.phoneVerificationSuccess": "تم التحقق من الهاتف بنجاح!",
-
     "onboarding.carousel.heading.accessible": "مستند IEP الخاص بك، أصبح في متناولك",
     "onboarding.carousel.heading.summarize": "التلخيص",
     "onboarding.carousel.heading.translate": "الترجمة",
@@ -298,10 +280,8 @@
     "onboarding.carousel.paragraph.summarize": "ستحوّل الأداة الجوانب الأساسية في مستند IEP الخاص بك إلى لغة سهلة الفهم.",
     "onboarding.carousel.paragraph.translate": "يمكن لأداة AIEP أيضًا ترجمة ملخصات مستندات IEP إلى اللغة التي تختارها.",
     "onboarding.carousel.paragraph.advocate": "دافع عن تعليم طفلك من خلال استكشاف IEP وفهم حقوقك.",
-
     "rights.header.title.green": "بياناتك في أمان معنا",
     "rights.header.title.pink": "حقوقك كولي أمر",
-
     "rights.slide1.title": "يمكنك طلب مترجم",
     "rights.slide1.content": "يمكنك طلب مترجم لاجتماعات IEP لضمان تواصل واضح.",
     "rights.slide2.title": "يمكنك أخذ وقتك",
@@ -322,18 +302,15 @@
     "rights.slide9.content": "كلما رأيت كلمة باللون الأزرق، يمكنك النقر عليها لعرض تعريفها. وعند الانتهاء، انقر على علامة X للعودة إلى ملخصك.",
     "rights.slide10.title": "قارن المحتوى مع مستند IEP الأصلي",
     "rights.slide10.content": "أسفل عنوان كل نقطة من النقاط البارزة، ستجد رقم الصفحة التي أخذنا منها المعلومات. إذا بدا لك شيء غير صحيح، تحقق دائمًا بنفسك!",
-
     "privacy.slide1.title": "لن يتم تغيير مستند IEP الخاص بك",
     "privacy.slide1.content": "نحن ننشئ مستندًا منفصلًا يحتوي على ملخصك، وستتمكن من تنزيله بصيغة PDF.",
     "privacy.slide2.title": "نحن نهتم بخصوصيتك",
     "privacy.slide2.content": "نقوم بإزالة معلوماتك الشخصية من الملخصات، ولن نخزّن أي بيانات شخصية تخصك أو تخص طفلك.",
-
     "carousel.section.hint": "اسحب أو اضغط على الأسهم لمعرفة المزيد",
     "carousel.section.whatAiepDoes": "ما يفعله AIEP",
     "carousel.section.yourRights": "حقوقك",
     "carousel.section.whatYouWillSeeNext": "أين تجد كل شيء",
     "carousel.rights.indicator": "{number}. {title}",
-
     "appTutorial.slide1.title": "ماذا نفعل الآن؟",
     "appTutorial.slide1.content": "نقوم بتلخيص الجوانب الأساسية في IEP الخاص بك. سترى أولًا نظرة عامة على المستند، ثم ملخصًا لكل قسم من الأقسام الرئيسية.",
     "appTutorial.slide2.title": "ماذا نفعل الآن؟",
@@ -346,11 +323,8 @@
     "appTutorial.slide5.content": "لن يتم تغيير مستند IEP الخاص بك. يمكنك تنزيل الملخصات التي ننشئها بالنقر على زر التنزيل.",
     "appTutorial.slide6.title": "ماذا نفعل الآن؟",
     "appTutorial.slide6.content": "نقوم بإنشاء مسرد مصطلحات لمساعدتك على فهم المستند. يمكنك النقر على الكلمات المميزة وقراءة تعريفاتها في اللوحة التي ستظهر.",
-
     "tutorial.exampleVideo": "فيديو توضيحي:",
-
     "glossary.header": "مسرد المصطلحات",
-
     "navigation.home": "الرئيسية",
     "navigation.summary": "الملخص",
     "navigation.support": "الدعم",
@@ -361,27 +335,23 @@
     "navigation.processing": "جارٍ معالجة مستندك...",
     "navigation.uploadIEP": "رفع مستند IEP",
     "navigation.hub": "المركز",
-
     "footer.tagline": "نصمم الذكاء الاصطناعي\nمع المجتمعات\nومن أجلها",
     "footer.home": "الرئيسية",
     "footer.uploadIEP": "رفع مستند IEP",
     "footer.supportCenter": "مركز الدعم",
     "footer.aboutUs": "من نحن",
     "footer.faqs": "الأسئلة الشائعة",
-
     "accountCenter.title": "مركز الحساب",
     "accountCenter.updateProfile": "تحديث ملفك الشخصي",
     "accountCenter.changeLanguage": "تغيير لغتك",
     "accountCenter.deleteAccount": "حذف حسابك",
     "accountCenter.logOut": "تسجيل الخروج",
     "accountCenter.adminConsole": "وحدة تحكم المشرف",
-
     "supportCenter.title": "مركز الدعم",
     "supportCenter.frequentlyAskedQuestions": "الأسئلة الشائعة",
     "supportCenter.goToOnboarding": "الانتقال إلى جولة التعريف",
     "supportCenter.resources": "الموارد",
     "supportCenter.aboutTheApp": "حول التطبيق",
-
     "about.breadcrumb.supportCenter": "مركز الدعم",
     "about.breadcrumb.about": "حول",
     "about.projectTitle": "مشروع AI-EP: نصمم الذكاء الاصطناعي\nمع المجتمعات ومن أجلها",
@@ -395,8 +365,8 @@
     "about.helpsFamilies.prepare": "تجهيز الأسئلة والموارد لاجتماعات IEP",
     "about.ourGoal": "هدفنا بسيط: مساعدة العائلات على الشعور بالاطلاع والثقة والقدرة على المناصرة من أجل تعليم أطفالها.",
     "about.builtWithFamilies": "بُنيت مع العائلات",
-    "about.developedBy": "طُوّرت أداة AIEP على يد فريق متعدد التخصصات من المعلمين والمصممين والباحثين والتقنيين، بالتعاون الوثيق مع مجموعة أساسية من الأهالي المرشدين \u2066(Parent Navigators)\u2069.",
-    "about.parentNavigatorsIntro": "الأهالي المرشدون \u2066(Parent Navigators)\u2069:",
+    "about.developedBy": "طُوّرت أداة AIEP على يد فريق متعدد التخصصات من المعلمين والمصممين والباحثين والتقنيين، بالتعاون الوثيق مع مجموعة أساسية من الأهالي المرشدين ⁦(Parent Navigators)⁩.",
+    "about.parentNavigatorsIntro": "الأهالي المرشدون ⁦(Parent Navigators)⁩:",
     "about.parentNavigatorsList.codesigned": "شاركوا في تصميم الأداة بناءً على احتياجات العائلات الحقيقية",
     "about.parentNavigatorsList.tested": "اختبروا الأداة وساهموا في تحديد ما تفعله (وما لا تفعله)",
     "about.parentNavigatorsList.canvassers": "عملوا كموعّين وسفراء، يساعدون العائلات الأخرى على التعرف على أداة AIEP واستخدامها، وينقلون ملاحظاتها إلى المبرمجين والمصممين.",
@@ -410,7 +380,7 @@
     "about.thankYouAdvocating": "شكرًا لكم على مناصرتكم لحق الأطفال في التعليم!",
     "about.thankYouMessage": "إن تفانيكم في فهم برنامج IEP الخاص بطفلكم والتعامل معه يحدث فرقًا حقيقيًا. معًا، نضمن حصول كل طفل على التعليم الجيد الذي يستحقه.",
     "about.theTeam": "الفريق",
-    "about.parentNavigatorsTitle": "الأهالي المرشدون \u2066(Parent Navigators)\u2069",
+    "about.parentNavigatorsTitle": "الأهالي المرشدون ⁦(Parent Navigators)⁩",
     "about.aboutInnovatePublicSchools": "حول Innovate Public Schools",
     "about.innovatePublicSchoolsDescription": "Innovate Public Schools منظمة غير ربحية تكرّس جهودها لبناء قدرات أولياء الأمور والعائلات على التنظيم والمناصرة والمطالبة بمدارس عالية الجودة لأطفالها.",
     "about.aboutTheGovLab": "حول The GovLab",
@@ -418,7 +388,6 @@
     "about.goToWebsite": "الانتقال إلى الموقع الإلكتروني",
     "about.privacyPolicy": "سياسة الخصوصية",
     "about.learnMore": "اعرف المزيد",
-
     "resources.title": "الموارد",
     "resources.breadcrumb.supportCenter": "مركز الدعم",
     "resources.breadcrumb.resources": "الموارد",
@@ -432,7 +401,6 @@
     "resources.rulaManual.title": "دليل الحقوق بموجب قانون لانترمان (RULA)",
     "resources.rulaManual.description": "دليل مفصل لفهم حقوقك والخدمات المتاحة بموجب قانون لانترمان لخدمات الإعاقات النمائية في ولاية كاليفورنيا.",
     "resources.buttonText": "عرض الموارد",
-
     "updateProfile.breadcrumb.account": "الحساب",
     "updateProfile.breadcrumb.updateProfile": "تحديث الملف الشخصي",
     "updateProfile.title": "تحديث الملف الشخصي",
@@ -442,18 +410,15 @@
     "updateProfile.loading": "جارٍ التحميل...",
     "updateProfile.error.serviceUnavailable": "الخدمة غير متاحة",
     "updateProfile.error.saveFailed": "فشل حفظ معلومات ولي الأمر",
-
     "changeLanguage.breadcrumb.account": "الحساب",
     "changeLanguage.breadcrumb.changeLanguage": "تغيير اللغة",
     "changeLanguage.title": "لغتك",
     "changeLanguage.description": "سيتم دائمًا إنشاء الملخص الأصلي لبرنامج IEP الخاص بك باللغة الإنجليزية، ويمكننا ترجمة هذا الملخص إلى اللغة التي تختارها.",
     "changeLanguage.label.translation": "الترجمة",
     "changeLanguage.loading": "جارٍ التحميل...",
-
     "preferredLanguage.update.title": "تحديث تفضيلات اللغة",
     "preferredLanguage.update.description": "اختر لغتك المفضلة لترجمات IEP",
     "preferredLanguage.error.updateFailed": "فشل تحديث تفضيل اللغة",
-
     "deleteAccount.breadcrumb.account": "الحساب",
     "deleteAccount.breadcrumb.deleteAccount": "حذف الحساب",
     "deleteAccount.title": "حذف الحساب",
@@ -464,7 +429,6 @@
     "deleteAccount.warning": "لا يمكنك التراجع عن هذا الإجراء،",
     "deleteAccount.alternative": "لكن يمكنك إنشاء حساب جديد.",
     "deleteAccount.button.delete": "حذف حسابي",
-
     "privacyPolicy.breadcrumb.about": "حول",
     "privacyPolicy.breadcrumb.privacyPolicy": "سياسة الخصوصية",
     "privacyPolicy.title": "سياسة الخصوصية لأداة AIEP من The GovLab",
@@ -521,15 +485,12 @@
     "privacyPolicy.contact.intro": "إذا كانت لديك أسئلة حول سياسة الخصوصية هذه، يرجى التواصل معنا عبر:",
     "privacyPolicy.contact.organization": "The GovLab",
     "privacyPolicy.contact.email": "البريد الإلكتروني:",
-
     "hero.title": "برامج التعليم الفردي،\nأصبحت في متناولك",
     "hero.description": "يمكن لأداة AIEP أن تساعدك على فهم مستندات IEP الخاصة بطفلك.",
     "hero.howToUseTool": "كيفية استخدام هذه الأداة",
-
     "landing.greenBanner.title": "جميع الأطفال يستحقون التعليم، مهما كانت احتياجاتهم",
     "landing.greenBanner.description": "تمامًا مثل النباتات، يتعلم كل طفل بطريقته الخاصة. بعضهم يحتاج إلى الضوء، وبعضهم يحتاج إلى الظل، وبعضهم يزهر بسرعة، وآخرون يحتاجون إلى وقت. تساعد أداة AIEP العائلات على رعاية الاحتياجات التعليمية لأطفالها.",
     "landing.greenBanner.createAccountButton": "إنشاء حساب",
-
     "landingHero.aboutAIEP": "حول الذكاء الاصطناعي لبرامج IEP",
     "landingHero.title.aiep": "AIEP",
     "landingHero.title.isAn": "هو مشروع ضمن مبادرة",
@@ -542,11 +503,9 @@
     "landingHero.title.communityCenteredAI": "الذكاء الاصطناعي المتمحور حول المجتمع",
     "landingHero.title.principles": ".",
     "landingHero.projectBy": "مشروع من إعداد:",
-
     "greenSection.title": "الذكاء الاصطناعي لبرامج IEP (AIEP) هو أداة ذكاء اصطناعي مجانية ومفتوحة المصدر بُنيت مع العائلات لمساعدة أولياء الأمور ومقدمي الرعاية على فهم برامج التعليم الفردي (IEP) وترجمتها واستخدامها.",
     "greenSection.description1": "برامج IEP هي مستندات ملزمة قانونًا تحدد الخدمات وأشكال الدعم والتسهيلات التي يحق للطالب ذي الإعاقة الحصول عليها. ومع ذلك، تجد عائلات كثيرة، وخاصة العائلات متعددة اللغات، صعوبة في قراءة هذه المستندات والتنقل فيها واستخدامها كأدوات للمناصرة. وقد وُجدت AIEP لتغيير ذلك.",
     "greenSection.description2": "تهدف AIEP إلى مساعدة العائلات على الانتقال من الحيرة إلى الوضوح، ومن التلقي السلبي للمعلومات إلى المشاركة الواثقة في المسيرة التعليمية لأطفالها.",
-
     "landingContainer.communityCenteredAI.title": "نهج متمحور حول المجتمع في الذكاء الاصطناعي",
     "landingContainer.communityCenteredAI.intro": "تمثل AIEP أيضًا نموذجًا عمليًا للذكاء الاصطناعي المتمحور حول المجتمع.",
     "landingContainer.communityCenteredAI.text1": "تُبنى معظم أنظمة الذكاء الاصطناعي خلف أبواب مغلقة، بقواعد وافتراضات مدمجة في الكود أو التعليمات لا يراها المستخدمون أبدًا. أما في AIEP، فإن الكثير من التعليمات الأساسية للنظام مكتوبة بلغة واضحة وتُحسَّن تدريجيًا من خلال ملاحظات المجتمع، وهي عملية يسميها الفريق \"فتح صندوق التعليمات\".",
@@ -557,7 +516,6 @@
     "landingContainer.communityCenteredAI.item3": "كيفية حفاظ الترجمات على المعنى، لا الكلمات فقط",
     "landingContainer.communityCenteredAI.item4": "كيفية التعامل مع الخصوصية وحماية البيانات",
     "landingContainer.communityCenteredAI.conclusion": "تُظهر AIEP أن أنظمة الذكاء الاصطناعي يمكن أن تكون شفافة وتشاركية وخاضعة للمساءلة، خاصة في سياقات المصلحة العامة.",
-
     "landingContainer.whyAiepExists.title": "لماذا وُجدت AIEP",
     "landingContainer.whyAiepExists.intro": "يتلقى أكثر من 7.5 مليون طالب في الولايات المتحدة خدمات التعليم الخاص. ولكل واحد منهم، يشكّل برنامج IEP تجارب التعلم اليومية والنتائج بعيدة المدى.",
     "landingContainer.whyAiepExists.subtitle": "غالبًا ما تكون برامج IEP:",
@@ -567,7 +525,6 @@
     "landingContainer.whyAiepExists.item4": "صعبة المنال للعائلات التي لا تتحدث الإنجليزية بطلاقة",
     "landingContainer.whyAiepExists.consequences": "نتيجة لذلك، قد تفوّت العائلات تفاصيل بالغة الأهمية حول الخدمات أو الأهداف أو أماكن التنسيب، أو تجد صعوبة في طرح أسئلة مدروسة خلال اجتماعات IEP. ويمكن أن يكون لهذه العوائق عواقب حقيقية على الطلاب.",
     "landingContainer.whyAiepExists.conclusion": "أُنشئت AIEP استجابةً لما وصفته العائلات نفسها بأنه مشكلة نظامية: فالمستند الذي ينظم تعليم أطفالها غالبًا ما يكون غير قابل للقراءة بالنسبة لها.",
-
     "landingContainer.privacyAndTrust.title": "مصممة للخصوصية والثقة",
     "landingContainer.privacyAndTrust.intro": "تحتوي برامج IEP على معلومات شخصية شديدة الحساسية. ومنذ البداية، شددت العائلات على أن الخصوصية أمر غير قابل للتفاوض.",
     "landingContainer.privacyAndTrust.subtitle": "بُنيت AIEP وفق مبادئ الخصوصية حسب التصميم، ومنها:",
@@ -577,7 +534,6 @@
     "landingContainer.privacyAndTrust.item4": "قدرة العائلات على حذف بياناتها في أي وقت",
     "landingContainer.privacyAndTrust.conclusion": "الثقة تُكتسب من خلال خيارات تصميم تحترم المستخدمين وبياناتهم.",
     "landingContainer.privacyAndTrust.diagramAlt": "رسم توضيحي يبين كيف تحمي AIEP خصوصيتك: تكتشف خدمة AWS Comprehend البيانات الشخصية وتزيلها، ثم تنشئ OpenAI الملخصات والترجمات دون تخزين معلوماتك",
-
     "landingContainer.whatAiepDoes.title": "ماذا تفعل AIEP",
     "landingContainer.whatAiepDoes.subtitle": "تدعم AIEP العائلات قبل اجتماعات IEP وأثناءها وبعدها من خلال مساعدتها على:",
     "landingContainer.whatAiepDoes.item1": "ترجمة مستندات IEP إلى لغات متعددة مع الحفاظ على المعنى القانوني والتعليمي",
@@ -586,7 +542,6 @@
     "landingContainer.whatAiepDoes.item4": "تجهيز الأسئلة ونقاط النقاش لاجتماعات IEP",
     "landingContainer.whatAiepDoes.item5": "التعامل مع برامج IEP بثقة، لا بالتخمين",
     "landingContainer.whatAiepDoes.conclusion": "صُممت الأداة لإبراز التفاصيل المحددة ذات الدلالة القانونية التي تحتاجها العائلات للمناصرة لطفلها، بدلًا من تقديم ملخص عام.",
-
     "landingContainer.moreThanATool.title": "أكثر من مجرد أداة",
     "landingContainer.moreThanATool.intro": "في حين أن AIEP مورد عملي للعائلات، فهي أيضًا جزء من جهد أوسع لإعادة التفكير في كيفية تطوير الذكاء الاصطناعي للأنظمة العامة.",
     "landingContainer.moreThanATool.subtitle": "من خلال AIEP، أنتج الفريق:",
@@ -595,7 +550,6 @@
     "landingContainer.moreThanATool.item3": "مواد تعليمية للتثقيف المدني في الذكاء الاصطناعي",
     "landingContainer.moreThanATool.item4": "كتابات عامة تشارك الدروس والإخفاقات، لا النجاحات فقط",
     "landingContainer.moreThanATool.conclusion": "تدعم هذه الموارد مجتمعةً العائلات والمعلمين وصناع السياسات والتقنيين العاملين على بناء ذكاء اصطناعي يخدم الصالح العام.",
-
     "landingContainer.builtWithFamilies.title": "بُنيت مع العائلات، لا من أجلها فقط",
     "landingContainer.builtWithFamilies.intro": "شارك في تصميم AIEP أكثر من 150 من أولياء الأمور ومقدمي الرعاية في منطقة خليج سان فرانسيسكو، إلى جانب خبراء ومعلمين في التعليم الخاص.",
     "landingContainer.builtWithFamilies.subtitle": "منذ النماذج الأولية المبكرة، حددت العائلات:",
@@ -605,7 +559,6 @@
     "landingContainer.builtWithFamilies.item4": "ما الذي لا ينبغي للأداة فعله",
     "landingContainer.builtWithFamilies.codesigners": "بدلًا من التعامل مع العائلات بوصفها \"مستخدمين نهائيين\"، تتعامل AIEP معها بوصفها شريكة في التصميم وخبيرة بتجربتها المعيشة.",
     "landingContainer.builtWithFamilies.conclusion": "يعكس هذا النهج قناعة أساسية لدى المشروع: ينبغي للأشخاص الأكثر تأثرًا بنظام ما أن يشاركوا في تحديد كيفية تفاعل التكنولوجيا معه.",
-
     "landingContainer.research.title": "أسئلتنا البحثية",
     "landingContainer.research.subtitle": "إلى جانب تطوير الأداة، نهتم باستكشاف ما يلي:",
     "landingContainer.research.item1": "كيف يمكن تثقيف أفراد المجتمع حول الذكاء الاصطناعي بشكل هادف حتى يتمكنوا من المشاركة في تصميمه؟",
@@ -613,7 +566,6 @@
     "landingContainer.research.item3": "كيف يمكن ترجمة رؤى المجتمع إلى قرارات وميزات تقنية فعلية؟",
     "landingContainer.research.item4": "زيادة الإنصاف في تصميم الذكاء الاصطناعي للفئات المستبعدة تاريخيًا؟",
     "landingContainer.research.conclusion": "لا تفيد نتائج هذا البحث AIEP فحسب، بل تثري أيضًا نقاشات أوسع حول الذكاء الاصطناعي المسؤول في الأنظمة العامة.",
-
     "landingCards.aiepTool.top": "جرّب",
     "landingCards.aiepTool.middle": "أداة AIEP",
     "landingCards.aiepTool.bottom": "لتلخيص IEP الخاص بك أو ترجمته",
@@ -632,7 +584,6 @@
     "landingCards.playbook.top": "اقرأ",
     "landingCards.playbook.middle": "دليلنا الإرشادي",
     "landingCards.playbook.bottom": "لتتعلم كيفية إنشاء ذكاء اصطناعي متمحور حول المجتمع",
-
     "landingContainer.cta.exploreMore.pretext": "استكشف المزيد عن",
     "landingContainer.cta.exploreMore.title": "الذكاء الاصطناعي المتمحور حول المجتمع",
     "landingContainer.cta.writing.pretext": "اقرأ ما",
@@ -641,7 +592,6 @@
     "landingContainer.cta.course.title": "الدورة التدريبية",
     "landingContainer.cta.research.pretext": "اطّلع على",
     "landingContainer.cta.research.title": "أبحاثنا",
-
     "landingContainer.aboutProject.title": "حول المشروع",
     "landingContainer.aboutProject.text1": "الذكاء الاصطناعي لبرامج IEP هو مشروع لمركز Burnes للتغيير الاجتماعي وبرنامجه AI for Impact، طُوّر بالشراكة مع Innovate Public Schools وعائلات في كاليفورنيا.",
     "landingContainer.aboutProject.text2": "حظي المشروع بدعم منح من مبادرة Chan Zuckerberg ومركز Burnes للتغيير الاجتماعي.",
@@ -651,10 +601,8 @@
     "landingContainer.cta.learnHow.title": "بناء AIEP",
     "landingContainer.cta.explore.pretext": "استكشف",
     "landingContainer.cta.explore.title": "الذكاء الاصطناعي المتمحور حول المجتمع",
-
     "landing.howTo.titlePrefix": "كيفية استخدام",
     "landing.howTo.titleSuffix": "أداة AIEP",
-
     "landing.howTo.card1.title": "ارفع مستند IEP إلى الأداة",
     "landing.howTo.card1.text": "بعد التسجيل، ستتمكن من رفع مستند IEP الخاص بطفلك كملف مستند (doc أو docx) أو ملف PDF.",
     "landing.howTo.card2.title": "ترجم IEP إلى لغتك المفضلة",
@@ -670,7 +618,6 @@
     "partnerBanner.label": "اطّلع على مشاريع شركائنا",
     "sections.foundIn": "موجود في",
     "sections.pages": "الصفحات",
-
     "welcome.invite.title": "ادعُ أولياء أمور آخرين",
     "welcome.invite.description": "شارك AIEP مع العائلات التي قد تحتاج إليه",
     "invite.breadcrumb.home": "الرئيسية",

@@ -312,6 +312,14 @@ export class ChatBotApi extends Construct {
         { label: 'PostConfirmation (secures a new account)', fn: this.lambdaFunctions.cognitoTriggerFunction,
           purpose: 'secures a newly created account; runs once per signup' },
       ],
+      // Its own field, not one of the lists: this is the only way to create
+      // an account, so its alarms say "signup broken" rather than "an API
+      // handler is failing", and most of its failures are 4xx refusals that
+      // no Errors or 5xx metric can see.
+      signupFunction: {
+        label: 'signup', fn: authentication.signupFunction,
+        purpose: 'the only way to create an account; runs once per new family',
+      },
       apiFunctions: [
         { label: 'user profile', fn: this.lambdaFunctions.userProfileFunction, purpose: 'the account screen: name, child, languages, and account deletion' },
         { label: 'upload', fn: this.lambdaFunctions.uploadS3KnowledgeFunction, purpose: 'accepts an IEP upload from a parent' },

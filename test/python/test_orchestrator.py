@@ -150,7 +150,38 @@ def test_direct_invocation_requires_all_ids(orchestrator):
 
 
 def test_missing_state_machine_arn_fails_loudly(orchestrator, monkeypatch):
+    # "Loudly" means RAISING. This test used to assert statusCode 500, which
+    # is the opposite: returning a 500 tells Lambda the invocation succeeded,
+    # so the async retries S3 events depend on are suppressed and the Errors
+    # metric never moves. The alarm named "pipeline step failing:
+    # orchestrator" could not fire, and this test was what kept it that way.
     monkeypatch.delenv('STATE_MACHINE_ARN')
-    response = run(orchestrator, s3_event('user-1/child-1/iep-1/report.pdf'))
-    assert response['statusCode'] == 500
+    with pytest.raises(Exception):
+        run(orchestrator, s3_event('user-1/child-1/iep-1/report.pdf'))
     assert orchestrator.stepfunctions.executions == []
+
+
+def test_start_execution_failure_raises_so_the_document_is_retried(orchestrator):
+    # The failure that actually matters: Step Functions is reachable but
+    # rejects the call. Nothing downstream exists yet to notice, because no
+    # execution means no RecordFailure and no pipeline log line. Raising is
+    # the ONLY signal that this document was dropped.
+    def explode(**_kwargs):
+        raise RuntimeError('Throttled')
+
+    orchestrator.stepfunctions.start_execution = explode
+
+    with pytest.raises(RuntimeError):
+        run(orchestrator, s3_event('user-1/child-1/iep-1/report.pdf'))
+
+
+def test_a_dropped_document_is_logged_with_a_marker(orchestrator, monkeypatch, capsys):
+    monkeypatch.delenv('STATE_MACHINE_ARN')
+    with pytest.raises(Exception):
+        run(orchestrator, s3_event('user-1/child-1/iep-1/report.pdf'))
+
+    out = capsys.readouterr().out
+    assert 'ORCHESTRATOR_FAILED' in out
+    # The filename may carry a student's name, so it must not reach the log
+    # line. (The traceback is a separate, deliberate exception to that rule.)
+    assert 'report.pdf' not in out.split('Traceback')[0]

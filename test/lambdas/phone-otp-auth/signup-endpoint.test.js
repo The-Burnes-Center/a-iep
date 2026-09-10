@@ -24,6 +24,9 @@ jest.mock('@aws-sdk/client-cognito-identity-provider', () => ({
     AdminSetUserPasswordCommand: class {
         constructor(input) { this.input = input; this.kind = 'password'; }
     },
+    AdminDeleteUserCommand: class {
+        constructor(input) { this.input = input; this.kind = 'delete'; }
+    },
 }), { virtual: true });
 
 jest.mock('@aws-sdk/client-dynamodb', () => ({ DynamoDBClient: class {} }), { virtual: true });
@@ -198,16 +201,70 @@ describe('signup endpoint', () => {
     });
 
     test('an existing account is not revealed to the caller', async () => {
+        // This test is named for a property it did not check. It asserted
+        // `{ created: false }`, which IS the disclosure: post a number to an
+        // unauthenticated route with an open CORS header, read the body,
+        // learn whether that person has an account. The body must be
+        // byte-identical either way, and that is what is asserted now.
         const exists = new Error('exists');
         exists.name = 'UsernameExistsException';
         mockCognitoSend.mockRejectedValueOnce(exists);
 
+        const existing = await load()(request());
+
+        mockCognitoSend.mockReset().mockResolvedValue({});
+        const fresh = await load()(request());
+
+        expect(existing.statusCode).toBe(fresh.statusCode);
+        expect(existing.body).toBe(fresh.body);
+        expect(JSON.parse(existing.body)).not.toHaveProperty('created');
+    });
+
+    test('an account that cannot be secured is removed, not left behind', async () => {
+        // The worst state this function can produce. AdminCreateUser
+        // succeeds, AdminSetUserPassword fails, and the account is left in
+        // FORCE_CHANGE_PASSWORD: custom-auth sign-in never works, while a
+        // retry hits UsernameExistsException and is told to go and sign in.
+        // That is a phone number permanently unable to sign up OR sign in.
+        mockCognitoSend.mockImplementation((cmd) => {
+            if (cmd.kind === 'password') {
+                return Promise.reject(new Error('rotation unavailable'));
+            }
+            return Promise.resolve({});
+        });
+
         const response = await load()(request());
 
-        // 200, because saying "that number is taken" is the account
-        // enumeration PreventUserExistenceErrors exists to prevent.
-        expect(response.statusCode).toBe(200);
-        expect(JSON.parse(response.body)).toEqual({ created: false });
+        expect(response.statusCode).toBe(500);
+        expect(commandsOfKind('delete')).toHaveLength(1);
+        expect(commandsOfKind('delete')[0][0].input.Username).toBe(PHONE);
+    });
+
+    test('an account left both unsecured and undeleted raises the marker', async () => {
+        // Both calls failed, so an account exists that whoever created it can
+        // sign into. This is the hole the PostConfirmation rotation closed
+        // for the ~1,030 accounts of the 2026-09-09 run, and it needs a
+        // person rather than a retry.
+        const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+        mockCognitoSend.mockImplementation((cmd) => {
+            if (cmd.kind === 'create') return Promise.resolve({});
+            return Promise.reject(new Error('cognito unavailable'));
+        });
+
+        const response = await load()(request());
+
+        expect(response.statusCode).toBe(500);
+        const out = logged.mock.calls.map((a) => a.join(' ')).join('\n');
+        expect(out).toContain('SIGNUP_ORPHANED');
+        logged.mockRestore();
+    });
+
+    test('a successful signup does not delete the account it just made', async () => {
+        // Mutation guard for the rollback above: if the delete ever escaped
+        // its catch, every new family would be created and then removed.
+        await load()(request());
+
+        expect(commandsOfKind('delete')).toHaveLength(0);
     });
 
     test('an internal failure tells the caller nothing useful', async () => {
@@ -227,6 +284,23 @@ describe('signup endpoint', () => {
         for (const key of keys) {
             expect(key).not.toContain('198.51.100.7');
         }
+    });
+
+    test('the bot check being switched off is logged, never silent', async () => {
+        // "Deployed" and "switched on" are different states: the secret is
+        // created out of band. Without this marker the difference between
+        // Turnstile protecting signup and Turnstile being absent is
+        // invisible from everywhere, and it is what the alarm counts.
+        const warned = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const notFound = new Error('missing');
+        notFound.name = 'ParameterNotFound';
+        mockSsmSend.mockRejectedValue(notFound);
+
+        await load()(request());
+
+        const out = warned.mock.calls.map((a) => a.join(' ')).join('\n');
+        expect(out).toContain('TURNSTILE_NOT_CONFIGURED');
+        warned.mockRestore();
     });
 
     test('every refusal is logged with a reason', async () => {
