@@ -188,7 +188,12 @@ def build_notification(alarm):
     started = _started(alarm)
     if started:
         context.append(started)
-    context.append('prod' if IS_PROD else 'staging, no families affected')
+    # Environment only, and deliberately no claim about who was affected.
+    # Some alarms watch account-scoped metrics, so a staging-named alarm can
+    # be reporting damage that is not staging's. Naming the environment is a
+    # fact this function has; impact is not, and asserting it wrongly is worse
+    # than leaving it out.
+    context.append('prod' if IS_PROD else 'staging')
 
     lines = [description, ' · '.join(context)]
     # Resource on its own line: the names are long enough to wrap and push the

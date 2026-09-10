@@ -82,6 +82,25 @@ def test_the_headline_says_what_broke_and_where(formatter):
     assert 'a-iep-staging ' not in content['title']
 
 
+def test_footer_names_the_environment_and_claims_nothing_else(formatter):
+    """The footer states which environment fired, and no impact claim.
+
+    It used to assert that a staging alarm meant nobody was affected. Some
+    alarms watch account-scoped metrics, where that is not something the
+    environment label can tell you, and a wrong reassurance in an alert is
+    worse than no reassurance.
+    """
+    description = formatter.build_notification(_alarm())['content']['description']
+
+    # The footer is the ' · '-joined context line, not the alarm prose above
+    # it: an alarm description may legitimately say a stage is affected.
+    footer = next(line for line in description.splitlines() if ' · ' in line)
+
+    assert footer.endswith('staging')
+    assert 'families' not in footer
+    assert 'affected' not in footer
+
+
 def test_prod_and_staging_are_visibly_different(formatter, prod_formatter):
     staging = formatter.build_notification(_alarm())['content']['title']
     prod = prod_formatter.build_notification(_alarm())['content']['title']
