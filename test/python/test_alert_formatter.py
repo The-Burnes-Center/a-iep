@@ -86,35 +86,19 @@ def test_the_headline_says_what_broke_and_where(formatter):
     assert 'a-iep-staging ' not in content['title']
 
 
-def test_production_alarms_page_the_channel(prod_formatter):
-    """A production alarm has to push, not wait to be read.
+def test_no_alert_ever_tags_the_channel(formatter, prod_formatter):
+    """No @channel, @here or any all-member mention, in either environment.
 
-    The 2026-09-09 outage ran for thirteen hours partly because nothing
-    notified anyone; a Slack message with no mention is a message someone
-    reads in the morning.
+    Whether an alert pushes to a phone is the channel's notification setting,
+    which belongs to the person receiving it. An alert must not impose that on
+    everyone in the room.
     """
-    description = prod_formatter.build_notification(_alarm())['content']['description']
-
-    assert description.startswith('<!channel>')
-
-
-def test_staging_alarms_do_not_page(formatter):
-    """Staging fires the same alarms for broken tests.
-
-    A channel that buzzes for those gets muted, and then the production ones
-    are lost with it.
-    """
-    description = formatter.build_notification(_alarm())['content']['description']
-
-    assert '<!channel>' not in description
-
-
-def test_recoveries_never_page(prod_formatter):
-    """Good news must not wake anyone."""
-    recovery = _alarm(NewStateValue='OK')
-    description = prod_formatter.build_notification(recovery)['content']['description']
-
-    assert '<!channel>' not in description
+    for fmt in (formatter, prod_formatter):
+        for alarm in (_alarm(), _alarm(NewStateValue='OK', OldStateValue='ALARM')):
+            content = fmt.build_notification(alarm)['content']
+            blob = json.dumps(content)
+            for mention in ('<!channel>', '<!here>', '@channel', '@here', '@everyone'):
+                assert mention not in blob
 
 
 def test_footer_names_the_environment_and_claims_nothing_else(formatter):
@@ -254,12 +238,13 @@ def test_recovery_is_quiet_and_asks_for_nothing(formatter):
                               'was not greater than or equal to the threshold (5.0).'),
     )['content']
 
-    # "Cleared", not "Recovered": the alarm names are problem statements, so
-    # "Recovered: login codes are not being delivered" reads as a claim that
-    # codes are not being delivered.
-    assert 'Cleared' in content['title']
-    assert 'Recovered' not in content['title']
-    assert ':large_green_circle:' in content['title']
+    # The alarm name must not appear bare in a recovery title: the names are
+    # present-tense problem statements, so "Cleared · login codes are not
+    # being delivered" still reads as a claim that they are not arriving.
+    assert content['title'] == ':large_green_circle: Back to normal · staging'
+    # It belongs in the description instead, quoted, so it reads as the name
+    # of an alert rather than a statement about right now.
+    assert '"pipeline step failing: Mistral OCR" alert has cleared' in content['description']
     # Next steps on a recovery imply work that is already done.
     assert 'nextSteps' not in content
     assert 'No action needed' in content['description']

@@ -40,18 +40,10 @@ IS_PROD = ENVIRONMENT in ('prod', 'production')
 
 _CONSOLE = f'https://console.aws.amazon.com/cloudwatch/home?region={REGION}'
 
-# Slack's channel-wide mention. In production every alarm that is not a
-# recovery carries it, so the message pushes to phones instead of waiting to
-# be read: on 2026-09-09 a production outage sat unnoticed for thirteen hours
-# because nothing pushed.
-#
-# Production only, and deliberately so. Staging fires the same alarms for
-# broken tests, and a channel that buzzes for those trains its reader to
-# ignore it, which costs more than the alerts are worth.
-#
-# The mention must reach Slack as raw text. It goes in the description rather
-# than the title because only the description is markdown-typed.
-PAGE_MENTION = '<!channel>'
+# No @channel, @here or any all-member mention, ever, in either environment.
+# Getting an alert to push is the channel's notification settings, which is a
+# choice for the person receiving them rather than something an alert imposes
+# on everyone in the room.
 
 
 def _resource(dimensions):
@@ -160,12 +152,16 @@ def build_notification(alarm):
     env_label = 'prod' if IS_PROD else 'staging'
     icon = ':large_green_circle:' if recovered else (
         ':red_circle:' if IS_PROD else ':large_orange_circle:')
-    # "Recovered: login codes are not being delivered" reads as a statement
-    # that codes are not being delivered. The alarm names are problem
-    # statements, so a recovery has to say the ALARM cleared, not restate the
-    # problem in the present tense.
+    # Alarm names are present-tense problem statements, which is right when
+    # one fires and wrong in every recovery: "Cleared · login codes are not
+    # being delivered" still reads as a claim that codes are not arriving.
+    #
+    # So a recovery leads with the state and demotes the name into the
+    # description, in quotes. The quotes are what stop it being read as a
+    # sentence: it becomes the name of an alert rather than an assertion
+    # about right now.
     title = (
-        f'{icon} Cleared · {headline} · {env_label}' if recovered
+        f'{icon} Back to normal · {env_label}' if recovered
         else f'{icon} {headline} · {env_label}'
     )
 
@@ -174,11 +170,7 @@ def build_notification(alarm):
     description = (alarm.get('AlarmDescription') or '').strip()
     observed = _observed_phrase(alarm)
     if recovered:
-        description = 'This alarm has stopped firing. No action needed.'
-    elif IS_PROD:
-        # Recoveries never page: good news that buzzes a phone at 3am is how a
-        # channel gets muted.
-        description = f'{PAGE_MENTION} {description}'.strip()
+        description = f'The "{headline}" alert has cleared. No action needed.'
 
     trigger = alarm.get('Trigger') or {}
     resource, link, link_label = _resource(trigger.get('Dimensions'))
