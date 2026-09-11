@@ -380,6 +380,45 @@ describe("passwordless flow: code screen (flag on)", () => {
     expect(storedValues).not.toContain("secret-access");
     expect(storedValues).not.toContain("secret-id");
   });
+
+  test("a code typed while the previous attempt is still in flight is not erased", async () => {
+    // Regression. handleVerify used to clear the field AFTER awaiting the
+    // request, so the clear landed on whatever was in the box when the
+    // response arrived rather than on what had been submitted. Two staging
+    // E2E journeys died on it, and a parent on a slow connection hits the
+    // same window: they tap Verify, start retyping, and watch their code
+    // vanish and the button grey out.
+    let releaseVerify: () => void = () => {};
+    const inFlight = new Promise<void>((resolve) => { releaseVerify = resolve; });
+    const passThrough = authFetch.fn;
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => {
+      if (!/auth\/verify/.test(String(url))) return passThrough(url, init);
+      await inFlight;
+      return {
+        ok: false,
+        status: 401,
+        json: async () => ({ ok: false, code: "bad_code", message: "nope" }),
+      } as Response;
+    }));
+
+    const { user } = renderLogin();
+    await startThenAwaitCode(user);
+
+    const field = screen.getByTestId("sms-code-input");
+    await user.type(field, "111111");
+    await user.click(screen.getByRole("button", { name: "auth.verify" }));
+
+    // Still hanging. The parent gives up on it and types the code again.
+    await user.clear(field);
+    await user.type(field, "222222");
+
+    releaseVerify();
+    await screen.findByText("auth.error.badCode");
+
+    expect(field).toHaveValue("222222");
+    expect(screen.getByRole("button", { name: "auth.verify" })).toBeEnabled();
+  });
+
 });
 
 describe("passwordless flow: leaving and returning mid-flow", () => {

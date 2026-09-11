@@ -168,8 +168,16 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    await auth.submitCode(code);
+    // Clear synchronously, in the same event as the submit, NOT after the
+    // await. The attempt is spent the moment it is sent, so this is when the
+    // box should empty -- and clearing after the round trip wipes whatever is
+    // in the field when the response lands, which is not necessarily what was
+    // submitted. A parent who starts retyping while the request is in flight
+    // had their input erased and the button greyed out under them; on a slow
+    // connection that window is seconds wide. E2E found it by typing fast.
+    const submitted = code;
     setCode('');
+    await auth.submitCode(submitted);
   };
 
   if (auth.step === 'locked_out') {
