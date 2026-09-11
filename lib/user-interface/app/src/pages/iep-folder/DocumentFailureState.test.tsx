@@ -18,17 +18,15 @@ const identityT = (key: string) => key;
 
 const renderFailureState = (overrides: Partial<DocumentFailureStateProps> = {}) => {
   const onGoToDocuments = vi.fn();
-  const onContactSupport = vi.fn();
   render(
     <DocumentFailureState
       canRetry
       t={identityT}
       onGoToDocuments={onGoToDocuments}
-      onContactSupport={onContactSupport}
       {...overrides}
     />,
   );
-  return { onGoToDocuments, onContactSupport };
+  return { onGoToDocuments };
 };
 
 describe("DocumentFailureState", () => {
@@ -53,16 +51,6 @@ describe("DocumentFailureState", () => {
     expect(screen.getByTestId("failure-go-to-documents")).toBeInTheDocument();
   });
 
-  test("a way to reach support is there when retry is offered", () => {
-    renderFailureState({ canRetry: true });
-    expect(screen.getByText("summary.failed.contactSupport")).toBeInTheDocument();
-  });
-
-  test("a way to reach support is there when retry is not offered", () => {
-    renderFailureState({ canRetry: false });
-    expect(screen.getByText("summary.failed.contactSupport")).toBeInTheDocument();
-  });
-
   test("the retry button calls back to the page instead of navigating itself", () => {
     const { onGoToDocuments } = renderFailureState({ canRetry: true });
 
@@ -77,14 +65,6 @@ describe("DocumentFailureState", () => {
     fireEvent.click(screen.getByTestId("failure-go-to-documents"));
 
     expect(onGoToDocuments).toHaveBeenCalledTimes(1);
-  });
-
-  test("the support link calls its own callback", () => {
-    const { onContactSupport } = renderFailureState();
-
-    fireEvent.click(screen.getByText("summary.failed.contactSupport"));
-
-    expect(onContactSupport).toHaveBeenCalledTimes(1);
   });
 
   // The whole point of t() being `translations[key] || key` with no English
@@ -105,9 +85,6 @@ describe("DocumentFailureState", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(realEnglishDictionary["summary.failed.tryDifferentFile"]),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(realEnglishDictionary["summary.failed.contactSupport"]),
     ).toBeInTheDocument();
   });
 });

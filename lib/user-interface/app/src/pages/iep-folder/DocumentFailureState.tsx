@@ -2,7 +2,6 @@ import React from 'react';
 import { Button } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';
-import LinkButton from '../../components/LinkButton';
 import './DocumentFailureState.css';
 
 export interface DocumentFailureStateProps {
@@ -21,7 +20,6 @@ export interface DocumentFailureStateProps {
    * canRetry, so one callback covers both.
    */
   onGoToDocuments: () => void;
-  onContactSupport: () => void;
 }
 
 /**
@@ -37,7 +35,6 @@ const DocumentFailureState: React.FC<DocumentFailureStateProps> = ({
   canRetry,
   t,
   onGoToDocuments,
-  onContactSupport,
 }) => {
   return (
     <div className="document-failure-state" data-testid="document-failure-state">
@@ -72,11 +69,6 @@ const DocumentFailureState: React.FC<DocumentFailureStateProps> = ({
             {t('summary.failed.goToDocuments')}
           </Button>
         )}
-        <LinkButton
-          onClick={onContactSupport}
-          disabled={false}
-          buttonText={t('summary.failed.contactSupport')}
-        />
       </div>
     </div>
   );

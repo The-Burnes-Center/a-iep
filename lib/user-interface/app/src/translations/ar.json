@@ -63,7 +63,6 @@
     "summary.failed.message": "هذا ليس خطأً منك. من المرجّح أن تفشل إعادة رفع الملف نفسه بالطريقة نفسها، لذا جرّب ملفًا مختلفًا إذا كان متوفرًا لديك.",
     "summary.failed.tryDifferentFile": "تجربة ملف مختلف",
     "summary.failed.goToDocuments": "الذهاب إلى مستنداتي",
-    "summary.failed.contactSupport": "التواصل مع الدعم",
     "summary.error.loadFailed": "لم نتمكن من تحميل مستندك الآن. يرجى التحقق من اتصالك. سنستمر في المحاولة.",
     "summary.preferredLanguage": "العربية",
     "summary.english": "الإنجليزية",

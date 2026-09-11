@@ -63,7 +63,6 @@
     "summary.failed.message": "Đây không phải là lỗi của bạn. Tải lên chính xác tệp này một lần nữa có thể sẽ vẫn thất bại như trước, vì vậy hãy thử một tệp khác nếu bạn có.",
     "summary.failed.tryDifferentFile": "Thử Tệp Khác",
     "summary.failed.goToDocuments": "Đến Tài Liệu Của Tôi",
-    "summary.failed.contactSupport": "Liên Hệ Hỗ Trợ",
     "summary.error.loadFailed": "Chúng tôi không thể tải tài liệu của bạn ngay bây giờ. Vui lòng kiểm tra kết nối của bạn. Chúng tôi sẽ tiếp tục thử.",
     "summary.preferredLanguage": "Tiếng Việt",
     "summary.english": "Tiếng Anh",

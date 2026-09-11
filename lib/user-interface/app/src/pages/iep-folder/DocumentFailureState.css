@@ -41,8 +41,9 @@
   margin-top: 1.25rem;
 }
 
-/* Comfortable, separate tap targets on a phone rather than two buttons
-   crowded onto one line. */
+/* One full-width tap target on a phone. The row is still a flex container
+   because the action here is conditional on canRetry, and a second action
+   has lived in it before. */
 @media (max-width: 480px) {
   .document-failure-actions {
     flex-direction: column;

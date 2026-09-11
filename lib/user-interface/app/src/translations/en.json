@@ -63,7 +63,6 @@
     "summary.failed.message": "This isn't something you did wrong. Uploading the exact same file again will likely fail the same way, so try a different file if you have one.",
     "summary.failed.tryDifferentFile": "Try a Different File",
     "summary.failed.goToDocuments": "Go to My Documents",
-    "summary.failed.contactSupport": "Contact Support",
     "summary.error.loadFailed": "We couldn't load your document right now. Please check your connection. We'll keep trying.",
     "summary.preferredLanguage": "English",
     "summary.english": "English",

@@ -63,7 +63,6 @@
     "summary.failed.message": "这不是您的问题。再次上传完全相同的文件很可能仍会失败，如果您有其他文件，请尝试上传其他文件。",
     "summary.failed.tryDifferentFile": "尝试其他文件",
     "summary.failed.goToDocuments": "前往我的文档",
-    "summary.failed.contactSupport": "联系客服",
     "summary.error.loadFailed": "我们现在无法加载您的文档。请检查您的网络连接。我们会继续尝试。",
     "summary.preferredLanguage": "中文",
     "summary.english": "英文",

@@ -1159,7 +1159,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                         canRetry={canRetryFailedDocument(document)}
                         t={t}
                         onGoToDocuments={() => navigate('/iep-documents')}
-                        onContactSupport={() => navigate('/support-center')}
                       />
                     ) :
                       <>

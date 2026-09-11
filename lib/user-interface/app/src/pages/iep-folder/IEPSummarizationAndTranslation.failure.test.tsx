@@ -33,7 +33,6 @@ const DOCUMENTS_URL = `${API_BASE}/profile/children/${CHILD_ID}/documents`;
 
 const ENGLISH_SUMMARY = "The English summary paragraph.";
 const DOCUMENTS_PAGE = "you are on the documents page";
-const SUPPORT_PAGE = "you are on the support page";
 
 const appConfig = {
   httpEndpoint: `${API_BASE}/`,
@@ -88,7 +87,6 @@ const renderPage = () => {
           <Routes>
             <Route path="/summary-and-translations" element={<IEPSummarizationAndTranslation />} />
             <Route path="/iep-documents" element={<div>{DOCUMENTS_PAGE}</div>} />
-            <Route path="/support-center" element={<div>{SUPPORT_PAGE}</div>} />
           </Routes>
         </LanguageContext.Provider>
       </AppContext.Provider>
@@ -150,15 +148,6 @@ describe("the document-failure screen", () => {
     fireEvent.click(screen.getByTestId("failure-try-different-file"));
 
     expect(screen.getByText(DOCUMENTS_PAGE)).toBeInTheDocument();
-  });
-
-  test("support is reachable straight from the failure screen", async () => {
-    renderPage();
-    await settle();
-
-    fireEvent.click(screen.getByText("summary.failed.contactSupport"));
-
-    expect(screen.getByText(SUPPORT_PAGE)).toBeInTheDocument();
   });
 
   test("a processed document's summary is unchanged by the redesign", async () => {
