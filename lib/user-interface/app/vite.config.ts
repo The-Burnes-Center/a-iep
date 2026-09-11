@@ -29,13 +29,24 @@ function resolveEnabledLanguages(): string[] {
 // src/common/features.ts.
 const ALL_FEATURES = ["tts", "referrals", "parentNameGate", "passwordlessAuth"];
 const PROD_FEATURES: string[] = ["referrals"];
+// Dark in EVERY environment by default, staging included, until the E2E suite
+// can drive the new login UI. Two reasons, and the second is the important
+// one. The suite shares a single login helper that clicks "Send SMS Code", so
+// a staging build with this on fails seven journeys. And prod still runs the
+// legacy Amplify flow while E2E only ever targets staging, so staging is the
+// only place prod's login path is exercised at all -- turning this on there
+// silently removes that coverage. Flipping this and updating e2e/ belong in
+// the same change. Opt in with ENABLED_FEATURES for local work or a one-off
+// deploy.
+const DARK_EVERYWHERE: string[] = ["passwordlessAuth"];
 function resolveEnabledFeatures(): string[] {
   const override = process.env.ENABLED_FEATURES;
   if (override) {
     return override.split(",").map((s) => s.trim()).filter(Boolean);
   }
   const env = process.env.ENVIRONMENT || process.env.NODE_ENV;
-  return env === "prod" || env === "production" ? PROD_FEATURES : ALL_FEATURES;
+  const base = env === "prod" || env === "production" ? PROD_FEATURES : ALL_FEATURES;
+  return base.filter((f) => !DARK_EVERYWHERE.includes(f));
 }
 
 // https://vitejs.dev/config/

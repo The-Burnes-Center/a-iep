@@ -27,6 +27,7 @@ import * as path from 'path';
 import {
   ALL_FEATURES as CDK_ALL_FEATURES,
   PROD_FEATURES as CDK_PROD_FEATURES,
+  DARK_EVERYWHERE as CDK_DARK_EVERYWHERE,
 } from '../../lib/user-interface';
 import { ALL_FEATURES as UI_ALL_FEATURES } from '../../lib/user-interface/app/src/common/features';
 
@@ -66,6 +67,29 @@ describe('enabled features per environment', () => {
 
   it('only lists production features the UI recognises', () => {
     for (const feature of CDK_PROD_FEATURES) {
+      expect(UI_ALL_FEATURES).toContain(feature);
+    }
+  });
+
+  it('keeps the passwordless login dark everywhere, staging included', () => {
+    // E2E is the only journey coverage this project has, it runs against
+    // deployed staging only, and prod still signs parents in through the
+    // legacy Amplify path. So staging is the sole place prod's login is
+    // exercised end to end. Enabling the new flow on staging swaps that UI
+    // out and takes the coverage with it, which is why this is dark in dev
+    // and staging too rather than just in prod.
+    //
+    // Deleting this pin is how you would silently lose that. Turning the flag
+    // on and teaching e2e/ to drive the new login belong in one change.
+    expect(CDK_DARK_EVERYWHERE).toContain('passwordlessAuth');
+    expect(readArrayLiteral(viteSource, 'DARK_EVERYWHERE')).toEqual(CDK_DARK_EVERYWHERE);
+  });
+
+  it('never lets a dark feature reach an environment through the default list', () => {
+    for (const feature of CDK_DARK_EVERYWHERE) {
+      expect(CDK_PROD_FEATURES).not.toContain(feature);
+      // It stays in the master list: the name still has to be one the UI
+      // recognises, or turning it on later would do nothing at all.
       expect(UI_ALL_FEATURES).toContain(feature);
     }
   });
