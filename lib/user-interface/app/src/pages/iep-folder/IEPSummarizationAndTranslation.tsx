@@ -24,11 +24,13 @@ import {
   shouldSuppressProcessingTakeover,
 } from '../utils/translation-flow.mjs';
 import type { TranslationRequestState } from '../utils/translation-flow.mjs';
+import { canRetryFailedDocument } from './document-failure';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import TTSPlayButton from '../../components/TTSPlayButton';
 import { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
 import AIEPFooter from '../../components/AIEPFooter';
+import DocumentFailureState from './DocumentFailureState';
 import { ApiClient } from '../../common/api-client/api-client';
 import {
   IEPDocumentClient,
@@ -1153,22 +1155,12 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                 <Row className="g-0">
                   <Col md={12} className="no-padding-inherit">
                     {document.status === "FAILED" ? (
-                      <Alert variant="danger">
-                        {/* data-testid: stable E2E hook so the pipeline
-                            journey can fail fast instead of waiting out its
-                            budget. It sits on the heading, not on <Alert>,
-                            because Alert forwards unknown props to its Fade
-                            transition rather than to the rendered div. */}
-                        <h5 data-testid="summary-failed">{t('summary.failed.title')}</h5>
-                        <p>{t('summary.failed.message')}</p>
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onClick={() => navigate('/iep-documents')}
-                        >
-                          {t('summary.reuploadButton')}
-                        </Button>
-                      </Alert>
+                      <DocumentFailureState
+                        canRetry={canRetryFailedDocument(document)}
+                        t={t}
+                        onGoToDocuments={() => navigate('/iep-documents')}
+                        onContactSupport={() => navigate('/support-center')}
+                      />
                     ) :
                       <>
                         {/* The preferred language has no translation yet: offer

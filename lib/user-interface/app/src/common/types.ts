@@ -141,6 +141,14 @@ export interface IEPDocument {
   status?: "PROCESSING" | "PROCESSING_TRANSLATIONS" | "PROCESSED" | "FAILED";
   progress?: number; // Processing progress percentage (0-100)
   current_step?: string; // Current processing step (e.g., "initializing", "ocr_complete", "redacting", etc.)
+  // A structured, parent-safe cause for a FAILED document (e.g.
+  // "password_protected"). The backend does not send this today — the
+  // DynamoDB row only carries a raw provider error_message, which is not
+  // shown to a parent — so this is always undefined in production. It exists
+  // as the seam pages/iep-folder/document-failure.ts reads: the day the
+  // backend maps error_message/failed_step to a closed set of safe reasons,
+  // this is where they land.
+  failureReason?: string;
   createdAt?: number; // Unix timestamp (seconds since epoch)
   updatedAt?: number; // Unix timestamp (seconds since epoch)
   message?: string;
