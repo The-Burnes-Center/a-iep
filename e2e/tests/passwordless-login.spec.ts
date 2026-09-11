@@ -21,7 +21,6 @@ import { test, expect, Page } from '@playwright/test';
 import {
   EN_PASSWORDLESS,
   detectLoginScreen,
-  fillPhone,
   finishLoginAfterOtp,
   IN_APP_PATHS,
   startPhoneLogin,
@@ -46,6 +45,27 @@ test('a wrong code is rejected and a correct retry still succeeds', async ({ pag
     'passwordlessAuth is dark on this deploy; nothing in this file to exercise.'
   );
 
+  // Fetch the real code FIRST, before ever submitting a wrong one, and keep
+  // it for the correct retry below.
+  //
+  // /auth/start hands account creation and the actual send to
+  // auth-dispatch.js asynchronously (Event invocation) and answers before
+  // that has necessarily run. Until it has, the challenge sits `pending`
+  // (auth-store.js) and /auth/verify answers 202 not_ready for it
+  // (auth-verify.js), which the client retries transparently for up to ~3s
+  // (MAX_NOT_READY_RETRIES, passwordless-auth.ts) before giving up and
+  // showing the generic auth.error.unavailable ("Sign-in is temporarily
+  // unavailable...") instead of a real answer. sms-code-input being visible
+  // only proves /auth/start's OWN response rendered the form; it says
+  // nothing about whether dispatch has run. fetchOtp polls until the real
+  // code is actually stashed, which cannot happen before dispatch has, so it
+  // doubles as a deterministic wait for exactly that -- the same gate
+  // resignup.spec.ts uses (waitForTestUserState in helpers/aws.ts) for the
+  // equivalent race against the Cognito user. Skipping it is what let the
+  // wrong-code submission below occasionally spend the whole not_ready
+  // budget instead of getting auth.error.badCode.
+  const otp = await fetchOtp(PASSWORDLESS_WRONG_CODE_USER, sentAt);
+
   await submitOtpCode(page, WRONG_CODE);
   await expect(
     page.getByRole('alert').filter({ hasText: EN_PASSWORDLESS.badCode })
@@ -54,7 +74,6 @@ test('a wrong code is rejected and a correct retry still succeeds', async ({ pag
   // let the parent retype" (AUTH_API_CONTRACT.md 3), not a reset to idle.
   await expect(page.getByTestId('sms-code-input')).toBeVisible();
 
-  const otp = await fetchOtp(PASSWORDLESS_WRONG_CODE_USER, sentAt);
   await submitOtpCode(page, otp.code);
   await finishLoginAfterOtp(page);
   expect(IN_APP_PATHS).toContain(new URL(page.url()).pathname);
@@ -70,12 +89,25 @@ type WrongCodeOutcome = 'stayed' | 'reset' | 'locked_out';
  */
 async function submitWrongCodeAndClassify(page: Page): Promise<WrongCodeOutcome> {
   await submitOtpCode(page, WRONG_CODE);
+
+  // Wait for an OUTCOME, never for the code input. The code input is already
+  // on screen the instant the click returns and stays there for the whole
+  // round trip, so racing it against the other two resolves immediately and
+  // always reports 'stayed' -- including on the submission that actually
+  // locks the destination out. The loop then called this again, and
+  // submitOtpCode timed out clicking a Verify button the locked-out screen
+  // does not have. Each of the three below only appears once the server has
+  // answered, so exactly one of them is true per submission.
   const lockedOut = page.getByTestId('passwordless-locked-out');
-  const codeInput = page.getByTestId('sms-code-input');
-  await expect(lockedOut.or(codeInput).or(sendCodeButton(page))).toBeVisible({ timeout: 15_000 });
+  const badCode = page.getByRole('alert').filter({ hasText: EN_PASSWORDLESS.badCode });
+  const identifierScreen = sendCodeButton(page);
+  await expect(lockedOut.or(badCode).or(identifierScreen)).toBeVisible({ timeout: 15_000 });
+
   if (await lockedOut.isVisible()) return 'locked_out';
-  if (await codeInput.isVisible()) return 'stayed';
-  return 'reset';
+  // Cognito ended the challenge at its third wrong answer, so the hook reset
+  // to the identifier screen rather than showing another bad-code error.
+  if (await identifierScreen.isVisible()) return 'reset';
+  return 'stayed';
 }
 
 test(
@@ -91,14 +123,18 @@ test(
     // budget generously.
     test.setTimeout(240_000);
 
-    // The timestamp startPhoneLogin returns is deliberately never fetched
-    // against SSM: every code submitted below is wrong on purpose.
-    await startPhoneLogin(page, PASSWORDLESS_LOCKOUT_USER);
+    // sentAt IS fetched against SSM below, even though every code submitted
+    // in this test is wrong on purpose: see the comment on the wrong-code
+    // test above for why a submission cannot safely happen before that
+    // resolves (the same auth-dispatch.js race resignup.spec.ts polls for on
+    // the Cognito-user side). The fetched code itself is still never used.
+    let sentAt = await startPhoneLogin(page, PASSWORDLESS_LOCKOUT_USER);
     await expect(page.getByTestId('sms-code-input')).toBeVisible({ timeout: 30_000 });
     test.skip(
       (await detectLoginScreen(page)) !== 'passwordless',
       'passwordlessAuth is dark on this deploy; nothing in this file to exercise.'
     );
+    await fetchOtp(PASSWORDLESS_LOCKOUT_USER, sentAt);
 
     // 5 rounds, not 4: a fifth /auth/start for this destination this hour
     // still lands exactly on create-auth-challenge.js's MAX_SMS_PER_HOUR
@@ -110,12 +146,24 @@ test(
 
     for (let round = 0; round < MAX_ROUNDS && outcome !== 'locked_out'; round += 1) {
       if (round > 0) {
-        // Back at the identifier screen: the previous round's 3rd wrong
-        // code reset it. Re-fill rather than assume the field kept its
-        // value; either way this is cheap.
-        await fillPhone(page, PASSWORDLESS_LOCKOUT_USER);
-        await sendCodeButton(page).click();
+        // A fresh navigation, not a re-fill on the same page. CustomLogin
+        // mounts useTurnstile() once per page load (see its own docblock),
+        // so re-filling the identifier field in place would carry the SAME
+        // Turnstile widget through every round of this loop, each round
+        // tearing it down and recreating it once already via the
+        // awaiting_code <-> idle transition below. Starting over from
+        // /login instead gives each round the one fresh widget a real
+        // parent reloading the page would get, rather than stacking
+        // MAX_ROUNDS worth of widget teardown/recreate into a single page
+        // load and risking the real Cloudflare check itself, not just our
+        // own code, into a failure state. Still one /auth/start per round,
+        // so the budget above is unchanged.
+        sentAt = await startPhoneLogin(page, PASSWORDLESS_LOCKOUT_USER);
         await expect(page.getByTestId('sms-code-input')).toBeVisible({ timeout: 30_000 });
+        // Same gate as the initial round: a fresh /auth/start means a fresh
+        // pending challenge, so this round's own dispatch race has to be
+        // waited out again too.
+        await fetchOtp(PASSWORDLESS_LOCKOUT_USER, sentAt);
       }
 
       outcome = 'stayed';

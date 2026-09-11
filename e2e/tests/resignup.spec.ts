@@ -79,7 +79,7 @@ import {
   ensureTestUser,
   fetchOtp,
   readOtpSendCount,
-  readTestUserState,
+  waitForTestUserState,
 } from '../helpers/aws';
 import { THROWAWAY_USER } from '../helpers/phones';
 
@@ -228,7 +228,13 @@ test('deleted account signs up again and is sent exactly one code', async ({ pag
   // screen and the login OTP screen are the same screen). UNCONFIRMED here
   // would mean Cognito is still waiting for a verification code it has just
   // texted, i.e. the parent is owed a second message.
-  const signedUpState = await readTestUserState(THROWAWAY_USER);
+  //
+  // Polled, not read once: account creation happens in auth-dispatch.js,
+  // invoked asynchronously from auth-start.js AFTER the 200 this journey
+  // already waited past (see waitForTestUserState's docblock in
+  // helpers/aws.ts), so the user can easily not exist yet at this exact
+  // instant even though the sign-up is proceeding normally.
+  const signedUpState = await waitForTestUserState(THROWAWAY_USER);
   expect(
     signedUpState.status,
     'pre-sign-up.js must auto-confirm a phone-only self-service signup; an ' +

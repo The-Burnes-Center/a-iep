@@ -159,6 +159,54 @@ export async function readTestUserState(phone: string): Promise<TestUserState> {
 }
 
 /**
+ * How long a fresh sign-up's Cognito user may take to appear after
+ * /auth/start has already answered 200. See waitForTestUserState below.
+ */
+const USER_EXISTS_POLL_TIMEOUT_MS = 30_000;
+const USER_EXISTS_POLL_INTERVAL_MS = 1_500;
+
+/**
+ * Poll for `phone` to exist in Cognito, then return readTestUserState's
+ * result for it.
+ *
+ * auth-start.js (~line 195) hands account creation to auth-dispatch.js
+ * (~line 145, AdminCreateUser) through an async `InvocationType: 'Event'`
+ * Lambda invoke, and answers the caller as soon as that invoke is merely
+ * ACCEPTED, not once it has run. That is deliberate (see auth-start.js's own
+ * docblock): doing the account-exists branch on the request path is exactly
+ * the response-time oracle passwordlessAuth exists to close. The
+ * consequence for a white-box check like this one is that a destination
+ * which did not exist before a /auth/start call may still not exist for a
+ * little while AFTER that call returns 200 -- reading once here is the same
+ * class of race fetchOtp's poll above already exists to avoid, just against
+ * the admin-plane user lookup instead of the OTP stash. The client-visible
+ * half of this same window is what /auth/verify's `not_ready` retry covers
+ * (docs/AUTH_API_CONTRACT.md); this is the admin-plane equivalent for a test
+ * that looks directly at Cognito.
+ */
+export async function waitForTestUserState(phone: string): Promise<TestUserState> {
+  const deadline = Date.now() + USER_EXISTS_POLL_TIMEOUT_MS;
+  let lastFailure = 'no lookup attempted yet';
+
+  while (Date.now() < deadline) {
+    try {
+      return await readTestUserState(phone);
+    } catch (error) {
+      if ((error as Error).name !== 'UserNotFoundException') throw error;
+      lastFailure = 'UserNotFoundException';
+    }
+    await sleep(USER_EXISTS_POLL_INTERVAL_MS);
+  }
+
+  throw new Error(
+    `${phone} never appeared in Cognito within ${USER_EXISTS_POLL_TIMEOUT_MS / 1000}s of ` +
+    `starting sign-up (last lookup: ${lastFailure}). auth-dispatch.js creates the account ` +
+    "asynchronously after /auth/start already answered the caller (Event invocation), so " +
+    'either it has not run yet or account creation failed outright.'
+  );
+}
+
+/**
  * A throwaway password that satisfies the pool policy (minLength 8, digits).
  * The OTP flow never uses passwords; this exists only because Cognito
  * requires AdminSetUserPassword(Permanent) to move an admin-created user
