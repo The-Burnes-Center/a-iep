@@ -47,7 +47,9 @@ def test_creates_default_profile_on_first_confirmation(trigger):
     assert profile['consentGiven'] is False
     assert profile['showOnboarding'] is True
     assert len(profile['children']) == 1
-    assert profile['children'][0]['name'] == 'My Child'
+    # NOT 'My Child': see the matching assertion (and its reasoning) in
+    # test_user_profile_api.test_get_profile_creates_default_when_missing.
+    assert profile['children'][0]['name'] == ''
     assert profile['children'][0]['childId']
     assert int(profile['createdAt']) > 0
 

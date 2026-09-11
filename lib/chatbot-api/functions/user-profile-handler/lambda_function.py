@@ -270,11 +270,16 @@ def get_user_profile(event: Dict) -> Dict:
         
         if 'Item' not in response:
             print(f"No existing profile found for userId: {user_id}, creating new profile")
-            
-            # Create default child for IEP document functionality
+
+            # Create default child for IEP document functionality, with NO
+            # name. 'My Child' used to go here, but the redaction pipeline
+            # restores this value verbatim into the summary, so a placeholder
+            # would land in a parent's document. An empty name is what the
+            # frontend's studentNameGate (common/features.ts) checks for, so
+            # onboarding asks every parent for it exactly once.
             default_child = {
                 'childId': str(uuid.uuid4()),
-                'name': 'My Child',
+                'name': '',
                 'schoolCity': 'Not specified',
                 'createdAt': times['timestamp'],
                 'updatedAt': times['timestamp']
@@ -303,15 +308,16 @@ def get_user_profile(event: Dict) -> Dict:
         # Check if existing profile has no children and add default child if needed
         if 'children' not in existing_profile or not existing_profile['children']:
             print(f"Existing profile found but no children, adding default child for userId: {user_id}")
-            
+
+            # Empty name, same reasoning as the fresh-profile branch above.
             default_child = {
                 'childId': str(uuid.uuid4()),
-                'name': 'My Child',
+                'name': '',
                 'schoolCity': 'Not specified',
                 'createdAt': times['timestamp'],
                 'updatedAt': times['timestamp']
             }
-            
+
             # Update the profile with default child
             user_profiles_table.update_item(
                 Key={'userId': user_id},
@@ -322,12 +328,21 @@ def get_user_profile(event: Dict) -> Dict:
                     ':updatedAtISO': times['datetime']
                 }
             )
-            
+
             # Update the existing profile object to return
             existing_profile['children'] = [default_child]
             existing_profile['updatedAt'] = times['timestamp']
             existing_profile['updatedAtISO'] = times['datetime']
-        
+
+        # Decrypt each child's name -- see kms_encrypt_string in add_child and
+        # in the children branch of update_user_profile for where it is
+        # written encrypted. A freshly created/backfilled default_child's
+        # name is '' and decrypting that is a no-op, so this runs
+        # unconditionally rather than only for pre-existing children.
+        for child in existing_profile.get('children', []):
+            if isinstance(child, dict) and isinstance(child.get('name'), str):
+                child['name'] = kms_decrypt_string(child['name'])
+
         return create_response(event, 200, {'profile': existing_profile})
         
     except Exception as e:
@@ -422,11 +437,23 @@ def update_user_profile(event: Dict) -> Dict:
             for child in body['children']:
                 if 'name' not in child or 'schoolCity' not in child:
                     return create_response(event, 400, {'message': 'Each child must have name and schoolCity'})
+                # A present-but-blank name used to pass -- 'name' in child was
+                # the whole check -- which is exactly the value the
+                # redaction pipeline has nothing to restore from. Reject it
+                # and log why: an unlogged validation rejection already made
+                # one real failure in this file undiagnosable.
+                if not isinstance(child['name'], str) or not child['name'].strip():
+                    print(f"Rejecting update_user_profile for userId {user_id}: blank or whitespace-only child name")
+                    return create_response(event, 400, {'message': 'Child name cannot be blank'})
                 if 'childId' not in child:
                     child['childId'] = str(uuid.uuid4())
-            
+
+            # Encrypt at rest, same as phone/city/parentName above.
             update_parts.append('children = :children')
-            expr_values[':children'] = body['children']
+            expr_values[':children'] = [
+                {**child, 'name': kms_encrypt_string(child['name'].strip())}
+                for child in body['children']
+            ]
         
         # If no fields to update (the first two parts are always the
         # updatedAt/updatedAtISO timestamps)
@@ -498,12 +525,19 @@ def add_child(event: Dict) -> Dict:
         # Validate required fields
         if 'name' not in body or 'schoolCity' not in body:
             return create_response(event, 400, {'message': 'Missing required fields: name and schoolCity required'})
-            
+
+        # A present-but-blank name would otherwise pass: reject it and log
+        # why, same rule and same reason as the children branch of
+        # update_user_profile.
+        if not isinstance(body['name'], str) or not body['name'].strip():
+            print(f"Rejecting add_child for userId {user_id}: blank or whitespace-only child name")
+            return create_response(event, 400, {'message': 'Child name cannot be blank'})
+
         # Generate new childId
         child_id = str(uuid.uuid4())
         new_child = {
             'childId': child_id,
-            'name': body['name'],
+            'name': kms_encrypt_string(body['name'].strip()),
             'schoolCity': body['schoolCity'],
             'createdAt': times['timestamp'],
             'createdAtISO': times['datetime'],
@@ -531,6 +565,13 @@ def add_child(event: Dict) -> Dict:
             'createdAtISO': times['datetime'],
         })
         
+    except FieldEncryptionError as e:
+        # Same rule as update_user_profile: never fall back to storing the
+        # child's name in plaintext.
+        print(f"Refusing to add child due to field encryption failure: {str(e)}")
+        return create_response(event, 503, {
+            'message': 'Could not add the child right now: encryption service error. Please try again later.'
+        })
     except Exception as e:
         print(f"Error in add_child: {str(e)}")
         return create_response(event, 500, {'message': 'Could not add the child. Please try again later.'})

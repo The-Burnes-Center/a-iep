@@ -7,6 +7,7 @@ import { Language } from '../../common/types';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useFeatures } from '../../common/hooks/use-features';
+import { isStudentNameMissing } from '../../common/features';
 import './ProfileForms.css';
 
 export default function PreferredLanguage() {
@@ -71,6 +72,16 @@ export default function PreferredLanguage() {
       // send them there instead of into the app
       if (!(data && data.consentGiven === true)) {
         navigate('/consent-form');
+        return;
+      }
+
+      // The student's name is asked FIRST (product call): a parent missing
+      // both names must see the child form before the parent-name form, so
+      // this check runs ahead of parentNameGate below rather than racing it.
+      // Dark in production until the redaction pipeline that makes this name
+      // load-bearing is verified there (common/features.ts).
+      if (isFeatureEnabled('studentNameGate') && isStudentNameMissing(data)) {
+        navigate('/view-update-add-child', { state: { onboardingContinue: true } });
         return;
       }
 

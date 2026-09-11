@@ -5,7 +5,9 @@ import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { UserProfile } from '../../common/types';
-import { useLanguage } from '../../common/language-context'; 
+import { useLanguage } from '../../common/language-context';
+import { useFeatures } from '../../common/hooks/use-features';
+import { isPlaceholderChildName } from '../../common/features';
 import './ProfileForms.css';
 
 export default function ViewAndAddChild() {
@@ -14,6 +16,7 @@ export default function ViewAndAddChild() {
   const iepDocumentClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const { isFeatureEnabled } = useFeatures();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +44,11 @@ export default function ViewAndAddChild() {
       // Check if the user has any children
       if (data.children && data.children.length > 0) {
         const firstChild = data.children[0];
-        setChildName(firstChild.name || '');
+        // A stored '' or the auto-created 'My Child' placeholder must not
+        // look like an answer: prefilling it would let a parent click Save
+        // without ever typing a real name, which the gate would then send
+        // them right back here to do.
+        setChildName(isPlaceholderChildName(firstChild.name) ? '' : firstChild.name);
         setSchoolCity(firstChild.schoolCity || '');
         setFirstChildId(firstChild.childId || null);
         setHasExistingChild(true);
@@ -119,6 +126,15 @@ export default function ViewAndAddChild() {
         // Don't fail the flow if this update fails
       }
       
+      // Onboarding order: the student's name comes first (product call), so
+      // once it is saved, check whether the parent-name gate is still owed
+      // before reaching the app -- otherwise a parent missing both names
+      // would clear this gate and skip the other one entirely.
+      if (isFeatureEnabled('parentNameGate') && !profile?.parentName) {
+        navigate('/account-center/profile', { state: { onboardingContinue: true } });
+        return;
+      }
+
       // Navigate based on whether user has existing documents
       if (hasExistingDocument) {
         // The legacy /welcome-page card hub is retired; Summary is the app home
@@ -168,7 +184,8 @@ export default function ViewAndAddChild() {
             <h2 className="text-center profile-title">
               {t('child.title')}
             </h2>
-            
+            <p className="text-muted text-center">{t('child.description')}</p>
+
             <Form>
               <Row className="mb-3">
                 <Col md={12}>

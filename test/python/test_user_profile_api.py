@@ -199,7 +199,11 @@ def test_get_profile_creates_default_when_missing(api):
     assert profile['consentGiven'] is False
     assert profile['showOnboarding'] is True
     assert len(profile['children']) == 1
-    assert profile['children'][0]['name'] == 'My Child'
+    # NOT 'My Child': that placeholder used to go here, but the redaction
+    # pipeline restores this value verbatim into the summary, so onboarding's
+    # studentNameGate must see a genuinely empty name until a parent supplies
+    # one (docs/STUDENT_NAME_REDACTION_PLAN.md).
+    assert profile['children'][0]['name'] == ''
     assert stored_profile(api) is not None  # persisted, not just returned
 
 
@@ -220,12 +224,53 @@ def test_get_profile_decrypts_pii_fields(api):
     assert stored_profile(api)['phone'] != '+16175551234'
 
 
+def test_get_profile_decrypts_child_name(api):
+    api.profiles.put_item(Item={
+        'userId': USER,
+        'children': [{'childId': 'c1', 'name': encrypt(api, 'Alex Rivera'), 'schoolCity': 'Boston'}],
+    })
+    status, body = call(api, '/profile', 'GET')
+    assert status == 200
+    assert body['profile']['children'][0]['name'] == 'Alex Rivera'
+    # At rest the field stays ciphertext
+    assert stored_profile(api)['children'][0]['name'] != 'Alex Rivera'
+
+
+def test_get_profile_reads_a_legacy_plaintext_child_name(api):
+    # Every row written before this change has a plaintext name; the decrypt
+    # helper must fall through to it rather than fail the whole profile read.
+    api.profiles.put_item(Item={
+        'userId': USER,
+        'children': [{'childId': 'c1', 'name': 'Kid', 'schoolCity': 'x'}],
+    })
+    status, body = call(api, '/profile', 'GET')
+    assert status == 200
+    assert body['profile']['children'][0]['name'] == 'Kid'
+
+
+def test_get_profile_reads_a_legacy_plaintext_name_shaped_like_base64(api):
+    # 'Alex' is 4 characters of base64 alphabet, so base64.b64decode('Alex')
+    # succeeds where 'Kid' (odd length) would raise -- this drives the
+    # decrypt attempt past the initial "does this even look like base64"
+    # check and into a real (failing) KMS call on garbage ciphertext, which
+    # must still fall back to the plaintext rather than surface an error or
+    # drop the name.
+    assert len(base64.b64decode('Alex')) > 0  # sanity: this name IS base64-shaped
+    api.profiles.put_item(Item={
+        'userId': USER,
+        'children': [{'childId': 'c1', 'name': 'Alex', 'schoolCity': 'x'}],
+    })
+    status, body = call(api, '/profile', 'GET')
+    assert status == 200
+    assert body['profile']['children'][0]['name'] == 'Alex'
+
+
 def test_get_profile_backfills_default_child(api):
     api.profiles.put_item(Item={'userId': USER, 'children': []})
     status, body = call(api, '/profile', 'GET')
     assert status == 200
-    assert body['profile']['children'][0]['name'] == 'My Child'
-    assert stored_profile(api)['children'][0]['name'] == 'My Child'
+    assert body['profile']['children'][0]['name'] == ''
+    assert stored_profile(api)['children'][0]['name'] == ''
 
 
 # ---------------------------------------------------------------------------
@@ -254,12 +299,30 @@ def test_update_profile_encrypts_pii_at_rest(api):
     ({'showOnboarding': 1}, 'must be a boolean'),
     ({}, 'No fields to update'),
     ({'children': [{'name': 'No City Kid'}]}, 'name and schoolCity'),
+    ({'children': [{'name': '', 'schoolCity': 'Boston'}]}, 'blank'),
+    ({'children': [{'name': '   ', 'schoolCity': 'Boston'}]}, 'blank'),
 ])
 def test_update_profile_validation(api, body, fragment):
     api.profiles.put_item(Item={'userId': USER})
     status, response = call(api, '/profile', 'PUT', body=body)
     assert status == 400
     assert fragment in response['message']
+
+
+def test_update_profile_rejects_blank_child_name_and_logs_it(api, capsys):
+    # Same rule as add_child, and the same reason: a present-but-blank name
+    # used to pass ('name' in child was the whole check), which is exactly
+    # the value the redaction pipeline has nothing to restore from. An
+    # unlogged validation rejection already made one real failure in this
+    # file undiagnosable, so the reason must reach CloudWatch.
+    api.profiles.put_item(Item={'userId': USER})
+    status, body = call(api, '/profile', 'PUT', body={
+        'children': [{'name': '   ', 'schoolCity': 'Boston'}],
+    })
+    assert status == 400
+    assert body['message'] == 'Child name cannot be blank'
+    assert 'blank or whitespace-only child name' in capsys.readouterr().out
+    assert stored_profile(api) == {'userId': USER}  # nothing written
 
 
 def test_update_profile_assigns_child_ids(api):
@@ -269,6 +332,41 @@ def test_update_profile_assigns_child_ids(api):
     })
     assert status == 200
     assert stored_profile(api)['children'][0]['childId']
+
+
+def test_update_profile_encrypts_child_name_at_rest(api):
+    api.profiles.put_item(Item={'userId': USER})
+    status, _ = call(api, '/profile', 'PUT', body={
+        'children': [{'name': 'Alex Rivera', 'schoolCity': 'Boston'}],
+    })
+    assert status == 200
+    stored = stored_profile(api)['children'][0]
+    assert stored['name'] != 'Alex Rivera'  # ciphertext at rest
+    decrypted = api.kms.decrypt(
+        CiphertextBlob=base64.b64decode(stored['name']))['Plaintext'].decode()
+    assert decrypted == 'Alex Rivera'
+
+
+def test_update_profile_trims_child_name_before_storing(api):
+    api.profiles.put_item(Item={'userId': USER})
+    status, _ = call(api, '/profile', 'PUT', body={
+        'children': [{'name': '  Alex Rivera  ', 'schoolCity': 'Boston'}],
+    })
+    assert status == 200
+    stored = stored_profile(api)['children'][0]
+    decrypted = api.kms.decrypt(
+        CiphertextBlob=base64.b64decode(stored['name']))['Plaintext'].decode()
+    assert decrypted == 'Alex Rivera'
+
+
+def test_update_profile_children_kms_outage_returns_503_not_plaintext(api, monkeypatch):
+    api.profiles.put_item(Item={'userId': USER})
+    monkeypatch.setattr(api.module, 'kms_key_alias', 'alias/does-not-exist')
+    status, body = call(api, '/profile', 'PUT', body={
+        'children': [{'name': 'Alex Rivera', 'schoolCity': 'Boston'}],
+    })
+    assert status == 503
+    assert 'children' not in (stored_profile(api) or {})
 
 
 def test_update_profile_kms_outage_returns_503_not_plaintext(api, monkeypatch):
@@ -336,19 +434,74 @@ def test_update_profile_language_sync_failure_is_non_blocking(api, monkeypatch):
 # POST /profile/children
 
 def test_add_child_appends(api):
-    profile_with_child(api)
+    profile_with_child(api)  # seeds 'Kid' directly, plaintext, bypassing add_child
     status, body = call(api, '/profile/children', 'POST',
                         body={'name': 'Second Kid', 'schoolCity': 'Cambridge'})
     assert status == 200
     assert body['childId']
     children = stored_profile(api)['children']
-    assert [child['name'] for child in children] == ['Kid', 'Second Kid']
+    assert children[0]['name'] == 'Kid'
+    # The new child went through add_child, which now encrypts at rest.
+    assert children[1]['name'] != 'Second Kid'
+    decrypted = api.kms.decrypt(
+        CiphertextBlob=base64.b64decode(children[1]['name']))['Plaintext'].decode()
+    assert decrypted == 'Second Kid'
 
 
 def test_add_child_requires_fields(api):
     profile_with_child(api)
     status, body = call(api, '/profile/children', 'POST', body={'name': 'Kid'})
     assert status == 400
+
+
+@pytest.mark.parametrize('name', ['', '   ', '\t\n'])
+def test_add_child_rejects_blank_name(api, name, capsys):
+    # A present-but-blank name used to pass ('name' in body was the whole
+    # check), which is exactly the value the redaction pipeline has nothing
+    # to restore from. This also pins that the rejection is logged: an
+    # unlogged validation rejection already made one real failure in this
+    # file undiagnosable.
+    profile_with_child(api)
+    before = stored_profile(api)
+    status, body = call(api, '/profile/children', 'POST',
+                        body={'name': name, 'schoolCity': 'Cambridge'})
+    assert status == 400
+    assert body['message'] == 'Child name cannot be blank'
+    assert stored_profile(api) == before  # no child appended
+    assert 'blank or whitespace-only child name' in capsys.readouterr().out
+
+
+def test_add_child_encrypts_name_at_rest(api):
+    profile_with_child(api)
+    status, body = call(api, '/profile/children', 'POST',
+                        body={'name': 'Second Kid', 'schoolCity': 'Cambridge'})
+    assert status == 200
+    stored = stored_profile(api)['children'][1]
+    assert stored['name'] != 'Second Kid'  # ciphertext at rest
+    decrypted = api.kms.decrypt(
+        CiphertextBlob=base64.b64decode(stored['name']))['Plaintext'].decode()
+    assert decrypted == 'Second Kid'
+
+
+def test_add_child_trims_the_name_before_storing(api):
+    profile_with_child(api)
+    status, _ = call(api, '/profile/children', 'POST',
+                     body={'name': '  Second Kid  ', 'schoolCity': 'Cambridge'})
+    assert status == 200
+    stored = stored_profile(api)['children'][1]
+    decrypted = api.kms.decrypt(
+        CiphertextBlob=base64.b64decode(stored['name']))['Plaintext'].decode()
+    assert decrypted == 'Second Kid'
+
+
+def test_add_child_kms_outage_returns_503_not_plaintext(api, monkeypatch):
+    profile_with_child(api)
+    monkeypatch.setattr(api.module, 'kms_key_alias', 'alias/does-not-exist')
+    status, body = call(api, '/profile/children', 'POST',
+                        body={'name': 'Second Kid', 'schoolCity': 'Cambridge'})
+    assert status == 503
+    # No second child appended with a plaintext name.
+    assert len(stored_profile(api)['children']) == 1
 
 
 def test_add_child_malformed_body_is_a_client_error(api):

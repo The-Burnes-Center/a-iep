@@ -47,8 +47,10 @@ describe('enabled features per environment', () => {
   const viteSource = fs.readFileSync(VITE_CONFIG, 'utf8');
 
   it('ships exactly referrals in production', () => {
-    // TTS and the parent-name gate are deliberately dark in prod. Referrals
-    // went live 2026-08-04.
+    // TTS, the student-name gate and the parent-name gate are deliberately
+    // dark in prod. Referrals went live 2026-08-04. The student-name gate
+    // stays dark until the redaction pipeline that makes the child's name
+    // load-bearing is verified in production too.
     expect(CDK_PROD_FEATURES).toEqual(['referrals']);
   });
 

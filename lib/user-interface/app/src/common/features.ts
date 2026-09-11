@@ -4,7 +4,7 @@
 // `enabledFeatures` in aws-exports.json (see common/types.ts,
 // common/hooks/use-features.ts and the build/deploy config in vite.config.ts /
 // lib/user-interface/index.ts) — the same mechanism as `enabledLanguages` in
-// ./languages.ts. Production deploys all of this code but keeps these three
+// ./languages.ts. Production deploys all of this code but keeps most of these
 // features dark, exactly like Arabic: the backend (TTS lambda, referral table
 // and routes) stays deployed and simply goes unused, so turning a feature on
 // later is a config flip, not a release, and prod never runs a different build
@@ -18,6 +18,15 @@ export type Feature =
   // and the /r/:code redirect are unconditional and harmless while no codes
   // are issued, so only the entry point is gated.
   | 'referrals'
+  // The onboarding redirect that forces a parent with no saved, non-default
+  // child name to fill one in before reaching the app. Checked FIRST,
+  // ahead of parentNameGate below: the product's explicit call is student
+  // name then parent name, never the reverse, so a parent missing both sees
+  // the child form before the parent-name form. See isStudentNameMissing.
+  // The pipeline that makes this name load-bearing (it becomes `{{S}}` in
+  // every summary) is a separate change; this flag stays dark in production
+  // until that half is verified there too.
+  | 'studentNameGate'
   // The onboarding redirect that forces a parent with no saved name to fill it
   // in before reaching the app. Only the referral console and referral links
   // display that name, so the prompt is pointless where referrals are dark.
@@ -33,7 +42,7 @@ export type Feature =
 
 // Master list, in a stable order. Add a feature here (plus the two build
 // configs) to make it gateable app-wide.
-export const ALL_FEATURES: Feature[] = ['tts', 'referrals', 'parentNameGate', 'passwordlessAuth'];
+export const ALL_FEATURES: Feature[] = ['tts', 'referrals', 'studentNameGate', 'parentNameGate', 'passwordlessAuth'];
 
 export const isFeature = (feature: unknown): feature is Feature =>
   typeof feature === 'string' && (ALL_FEATURES as string[]).includes(feature);
@@ -57,3 +66,29 @@ export const resolveEnabledFeatures = (
   const allowed = new Set(enabled.filter(isFeature));
   return ALL_FEATURES.filter((f) => allowed.has(f));
 };
+
+// --- studentNameGate ---------------------------------------------------
+
+// The literal name `getProfile` and the PostConfirmation trigger stamped onto
+// every child row before this gate existed. Real profiles carry it today, so
+// it is treated exactly like an empty name everywhere "no name given" is
+// decided: a parent who has only ever seen this placeholder has not, in the
+// sense that matters here, given a name yet.
+export const DEFAULT_CHILD_NAME = 'My Child';
+
+/**
+ * True for a name that does not count as a real one: blank, whitespace-only,
+ * or still the auto-created placeholder.
+ */
+export const isPlaceholderChildName = (name: string | null | undefined): boolean =>
+  !name || name.trim() === '' || name === DEFAULT_CHILD_NAME;
+
+/**
+ * True when the profile's first child (the only one onboarding collects;
+ * `children[0]` is assumed everywhere else in the app too) has no usable
+ * name. Shared by every studentNameGate check so "no name given" means the
+ * same thing at every one of them.
+ */
+export const isStudentNameMissing = (
+  profile: { children?: ReadonlyArray<{ name?: string | null }> } | null | undefined,
+): boolean => isPlaceholderChildName(profile?.children?.[0]?.name);

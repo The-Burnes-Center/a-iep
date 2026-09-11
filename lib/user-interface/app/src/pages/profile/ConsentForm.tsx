@@ -4,8 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { UserProfile } from '../../common/types';
-import { useLanguage } from '../../common/language-context'; 
+import { useLanguage } from '../../common/language-context';
 import { useFeatures } from '../../common/hooks/use-features';
+import { isStudentNameMissing } from '../../common/features';
 import './ProfileForms.css';
 
 export default function ConsentForm() {
@@ -58,14 +59,17 @@ export default function ConsentForm() {
       return;
     }
     
-    // If consent was already given, continue on; ask for the parent's name
-    // first if the profile still has none (referral links and the admin
-    // console show it, and nothing else in the flow collects it). Skipped
-    // where the parentNameGate feature is off, which is production: the only
-    // consumers of the name are the referral features, and those are dark
-    // there, so asking would collect something nothing displays.
+    // If consent was already given, continue on; ask for the student's name
+    // first, then the parent's, if the profile still has either missing
+    // (product call: student before parent, never the reverse). Each is
+    // skipped where its own gate is off, which is production today for both:
+    // the pipeline that makes the student's name load-bearing, and the
+    // referral features that are the only consumers of the parent's name,
+    // are both dark there, so asking would collect a value nothing uses yet.
     if (profile?.consentGiven) {
-      if (isFeatureEnabled('parentNameGate') && !profile?.parentName) {
+      if (isFeatureEnabled('studentNameGate') && isStudentNameMissing(profile)) {
+        navigate('/view-update-add-child', { state: { onboardingContinue: true } });
+      } else if (isFeatureEnabled('parentNameGate') && !profile?.parentName) {
         navigate('/account-center/profile', { state: { onboardingContinue: true } });
       } else {
         navigate('/iep-documents');
@@ -96,10 +100,12 @@ export default function ConsentForm() {
         // Don't fail the flow if this update fails
       }
       
-      // After saving consent: collect the parent's name if missing (nothing
-      // else in the flow asks for it), otherwise go to IEP documents. Same
-      // parentNameGate caveat as above.
-      if (isFeatureEnabled('parentNameGate') && !profile?.parentName) {
+      // After saving consent: collect the student's name first, then the
+      // parent's, if either is missing (nothing else in the flow asks for
+      // them), otherwise go to IEP documents. Same gating caveat as above.
+      if (isFeatureEnabled('studentNameGate') && isStudentNameMissing(profile)) {
+        navigate('/view-update-add-child', { state: { onboardingContinue: true } });
+      } else if (isFeatureEnabled('parentNameGate') && !profile?.parentName) {
         navigate('/account-center/profile', { state: { onboardingContinue: true } });
       } else {
         navigate('/iep-documents');

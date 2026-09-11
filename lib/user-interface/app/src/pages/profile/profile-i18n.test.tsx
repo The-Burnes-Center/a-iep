@@ -263,6 +263,7 @@ describe("the keys these screens depend on", () => {
     "common.saving",
     "common.tryAgain",
     "consent.error.saveFailedRetry",
+    "child.description",
     "child.error.updateFailed",
     "child.error.addFailed",
     "preferredLanguage.error.updateFailed",
