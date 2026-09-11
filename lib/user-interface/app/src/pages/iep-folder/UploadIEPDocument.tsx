@@ -1,5 +1,5 @@
 // UploadIEPDocument.tsx
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useRef } from 'react';
 import {
   Form,
   Button,
@@ -17,7 +17,28 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faFileAlt, faTimesCircle, faUpload } from '@fortawesome/free-solid-svg-icons';
 import { useLanguage } from '../../common/language-context';
 import { isLikelyEncryptedPdf } from '../../common/pdf-encryption';
+import PdfPasswordPromptModal from '../../components/PdfPasswordPromptModal';
 import './UploadIEPDocument.css';
+
+/**
+ * Local, per-file state for the password prompt pdf-decrypt.ts drives via its
+ * requestPassword callback. Not merged into the many standalone useState
+ * calls above: these three fields only ever change together (see
+ * requestPassword/handlePasswordSubmit/handlePasswordCancel below), so one
+ * object keeps them from drifting out of sync the way three separate
+ * setters could.
+ */
+interface PasswordPromptState {
+  isOpen: boolean;
+  isWrongPassword: boolean;
+  isChecking: boolean;
+}
+
+const CLOSED_PASSWORD_PROMPT: PasswordPromptState = {
+  isOpen: false,
+  isWrongPassword: false,
+  isChecking: false,
+};
 
 // Define allowed file types and MIME types
 const fileExtensions = new Set([".doc", ".docx", ".pdf"]);
@@ -46,7 +67,48 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [currentFileName, setCurrentFileName] = useState<string>("");
 
+  // True while an /Encrypt-flagged PDF is being opened client-side: the
+  // silent empty-password attempt, and (if that fails) verifying whatever
+  // the parent submits in the password prompt. Shown as neutral "checking"
+  // copy rather than nothing, so a multi-page rebuild does not look like a
+  // frozen file picker -- see pdf-decrypt.ts for why this can take a moment.
+  const [isCheckingFile, setIsCheckingFile] = useState<boolean>(false);
+  const [passwordPrompt, setPasswordPrompt] = useState<PasswordPromptState>(CLOSED_PASSWORD_PROMPT);
+  // Bridges pdf-decrypt.ts's requestPassword callback to this component's
+  // modal: holds the ONE pending attempt's resolver between "the modal is
+  // shown" and "the parent submitted or cancelled it". Never holds a
+  // password itself, only the function that hands one to the caller.
+  const passwordResolverRef = useRef<((password: string | null) => void) | null>(null);
+
   const { t } = useLanguage();
+
+  /**
+   * Passed to pdf-decrypt.ts's resolveEncryptedPdf as its requestPassword
+   * callback. Opens (or updates) the modal and returns a promise that
+   * settles when the parent acts, via the ref above -- resolved by
+   * handlePasswordSubmit/handlePasswordCancel, never by this function
+   * itself, since it has no way to know when that happens.
+   */
+  const requestPassword = (isWrongPassword: boolean): Promise<string | null> => {
+    setPasswordPrompt({ isOpen: true, isWrongPassword, isChecking: false });
+    return new Promise((resolve) => {
+      passwordResolverRef.current = resolve;
+    });
+  };
+
+  const handlePasswordSubmit = (password: string) => {
+    setPasswordPrompt((prev) => ({ ...prev, isChecking: true }));
+    const resolve = passwordResolverRef.current;
+    passwordResolverRef.current = null;
+    resolve?.(password);
+  };
+
+  const handlePasswordCancel = () => {
+    setPasswordPrompt(CLOSED_PASSWORD_PROMPT);
+    const resolve = passwordResolverRef.current;
+    passwordResolverRef.current = null;
+    resolve?.(null);
+  };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
@@ -66,8 +128,45 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
     // false, so a check that cannot run lets the upload proceed rather than
     // blocking a parent (see pdf-encryption.ts).
     } else if (fileExtension === '.pdf' && await isLikelyEncryptedPdf(selectedFile)) {
-      setFileError(t('upload.fileError.encrypted'));
-      setFile(null);
+      // pdf-decrypt.ts is dynamically imported here, not at module scope: it
+      // (and the pdfjs-dist/jsPDF it loads in turn) must never be fetched for
+      // the overwhelming majority of uploads that are not encrypted at all.
+      setIsCheckingFile(true);
+      try {
+        const { resolveEncryptedPdf } = await import('../../common/pdf-decrypt');
+        const outcome = await resolveEncryptedPdf(selectedFile, { requestPassword });
+        if (outcome.status === 'resolved') {
+          // Either the empty-password attempt worked (owner-restricted only,
+          // the parent never saw any of this) or a password they entered did.
+          // Either way, what lands here is a clean, already-decrypted file.
+          setFile(outcome.file);
+          setFileError(null);
+        } else if (outcome.status === 'cancelled') {
+          // The parent chose not to enter a password. Leave them exactly
+          // where a fresh file picker would: no file staged, no error either
+          // -- they backed out, they did not fail at something.
+          setFile(null);
+          setFileError(null);
+        } else {
+          // pdf.js could not be loaded, or the file could not be opened at
+          // all (corrupt, unsupported encryption). The one thing that has
+          // always worked -- save an unprotected copy -- is still true.
+          setFile(null);
+          setFileError(t('upload.fileError.encrypted'));
+        }
+      } catch {
+        // resolveEncryptedPdf's own contract is to resolve 'failed' rather
+        // than throw for every internal error; this only catches a bug in
+        // that contract, or the dynamic import itself failing outright (the
+        // chunk could not be fetched at all). Never a silent swallow: the
+        // parent still gets an actionable message, the same one they would
+        // have gotten before this feature existed.
+        setFile(null);
+        setFileError(t('upload.fileError.encrypted'));
+      } finally {
+        setIsCheckingFile(false);
+        setPasswordPrompt(CLOSED_PASSWORD_PROMPT);
+      }
     } else {
       setFile(selectedFile);
       setFileError(null);
@@ -161,7 +260,7 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
                   type="file"
                   id="fileUpload"
                   onChange={handleFileChange}
-                  disabled={uploadStatus === 'uploading'}
+                  disabled={uploadStatus === 'uploading' || isCheckingFile || passwordPrompt.isOpen}
                 />
                 <div className={`seamless-file-container ${uploadStatus === 'uploading' ? 'disabled' : ''}`}>
                   <span className="seamless-file-button">
@@ -172,6 +271,11 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
                   </span>
                 </div>
               </div>
+              {isCheckingFile && !passwordPrompt.isOpen && (
+                <Form.Text className="text-muted" data-testid="checking-file-indicator">
+                  {t('upload.checkingFile')}
+                </Form.Text>
+              )}
               {fileError && (
                 <Form.Text className="text-danger">
                   {fileError}
@@ -237,6 +341,14 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
               </Button>
             </div>
           </Form>
+
+          <PdfPasswordPromptModal
+            show={passwordPrompt.isOpen}
+            wrongPassword={passwordPrompt.isWrongPassword}
+            checking={passwordPrompt.isChecking}
+            onSubmit={handlePasswordSubmit}
+            onCancel={handlePasswordCancel}
+          />
     </Container>
   );
 };

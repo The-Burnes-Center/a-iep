@@ -11,6 +11,11 @@ interface PasswordInputProps {
   showPassword: boolean;
   onToggleVisibility: () => void;
   required?: boolean;
+  /** Left to the browser's own heuristics (undefined) unless a caller has a
+   * reason to be explicit -- e.g. a one-off file password, which is not an
+   * account credential and should not be offered for the browser's saved-
+   * password prompts the way a login or new-account password is. */
+  autoComplete?: string;
 }
 
 const PasswordInput: React.FC<PasswordInputProps> = ({
@@ -20,7 +25,8 @@ const PasswordInput: React.FC<PasswordInputProps> = ({
   onChange,
   showPassword,
   onToggleVisibility,
-  required = false
+  required = false,
+  autoComplete
 }) => {
   return (
     <Form.Group className="password-input-container mb-3">
@@ -32,7 +38,8 @@ const PasswordInput: React.FC<PasswordInputProps> = ({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           required={required}
-          className="password-input-control" 
+          autoComplete={autoComplete}
+          className="password-input-control"
         />
         <Button 
           variant="outline-secondary"

@@ -77,6 +77,13 @@
  * This fails open, not closed, deliberately the opposite of PII redaction
  * elsewhere in this app, because the consequence of being wrong runs the
  * other way: there is no student data at risk in a file we decline to flag.
+ *
+ * What happens to a file this flags is no longer "always refused": see
+ * pdf-decrypt.ts. That module is what turns the known, accepted false
+ * positive above (an empty-user-password / owner-restricted file) into a
+ * silent, automatic fix instead of a dead end, and offers a password prompt
+ * for a real user password before falling back to refusing the file, which
+ * is the only thing this module has ever been able to do on its own.
  */
 
 /**
@@ -124,8 +131,12 @@ function bytesToBinaryString(bytes: Uint8Array): string {
  * jsdom 24) implements -- jsdom does not implement `Blob.arrayBuffer()` at
  * all, checked directly against this repo's installed version -- so this
  * keeps the function testable without a jsdom-version-specific workaround.
+ *
+ * Exported because pdf-decrypt.ts (the password-entry/rebuild flow this
+ * module's detection feeds into) needs the exact same jsdom-safe read of a
+ * whole File's bytes, not just a tail slice. One implementation, one reason.
  */
-function readBlobAsArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
+export function readBlobAsArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as ArrayBuffer);
