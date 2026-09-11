@@ -493,6 +493,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     setError,
     setInitialLoading,
     processDocumentSections,
+    loadErrorMessage: t('summary.error.loadFailed'),
     // Refetch the moment a translation request starts, and keep the existing
     // poller alive until it finishes, even if the status read lags behind.
     forcePolling: isTranslatingOnDemand
@@ -769,6 +770,12 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     
     const isEnglishTab = lang === 'en';
 
+    // "We asked and there is none" is not the same thing as "we could not
+    // ask". While a read is failing, an empty document tells us nothing, so
+    // the page must not invite a parent to throw a healthy one away and
+    // re-upload it. The error alert above says what actually happened.
+    const emptinessIsTrustworthy = !error;
+
     // Content direction follows the CONTENT language, not the UI language
     // (e.g. Arabic UI viewing the English tab stays LTR, and vice versa)
     return (
@@ -838,10 +845,10 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               </Card.Body>
             </Card>
           </>
-        ) : (
-          <Alert variant="info">
+        ) : emptinessIsTrustworthy && (
+          <Alert variant="info" data-testid="summary-empty">
             <h5>
-              {isEnglishTab 
+              {isEnglishTab
                 ? t('summary.noSummary.title')
                 : t('summary.noTranslatedSummary.title')}
             </h5>
@@ -926,8 +933,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               ))}
             </Accordion>
           </>
-        ) : (
-          <Alert variant="info">
+        ) : emptinessIsTrustworthy && (
+          <Alert variant="info" data-testid="sections-empty">
             <h5>
               {isEnglishTab
                 ? t('summary.noSections.title')
@@ -1248,8 +1255,11 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                           )}
                         </Tabs>
                         
-                        {!hasContent('en') && !hasContent(preferredLanguage) && (
-                          <Alert variant="info">
+                        {/* !error for the same reason as in renderTabContent:
+                            a failed read makes the document look empty, and a
+                            parent must not be told to re-upload on that basis. */}
+                        {!error && !hasContent('en') && !hasContent(preferredLanguage) && (
+                          <Alert variant="info" data-testid="no-content-available">
                             <h5>{t('summary.noContentAvailable.title')}</h5>
                             <p>{t('summary.noContentAvailable.message')}</p>
                             <Button 

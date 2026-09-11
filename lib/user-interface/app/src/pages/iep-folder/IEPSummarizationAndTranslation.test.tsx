@@ -92,6 +92,13 @@ const translatedDocument = () =>
 
 /** Mutable so a later poll can answer differently from the first read. */
 let documentPayload: Record<string, unknown>;
+/**
+ * How many of the next document reads throw instead of answering.
+ *
+ * A network blip on a parent's phone, which is the failure the page has to
+ * survive: `fetch` rejects, so nothing about the document is known.
+ */
+let documentReadFailures: number;
 /** What the translations endpoint answers, or a throw for a network failure. */
 let translationsAnswer: StubResponse | Error;
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -172,6 +179,7 @@ beforeEach(async () => {
     tokens: { idToken: { toString: () => "id-token", payload: {} } },
   });
   documentPayload = englishOnlyDocument();
+  documentReadFailures = 0;
   translationsAnswer = jsonResponse(202, {
     status: "PROCESSING_TRANSLATIONS",
     language: "es",
@@ -190,7 +198,13 @@ beforeEach(async () => {
         },
       });
     }
-    if (url === DOCUMENTS_URL) return jsonResponse(200, documentPayload);
+    if (url === DOCUMENTS_URL) {
+      if (documentReadFailures > 0) {
+        documentReadFailures -= 1;
+        throw new TypeError("Failed to fetch");
+      }
+      return jsonResponse(200, documentPayload);
+    }
     if (url === TRANSLATIONS_URL) {
       if (translationsAnswer instanceof Error) throw translationsAnswer;
       return translationsAnswer;
@@ -659,5 +673,121 @@ describe("the English content stays readable while a translation runs", () => {
     await settle();
 
     expect(screen.queryAllByTestId("summary-section")).toHaveLength(0);
+  });
+});
+
+describe("when the document read fails", () => {
+  // The whole point of the change: the hook's catch used to be a single
+  // commented-out console.error, so a blip on a parent's phone was
+  // indistinguishable from "this document has nothing in it".
+  const LOAD_FAILED = "summary.error.loadFailed";
+  /** How many failed reads keep the retry interval alive (useDocumentFetch). */
+  const RETRY_BUDGET = 5;
+
+  let consoleError: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    // The hook logs the underlying error on purpose. Keep it out of the run's
+    // output, and out of the assertions: what it logged is not the contract.
+    consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleError.mockRestore();
+  });
+
+  test("says so, instead of offering to re-upload a document it never read", async () => {
+    documentReadFailures = 1;
+    renderPage();
+    await settle();
+
+    expect(screen.getByText(LOAD_FAILED)).toBeInTheDocument();
+    // The reported harm: "No Summary Available" plus a button inviting a
+    // parent to throw a perfectly good document away.
+    expect(screen.queryByTestId("summary-empty")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("sections-empty")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("no-content-available")).not.toBeInTheDocument();
+    expect(screen.queryByText("summary.reuploadButton")).not.toBeInTheDocument();
+  });
+
+  test("a processing document is still polled after a poll throws", async () => {
+    documentPayload = englishOnlyDocument({ status: "PROCESSING" });
+    renderPage();
+    await settle();
+    const afterFirstRead = countCalls(DOCUMENTS_URL);
+
+    documentReadFailures = 1;
+    await settle(POLL_INTERVAL_MS);
+    expect(countCalls(DOCUMENTS_URL)).toBe(afterFirstRead + 1);
+
+    // REGRESSION, and the reason this is the worst of the two harms. The
+    // effect's cleanup stops the interval on every tick and the restart used
+    // to sit after the await inside the try, so one throw ended the wait for
+    // good: no error, no spinner change, nothing ever arriving.
+    await settle(POLL_INTERVAL_MS);
+    expect(countCalls(DOCUMENTS_URL)).toBe(afterFirstRead + 2);
+    await settle(POLL_INTERVAL_MS);
+    expect(countCalls(DOCUMENTS_URL)).toBe(afterFirstRead + 3);
+  });
+
+  test("a read that recovers clears the message and shows the document", async () => {
+    documentReadFailures = 1;
+    renderPage();
+    await settle();
+    expect(screen.getByText(LOAD_FAILED)).toBeInTheDocument();
+
+    await settle(POLL_INTERVAL_MS);
+
+    // A PROCESSED document is not polled otherwise (see the forcePolling
+    // block above), so the retry itself is what produced this.
+    expect(screen.queryByText(LOAD_FAILED)).not.toBeInTheDocument();
+    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(ENGLISH_SUMMARY);
+  });
+
+  test("retrying is bounded when the server never said work was in flight", async () => {
+    documentReadFailures = Number.MAX_SAFE_INTEGER;
+    renderPage();
+    await settle();
+
+    // One interval at a time: each tick's restart happens in the effect that
+    // the tick's own state update schedules, so a single long advance would
+    // only ever see the first one.
+    for (let tick = 0; tick < RETRY_BUDGET; tick += 1) {
+      await settle(POLL_INTERVAL_MS);
+    }
+    const afterBudget = countCalls(DOCUMENTS_URL);
+    expect(afterBudget).toBe(1 + RETRY_BUDGET);
+
+    // Nobody is waiting on a pipeline here, so the page stops asking rather
+    // than hammering a backend that is already having a bad day.
+    for (let tick = 0; tick < 3; tick += 1) {
+      await settle(POLL_INTERVAL_MS);
+    }
+    expect(countCalls(DOCUMENTS_URL)).toBe(afterBudget);
+    expect(screen.getByText(LOAD_FAILED)).toBeInTheDocument();
+  });
+
+  test("leaving the page and returning mid-failure rebuilds from the server", async () => {
+    renderPage("es", "/summary-and-translations");
+    await settle();
+    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(ENGLISH_SUMMARY);
+
+    // The blip lands on the read the remount does, which is the one that
+    // decides what a returning parent sees.
+    documentReadFailures = 1;
+    fireEvent.click(screen.getByRole("button", { name: NAV_TO_ACCOUNT }));
+    await settle();
+    expect(screen.getByText(ACCOUNT_LANDING)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: NAV_TO_SUMMARY }));
+    await settle();
+
+    expect(screen.getByText(LOAD_FAILED)).toBeInTheDocument();
+    expect(screen.queryByTestId("summary-empty")).not.toBeInTheDocument();
+
+    // And the state comes back from the payload, not from anything the
+    // unmounted page was holding.
+    await settle(POLL_INTERVAL_MS);
+    expect(screen.queryByText(LOAD_FAILED)).not.toBeInTheDocument();
+    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(ENGLISH_SUMMARY);
   });
 });

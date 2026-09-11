@@ -18,6 +18,16 @@ export interface FetchedIEPDocument extends Partial<Omit<IEPDocument, 'sections'
   };
 }
 
+/**
+ * How many consecutive failed reads keep the retry interval alive.
+ *
+ * Only used when the last status we heard from the server was terminal (or we
+ * never got one). A document the server said was still processing keeps being
+ * polled for as long as the parent stays on the page, because that is the wait
+ * they are actually here for.
+ */
+const MAX_CONSECUTIVE_FETCH_RETRIES = 5;
+
 interface UseDocumentFetchParams {
   translationsLoaded: boolean;
   document: IEPDocument;
@@ -26,6 +36,14 @@ interface UseDocumentFetchParams {
   setError: React.Dispatch<React.SetStateAction<string | null>>;
   setInitialLoading: React.Dispatch<React.SetStateAction<boolean>>;
   processDocumentSections: (doc: FetchedIEPDocument) => void;
+  /**
+   * Already-translated wording for "we could not read the document".
+   *
+   * Passed in rather than looked up here so the hook stays free of the
+   * language context, and so `error` is a renderable string everywhere the
+   * page already renders it.
+   */
+  loadErrorMessage: string;
   /**
    * Keep polling even when the fetched status looks terminal, and refetch as
    * soon as this flips.
@@ -46,12 +64,28 @@ export const useDocumentFetch = ({
   setError,
   setInitialLoading,
   processDocumentSections,
+  loadErrorMessage,
   forcePolling = false
 }: UseDocumentFetchParams) => {
   const isFirstRender = useRef<boolean>(true);
 
   const [refreshCounter, setRefreshCounter] = useState<number>(0);
-  
+
+  /**
+   * The last status the SERVER gave us, kept across ticks.
+   *
+   * The effect's cleanup stops the interval on every dependency change, and
+   * `refreshCounter` is a dependency, so each poll tick tears the interval down
+   * and depends on the next read to rebuild it. Deciding that from a local
+   * `retrievedDocument` meant one thrown fetch ended the wait permanently: a
+   * parent watching a processing document waited forever, with no error and no
+   * change on screen. The server owns the state of server work, so the decision
+   * is made from the last thing the server said, not from whether this one read
+   * happened to succeed.
+   */
+  const lastKnownDocumentRef = useRef<Pick<IEPDocument, 'status'> | null>(null);
+  const consecutiveFailuresRef = useRef<number>(0);
+
 
   const { pollingManager } = usePollingManager();
 
@@ -113,10 +147,6 @@ export const useDocumentFetch = ({
             return prev;
           });
           
-          pollingManager.startPollingIfProcessing(retrievedDocument, () => {
-            setRefreshCounter(prev => prev + 1);
-          }, forcePolling);
-          
           if (retrievedDocument.status === "PROCESSING_TRANSLATIONS" || retrievedDocument.status === "PROCESSED") {
             
             setDocument(prev => ({
@@ -161,10 +191,28 @@ export const useDocumentFetch = ({
           }));
         }
         
+        lastKnownDocumentRef.current = retrievedDocument ?? null;
+        consecutiveFailuresRef.current = 0;
         setError(null);
       } catch (err) {
-        // console.error('Error fetching document:', err);
+        consecutiveFailuresRef.current += 1;
+        // The error itself only — never the response body, which is the
+        // document. A swallowed failure here left the parent looking at "No
+        // summary available" and a Re-upload button for a healthy document.
+        console.error('Could not read the IEP document:', err);
+        setError(loadErrorMessage);
       } finally {
+        // Runs on both paths on purpose: see lastKnownDocumentRef above. A
+        // failed read keeps the interval alive so the next tick retries, and
+        // once a read succeeds the status rule takes over again and stops it.
+        const shouldRetryAfterFailure =
+          consecutiveFailuresRef.current > 0 &&
+          consecutiveFailuresRef.current <= MAX_CONSECUTIVE_FETCH_RETRIES;
+
+        pollingManager.startPollingIfProcessing(lastKnownDocumentRef.current, () => {
+          setRefreshCounter(prev => prev + 1);
+        }, forcePolling || shouldRetryAfterFailure);
+
         if (initialLoading) {
           setInitialLoading(false);
         }
