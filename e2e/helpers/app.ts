@@ -42,6 +42,8 @@ export const EN = {
   sessionFailed: 'Invalid verification code. Please try again.',
   preferEnglish: 'I prefer English',
   agreeAndContinue: 'AGREE AND CONTINUE',
+  saveAndContinue: 'Save & Continue',
+  welcomeContinue: 'Continue',
   updateProfile: 'Update Profile',
   navigateToAccount: 'Navigate to Account',
   deleteYourAccount: 'Delete your account',
@@ -252,9 +254,18 @@ const ONBOARDING_DEADLINE_MS = 120_000;
  *
  * Implemented as a URL-keyed state machine polled in a loop rather than a
  * fixed click script, because how much onboarding appears depends on the
- * account's history: a fresh account sees language pick -> consent -> name,
- * the stable user usually sees nothing, and an account that died mid-
- * onboarding on a previous run resumes somewhere in the middle.
+ * account's history: a fresh account sees language pick -> consent ->
+ * student name -> parent name, an account whose parent name is already on
+ * file gets a welcome screen in place of that last step, the stable user
+ * usually sees nothing, and an account that died mid-onboarding on a
+ * previous run resumes somewhere in the middle.
+ *
+ * The two name steps are flag-dependent, not dead code: `studentNameGate`
+ * and `parentNameGate` (lib/user-interface/app/src/common/features.ts) are
+ * on outside prod and dark in prod, so a run against staging sees both
+ * screens and one against production sees neither. Every branch below keys
+ * on the URL plus an isVisible() check and never on the flags, which is what
+ * lets one helper drive either configuration.
  *
  * (Until 2026-07-29 this also had to bypass a third-party JotForm survey
  * that /preferred-language showed to profiles with neither a language nor
@@ -288,6 +299,39 @@ export async function completeOnboardingIfShown(page: Page): Promise<string> {
           // (consent save, default child, showOnboarding=false); wait out
           // the navigation so the loop cannot double-submit.
           await page.waitForURL((url) => url.pathname !== '/consent-form', { timeout: 30_000 });
+          continue;
+        }
+      } else if (path === '/view-update-add-child') {
+        // The student-name step (ViewAndAddChild), which both onboarding
+        // routes into ahead of the parent-name step when studentNameGate is
+        // on. Nothing here reads the flag: where it is dark the screen never
+        // appears and this branch simply never fires.
+        const childNameInput = page.locator('#formChildName');
+        if (await childNameInput.isVisible()) {
+          await childNameInput.fill('E2E Test Child');
+          // Save & Continue stays disabled until BOTH fields hold something.
+          // Consent auto-creates the child with a school city, but a profile
+          // whose child predates that, or whose creation failed, has it
+          // blank, and the loop would then spin on a permanently dead button.
+          await page.locator('#formSchoolCity').fill('E2E Test City');
+          await page.getByRole('button', { name: EN.saveAndContinue }).click();
+          // Saving chains the child write, showOnboarding=false and the
+          // parent-name check before it routes; wait the navigation out so
+          // the loop cannot double-submit.
+          await page.waitForURL((url) => url.pathname !== '/view-update-add-child', { timeout: 30_000 });
+          continue;
+        }
+      } else if (path === '/welcome-intro') {
+        // Where the student-name step lands an account that owes no parent
+        // name and has no document yet, so it arrived with that step. Its
+        // Continue writes showOnboarding=false and routes to /iep-documents.
+        // exact: true because 'Continue' is a substring of two other
+        // onboarding buttons, and a case-insensitive substring match would
+        // make this locator claim them.
+        const welcomeContinue = page.getByRole('button', { name: EN.welcomeContinue, exact: true });
+        if (await welcomeContinue.isVisible()) {
+          await welcomeContinue.click();
+          await page.waitForURL((url) => url.pathname !== '/welcome-intro', { timeout: 30_000 });
           continue;
         }
       } else if (path === '/account-center/profile') {
