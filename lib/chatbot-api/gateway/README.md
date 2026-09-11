@@ -29,8 +29,11 @@ The following endpoints are configured in the main ChatBotApi stack:
 - `/profile` (GET, PUT, DELETE): User profile management and deletion
 - `/profile/children` (POST): Add children to user profiles
 - `/profile/children/{childId}/documents` (GET, DELETE): Manage child documents
-- `/documents/{iepId}/status` (GET): Check document processing status
-- `/summary` (POST): Generate document summaries
+
+`/documents/{iepId}/status` (GET) and `/summary` (POST) are declared in
+`chatbot-api/index.ts` but the profile handler registers neither, so both 404
+through `RouteNotFoundException`. They are listed here only so the next person
+does not go looking for the handler.
 
 ### Security Features
 

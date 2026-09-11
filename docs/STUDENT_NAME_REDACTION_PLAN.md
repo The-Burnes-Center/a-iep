@@ -105,6 +105,22 @@ The existing `_SAFE_LOG_FIELDS` allowlist in each step handler stays as it is.
 
 ## Where the swap happens
 
+**Superseded 2026-09-11 (`8303344`).** The plan below put the swap in
+`finalize_results`, which wrote the real name into stored content. That is what
+made the on-demand add-a-language path a leak: it re-reads the stored English,
+so every language a parent added sent the name to the model this feature exists
+to keep it away from.
+
+Stored content now keeps `{{S}}` permanently and **every reader substitutes on
+the way out**: `user-profile-handler` for the documents API and `tts-handler`
+before synthesis, each with its own `student_name_substitution.py`. The
+on-demand path needs no special case as a result, and correcting a misspelled
+name fixes every summary a parent already has. Documents written before the
+redaction hold real names and no token, so substitution is a no-op on them.
+
+The rest of this section describes the original design and is kept for the
+reasoning about where content lives, which still holds.
+
 In `finalize_results`, via a new `restore_student_name` operation on the DDB service
 (`metadata-handler/ddb-service/handler.py:114`), invoked before the row is
 marked `PROCESSED`.
@@ -168,7 +184,7 @@ it is not left as `'My Child'`.
 |---|---|
 | `comprehend_redactor` | Student name in all four OCR spellings becomes `{{S}}`; every other name becomes `[NAME]`; no name survives in the output |
 | `comprehend_redactor` | Comprehend error still fails the step. Mutation-check it: break the raise, watch the test fail, restore, say so |
-| `restore_student_name` | Inline row and S3-backed row both restore; all five languages; missing token; mangled token; no profile name falls back to the localized phrase |
+| read-time substitution | Both readers substitute; all five languages; missing token; mangled token; no profile name falls back to the localized phrase; stored content unchanged; TTS substitutes before the cache key is derived, so a corrected name misses the cache |
 | `translate_content` | A dropped or mangled `{{S}}` fails the step |
 | `user-profile-handler` | Blank and whitespace-only child name rejected with a logged reason; child name encrypted on write; plaintext legacy row still decrypts |
 | `test/infra/` | KMS decrypt granted to the DDB service and no wider; `studentNameGate` absent from the production `enabledFeatures` |
