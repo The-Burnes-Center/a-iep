@@ -60,7 +60,13 @@ def redact_single_text(text, language_code="en"):
         # purges the raw copies right after. Raising fails the step instead:
         # Step Functions retries it, and persistent failure routes to
         # RecordFailure, which purges every unredacted artifact.
-        print(f"Comprehend detect_pii_entities failed: {str(e)}")
+        # Class name only. This function's input IS OCR text, so an exception
+        # raised while redacting it is a direct route for that text into
+        # CloudWatch -- boto3 and threading exceptions both quote the value
+        # they choked on. Same reduction as the step handlers' outer catch-alls
+        # (delete_original/handler.py); no pydantic here, so no richer summary
+        # is available or needed for triage.
+        print(f"Comprehend detect_pii_entities failed: {type(e).__name__}")
         raise
 
 
@@ -126,7 +132,9 @@ def redact_pii_from_texts(texts: List[str], language_code: str = "en") -> Tuple[
                 # Fail closed (see redact_single_text): a page that cannot be
                 # redacted fails the whole step rather than falling back to
                 # the original unredacted text.
-                print(f"PII redaction failed for page {idx}: {e}")
+                # Class name only; see redact_single_text. The page index is
+                # safe and is the one thing worth keeping for triage.
+                print(f"PII redaction failed for page {idx}: {type(e).__name__}")
                 raise
     
     elapsed_time = time.time() - start_time

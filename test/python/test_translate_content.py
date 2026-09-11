@@ -259,3 +259,38 @@ def test_outer_catch_all_never_logs_the_rejected_value(handler_module, monkeypat
     assert SENTINEL not in logged
     assert 'Traceback (most recent call last)' not in logged
     assert 'Exception' in logged  # the class name survives
+
+
+# --- translate_content_with_agent's catch-all -------------------------------
+#
+# f48b08f introduced _safe_error_summary and used it for every validation
+# except in translation_agent.py, but missed this one. It matters more than
+# the others: the dict it returns is not just logged, it is surfaced by the
+# caller and lands on the document row as error_message, so a raw str(e) here
+# persists translated document text instead of merely printing it.
+
+def test_agent_translation_failure_neither_logs_nor_returns_the_document_text(
+        translation_module, monkeypatch, caplog):
+    caplog.set_level(logging.INFO)
+
+    agent = translation_module.module.OptimizedTranslationAgent()
+
+    # _get_optimized_prompt is the first statement inside the try, so raising
+    # here is the cheapest way to land in the catch-all carrying a value that
+    # must not survive. Patching Runner instead would not work: this module
+    # loads a language file before it ever reaches Runner, and the resulting
+    # FileNotFoundError would be the exception under test rather than ours.
+    def _boom(target_language, content_type):
+        raise RuntimeError(SENTINEL)
+    monkeypatch.setattr(agent, '_get_optimized_prompt', _boom)
+
+    result = agent.translate_content_with_agent(
+        {'sections': [{'title': 'Goals', 'content': SENTINEL, 'page_numbers': [1]}]},
+        'es',
+        content_type='sections',
+    )
+
+    assert SENTINEL not in caplog.text
+    # The returned body is the half that persists; assert it separately.
+    assert SENTINEL not in json.dumps(result)
+    assert 'RuntimeError' in result['error']

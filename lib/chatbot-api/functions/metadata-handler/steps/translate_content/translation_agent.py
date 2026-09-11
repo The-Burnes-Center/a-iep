@@ -120,8 +120,13 @@ class OptimizedTranslationAgent:
             return translated_content
             
         except Exception as e:
-            logger.error(f"Agent-based translation failed: {str(e)}")
-            return {"error": f"Translation failed: {str(e)}"}
+            # _safe_error_summary, like every other except in this file. These
+            # two were missed when it was introduced. The returned dict matters
+            # as much as the log line: callers surface it, and it reaches the
+            # document row as error_message, so a raw str(e) here persists
+            # translated document text rather than merely printing it.
+            logger.error(f"Agent-based translation failed: {_safe_error_summary(e)}")
+            return {"error": f"Translation failed: {_safe_error_summary(e)}"}
 
     def _get_optimized_prompt(self, target_language, content_type):
         """Generate optimized prompt for single-language translation"""

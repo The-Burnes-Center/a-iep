@@ -296,9 +296,8 @@ def test_outer_catch_all_never_logs_the_rejected_value(redact, monkeypatch, caps
     rejected value could reach CloudWatch after f48b08f's fixes elsewhere in
     the pipeline. The ddb-service invoke is made to fail directly (rather
     than routing the sentinel through Comprehend) so this pins only the
-    outer handler.py catch-all: comprehend_redactor.py's own internal
-    per-page catch (a separate, pre-existing str(e) of its own) is out of
-    scope for this fix and would otherwise muddy what this test is proving."""
+    outer handler.py catch-all rather than comprehend_redactor.py's own
+    internal catches, which have their own coverage below."""
     def _boom(payload):
         raise Exception(SENTINEL)
     fake = FakeLambdaClient(_boom)
@@ -311,3 +310,45 @@ def test_outer_catch_all_never_logs_the_rejected_value(redact, monkeypatch, caps
     assert SENTINEL not in logged
     assert 'Traceback (most recent call last)' not in logged
     assert 'Exception' in logged  # the class name survives
+
+
+# --- comprehend_redactor's own catches --------------------------------------
+#
+# This module's input IS OCR text -- redacting it is the whole job -- so an
+# exception raised in here is a direct route for a child's document into
+# CloudWatch. boto3 and threading exceptions both quote the value they choked
+# on. Both sites printed it verbatim until this was fixed; the two tests below
+# are what stop it coming back.
+
+def _comprehend_raises_sentinel(redact):
+    """Make the next detect_pii_entities blow up carrying the sentinel."""
+    def _boom(Text, LanguageCode):
+        raise RuntimeError(SENTINEL)
+    redact.comprehend.detect_pii_entities = _boom
+
+
+def test_single_text_failure_never_logs_the_text_it_choked_on(redact, capsys):
+    _comprehend_raises_sentinel(redact)
+
+    with pytest.raises(RuntimeError):
+        redact.redactor.redact_single_text('SSN 123-45-6789')
+
+    logged = capsys.readouterr().out
+    assert SENTINEL not in logged
+    # The class name is the triage signal that must survive: without it the
+    # line says a redaction failed and nothing about why.
+    assert 'RuntimeError' in logged
+
+
+def test_page_failure_never_logs_the_text_it_choked_on(redact, capsys):
+    _comprehend_raises_sentinel(redact)
+
+    with pytest.raises(RuntimeError):
+        redact.redactor.redact_pii_from_texts(['page one', 'page two'])
+
+    logged = capsys.readouterr().out
+    assert SENTINEL not in logged
+    assert 'RuntimeError' in logged
+    # The page index is safe and worth keeping -- it is how you tell a
+    # one-page glitch from a document-wide failure.
+    assert 'page 0' in logged
