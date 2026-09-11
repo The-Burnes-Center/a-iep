@@ -11,17 +11,37 @@ from translation_agent import OptimizedTranslationAgent
 # FERPA-protected document content (OCR text, parsed sections, translated
 # content) as the workflow evolves; dumping the whole event would expose it
 # to anyone with CloudWatch log access.
+# s3_key is deliberately NOT in this allowlist: the key is
+# userId/childId/iepId/<filename>, and parents routinely name an IEP after
+# their child, so the filename is student data. It is logged separately below
+# with the filename stripped (see _safe_key).
 _SAFE_LOG_FIELDS = (
-    'iep_id', 'child_id', 'user_id', 's3_bucket', 's3_key', 'current_step',
+    'iep_id', 'child_id', 'user_id', 's3_bucket', 'current_step',
     'progress', 'status', 'content_type', 'target_languages', 'translation_needed',
 )
+
+
+def _safe_key(key):
+    """An S3 key with the parent-chosen filename removed.
+
+    The key is userId/childId/iepId/filename, and only the last segment is
+    typed by a human. Mirrors metadata-handler/orchestrator.py's helper of the
+    same name.
+    """
+    if not isinstance(key, str):
+        return '<no key>'
+    head, sep, _filename = key.rpartition('/')
+    return f'{head}/...' if sep else '...'
 
 
 def _safe_event_meta(event):
     """Return only the allowlisted, non-sensitive fields from the event."""
     if not isinstance(event, dict):
         return {'_type': type(event).__name__}
-    return {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+    meta = {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+    if 's3_key' in event:
+        meta['s3_key'] = _safe_key(event['s3_key'])
+    return meta
 
 
 def lambda_handler(event, context):
@@ -84,7 +104,18 @@ def lambda_handler(event, context):
             raise Exception(f"Failed to parse DDB service response as JSON: {e}")
         
         if source_ddb_result.get('statusCode') != 200:
-            raise Exception(f"Failed to get document from DDB: {source_ddb_result}")
+            # Same shape as the get_content_result check below: pull just the
+            # error out of the body rather than interpolating the whole
+            # ddb-service response, which for get_document_with_content is a
+            # document read and can carry more than a status message.
+            source_error_body = source_ddb_result.get('body', '')
+            source_error_msg = source_error_body
+            try:
+                source_error_data = json.loads(source_error_body)
+                source_error_msg = source_error_data.get('error', source_error_body)
+            except:
+                pass
+            raise Exception(f"Failed to get document from DDB: {source_error_msg}")
         
         document = json.loads(source_ddb_result['body'])
         print(f"Retrieved document for {content_type} translation")
@@ -185,9 +216,20 @@ def lambda_handler(event, context):
             raise Exception("Empty response when getting existing content")
         
         get_content_result = json.loads(get_content_payload_response)
-        
+
         if get_content_result.get('statusCode') != 200:
-            raise Exception(f"Failed to get existing content: {get_content_result}")
+            # Mirror the save-path shape below: pull just the error out of the
+            # body rather than interpolating the whole ddb-service response,
+            # which for get_document_with_content is a document read and can
+            # carry more than a status message.
+            error_body = get_content_result.get('body', '')
+            error_msg = error_body
+            try:
+                error_data = json.loads(error_body)
+                error_msg = error_data.get('error', error_body)
+            except:
+                pass
+            raise Exception(f"Failed to get existing content: {error_msg}")
         
         existing_doc = json.loads(get_content_result['body'])
         
@@ -259,12 +301,18 @@ def lambda_handler(event, context):
         else:
             result_key = f'{content_type}_translations'
         
-        # Return result
+        # Return result. "completed" means at least one language actually came
+        # back: every language can fail (each is caught and skipped above), and
+        # claiming completion with an empty result is what let a document be
+        # marked PROCESSED with the parent's language silently missing and no
+        # failure recorded anywhere. VerifyLanguageProduced in the state
+        # machine is the other half of this fix: it reads languages_processed
+        # to fail the run when this is False.
         event_copy = {k: v for k, v in event.items() if k not in ['progress', 'current_step']}
         return {
             **event_copy,
             result_key: translations,
-            f'{content_type}_translation_completed': True,
+            f'{content_type}_translation_completed': bool(translations),
             'languages_processed': list(translations.keys())
         }
         

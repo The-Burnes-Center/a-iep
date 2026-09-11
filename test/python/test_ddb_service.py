@@ -702,3 +702,74 @@ def test_a_failed_ocr_purge_raises_its_own_marker(service, monkeypatch, capsys):
     # this pipeline is section text. (The handler's own catch-all line is
     # sanitised separately; this asserts the line the alarm reads.)
     assert 'S3 unavailable' not in marker_line
+
+
+# ---------------------------------------------------------------------------
+# The dispatcher's own catch-all used to contradict its docblock: the
+# docblock promises "only the operation and the exception class are logged",
+# but the very next print line dumped str(e) in full. Any operation without
+# its own try/except (most of them) bubbles an exception here, and the
+# message can quote document content the same way record_failure's can.
+# ---------------------------------------------------------------------------
+
+SENTINEL = 'Sentinel-Casey-Nguyen-77f1-do-not-log-this'
+
+
+def test_dispatcher_error_log_line_never_leaks_the_underlying_exception_text(
+        service, monkeypatch, capsys):
+    def explode(params):
+        raise Exception(f"failed while holding this document text: {SENTINEL}")
+
+    monkeypatch.setattr(service.module, 'get_document', explode)
+
+    status, body = op(service, 'get_document', **IDS)
+    assert status == 500
+
+    captured = capsys.readouterr()
+    # traceback.format_exc()'s last line renders str(e) too -- the same leak
+    # the print line above it was fixed to avoid -- so both streams matter.
+    logged = captured.out + captured.err
+    assert SENTINEL not in logged
+    assert 'DDB_SERVICE_ERROR' in logged
+    assert 'kind=Exception' in logged
+    # The returned body is a separate, narrower contract this fix leaves
+    # alone (existing callers like translate_content/handler.py already
+    # extract just 'error' rather than dumping the whole response) --
+    # confirms this test is only pinning the logged line, not silently also
+    # asserting a body change that never happened.
+    assert body['error'] == f"failed while holding this document text: {SENTINEL}"
+
+
+def test_unknown_operation_message_still_survives_in_the_log(service, capsys):
+    """Mutation-safety in the other direction: a short, code-controlled,
+    content-free message (not a document-derived one) must not be reduced to
+    an unhelpful character count -- _summarize_error_for_logging's fallback
+    for a non-JSON string does exactly that, so this pins that the class name
+    logged alongside it (kind=ValueError) still carries the useful signal."""
+    service.module.lambda_handler({'operation': 'no_such_operation'}, None)
+
+    logged = capsys.readouterr().out
+    assert 'kind=ValueError' in logged
+
+
+def test_save_content_to_s3_error_log_line_never_leaks_document_content(
+        service, monkeypatch, capsys):
+    """save_content_to_s3_operation catches its own exceptions (they never
+    reach the dispatcher's catch-all above), and its params include the full
+    content dict being saved -- str(e) here is one of the few messages in
+    this file that can realistically quote document content."""
+    def explode(*args, **kwargs):
+        raise Exception(f"S3 put failed for content containing: {SENTINEL}")
+
+    monkeypatch.setattr(service.module, 'save_content_to_s3', explode)
+
+    status, body = op(service, 'save_content_to_s3', iep_id=IEP, child_id=CHILD,
+                      content={'summaries': {'en': 'S'}})
+    assert status == 500
+
+    captured = capsys.readouterr()
+    # traceback.print_exc() writes to stderr and its last line renders
+    # str(e) too, so both streams need checking, not just the print() line.
+    logged = captured.out + captured.err
+    assert SENTINEL not in logged
+    assert 'Error saving content to S3' in captured.out

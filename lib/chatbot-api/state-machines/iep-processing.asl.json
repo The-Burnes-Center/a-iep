@@ -487,7 +487,7 @@
     "TranslateParsingResult": {
       "Type": "Task",
       "Resource": "${TranslateContentArn}",
-      "Comment": "Translate parsing agent results to target languages",
+      "Comment": "Translate parsing agent results to target languages. ResultSelector narrows the output to languages_processed only: translate_content returns the full translated summary/sections, and Step Functions keeps every state's output in execution history for 90 days, so without this the translated document content (FERPA-protected) would sit in the console. Mirrors single-language-translation.asl.json's TranslateRequestedLanguage state.",
       "Parameters": {
         "iep_id.$": "$.iep_id",
         "child_id.$": "$.child_id",
@@ -495,6 +495,10 @@
         "target_languages.$": "$.target_languages",
         "content_type": "parsing_result"
       },
+      "ResultSelector": {
+        "languages_processed.$": "$.languages_processed"
+      },
+      "ResultPath": "$.translation_result",
       "Retry": [
         {
           "ErrorEquals": [
@@ -514,12 +518,32 @@
           "ResultPath": "$.error"
         }
       ],
-      "Next": "UpdateTranslationProgress",
-      "ResultPath": null
+      "Next": "VerifyLanguageProduced"
+    },
+    "VerifyLanguageProduced": {
+      "Type": "Choice",
+      "Comment": "translate_content swallows a per-language translation error (it logs and continues), then saves whatever succeeded and returns languages_processed: []. Without this check the document would be marked PROCESSED with every requested language missing and no failure recorded anywhere. Mirrors single-language-translation.asl.json's state of the same name; that machine's own comment describes this exact defect. Only total failure is caught here: a partial failure (some but not all requested languages) still passes, same as the single-language precedent.",
+      "Choices": [
+        {
+          "Variable": "$.translation_result.languages_processed[0]",
+          "IsPresent": true,
+          "Next": "UpdateTranslationProgress"
+        }
+      ],
+      "Default": "NoLanguageProducedForTranslateParsingResult"
+    },
+    "NoLanguageProducedForTranslateParsingResult": {
+      "Type": "Pass",
+      "Comment": "translate_content returned normally (it did not raise), so there is no $.error for RecordFailure's error_message.$ ($.error.Cause) to read. Synthesize the same shape a Catch would have produced, then join the existing failure path below.",
+      "Result": {
+        "Cause": "TranslateParsingResult completed without producing any of the requested target languages"
+      },
+      "ResultPath": "$.error",
+      "Next": "FailedAtTranslateParsingResult"
     },
     "FailedAtTranslateParsingResult": {
       "Type": "Pass",
-      "Comment": "Name the failing step for record_failure (TranslateParsingResult)",
+      "Comment": "Name the failing step for record_failure (TranslateParsingResult). Reached either from the Catch above ($.error already set) or from NoLanguageProducedForTranslateParsingResult ($.error set synthetically).",
       "Result": "TranslateParsingResult",
       "ResultPath": "$.failed_step",
       "Next": "RecordFailure"

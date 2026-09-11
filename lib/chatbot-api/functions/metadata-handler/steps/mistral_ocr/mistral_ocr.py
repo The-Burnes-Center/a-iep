@@ -10,8 +10,38 @@ from datetime import datetime, timedelta
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# requests has no default timeout: an unresponsive Mistral endpoint hangs the
+# call indefinitely (see requests docs, "Advanced Usage > Timeouts"). Those
+# same docs recommend a (connect, read) tuple over a single scalar, because
+# the two phases mean different things here: CONNECT is the TCP/TLS handshake
+# to a known, presumably-healthy API host, so a few seconds is generous; READ
+# is the gap between bytes once connected, which for the OCR call is however
+# long Mistral spends actually processing the document. Each budget below
+# stays well under MistralOCRFunction's own 600s Lambda timeout (functions.ts)
+# so a hung provider is caught and reported by this code -- a clean
+# {"error": ...} the state machine can retry -- before Lambda's runtime kills
+# the invocation outright with no such shape.
+CONNECT_TIMEOUT_SECONDS = 10
+UPLOAD_READ_TIMEOUT_SECONDS = 60
+METADATA_READ_TIMEOUT_SECONDS = 30
+OCR_READ_TIMEOUT_SECONDS = 300
+
 # Global cache for API key (reused across Lambda invocations)
 _cached_mistral_api_key = None
+
+
+def _safe_key(key):
+    """An S3 key (or filename) with the parent-chosen name removed.
+
+    Mirrors metadata-handler/orchestrator.py's helper of the same name: the
+    key is userId/childId/iepId/filename, and parents routinely name an IEP
+    after their child, so only the ids in front of the last path segment are
+    safe to log.
+    """
+    if not isinstance(key, str):
+        return '<no key>'
+    head, sep, _filename = key.rpartition('/')
+    return f'{head}/...' if sep else '...'
 
 def get_mistral_api_key():
     """
@@ -79,10 +109,10 @@ def process_document_with_mistral_ocr(bucket, key):
         
         # Check if the key and decoded key are different
         if key != decoded_key:
-            logger.info(f"Key was URL encoded. Original: {key}, Decoded: {decoded_key}")
+            logger.info(f"Key was URL encoded. Original: {_safe_key(key)}, Decoded: {_safe_key(decoded_key)}")
             key = decoded_key
-            
-        logger.info(f"Downloading document from S3: s3://{bucket}/{key}")
+
+        logger.info(f"Downloading document from S3: s3://{bucket}/{_safe_key(key)}")
         s3_client = boto3.client('s3')
         
         # Try with the key as is
@@ -114,7 +144,7 @@ def process_document_with_mistral_ocr(bucket, key):
         
         # Get the file name from the key
         filename = key.split('/')[-1]
-        logger.info(f"Successfully downloaded file: {filename} ({len(file_content)} bytes)")
+        logger.info(f"Successfully downloaded file ({len(file_content)} bytes)")
     except Exception as e:
         logger.error(f"Error downloading file from S3: {str(e)}")
         return {"error": f"Error downloading file from S3: {str(e)}"}
@@ -126,8 +156,8 @@ def process_document_with_mistral_ocr(bucket, key):
     
     # Step 1: Upload the file to Mistral
     try:
-        logger.info(f"Uploading file to Mistral: {filename}")
-        
+        logger.info("Uploading file to Mistral")
+
         upload_url = "https://api.mistral.ai/v1/files"
         files = {
             'file': (filename, file_content, 'application/pdf')
@@ -135,12 +165,13 @@ def process_document_with_mistral_ocr(bucket, key):
         data = {
             'purpose': 'ocr'
         }
-        
+
         upload_response = requests.post(
             upload_url,
             headers=headers,
             files=files,
-            data=data
+            data=data,
+            timeout=(CONNECT_TIMEOUT_SECONDS, UPLOAD_READ_TIMEOUT_SECONDS)
         )
         upload_response.raise_for_status()
         upload_result = upload_response.json()
@@ -167,7 +198,8 @@ def process_document_with_mistral_ocr(bucket, key):
         signed_url_response = requests.get(
             signed_url_endpoint,
             headers=headers,
-            params=params
+            params=params,
+            timeout=(CONNECT_TIMEOUT_SECONDS, METADATA_READ_TIMEOUT_SECONDS)
         )
         signed_url_response.raise_for_status()
         signed_url_result = signed_url_response.json()
@@ -206,7 +238,8 @@ def process_document_with_mistral_ocr(bucket, key):
         ocr_response = requests.post(
             ocr_endpoint,
             headers=ocr_headers,
-            json=ocr_payload
+            json=ocr_payload,
+            timeout=(CONNECT_TIMEOUT_SECONDS, OCR_READ_TIMEOUT_SECONDS)
         )
         
         ocr_response.raise_for_status()

@@ -5,14 +5,19 @@ import json
 import os
 import traceback
 import boto3
-from mistral_ocr import process_document_with_mistral_ocr
+from mistral_ocr import process_document_with_mistral_ocr, _safe_key
 
 # Only non-sensitive metadata is safe to log. These events can carry
 # FERPA-protected document content (OCR text, parsed sections, translated
 # content) as the workflow evolves; dumping the whole event would expose it
 # to anyone with CloudWatch log access.
+#
+# s3_key is deliberately NOT in this allowlist: the key is
+# userId/childId/iepId/<filename>, and parents routinely name an IEP after
+# their child, so the filename is student data. It is logged separately below
+# with the filename stripped (see _safe_key).
 _SAFE_LOG_FIELDS = (
-    'iep_id', 'child_id', 'user_id', 's3_bucket', 's3_key', 'current_step',
+    'iep_id', 'child_id', 'user_id', 's3_bucket', 'current_step',
     'progress', 'status', 'content_type', 'target_languages', 'translation_needed',
 )
 
@@ -21,7 +26,10 @@ def _safe_event_meta(event):
     """Return only the allowlisted, non-sensitive fields from the event."""
     if not isinstance(event, dict):
         return {'_type': type(event).__name__}
-    return {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+    meta = {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+    if 's3_key' in event:
+        meta['s3_key'] = _safe_key(event['s3_key'])
+    return meta
 
 
 def lambda_handler(event, context):
@@ -40,12 +48,15 @@ def lambda_handler(event, context):
         
         # Validate that this is a document file, not a JSON content file
         if s3_key.endswith('content.json') or '/content.json' in s3_key or s3_key.lower().endswith('.json'):
-            error_message = f"Cannot process JSON file as document: {s3_key}. Only PDF/image files can be processed with OCR."
+            # The filename (student data) must not reach this message: it is
+            # raised, caught by the state machine's Catch, and persisted as
+            # error_message on the document row (not just printed).
+            error_message = "Cannot process a JSON file as a document. Only PDF/image files can be processed with OCR."
             print(error_message)
             raise Exception(error_message)
-        
+
         # Process document with Mistral OCR
-        print(f"Processing document: s3://{s3_bucket}/{s3_key}")
+        print(f"Processing document: s3://{s3_bucket}/{_safe_key(s3_key)}")
         ocr_result = process_document_with_mistral_ocr(s3_bucket, s3_key)
         
         # Check if OCR was successful

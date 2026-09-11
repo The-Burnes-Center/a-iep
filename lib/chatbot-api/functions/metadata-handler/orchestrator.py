@@ -26,8 +26,12 @@ def _safe_event_summary(event):
         return f"event of type {type(event).__name__}"
     if isinstance(event.get('Records'), list):
         return f"S3 event with {len(event['Records'])} record(s)"
-    safe_keys = ('iep_id', 'user_id', 'child_id', 's3_bucket', 's3_key')
+    # s3_key is handled separately, below: it is userId/childId/iepId/<filename>
+    # and the filename is student data (see _safe_key).
+    safe_keys = ('iep_id', 'user_id', 'child_id', 's3_bucket')
     meta = {k: event[k] for k in safe_keys if k in event}
+    if 's3_key' in event:
+        meta['s3_key'] = _safe_key(event['s3_key'])
     return f"direct invocation {json.dumps(meta)}"
 
 

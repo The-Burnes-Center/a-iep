@@ -4,6 +4,7 @@ Combines the power of the old pipeline's agents with new pipeline efficiency
 """
 import logging
 import json
+from pydantic import ValidationError
 from agents import Agent, Runner, function_tool, ModelSettings
 from config import get_language_context
 from data_model import TranslationSectionContent, AbbreviationLegend
@@ -11,6 +12,23 @@ from data_model import TranslationSectionContent, AbbreviationLegend
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _safe_error_summary(e):
+    """Content-free triage string for an exception raised while validating a
+    translated section or abbreviation.
+
+    str(e) on a pydantic ValidationError quotes `input_value` for every
+    failing field (truncated to ~50 chars, not removed), and here that value
+    is translated document text -- the very thing CLAUDE.md says must never
+    reach a log. `.errors()` carries the same triage signal (field path +
+    error type) without the `input` key each entry also carries. Every other
+    exception here is reduced to its class name only.
+    """
+    if isinstance(e, ValidationError):
+        locations = [err.get('loc') for err in e.errors()]
+        return f"{type(e).__name__}: {e.error_count()} error(s) at {locations}"
+    return type(e).__name__
 
 class OptimizedTranslationAgent:
     def __init__(self):
@@ -171,11 +189,13 @@ Remember: Use tools to ensure translation accuracy and consistency!
                 return translated_content
                 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse agent translation: {e}")
-            return {"error": f"Translation parsing failed: {str(e)}"}
+            summary = _safe_error_summary(e)
+            logger.error(f"Failed to parse agent translation: {summary}")
+            return {"error": f"Translation parsing failed: {summary}"}
         except Exception as e:
-            logger.error(f"Translation validation error: {e}")
-            return {"error": f"Translation validation failed: {str(e)}"}
+            summary = _safe_error_summary(e)
+            logger.error(f"Translation validation error: {summary}")
+            return {"error": f"Translation validation failed: {summary}"}
 
     def _validate_parsing_result(self, content):
         """Validate parsing result translation structure"""
@@ -188,7 +208,7 @@ Remember: Use tools to ensure translation accuracy and consistency!
                         validated_section = TranslationSectionContent.model_validate(section)
                         validated_sections.append(validated_section.model_dump())
                     except Exception as e:
-                        logger.warning(f"Section validation failed: {e}")
+                        logger.warning(f"Section validation failed: {_safe_error_summary(e)}")
                         validated_sections.append(section)
                 content['sections'] = validated_sections
             
@@ -200,13 +220,13 @@ Remember: Use tools to ensure translation accuracy and consistency!
                         validated_abbrev = AbbreviationLegend.model_validate(abbrev)
                         validated_abbreviations.append(validated_abbrev.model_dump())
                     except Exception as e:
-                        logger.warning(f"Abbreviation validation failed: {e}")
+                        logger.warning(f"Abbreviation validation failed: {_safe_error_summary(e)}")
                         validated_abbreviations.append(abbrev)
                 content['abbreviations'] = validated_abbreviations
-            
+
             logger.info("Parsing result translation validation completed")
             return content
-            
+
         except Exception as e:
-            logger.warning(f"Validation failed, returning original content: {e}")
+            logger.warning(f"Validation failed, returning original content: {_safe_error_summary(e)}")
             return content

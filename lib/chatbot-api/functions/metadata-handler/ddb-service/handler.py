@@ -188,12 +188,23 @@ def lambda_handler(event, context):
         # purge, and nothing there reads it: those failures were completely
         # silent until this marker existed.
         #
-        # Only the operation and the exception class are logged. The message
-        # can quote document content, which is why record_failure summarises
-        # error text before storing it.
+        # Only the operation, the exception class, and a redacted summary of
+        # the message are logged (via _summarize_error_for_logging, the same
+        # helper record_failure uses): str(e) can quote document content for
+        # some operations (e.g. a deep failure while saving OCR data), and
+        # this dispatcher has no way to know which operation's exception it is
+        # holding. The returned body below is a separate, narrower contract:
+        # callers (e.g. translate_content/handler.py) already extract just its
+        # 'error' field rather than dumping the response, and existing safe,
+        # code-controlled messages (like "Unknown operation: x") are expected
+        # to survive there for callers that surface them.
         print(f"DDB_SERVICE_ERROR operation={event.get('operation', 'unknown')} kind={type(e).__name__}")
-        print(f"DDB Service error: {str(e)}")
-        print(traceback.format_exc())
+        print(f"DDB Service error: {_summarize_error_for_logging(str(e))}")
+        # NOT traceback.format_exc(): its last line renders str(e) too (the
+        # same thing the two lines above redact), so printing it here would
+        # undo the redaction one line down. format_tb gives the call stack --
+        # file/line/function, i.e. source lines, not values -- without it.
+        print(''.join(traceback.format_tb(e.__traceback__)))
         return {
             'statusCode': 500,
             'body': json.dumps({
@@ -814,8 +825,15 @@ def save_content_to_s3_operation(params):
             }, default=str)
         }
     except Exception as e:
-        print(f"Error saving content to S3: {str(e)}")
-        traceback.print_exc()
+        # Same shape as the dispatcher's own catch-all above: params here
+        # include the full content dict being saved, so str(e) is one of the
+        # few exception messages in this file that can realistically quote
+        # document content. Only the printed line is redacted; the returned
+        # body keeps str(e) for now, matching the dispatcher's contract.
+        print(f"Error saving content to S3: {_summarize_error_for_logging(str(e))}")
+        # NOT traceback.print_exc(): it prints the same str(e) the line above
+        # redacts, as its own last line. print_tb gives the call stack alone.
+        traceback.print_tb(e.__traceback__)
         return {
             'statusCode': 500,
             'body': json.dumps({
