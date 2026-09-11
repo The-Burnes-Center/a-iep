@@ -11,6 +11,11 @@
  * therefore rides on privateChallengeParameters.issuedAt, stamped by
  * create-auth-challenge at first issuance and preserved across in-session
  * reuse rounds.
+ *
+ * The identity the profile records comes from request.userAttributes, which
+ * AWS documents as the user's standard attributes, and not from event.userName
+ * (documented only as "the current user's username"). Fixtures below carry
+ * both so the branch is exercised against the real contract.
  */
 const mockDdbSend = jest.fn();
 
@@ -32,8 +37,9 @@ jest.mock('@aws-sdk/lib-dynamodb', () => {
 const { GetCommand, PutCommand } = require('@aws-sdk/lib-dynamodb');
 const { handler } = require('../../../lib/chatbot-api/functions/phone-otp-auth/verify-auth-challenge');
 
-const otpEvent = (overrides = {}) => ({
+const otpEvent = (overrides = {}, eventOverrides = {}) => ({
     userName: 'new-user-sub',
+    triggerSource: 'VerifyAuthChallengeResponse_Authentication',
     request: {
         userAttributes: { phone_number: '+15555550100' },
         privateChallengeParameters: {
@@ -45,6 +51,7 @@ const otpEvent = (overrides = {}) => ({
         ...overrides,
     },
     response: {},
+    ...eventOverrides,
 });
 
 const putCalls = () => mockDdbSend.mock.calls.filter(([cmd]) => cmd instanceof PutCommand);
@@ -75,10 +82,58 @@ describe('verify-auth-challenge', () => {
         expect(Item.consentGiven).toBe(false);
         expect(Item.authMethod).toBe('phone');
         expect(Item.phoneVerified).toBe(true);
+        expect(Item).not.toHaveProperty('emailVerified');
         expect(typeof Item.createdAtISO).toBe('string');
         expect(Item.secondaryLanguage).toBe('es');
         expect(Item.children).toHaveLength(1);
         expect(Item.children[0].name).toBe('My Child');
+    });
+
+    test('an email identity is never recorded as a verified phone', async () => {
+        // userName is deliberately NOT the address: the branch has to read
+        // userAttributes, which AWS documents, rather than sniff the username,
+        // which AWS documents only as "the current user's username".
+        const event = await handler(otpEvent(
+            { userAttributes: { email: 'parent@example.invalid' } },
+            { userName: 'legacy-email-user-sub' },
+        ));
+        expect(event.response.answerCorrect).toBe(true);
+
+        const { Item } = putCalls()[0][0].input;
+        expect(Item.userId).toBe('legacy-email-user-sub');
+        expect(Item.authMethod).toBe('email');
+        expect(Item.emailVerified).toBe(true);
+        expect(Item).not.toHaveProperty('phoneVerified');
+        // The rest of the profile contract is unchanged for email parents.
+        expect(Item.showOnboarding).toBe(true);
+        expect(Item.consentGiven).toBe(false);
+    });
+
+    test('an account carrying both attributes records the channel that sent the code', async () => {
+        // create-auth-challenge reads phone_number first and texts the OTP, so
+        // when both exist SMS is what possession was actually proved on.
+        const event = await handler(otpEvent({
+            userAttributes: { phone_number: '+15555550100', email: 'parent@example.invalid' },
+        }));
+        expect(event.response.answerCorrect).toBe(true);
+
+        const { Item } = putCalls()[0][0].input;
+        expect(Item.authMethod).toBe('phone');
+        expect(Item.phoneVerified).toBe(true);
+        expect(Item).not.toHaveProperty('emailVerified');
+    });
+
+    test('an identity with neither attribute claims no verification at all', async () => {
+        const event = await handler(otpEvent({ userAttributes: {} }));
+        expect(event.response.answerCorrect).toBe(true);
+
+        const { Item } = putCalls()[0][0].input;
+        expect(Item).not.toHaveProperty('authMethod');
+        expect(Item).not.toHaveProperty('phoneVerified');
+        expect(Item).not.toHaveProperty('emailVerified');
+        // Silence is the point: the profile still lands, it just asserts nothing.
+        expect(Item.userId).toBe('new-user-sub');
+        expect(Item.showOnboarding).toBe(true);
     });
 
     test('an unsupported UI language is dropped rather than stored', async () => {
