@@ -61,3 +61,23 @@ export const REFERRER_USER = '+15555550121';
  * run would poison the next one with 'click_after_signup' rejections.
  */
 export const REFERRAL_SIGNUP_USER = '+15555550122';
+
+/**
+ * Dedicated to the passwordlessAuth wrong-code journey (a single bad code,
+ * then a successful retry). Kept off PASSWORDLESS_LOCKOUT_USER so a stray
+ * failed-verification count from this spec can never shorten the number of
+ * wrong codes the lockout journey needs.
+ */
+export const PASSWORDLESS_WRONG_CODE_USER = '+15555550124';
+
+/**
+ * Dedicated to the passwordlessAuth lockout journey. auth-store.js counts
+ * failed /auth/verify submissions per DESTINATION per CALENDAR HOUR
+ * (MAX_FAILED_VERIFICATIONS_PER_HOUR = 10), a different mechanism from the
+ * legacy screen's per-Cognito-session limit that LOCKOUT_USER exercises, so
+ * this journey needs its own number: reusing LOCKOUT_USER would not conflict
+ * technically (the legacy screen never calls /auth/verify), but a dedicated
+ * number keeps the two lockouts, and their very different retry budgets,
+ * from ever being read together by mistake.
+ */
+export const PASSWORDLESS_LOCKOUT_USER = '+15555550125';

@@ -71,17 +71,20 @@ describe('enabled features per environment', () => {
     }
   });
 
-  it('keeps the passwordless login dark everywhere, staging included', () => {
-    // E2E is the only journey coverage this project has, it runs against
-    // deployed staging only, and prod still signs parents in through the
-    // legacy Amplify path. So staging is the sole place prod's login is
-    // exercised end to end. Enabling the new flow on staging swaps that UI
-    // out and takes the coverage with it, which is why this is dark in dev
-    // and staging too rather than just in prod.
+  it('ships the passwordless login outside production now that e2e/ drives it', () => {
+    // 2026-09-11: e2e/helpers/app.ts was taught to detect which login screen
+    // is live and drive either (detectLoginScreen), so enabling the new flow
+    // on staging no longer takes prod's only end-to-end login coverage with
+    // it -- the thing that kept this dark in dev and staging, not just prod,
+    // since the flag shipped. Production is unaffected either way: it reads
+    // PROD_FEATURES directly (pinned above), which never included this name.
     //
-    // Deleting this pin is how you would silently lose that. Turning the flag
-    // on and teaching e2e/ to drive the new login belong in one change.
-    expect(CDK_DARK_EVERYWHERE).toContain('passwordlessAuth');
+    // Putting the name back in DARK_EVERYWHERE is how you would silently
+    // undo the flip without undoing the e2e/ change that made it safe -- if
+    // that is ever done deliberately, e2e/'s screen detection means the
+    // suite keeps working either way, which was the point of building it
+    // that way rather than hard-switching e2e/ to the new screen.
+    expect(CDK_DARK_EVERYWHERE).not.toContain('passwordlessAuth');
     expect(readArrayLiteral(viteSource, 'DARK_EVERYWHERE')).toEqual(CDK_DARK_EVERYWHERE);
   });
 

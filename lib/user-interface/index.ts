@@ -51,16 +51,18 @@ export const ALL_FEATURES = ["tts", "referrals", "parentNameGate", "passwordless
 // in every environment regardless of this flag, so turning it on in prod is a
 // config flip once the new path has carried real dev/staging traffic.
 export const PROD_FEATURES: string[] = ["referrals"];
-// Dark in EVERY environment by default, staging included, until the E2E suite
-// can drive the new login UI. Two reasons, and the second is the important
-// one. The suite shares a single login helper that clicks "Send SMS Code", so
-// a staging build with this on fails seven journeys. And prod still runs the
-// legacy Amplify flow while E2E only ever targets staging, so staging is the
-// only place prod's login path is exercised at all -- turning this on there
-// silently removes that coverage. Flipping this and updating e2e/ belong in
-// the same change. Opt in with ENABLED_FEATURES for local work or a one-off
-// deploy.
-export const DARK_EVERYWHERE: string[] = ["passwordlessAuth"];
+// Dark in every environment by default, staging included, until a feature's
+// rollout needs that. Empty for now: passwordlessAuth was the one entry here,
+// kept dark even on staging until e2e/helpers/app.ts could detect and drive
+// PasswordlessAuthForm (it shares a single login helper across every
+// journey, and a staging build with the flag on used to fail seven of them
+// on "Send SMS Code" alone). That change landed together with this flip
+// (2026-09-11): the helper now detects which screen is live, so staging
+// picks up passwordlessAuth with no coverage gap, and prod is untouched
+// (PROD_FEATURES above never included it). Opt in with ENABLED_FEATURES for
+// local work or a one-off deploy; a future flag that needs the same staged
+// rollout goes here the same way.
+export const DARK_EVERYWHERE: string[] = [];
 function resolveEnabledFeatures(): string[] {
   const override = process.env.ENABLED_FEATURES;
   if (override) {
