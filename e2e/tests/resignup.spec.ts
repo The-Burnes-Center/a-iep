@@ -147,14 +147,18 @@ test('deleted account signs up again and is sent exactly one code', async ({ pag
   test.setTimeout(420_000);
 
   // Every Cognito API call the browser makes, by operation name (Amplify puts
-  // it in the X-Amz-Target header). Collected for the whole test because the
-  // operations asserted on below (SignUp and ConfirmSignUp) can only occur in
-  // Act 3.
+  // it in the X-Amz-Target header), plus every call to our own signup
+  // endpoint. Collected for the whole test because the operations asserted on
+  // below can only occur in Act 3.
   const cognitoOperations: string[] = [];
+  const signupEndpointCalls: string[] = [];
   page.on('request', (request) => {
     const target = request.headers()['x-amz-target'];
     if (target?.startsWith('AWSCognitoIdentityProviderService.')) {
       cognitoOperations.push(target.split('.')[1]);
+    }
+    if (request.method() === 'POST' && request.url().includes('/auth/signup')) {
+      signupEndpointCalls.push(request.url());
     }
   });
 
@@ -255,19 +259,34 @@ test('deleted account signs up again and is sent exactly one code', async ({ pag
     'once the new parent is inside the app',
   );
 
-  // What the browser did, as the client-side half of the same contract. The
-  // SignUp assertion comes first on purpose: it proves the request listener
-  // above actually matched something, so the ConfirmSignUp assertion below
-  // cannot pass vacuously.
+  // What the browser did, as the client-side half of the same contract.
+  //
+  // This used to assert the journey saw a Cognito SignUp call. It no longer
+  // may: the pool is AllowAdminCreateUserOnly, so the public SignUp API is
+  // closed, and an account is created by POSTing to our own endpoint instead.
+  // That API being reachable from the browser is exactly how the 2026-09-09
+  // abuse run created a thousand accounts without ever loading this page, so
+  // "the browser called SignUp" has gone from the thing that must happen to
+  // the thing that must never happen. Both directions are asserted below.
+  //
+  // The vacuity guard still comes first, re-anchored on the call that does
+  // happen now: without it the two negative assertions could both pass
+  // because the listener matched nothing at all.
+  expect(
+    signupEndpointCalls,
+    'the journey never POSTed to /auth/signup, so the request listener ' +
+    'matched nothing and the assertions below are vacuous'
+  ).not.toHaveLength(0);
   expect(
     cognitoOperations,
-    'the journey never saw a SignUp call, so the request listener matched ' +
-    'nothing (header name changed?) and the ConfirmSignUp check is vacuous'
-  ).toContain('SignUp');
+    'the browser called Cognito SignUp directly. That API is supposed to be ' +
+    'closed (AllowAdminCreateUserOnly), and it is the path the 2026-09-09 ' +
+    'abuse run used'
+  ).not.toContain('SignUp');
   expect(
     cognitoOperations,
-    'the app called ConfirmSignUp, so it took its two-code fallback branch: ' +
-    'Auth.signUp came back with userConfirmed === false'
+    'the app called ConfirmSignUp, so a second code was requested: the ' +
+    'endpoint is meant to create the account already confirmed'
   ).not.toContain('ConfirmSignUp');
 
   // Leave staging clean through the product itself (profile row, documents
