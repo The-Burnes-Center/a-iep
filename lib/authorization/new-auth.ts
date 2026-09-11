@@ -169,6 +169,18 @@ export class NewAuthorizationStack extends Construct {
       // (edc7d2d) delete 50 of 102 production IEP documents. Do not flip this
       // back; pinned by test/infra/gen-ai-mvp-stack.test.ts.
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+      // Cognito's OWN guard, and a different failure mode than the RETAIN
+      // above. removalPolicy only stops CloudFormation from deleting or
+      // replacing this resource; it does nothing against a direct
+      // DeleteUserPool API call, which never goes through CloudFormation at
+      // all. deletionProtection is Cognito's server-side switch for exactly
+      // that call (renders as DeletionProtection: 'ACTIVE'; verified
+      // 2026-09-10 that both pools -- us-east-1_Lhz0SBaFU staging/30 users,
+      // us-east-1_xhit0fN1J prod/296 users -- were sitting on 'INACTIVE').
+      // Same consequence as losing RETAIN: credentials cannot be exported, so
+      // a deleted pool locks every family out permanently. Pinned by
+      // test/infra/gen-ai-mvp-stack.test.ts in both environments.
+      deletionProtection: true,
       // Staging only; production keeps Cognito's native SMS delivery, so it
       // registers no key and no custom sender (pinned by the infra suite).
       ...(customSenderKey ? { customSenderKmsKey: customSenderKey } : {}),

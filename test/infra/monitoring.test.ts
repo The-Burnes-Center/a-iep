@@ -379,6 +379,37 @@ describe.each([
       expect(alarm.MetricName).toBe('Errors');
     }
   });
+
+  // Audit finding #6: Cognito's 5-second synchronous trigger budget is fixed
+  // and non-adjustable, so a trigger stuck between 6 and 30 seconds fails a
+  // parent's sign-in while Lambda Errors stays at zero. This is the alarm
+  // that has to catch what Errors cannot.
+  test('all seven custom-auth triggers are also alarmed on Duration, with headroom below the 5s wall', () => {
+    const durationAlarms = alarms.filter((a) =>
+      String(a.AlarmName).startsWith(`${namePrefix}login slow:`),
+    );
+    expect(durationAlarms).toHaveLength(7);
+    for (const alarm of durationAlarms) {
+      expect(alarm.MetricName).toBe('Duration');
+      expect(alarm.Statistic).toBe('Maximum');
+      // Below Cognito's hard, non-adjustable 5000ms budget -- this alarm only
+      // means something if it can fire BEFORE that wall -- and comfortably
+      // above the 2460ms worst reading production has actually produced, so
+      // ordinary jitter cannot false-page.
+      expect(alarm.Threshold).toBeLessThan(5000);
+      expect(alarm.Threshold).toBeGreaterThan(2460);
+    }
+  });
+
+  // CustomSmsSender is invoked ASYNCHRONOUSLY by Cognito, so the 5-second
+  // synchronous budget these alarms exist to protect never applies to it.
+  test('CustomSmsSender carries no Duration alarm: Cognito invokes it asynchronously', () => {
+    const offenders = alarms.filter((a) =>
+      String(a.AlarmName).startsWith(`${namePrefix}login slow:`) &&
+      String(a.AlarmName).includes('CustomSmsSender'),
+    );
+    expect(offenders).toEqual([]);
+  });
 });
 
 describe('a deletion that only partly happened', () => {

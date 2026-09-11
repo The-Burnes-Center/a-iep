@@ -104,6 +104,31 @@ export type Severity = 'critical' | 'medium' | 'low';
 const PIPELINE_STEP_RETRY_INVOCATIONS = 4;
 const PIPELINE_STEP_ERROR_THRESHOLD = PIPELINE_STEP_RETRY_INVOCATIONS + 1;
 
+/**
+ * Cognito enforces its own hard, non-adjustable 5-second budget on every
+ * SYNCHRONOUS trigger invocation -- verified against AWS's own Cognito
+ * documentation: "You can't change this five-second timeout value." That is
+ * wholly separate from the 30-second Lambda function timeout configured on
+ * each trigger in new-auth.ts. Past the 5-second budget, Cognito gives up and
+ * fails the parent's sign-in or sign-up outright, even though the Lambda
+ * invocation keeps running in the background and finishes with no exception,
+ * so Errors -- what addAuthAlarms below watches -- stays at zero through
+ * exactly this failure.
+ */
+const COGNITO_TRIGGER_HARD_BUDGET_MS = 5_000;
+
+/**
+ * 80% of the hard budget above, reasoned rather than a round guess.
+ * Production's worst observed trigger Duration over the trailing 30 days
+ * (measured 2026-09-10) is 2.46s, 49% of the budget, so 4s sits 63% above the
+ * worst real reading -- comfortable headroom against ordinary jitter -- while
+ * still leaving only a one-second margin before Cognito actually abandons the
+ * call. That margin is deliberately thin: the point of this alarm is to catch
+ * a trigger heading for the wall, not to wait until a parent has already been
+ * turned away.
+ */
+const AUTH_TRIGGER_DURATION_ALARM_THRESHOLD_MS = COGNITO_TRIGGER_HARD_BUDGET_MS * 0.8;
+
 /** One line in the daily brief: what ran, and what it is for. */
 interface BriefComponent {
   readonly label: string;
@@ -210,6 +235,7 @@ export class MonitoringStack extends Construct {
     this.addDocumentFailureAlarm(props.ddbServiceFunction);
     this.addPipelineStepAlarms(props.pipelineFunctions);
     this.addAuthAlarms(props.authTriggerFunctions);
+    this.addAuthDurationAlarms(props.authTriggerFunctions);
     this.addApiAlarms(props.apiFunctions, props.httpApi);
     this.addStateMachineAlarms(props.iepProcessingStateMachine);
     this.addSweepHeartbeatAlarm(props.pendingUploadSweepRule);
@@ -688,6 +714,38 @@ export class MonitoringStack extends Construct {
           `Families cannot log in or sign up: the ${label} trigger is failing.`,
         metric: fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
         threshold: 1,
+        evaluationPeriods: 1,
+      });
+    }
+  }
+
+  /**
+   * Cognito's fixed 5-second trigger budget, watched as a Duration alarm
+   * rather than Errors. A trigger that runs past that budget fails the
+   * parent's sign-in the same way a thrown error would, but the Lambda
+   * invocation itself keeps running to completion with no exception, so
+   * Errors -- what addAuthAlarms above watches -- stays at zero through
+   * exactly this failure. See AUTH_TRIGGER_DURATION_ALARM_THRESHOLD_MS for how
+   * the threshold was picked.
+   *
+   * CustomSmsSender is deliberately not alarmed here, for two independent
+   * reasons that happen to agree. AWS invokes custom sender triggers
+   * ASYNCHRONOUSLY, so the 5-second synchronous budget this alarm exists to
+   * protect never applies to it. It is also excluded by construction:
+   * createCustomSmsSender wires it directly to the pool and never adds it to
+   * authTriggerFunctions, so it is not part of `fns` in the first place.
+   */
+  private addAuthDurationAlarms(fns: MonitoredFunction[]): void {
+    for (const { label, fn } of fns) {
+      this.alarm(`AuthTriggerDuration${label.replace(/[^A-Za-z0-9]/g, '')}`, {
+        severity: 'critical',
+        name: `login slow: ${label} trigger nearing Cognito's 5-second limit`,
+        description:
+          `The ${label} trigger is running long enough that Cognito may ` +
+          'already be abandoning the call and failing the sign-in, even ' +
+          'though the Lambda itself reports success.',
+        metric: fn.metricDuration({ period: cdk.Duration.minutes(5), statistic: 'Maximum' }),
+        threshold: AUTH_TRIGGER_DURATION_ALARM_THRESHOLD_MS,
         evaluationPeriods: 1,
       });
     }

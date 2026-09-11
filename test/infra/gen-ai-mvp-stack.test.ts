@@ -233,6 +233,19 @@ function describeDurableStoreRetention(envLabel: EnvLabel, getTemplate: () => Te
       expect(retentionOffenders(pools)).toEqual([]);
     });
 
+    // The other half of the pool guard, and a different failure mode than the
+    // retention pin above: RemovalPolicy/DeletionPolicy only stops
+    // CloudFormation from deleting or replacing the resource. It does nothing
+    // against a direct DeleteUserPool API call, which bypasses CloudFormation
+    // entirely. Cognito's own DeletionProtection is the switch for that call;
+    // both pools were verified sitting on 'INACTIVE' on 2026-09-10.
+    test('the Cognito user pool cannot be deleted by a direct API call', () => {
+      const pools = resourcesMatching(getTemplate(), 'AWS::Cognito::UserPool', 'NewUserPool');
+      // Vacuity floor: the pin is worthless if the pool vanished.
+      expect(pools).toHaveLength(1);
+      expect(pools[0][1].Properties?.DeletionProtection).toBe('ACTIVE');
+    });
+
     // Losing the CMK is data loss by another route: the IEP objects and the
     // profile/document tables it encrypts become permanently unreadable.
     test('the application CMK retains on delete and on replace', () => {
@@ -334,6 +347,55 @@ describe('HTTP API authorization', () => {
         Issuer: { 'Fn::GetAtt': [Match.stringLikeRegexp('NewUserPool'), 'ProviderURL'] },
       }),
     });
+  });
+
+  // Audit finding #7: without this, a request the JWT authorizer rejects is
+  // recorded nowhere, and the two unauthenticated routes have no visibility
+  // into load at all.
+  test('the default stage logs access, to a real destination', () => {
+    const stages = template.findResources('AWS::ApiGatewayV2::Stage');
+    const entries = Object.values(stages).map((s: any) => s.Properties);
+    expect(entries).toHaveLength(1);
+
+    const settings = entries[0].AccessLogSettings;
+    expect(settings).toBeDefined();
+    expect(settings.DestinationArn).toBeDefined();
+    expect(typeof settings.Format).toBe('string');
+
+    // The destination is a real, distinct log group, not a dangling ARN.
+    const logGroups = template.findResources('AWS::Logs::LogGroup');
+    expect(Object.keys(logGroups).length).toBeGreaterThanOrEqual(1);
+  });
+
+  // The core of the privacy pin: no field that could carry a resolved path
+  // parameter, a query string or a per-user identifier is in the format,
+  // regardless of which fields ARE chosen.
+  test('the access log format carries no path parameter, query string or user identifier', () => {
+    const stages = template.findResources('AWS::ApiGatewayV2::Stage');
+    const format = Object.values(stages).map((s: any) => s.Properties.AccessLogSettings?.Format)
+      .find((f: any) => typeof f === 'string');
+    expect(format).toBeDefined();
+
+    // $context.path is the RESOLVED path (real childId/iepId/referral code/
+    // admin username); $context.routeKey (the route TEMPLATE) is the safe
+    // substitute and must be what is actually used.
+    expect(format).not.toContain('$context.path');
+    expect(format).toContain('$context.routeKey');
+
+    // No $context.identity.* (source IP, IAM/Cognito caller identity) and no
+    // JWT claims, which are the literal per-user identifiers this pin exists
+    // to keep out of CloudWatch.
+    expect(format).not.toContain('$context.identity');
+    expect(format).not.toContain('$context.authorizer.claims');
+
+    // No raw query string. There is no dedicated $context variable for one on
+    // HTTP APIs, so this also guards against a future field that smuggles it
+    // in some other way (e.g. a custom $context.requestOverride reference).
+    expect(format.toLowerCase()).not.toContain('querystring');
+
+    // requestId is CloudFormation's own hard floor: AWS rejects a format that
+    // omits it, so its absence would mean this test is validating nothing.
+    expect(format).toContain('$context.requestId');
   });
 });
 
@@ -1711,6 +1773,45 @@ describe('production synth: SMS delivery-status logging', () => {
 
     expect(prodRoles).toHaveLength(1);
     expect(stagingRoles).toHaveLength(0);
+  });
+});
+
+describe('production synth: HTTP API access logging', () => {
+  // rest-api.ts has no getEnvironment() branch of its own, but the whole
+  // point of this pin is that a request rejected by the JWT authorizer must
+  // stop being invisible in BOTH environments, not just the one the rest of
+  // this file happens to synthesize by default.
+  let prodTemplate: Template;
+  let saved: string | undefined;
+
+  beforeAll(() => {
+    saved = process.env.ENVIRONMENT;
+    process.env.ENVIRONMENT = 'production';
+    jest.resetModules();
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const { GenAiMvpStack } = require('../../lib/gen-ai-mvp-stack');
+    /* eslint-enable @typescript-eslint/no-var-requires */
+    const app = new App({ context: { 'aws:cdk:bundling-stacks': [] } });
+    prodTemplate = Template.fromStack(new GenAiMvpStack(app, 'AIEPStack', {}));
+  }, 180_000);
+
+  afterAll(() => {
+    process.env.ENVIRONMENT = saved;
+    jest.resetModules();
+  });
+
+  test('the default stage logs access in production too, with the same safe format', () => {
+    const stages = prodTemplate.findResources('AWS::ApiGatewayV2::Stage');
+    const entries = Object.values(stages).map((s: any) => s.Properties);
+    expect(entries).toHaveLength(1);
+
+    const format = entries[0].AccessLogSettings?.Format;
+    expect(entries[0].AccessLogSettings?.DestinationArn).toBeDefined();
+    expect(typeof format).toBe('string');
+    expect(format).not.toContain('$context.path');
+    expect(format).not.toContain('$context.identity');
+    expect(format).not.toContain('$context.authorizer.claims');
+    expect(format).toContain('$context.requestId');
   });
 });
 
