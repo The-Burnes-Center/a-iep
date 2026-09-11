@@ -25,7 +25,7 @@ import { useLanguage, SupportedLanguage } from '../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import { useAuth } from '../common/auth-provider';
 import { cognitoErrorKey } from '../common/helpers/cognito-error-helper';
-import { useTurnstile } from '../common/hooks/use-turnstile';
+import { useTurnstile, TurnstileStatus } from '../common/hooks/use-turnstile';
 import { AppContext } from '../common/app-context';
 import AuthHeader from './AuthHeader';
 import PasswordInput from './PasswordInput';
@@ -78,6 +78,24 @@ interface CustomLoginProps {
   showLanguageDropdown?: boolean;
 }
 
+/**
+ * What the security check says to a parent who cannot see it, keyed by where
+ * the check has got to.
+ *
+ * `failed` and `timedOut` are absent on purpose: both render a visible
+ * react-bootstrap Alert, which carries role="alert" and announces itself.
+ * Listing them here too would say everything twice.
+ */
+const TURNSTILE_STATUS_KEYS: Partial<Record<TurnstileStatus, string>> = {
+  // The widget is injected after first paint, so it lands under a parent who
+  // may already be tabbing. Saying it arrived is the only warning they get.
+  ready: 'auth.securityCheckReady',
+  interactive: 'auth.securityCheckInteractive',
+  solved: 'auth.securityCheckDone',
+  expired: 'auth.securityCheckExpired',
+  reset: 'auth.securityCheckReset',
+};
+
 /** The slice of the v6 signIn/confirmSignIn result the phone custom-auth flow reads back */
 interface SmsChallengeUser {
   isSignedIn?: boolean;
@@ -120,7 +138,10 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   // Supplies the anti-abuse token the PreSignUp trigger requires for a NEW
   // account. Sign-in needs none: an unknown number never reaches the trigger
   // that sends an SMS, so signup is the only path worth challenging.
-  const turnstile = useTurnstile();
+  // Handed the app's language so the challenge speaks it: Turnstile otherwise
+  // follows the browser, which is the wrong one for most parents who changed it.
+  const turnstile = useTurnstile(language);
+  const turnstileStatusKey = TURNSTILE_STATUS_KEYS[turnstile.status];
   const appConfig = useContext(AppContext);
   const [showMobileLogin, setShowMobileLogin] = useState(true);  
   const [mobileLoading, setMobileLoading] = useState(false);
@@ -1009,7 +1030,26 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         mobileLoginText={t('auth.mobileLogin')}
         emailLoginText={t('auth.emailLogin')}
       />
-        
+
+        {/* Everything the security check has to say to a parent who cannot see
+            it. Two properties this depends on, both load-bearing:
+
+            It renders EMPTY at first paint and only ever has its text
+            swapped. A live region inserted with its content already inside it
+            is not announced by NVDA or JAWS — only role="alert" gets that
+            special treatment — so building it on demand would announce
+            nothing.
+
+            It sits OUTSIDE the Phone/Email switch, so it survives the switch
+            itself. The widget is torn down when a parent taps WITH EMAIL and
+            their token goes with it; a region living inside the phone tab
+            would unmount in the same commit and never get to say so. */}
+        {turnstile.isEnabled && (
+          <div aria-live="polite" aria-atomic="true" className="visually-hidden">
+            {turnstileStatusKey ? t(turnstileStatusKey) : ''}
+          </div>
+        )}
+
         {showMobileLogin ? (
           // Mobile Login Form
           smsCodeSent ? (
@@ -1150,11 +1190,64 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                 {/* Cloudflare Turnstile. Renders nothing when no site key is
                     configured, which is the local-dev and not-yet-rolled-out
                     state. Placed above the button so a parent who does get an
-                    interactive challenge sees it before trying to submit. */}
+                    interactive challenge sees it before trying to submit.
+
+                    Turnstile owns the inner div and everything under it — it
+                    replaces the subtree with a closed shadow root holding a
+                    cross-origin iframe, which the page can neither name nor
+                    inspect. So the name and the instructions go on a wrapper
+                    around it. Without them the challenge contributes nothing
+                    to the accessibility tree at all: the form read as phone
+                    field, hidden field, submit button, with a focusable,
+                    unnamed, mandatory gate sitting invisibly between them.
+
+                    The widget's slot reserves its height, because the widget
+                    arrives after first paint and is 300x71: unreserved, it
+                    shoves the submit button down under a parent who is already
+                    reaching for it. The slot rather than the whole group, so
+                    the reservation does not have to guess how many lines the
+                    instruction wraps to in five languages. */}
                 {turnstile.isEnabled && (
-                  <div className="mb-3 d-flex justify-content-center">
-                    <div ref={turnstile.containerRef} />
+                  <div
+                    className="mb-3"
+                    role="group"
+                    aria-labelledby="turnstile-heading"
+                    aria-describedby="turnstile-help"
+                  >
+                    <p id="turnstile-heading" className="form-label mb-1">
+                      {t('auth.securityCheck')}
+                    </p>
+                    <p id="turnstile-help" className="text-muted small mb-2">
+                      {t('auth.securityCheckHelp')}
+                    </p>
+                    <div className="d-flex justify-content-center" style={{ minHeight: '4.5rem' }}>
+                      <div ref={turnstile.containerRef} />
+                    </div>
+                    {/* The challenge stopped being passive and now wants
+                        something. Sighted parents see the widget change; this
+                        is the same news in words, and the live region above
+                        speaks it. */}
+                    {turnstile.status === 'interactive' && (
+                      <p className="text-muted small mt-2 mb-0">
+                        {t('auth.securityCheckInteractive')}
+                      </p>
+                    )}
                   </div>
+                )}
+                {/* It went interactive and was never solved. Until 2026-09-10
+                    this was the quietest failure in the form: Turnstile fires
+                    timeout-callback rather than error-callback, nothing was
+                    listening, and the parent sat in front of a challenge that
+                    had already given up on them. */}
+                {turnstile.status === 'timedOut' && (
+                  <Alert variant="warning" className="mb-3">
+                    {t('auth.securityCheckTimedOut')}{' '}
+                    {turnstile.canRetry && (
+                      <Button variant="link" size="sm" className="p-0 align-baseline" onClick={turnstile.retry}>
+                        {t('auth.securityCheckRetry')}
+                      </Button>
+                    )}
+                  </Alert>
                 )}
                 {/* The check could not run at all, so the server will refuse
                     this signup with a 403 no matter how many times a parent
