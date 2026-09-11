@@ -668,3 +668,37 @@ def test_a_clean_purge_reports_nothing(service, capsys):
        error_message='OCR provider exploded', failed_step='mistral_ocr')
 
     assert 'UNREDACTED_ARTIFACTS_RETAINED' not in capsys.readouterr().out
+
+
+def test_a_failed_ocr_purge_raises_its_own_marker(service, monkeypatch, capsys):
+    """The pipeline deliberately swallows this failure, so the marker is all there is.
+
+    PurgeRedactedOCR catches into a Pass state on purpose: a finished document
+    must not be marked failed over a cleanup problem. But this service reports
+    failure in a 500 rather than raising, so that Catch never fires and the run
+    ends green regardless, and DDB_SERVICE_ERROR needs five occurrences in
+    fifteen minutes while one failed purge logs once.
+
+    MonitoringStack's OcrPurgeFailedFilter counts this token at a threshold of
+    one. Pinned on the CDK side in test/infra/monitoring.test.ts.
+    """
+    seed_document(service)
+    op(service, 'save_ocr_data', **IDS, ocr_data={'pages': ['redacted']},
+       data_type='redacted_ocr_result')
+
+    def refuse(*_args, **_kwargs):
+        raise RuntimeError('S3 unavailable')
+
+    monkeypatch.setattr(service.module, 'delete_content_from_s3', refuse)
+
+    op(service, 'delete_ocr_data', **IDS, data_type='redacted_ocr_result')
+
+    out = capsys.readouterr().out
+    marker_line = next(l for l in out.splitlines() if 'OCR_PURGE_FAILED' in l)
+    assert IEP in marker_line
+    assert 'redacted_ocr_result' in marker_line
+    # The marker line carries ids and the kind of payload, never the exception
+    # text: a pydantic ValidationError names the value it rejected, which for
+    # this pipeline is section text. (The handler's own catch-all line is
+    # sanitised separately; this asserts the line the alarm reads.)
+    assert 'S3 unavailable' not in marker_line

@@ -690,7 +690,7 @@
     },
     "RedactedOCRPurgeSkipped": {
       "Type": "Pass",
-      "Comment": "The purge failed and the document is still complete. Left behind rather than failing the run; the DDB service error alarm is what surfaces it.",
+      "Comment": "The purge failed and the document is still complete, so the run ends normally rather than marking a finished document failed. This state is reached only when the service RAISES; when it reports the failure in a 500 instead, the run never gets here at all. Either way the OCR_PURGE_FAILED marker is what actually surfaces it, at a threshold of one.",
       "End": true
     }
   }

@@ -26,6 +26,7 @@ export const TEST_OTP_PARAM_PREFIX = '/a-iep/staging/test-otp';
 // USER_POOL_ID to override resolution instead, see global-setup.ts).
 const SITE_URL_ENV = 'E2E_RESOLVED_SITE_URL';
 const USER_POOL_ENV = 'E2E_RESOLVED_USER_POOL_ID';
+const PROFILES_TABLE_ENV = 'E2E_RESOLVED_USER_PROFILES_TABLE';
 
 export function stashResolvedConfig(siteUrl: string, userPoolId: string): void {
   process.env[SITE_URL_ENV] = siteUrl;
@@ -50,6 +51,19 @@ export function getSiteUrl(): string {
 
 export function getUserPoolId(): string {
   return requireEnv(USER_POOL_ENV, 'The staging Cognito user pool id');
+}
+
+/**
+ * The user-profiles table, so teardown can remove the row a deleted test user
+ * leaves behind. Resolved from the stack's resources rather than its outputs,
+ * because the table is not exported as one.
+ */
+export function getUserProfilesTableName(): string {
+  return requireEnv(PROFILES_TABLE_ENV, 'The staging user-profiles table name');
+}
+
+export function stashProfilesTableName(name: string): void {
+  process.env[PROFILES_TABLE_ENV] = name;
 }
 
 /** Absolute URL for an app path, e.g. appUrl('/login'). */

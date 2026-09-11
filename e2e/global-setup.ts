@@ -15,9 +15,12 @@
 import {
   CloudFormationClient,
   DescribeStacksCommand,
+  ListStackResourcesCommand,
+  StackResourceSummary,
 } from '@aws-sdk/client-cloudformation';
 import { REGION, STACK_NAME, stashResolvedConfig } from './helpers/config';
 import { ensureTestUser } from './helpers/aws';
+import { stashProfilesTableName } from './helpers/config';
 import { STABLE_USER, LOCKOUT_USER, PROFILE_USER, DOCUMENTS_USER } from './helpers/phones';
 
 async function resolveStackOutputs(): Promise<{ siteUrl: string; userPoolId: string }> {
@@ -57,6 +60,27 @@ async function resolveStackOutputs(): Promise<{ siteUrl: string; userPoolId: str
   return { siteUrl, userPoolId };
 }
 
+/** The profiles table's physical name, found by logical id. */
+async function resolveUserProfilesTable(): Promise<string> {
+  const cfn = new CloudFormationClient({ region: REGION });
+  let token: string | undefined;
+  do {
+    const page = await cfn.send(new ListStackResourcesCommand({
+      StackName: STACK_NAME, NextToken: token,
+    }));
+    const match = (page.StackResourceSummaries ?? []).find((r: StackResourceSummary) =>
+      r.ResourceType === 'AWS::DynamoDB::Table'
+      && (r.LogicalResourceId ?? '').includes('UserProfilesTable'));
+    if (match?.PhysicalResourceId) {
+      return match.PhysicalResourceId;
+    }
+    token = page.NextToken;
+  } while (token);
+  throw new Error(
+    `Stack ${STACK_NAME} has no DynamoDB table whose logical id contains ` +
+    'UserProfilesTable. Did it get renamed? Update global-setup.ts to match.');
+}
+
 export default async function globalSetup(): Promise<void> {
   let siteUrl = process.env.SITE_URL;
   let userPoolId = process.env.USER_POOL_ID;
@@ -68,6 +92,9 @@ export default async function globalSetup(): Promise<void> {
   }
 
   stashResolvedConfig(siteUrl, userPoolId);
+  // Resolved here rather than per-call: teardown needs it for every test user,
+  // and ListStackResources is paginated and slow.
+  stashProfilesTableName(await resolveUserProfilesTable());
   console.log(`[e2e setup] site: ${siteUrl}`);
   console.log(`[e2e setup] user pool: ${userPoolId}`);
 

@@ -621,26 +621,42 @@ def delete_ocr_data(params):
     data_type = params.get('data_type', 'ocr_result')
     _validate_ocr_data_type(data_type)
 
-    response = table.get_item(Key={'iepId': iep_id, 'childId': child_id})
-    item = response.get('Item', {})
+    # Reported through its OWN marker, then re-raised.
+    #
+    # Neither existing signal reaches this. The pipeline's PurgeRedactedOCR
+    # task catches into a Pass state on purpose, because a completed document
+    # must not be marked failed over a cleanup problem -- but the handler
+    # returns 500 rather than raising, so that Catch never fires and the run
+    # ends green either way. And DDB_SERVICE_ERROR needs five occurrences in
+    # fifteen minutes, while one failed purge logs once.
+    #
+    # So without this line, one document silently keeps text we said we would
+    # not keep. Threshold on this marker is one.
+    try:
+        response = table.get_item(Key={'iepId': iep_id, 'childId': child_id})
+        item = response.get('Item', {})
 
-    s3_ref = item.get(f'{data_type}_s3_ref')
-    if s3_ref:
-        delete_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
-    else:
-        # Delete the conventional key too in case the ref write was lost
-        delete_content_from_s3(get_ocr_s3_key(iep_id, child_id, data_type), os.environ.get('BUCKET', ''))
+        s3_ref = item.get(f'{data_type}_s3_ref')
+        if s3_ref:
+            delete_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
+        else:
+            # Delete the conventional key too in case the ref write was lost
+            delete_content_from_s3(get_ocr_s3_key(iep_id, child_id, data_type), os.environ.get('BUCKET', ''))
 
-    _guarded_update(
-        Key={
-            'iepId': iep_id,
-            'childId': child_id
-        },
-        UpdateExpression=f"REMOVE {data_type}, {data_type}_s3_ref SET updated_at = :updated_at",
-        ExpressionAttributeValues={
-            ':updated_at': datetime.utcnow().isoformat()
-        }
-    )
+        _guarded_update(
+            Key={
+                'iepId': iep_id,
+                'childId': child_id
+            },
+            UpdateExpression=f"REMOVE {data_type}, {data_type}_s3_ref SET updated_at = :updated_at",
+            ExpressionAttributeValues={
+                ':updated_at': datetime.utcnow().isoformat()
+            }
+        )
+    except Exception as error:
+        # Ids and the kind of payload only, never the text itself.
+        print(f"OCR_PURGE_FAILED iep={iep_id} kind={data_type} error={type(error).__name__}")
+        raise
 
     return {
         'statusCode': 200,

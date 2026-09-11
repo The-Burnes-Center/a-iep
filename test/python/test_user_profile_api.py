@@ -884,3 +884,48 @@ def test_account_delete_survives_referrals_table_not_being_configured(api, monke
     assert status == 200
     assert body['deletionSummary']['profileDeleted'] is True
     assert body['deletionSummary']['referrals']['linksDeleted'] == 0
+
+
+def test_account_delete_actually_removes_the_profile_row(api):
+    """The row is the only pointer to a family's documents.
+
+    Left behind, it is unreachable (nothing can authenticate as a deleted
+    Cognito user) and therefore undeletable through the product, while still
+    holding the child's details. Staging accumulated 128 of these before
+    anyone looked, though from the E2E teardown calling AdminDeleteUser
+    directly rather than from this path.
+
+    Nothing asserted this until now: the suite checked referrals and documents
+    and never the row itself.
+    """
+    profile_with_child(api)
+    assert 'Item' in api.profiles.get_item(Key={'userId': USER}), 'fixture did not seed a profile'
+
+    status, body = call(api, '/profile', 'DELETE')
+
+    assert status == 200
+    assert 'Item' not in api.profiles.get_item(Key={'userId': USER}), \
+        'the profile row survived the account deletion'
+    assert body['deletionSummary']['profileDeleted'] is True
+
+
+def test_account_delete_does_not_claim_success_when_the_profile_row_survives(api, monkeypatch):
+    """A parent told "deleted" while their child's details are still stored.
+
+    This is the shape the whole deletion rewrite exists to remove: every step
+    was wrapped in its own try/except that printed and continued, and the
+    handler returned 200 regardless.
+    """
+    profile_with_child(api)
+
+    def refuse(**_kwargs):
+        raise RuntimeError('DynamoDB unavailable')
+
+    # Patch the MODULE's handle, not the fixture's: the handler closes over
+    # user_profiles_table, and patching api.profiles leaves it untouched (the
+    # first version of this test did exactly that and passed vacuously).
+    monkeypatch.setattr(api.module.user_profiles_table, 'delete_item', refuse)
+
+    status, _ = call(api, '/profile', 'DELETE')
+
+    assert status != 200, 'a surviving profile row was reported as a successful deletion'

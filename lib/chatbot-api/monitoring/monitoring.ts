@@ -598,6 +598,40 @@ export class MonitoringStack extends Construct {
       evaluationPeriods: 1,
     });
 
+    // A purge that did not happen, on either kind of OCR text.
+    //
+    // The pipeline's PurgeRedactedOCR task catches into a Pass state, because
+    // a finished document must not be marked failed over a cleanup problem.
+    // That is the right call and it is why this alarm has to exist: the run
+    // ends green, and the DDB service alarm above needs five occurrences in
+    // fifteen minutes while one failed purge logs exactly once.
+    new logs.MetricFilter(this, 'OcrPurgeFailedFilter', {
+      logGroup: ddbServiceFunction.logGroup,
+      filterPattern: logs.FilterPattern.literal('OCR_PURGE_FAILED'),
+      metricNamespace,
+      metricName: 'OcrPurgeFailed',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
+    this.alarm('OcrPurgeFailedAlarm', {
+      severity: 'critical',
+      name: 'a document kept text we said we would delete',
+      description:
+        'The extracted text of an IEP should have been deleted once the ' +
+        'summary existed, and was not. The document is fine for the family; ' +
+        'the leftover text needs removing by hand.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'OcrPurgeFailed',
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(15),
+      }),
+      // One document is one child. No benign volume.
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+
     this.alarm('DocumentsFailingAlarm', {
       severity: 'medium',
       name: 'document pipeline failing',

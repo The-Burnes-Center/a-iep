@@ -12,10 +12,12 @@ import {
   AdminUpdateUserAttributesCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm';
+import { DynamoDBClient, DeleteItemCommand } from '@aws-sdk/client-dynamodb';
 import { randomBytes } from 'crypto';
-import { REGION, TEST_OTP_PARAM_PREFIX, getUserPoolId } from './config';
+import { REGION, TEST_OTP_PARAM_PREFIX, getUserPoolId, getUserProfilesTableName } from './config';
 
 const ssm = new SSMClient({ region: REGION });
+const ddb = new DynamoDBClient({ region: REGION });
 const cognito = new CognitoIdentityProviderClient({ region: REGION });
 
 /**
@@ -223,6 +225,20 @@ export async function ensureTestUser(phone: string): Promise<void> {
  * leftover, and the journey needs a clean, confirmed starting state.
  */
 export async function deleteTestUserIfExists(phone: string): Promise<void> {
+  // The sub, read BEFORE the delete: it is the profile table's key, and once
+  // the Cognito user is gone there is no way to look it up again.
+  let sub: string | undefined;
+  try {
+    const user = await cognito.send(new AdminGetUserCommand({
+      UserPoolId: getUserPoolId(),
+      Username: phone,
+    }));
+    sub = user.UserAttributes?.find((a) => a.Name === 'sub')?.Value;
+  } catch (error) {
+    if ((error as Error).name !== 'UserNotFoundException') throw error;
+    return;
+  }
+
   try {
     await cognito.send(new AdminDeleteUserCommand({
       UserPoolId: getUserPoolId(),
@@ -230,6 +246,24 @@ export async function deleteTestUserIfExists(phone: string): Promise<void> {
     }));
   } catch (error) {
     if ((error as Error).name !== 'UserNotFoundException') throw error;
+  }
+
+  // AdminDeleteUser removes the login and nothing else. This teardown does
+  // NOT go through the product's own delete, so the profile row it wrote at
+  // signup is left with no owner: unreachable, because nothing can
+  // authenticate as a deleted user, and therefore undeletable through the
+  // app. Staging had accumulated 128 of them before anyone looked.
+  if (!sub) {
+    return;
+  }
+  try {
+    await ddb.send(new DeleteItemCommand({
+      TableName: getUserProfilesTableName(),
+      Key: { userId: { S: sub } },
+    }));
+  } catch (error) {
+    // Best effort: a leftover row is untidy, not a failed test.
+    console.warn(`could not remove the profile row for a deleted test user: ${(error as Error).name}`);
   }
 }
 

@@ -51,6 +51,7 @@ const EXPECTED_ALARM_SUFFIXES = [
   'the SMS provider is rejecting login codes',
   'the pipeline cannot write to its database',
   'a failed document kept its unredacted copy',
+  'a document kept text we said we would delete',
   'a parent asked us to delete their records and we did not',
   // The signup endpoint. It is the ONLY way to create an account, because
   // Cognito's public SignUp API is closed, and for its first day it had no
@@ -407,6 +408,40 @@ describe('a deletion that only partly happened', () => {
     const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
       .map((r: any) => r.Properties)
       .find((p: any) => String(p.AlarmName).includes('asked us to delete their records'));
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Threshold).toBe(1);
+    expect(alarm.AlarmDescription).toContain('[critical]');
+  });
+});
+
+describe('OCR text that should have been deleted and was not', () => {
+  // Neither existing signal reaches this. The pipeline's PurgeRedactedOCR
+  // task catches into a Pass state on purpose, so a finished document is not
+  // marked failed over a cleanup problem -- but the DDB service returns 500
+  // rather than raising, so that Catch never fires and the run ends green
+  // either way. And the DDB service alarm needs five occurrences in fifteen
+  // minutes, while one failed purge logs exactly once.
+  //
+  // Pinned on the lambda side in test/python/test_ddb_service.py.
+  test('OCR_PURGE_FAILED is counted into its own metric', () => {
+    for (const environment of ['production', 'staging']) {
+      synth(environment).hasResourceProperties('AWS::Logs::MetricFilter', {
+        FilterPattern: 'OCR_PURGE_FAILED',
+        MetricTransformations: Match.arrayWith([
+          Match.objectLike({
+            MetricName: 'OcrPurgeFailed',
+            MetricNamespace: 'AI-IEP/Pipeline',
+          }),
+        ]),
+      });
+    }
+  });
+
+  test('one document is enough to alarm, at critical', () => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes('kept text we said we would delete'));
 
     expect(alarm).toBeDefined();
     expect(alarm.Threshold).toBe(1);
