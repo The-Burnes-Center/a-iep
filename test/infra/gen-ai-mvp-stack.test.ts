@@ -1225,6 +1225,107 @@ describe('Bedrock is not granted on a wildcard', () => {
   });
 });
 
+// ── DDB service function: student-name grants ───────────────────────────
+// WHY: get_student_name and restore_student_name
+// (metadata-handler/ddb-service/handler.py) read the child's name from the
+// user-profiles table and decrypt it with the CMK. Every grant that makes
+// that work already existed before the feature landed: the DynamoDB
+// statement in stepFunctionPolicies already named the user-profiles table,
+// ddbServiceFunction already carried the kmsPolicy's kms:Decrypt scoped to
+// the CMK, and USER_PROFILES_TABLE was already in its environment. The
+// feature shipped with no CDK change, so nothing here pinned any of the
+// three.
+//
+// That is the gap. If any one of them is narrowed later, nothing fails
+// loudly: _decrypt_profile_field falls through, _student_name returns None,
+// and restore_student_name substitutes the neutral phrase. Every parent
+// quietly gets "your child" where their child's name belongs, the pipeline
+// still reports success, and no alarm fires.
+// test/python/test_ddb_service.py::test_an_undecryptable_name_becomes_the_neutral_phrase_not_a_blob
+// pins that the degradation is SAFE; these three pin the grant that keeps it
+// from happening at all -- the same shape as the bucket rename this file
+// already guards against, a safe fallback that makes a real regression
+// invisible.
+//
+// Staging only, same reasoning as 'Bedrock is not granted on a wildcard'
+// above: none of stepFunctionPolicies, the kmsPolicy application to
+// ddbServiceFunction, or its USER_PROFILES_TABLE environment entry sit
+// behind a getEnvironment() branch in functions.ts, so a second full synth
+// would only re-assert what staging already shows.
+describe('DDB service function: student-name grants', () => {
+  // The one IAM::Policy resource attached to ddbServiceFunction's role.
+  // Same roleHint idiom as 'the knowledge-management lambdas hold only the
+  // S3 actions they use' above: findResources plus a substring check on the
+  // attached Roles, not a hardcoded logical id that a hash change would break.
+  const ddbServiceRoleStatements = (): any[] => {
+    const ddbServiceIds = Object.keys(template.findResources('AWS::Lambda::Function'))
+      .filter((id) => id.includes('DDBServiceFunction'));
+    // Vacuity floor: the pins below assert nothing if the function itself vanished.
+    expect(ddbServiceIds).toHaveLength(1);
+
+    const policies = Object.values(template.findResources('AWS::IAM::Policy'))
+      .filter((policy: any) =>
+        JSON.stringify(policy.Properties?.Roles ?? []).includes('DDBServiceFunctionServiceRole'));
+    // Vacuity floor: a role hint that stops matching would make every pin
+    // below pass on zero statements instead of failing.
+    expect(policies.length).toBeGreaterThan(0);
+
+    return policies.flatMap((policy: any) => policy.Properties?.PolicyDocument?.Statement ?? []);
+  };
+
+  test('can GetItem on the user-profiles table', () => {
+    const tables = resourcesMatching(template, 'AWS::DynamoDB::Table', 'UserProfilesTable');
+    // Vacuity floor: no table means the resource match below is meaningless.
+    expect(tables).toHaveLength(1);
+    const [userProfilesTableId] = tables[0];
+
+    const grants = ddbServiceRoleStatements().filter((statement) =>
+      statement.Effect === 'Allow'
+      && [statement.Action ?? []].flat().includes('dynamodb:GetItem')
+      && JSON.stringify(statement.Resource ?? []).includes(userProfilesTableId));
+
+    expect(grants.length).toBeGreaterThan(0);
+  });
+
+  // The narrowness is the point, not just the presence: a decrypt grant
+  // widened to '*' would still pass a "kms:Decrypt exists somewhere" check,
+  // and '*' reads every secret the CMK protects, not just this table.
+  test('can decrypt with the application CMK, and nothing wider', () => {
+    const keys = resourcesMatching(template, 'AWS::KMS::Key', 'AppKmsKey');
+    // Vacuity floor: no CMK means the reference check below asserts nothing.
+    expect(keys).toHaveLength(1);
+    const [appKmsKeyId] = keys[0];
+
+    const decryptStatements = ddbServiceRoleStatements().filter((statement) =>
+      statement.Effect === 'Allow' && [statement.Action ?? []].flat().includes('kms:Decrypt'));
+    // Vacuity floor: no matching statement means the loop below runs zero times.
+    expect(decryptStatements.length).toBeGreaterThan(0);
+
+    for (const statement of decryptStatements) {
+      const resources = [statement.Resource ?? []].flat();
+      expect(resources).not.toContain('*');
+      expect(resources.length).toBeGreaterThan(0);
+      expect(resources.every((resource: unknown) => JSON.stringify(resource).includes(appKmsKeyId))).toBe(true);
+    }
+  });
+
+  test('has USER_PROFILES_TABLE in its environment', () => {
+    const ddbServiceFns = Object.entries(template.findResources('AWS::Lambda::Function'))
+      .filter(([id]) => id.includes('DDBServiceFunction'));
+    // Vacuity floor: same function lookup as the statements helper above.
+    expect(ddbServiceFns).toHaveLength(1);
+    const [, ddbServiceFn] = ddbServiceFns[0] as [string, any];
+
+    const tables = resourcesMatching(template, 'AWS::DynamoDB::Table', 'UserProfilesTable');
+    expect(tables).toHaveLength(1);
+    const [userProfilesTableId] = tables[0];
+
+    const envVars = ddbServiceFn.Properties?.Environment?.Variables ?? {};
+    expect(envVars.USER_PROFILES_TABLE).toBeDefined();
+    expect(JSON.stringify(envVars.USER_PROFILES_TABLE)).toContain(userProfilesTableId);
+  });
+});
+
 // ── Encryption ──────────────────────────────────────────────────────────
 // WHY: on 2026-09-08 an audit found the encryption posture correct in the
 // live account but pinned by nothing. `encryptionKey` and `environmentEncryption`
