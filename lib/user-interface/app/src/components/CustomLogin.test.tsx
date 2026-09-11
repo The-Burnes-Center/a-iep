@@ -1,30 +1,26 @@
 /**
- * Wiring tests for the phone half of CustomLogin.
+ * CustomLogin, covering both backends that are live at once behind the
+ * `passwordlessAuth` flag (see docs/AUTH_API_CONTRACT.md and
+ * common/features.ts).
  *
- * The behaviour under test is what a parent signing up with a phone number
- * actually experiences, so these drive the real component through the DOM and
- * mock only the boundary: Amplify's `Auth`. Everything else — AuthProvider,
- * the router, AlertMessages — is real, and the assertions are what the parent
- * sees (which screen, which message, where they land) plus what must NOT
- * happen (no second SMS, no confirmation step, no account created).
+ * Most of this file replaces the previous suite, which drove the Amplify
+ * signIn-then-/auth/signup branch the new backend exists to remove (see
+ * CLAUDE.md and AUTH_API_CONTRACT.md §11: "most of them have no successor").
+ * These tests drive the real component through the DOM and mock only the
+ * boundary — `fetch` for the new flow, Amplify's `Auth` for the legacy one —
+ * asserting what a parent actually sees (which screen, which message, where
+ * they land) and what must NOT happen (no second code requested, no token
+ * written to storage, no raw dot-key rendered).
  *
- * The contract these exist to protect is that a new parent receives exactly
- * ONE SMS. No E2E journey can assert that: a journey proves a code arrived,
- * not that a second one did not.
- *
- * The two-code fallback these used to cover is gone. Accounts are now created
- * by our own endpoint with the phone already verified, so there is no
- * unconfirmed state for Cognito to mint a second code into, and no
- * `isSignUpComplete` to branch on. The confirmation SCREEN still exists for
- * accounts left unconfirmed by the old flow, which is why its tests remain.
- *
- * The boundary mocked here is Amplify's `Auth` plus `fetch`, because signup
- * no longer goes through Amplify at all: Cognito's public SignUp API is
- * closed, and account creation is a call to our endpoint.
+ * A small second suite renders with the flag off and confirms the legacy
+ * Amplify path this repo still serves in production is untouched by this
+ * change; it is a smoke check on the gating itself, not a re-litigation of
+ * every legacy edge case (those were already covered before this change and
+ * their underlying code is unmodified).
  */
 import React from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import CustomLogin from "./CustomLogin";
@@ -32,6 +28,8 @@ import { AuthProvider, useAuth } from "../common/auth-provider";
 import { LanguageContext } from "../common/language-context";
 import { AppContext } from "../common/app-context";
 import type { SupportedLanguage } from "../common/languages";
+import { getCachedIdToken, readPersistedSessionHandle } from "../common/auth/passwordless-auth";
+import en from "../translations/en.json";
 
 const Auth = vi.hoisted(() => ({
   signIn: vi.fn(),
@@ -45,494 +43,429 @@ const Auth = vi.hoisted(() => ({
 }));
 vi.mock("aws-amplify/auth", () => Auth);
 
-/** The signup endpoint. Amplify no longer creates accounts. */
-const signupFetch = vi.fn();
-beforeEach(() => {
-  signupFetch.mockReset().mockResolvedValue({ ok: true, status: 200, json: async () => ({ created: true }) });
-  vi.stubGlobal("fetch", signupFetch);
-});
-
-const PHONE_DIGITS = "5551234567";
-const PHONE_E164 = "+15551234567";
-const OTP = "123456";
-const SECOND_OTP = "654321";
-
-/** An Amplify error as the SDK actually shapes it: a code, not a class. */
-const cognitoError = (code: string) =>
-  Object.assign(new Error(code), { code });
-
+const HTTP_ENDPOINT = "https://api.example.test/";
 const LANDING = "you are on the preferred-language page";
 
-/** Surfaces the AuthProvider state that a successful login must produce. */
+/** An Amplify error as the SDK actually shapes it: a code, not a class. */
+const cognitoError = (code: string) => Object.assign(new Error(code), { code });
+
+/** Surfaces the AuthProvider state a successful login must produce. */
 const AuthStateProbe = () => {
   const { authenticated } = useAuth();
   return <div data-testid="auth-state">{authenticated ? "signed-in" : "anonymous"}</div>;
 };
 
-const renderLogin = (language: SupportedLanguage = "en") => {
-  const setLanguage = vi.fn();
-  // t() is the identity so every assertion reads the translation KEY, which is
-  // what the component actually chooses; the English wording is not the
-  // contract and changing it must not break these tests.
+interface MockResponse {
+  status: number;
+  body: unknown;
+}
+
+/**
+ * A fetch mock keyed by which /auth/* route was called, so a test can queue
+ * exactly the sequence of responses one flow needs (e.g. a 202 then a 200)
+ * without caring how the other routes behave.
+ */
+const makeAuthFetch = () => {
+  const queues: Record<string, MockResponse[]> = {};
+  const calls: Record<string, Record<string, unknown>[]> = {};
+
+  const endpointOf = (url: string): string => /auth\/(start|verify|token|logout)/.exec(url)?.[1] ?? "unknown";
+
+  const fn = vi.fn(async (url: unknown, init?: RequestInit) => {
+    const endpoint = endpointOf(String(url));
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    calls[endpoint] = [...(calls[endpoint] ?? []), body];
+    const next = (queues[endpoint] ?? []).shift();
+    if (!next) throw new Error(`test forgot to queue a response for auth/${endpoint}`);
+    return { ok: next.status >= 200 && next.status < 300, status: next.status, json: async () => next.body } as Response;
+  });
+
+  return {
+    fn,
+    queue: (endpoint: string, ...responses: MockResponse[]) => {
+      queues[endpoint] = [...(queues[endpoint] ?? []), ...responses];
+    },
+    callsTo: (endpoint: string) => calls[endpoint] ?? [],
+    countOf: (endpoint: string) => (calls[endpoint] ?? []).length,
+  };
+};
+
+let authFetch: ReturnType<typeof makeAuthFetch>;
+
+const ALL_FLAGS_BUT_PASSWORDLESS = ["tts", "referrals", "parentNameGate"];
+const WITH_PASSWORDLESS = ["tts", "referrals", "parentNameGate", "passwordlessAuth"];
+
+const renderLogin = (opts: { language?: SupportedLanguage; flagOn?: boolean; realTranslations?: boolean } = {}) => {
+  const { language = "en", flagOn = true, realTranslations = false } = opts;
+  const dictionary = en as Record<string, string>;
   const languageValue = {
     language,
-    setLanguage,
-    t: (key: string) => key,
+    setLanguage: vi.fn(),
+    // Identity by default, matching the rest of this suite: assertions read
+    // the KEY the component chose, which is the actual contract, not the
+    // English wording. One block below opts into the real dictionary
+    // specifically to prove a key resolves to words, not to itself.
+    t: realTranslations ? (key: string) => dictionary[key] || key : (key: string) => key,
     translationsLoaded: true,
     enabledLanguages: ["en", "es", "zh", "vi", "ar"] as SupportedLanguage[],
   };
+  const appConfig = {
+    httpEndpoint: HTTP_ENDPOINT,
+    enabledFeatures: flagOn ? WITH_PASSWORDLESS : ALL_FLAGS_BUT_PASSWORDLESS,
+  } as never;
 
-  // The real component reads the API endpoint from here, so a bare render
-  // would exercise a code path production never takes.
-  const appConfig = { httpEndpoint: "https://api.example.test/" } as never;
-
-  render(
+  const view = render(
     <MemoryRouter initialEntries={["/login"]}>
       <AppContext.Provider value={appConfig}>
-      <LanguageContext.Provider value={languageValue}>
-        <AuthProvider>
-          {/* Outside <Routes> so it survives the post-login navigation */}
-          <AuthStateProbe />
-          <Routes>
-            <Route path="/login" element={<CustomLogin showLogo={false} />} />
-            <Route path="/preferred-language" element={<div>{LANDING}</div>} />
-          </Routes>
-        </AuthProvider>
-      </LanguageContext.Provider>
+        <LanguageContext.Provider value={languageValue}>
+          <AuthProvider>
+            <AuthStateProbe />
+            <Routes>
+              <Route path="/login" element={<CustomLogin showLogo={false} />} />
+              <Route path="/preferred-language" element={<div>{LANDING}</div>} />
+            </Routes>
+          </AuthProvider>
+        </LanguageContext.Provider>
       </AppContext.Provider>
     </MemoryRouter>,
   );
-
-  return { user: userEvent.setup(), setLanguage };
+  return { ...view, user: userEvent.setup() };
 };
 
-/**
- * Fill the phone field in one change event. The field reformats on every
- * keystroke and rewrites the caret, so per-character typing is a test of the
- * formatter's caret handling rather than of the auth flow.
- */
-const fillPhone = (digits = PHONE_DIGITS) => {
-  fireEvent.change(screen.getByPlaceholderText("(xxx) xxx-xxxx"), {
-    target: { value: `+1 ${digits}` },
-  });
+const fillPhone = (digits = "5551234567") => {
+  const input = screen.getByPlaceholderText("(xxx) xxx-xxxx") as HTMLInputElement;
+  // Single change event: the field reformats on every keystroke, so
+  // per-character typing tests the formatter's caret handling, not the flow.
+  const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+  nativeSetter.call(input, `+1 ${digits}`);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
 };
 
-const submitPhone = async (user: ReturnType<typeof userEvent.setup>) => {
-  await user.click(screen.getByRole("button", { name: "auth.sendSmsCode" }));
-};
-
-const submitCode = async (user: ReturnType<typeof userEvent.setup>, code: string) => {
-  await user.type(screen.getByTestId("sms-code-input"), code);
-  await user.click(screen.getByRole("button", { name: "auth.verifySmsCode" }));
-};
-
-const onOtpScreen = () => screen.queryByTestId("sms-code-input") !== null;
-const onPhoneScreen = () => screen.queryByPlaceholderText("(xxx) xxx-xxxx") !== null;
+const onCodeScreen = () => screen.queryByTestId("sms-code-input") !== null;
+const onIdentifierScreen = () => screen.queryByPlaceholderText("(xxx) xxx-xxxx") !== null;
 
 beforeEach(() => {
-  // No session: AuthProvider's mount check must report anonymous.
+  localStorage.clear();
   Auth.getCurrentUser.mockRejectedValue(new Error("not authenticated"));
+  authFetch = makeAuthFetch();
+  vi.stubGlobal("fetch", authFetch.fn);
 });
 
-describe("phone number handling", () => {
-  test("normalizes the formatted field to E.164 before calling Cognito", async () => {
-    Auth.signIn.mockResolvedValue({ isSignedIn: false, nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} } });
-    const { user } = renderLogin();
+describe("passwordless flow: identifier screen (flag on)", () => {
+  test("a phone number normalizes to E.164 and starts the flow in the parent's language", async () => {
+    authFetch.queue("start", { status: 200, body: { ok: true, challenge: "c1", channel: "sms", expiresIn: 300 } });
+    const { user } = renderLogin({ language: "es" });
 
     fillPhone();
-    expect(screen.getByPlaceholderText("(xxx) xxx-xxxx")).toHaveValue("+1 (555) 123-4567");
-    await submitPhone(user);
+    await user.click(screen.getByRole("button", { name: "auth.sendCode" }));
 
-    await screen.findByTestId("sms-code-input");
-    expect(Auth.signIn).toHaveBeenCalledWith({
-      username: PHONE_E164,
-      options: { authFlowType: "CUSTOM_WITHOUT_SRP", clientMetadata: { language: "en" } },
-    });
+    expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
+    expect(authFetch.callsTo("start")[0]).toEqual({ destination: "+15551234567", language: "es" });
   });
 
-  test("rejects a short number without contacting Cognito at all", async () => {
+  test("a short phone number is rejected locally: no request is made at all", async () => {
     const { user } = renderLogin();
 
     fillPhone("55512");
-    await submitPhone(user);
+    await user.click(screen.getByRole("button", { name: "auth.sendCode" }));
 
     expect(await screen.findByText("auth.errorPhoneFormat")).toBeInTheDocument();
-    expect(Auth.signIn).not.toHaveBeenCalled();
-    expect(Auth.signUp).not.toHaveBeenCalled();
-    expect(onOtpScreen()).toBe(false);
+    expect(authFetch.countOf("start")).toBe(0);
+    expect(onCodeScreen()).toBe(false);
+  });
+
+  test("the browser's own required/type=email validation blocks an empty email submit, same as the legacy form", async () => {
+    // No custom JS blank-check in PasswordlessAuthForm for the email tab —
+    // EmailInput is required + type="email", so onSubmit never fires at all
+    // for an empty field. Asserted here so a future removal of `required`
+    // gets caught: without it, an empty destination would reach /auth/start.
+    const { user } = renderLogin();
+
+    await user.click(screen.getByRole("button", { name: "auth.emailLogin" }));
+    await user.click(screen.getByRole("button", { name: "auth.sendCode" }));
+
+    expect(authFetch.countOf("start")).toBe(0);
+    expect(onCodeScreen()).toBe(false);
+  });
+
+  test("the email tab sends a lowercased address instead of a phone number", async () => {
+    authFetch.queue("start", { status: 200, body: { ok: true, challenge: "c1", channel: "email", expiresIn: 300 } });
+    const { user } = renderLogin();
+
+    await user.click(screen.getByRole("button", { name: "auth.emailLogin" }));
+    await user.type(screen.getByPlaceholderText("auth.enterEmail"), "Parent@Example.com");
+    await user.click(screen.getByRole("button", { name: "auth.sendCode" }));
+
+    await screen.findByTestId("sms-code-input");
+    expect(authFetch.callsTo("start")[0]).toMatchObject({ destination: "parent@example.com" });
+  });
+
+  test("sends the turnstile token when the widget produced one, and omits it otherwise", async () => {
+    authFetch.queue("start", { status: 200, body: { ok: true, challenge: "c1", channel: "sms", expiresIn: 300 } });
+    const { user } = renderLogin();
+
+    fillPhone();
+    await user.click(screen.getByRole("button", { name: "auth.sendCode" }));
+
+    await screen.findByTestId("sms-code-input");
+    // No turnstileSiteKey configured in this render, so no widget and no
+    // token — the same "server decides" convention the legacy flow uses.
+    expect("turnstileToken" in authFetch.callsTo("start")[0]).toBe(false);
+  });
+
+  test.each([
+    ["invalid_destination", "auth.error.invalidDestination"],
+    ["unsupported_destination", "auth.error.unsupportedDestination"],
+    ["bot_check_failed", "auth.error.botCheckFailed"],
+    ["rate_limited", "auth.error.rateLimited"],
+    ["unavailable", "auth.error.unavailable"],
+  ])("/auth/start %s shows %s and stays on the identifier screen", async (code, key) => {
+    authFetch.queue("start", { status: 400, body: { ok: false, code, message: "english fallback text" } });
+    const { user } = renderLogin();
+
+    fillPhone();
+    await user.click(screen.getByRole("button", { name: "auth.sendCode" }));
+
+    expect(await screen.findByText(key)).toBeInTheDocument();
+    expect(onCodeScreen()).toBe(false);
+    expect(onIdentifierScreen()).toBe(true);
   });
 });
 
-describe("applyPhoneSignInResult", () => {
-  test("a plain custom challenge parks the parent on the code screen", async () => {
-    Auth.signIn.mockResolvedValue({
-      isSignedIn: false,
-      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
-      username: PHONE_E164,
-    });
-    const { user } = renderLogin();
-
+describe("passwordless flow: code screen (flag on)", () => {
+  const startThenAwaitCode = async (user: ReturnType<typeof userEvent.setup>) => {
+    authFetch.queue("start", { status: 200, body: { ok: true, challenge: "c1", channel: "sms", expiresIn: 300 } });
     fillPhone();
-    await submitPhone(user);
+    await user.click(screen.getByRole("button", { name: "auth.sendCode" }));
+    await screen.findByTestId("sms-code-input");
+  };
 
-    expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
-    expect(screen.getByText("auth.smsCodeSent")).toBeInTheDocument();
-    expect(onPhoneScreen()).toBe(false);
-    // An existing user must never be pushed through account creation.
-    expect(Auth.signUp).not.toHaveBeenCalled();
+  const submitCode = async (user: ReturnType<typeof userEvent.setup>, code = "123456") => {
+    await user.type(screen.getByTestId("sms-code-input"), code);
+    await user.click(screen.getByRole("button", { name: "auth.verify" }));
+  };
+
+  test("a 202 not_ready is retried transparently and the parent still lands on the app", async () => {
+    authFetch.queue("verify",
+      { status: 202, body: { ok: false, code: "not_ready", retryAfterMs: 5 } },
+      { status: 200, body: { ok: true, session: "sess-1", expiresIn: 2592000 } },
+    );
+    authFetch.queue("token", { status: 200, body: { ok: true, accessToken: "a1", idToken: "i1", expiresIn: 3600 } });
+    const { user } = renderLogin();
+    await startThenAwaitCode(user);
+
+    await submitCode(user);
+
+    expect(await screen.findByText(LANDING)).toBeInTheDocument();
+    expect(authFetch.countOf("verify")).toBe(2);
   });
 
-  test("a challenge reporting a send failure shows the error and does NOT claim a code was sent", async () => {
-    // The SMS lambda reports a failed send through challengeParam.error while
-    // still returning a CUSTOM_CHALLENGE. Without the check the UI would park
-    // the parent on a code screen waiting for an SMS that never arrives.
-    Auth.signIn.mockResolvedValue({
-      isSignedIn: false,
-      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: { error: "SNS publish failed" } },
-    });
+  test("bad_code keeps the parent on the code screen so they can retype", async () => {
+    authFetch.queue("verify", { status: 401, body: { ok: false, code: "bad_code", message: "nope" } });
     const { user } = renderLogin();
+    await startThenAwaitCode(user);
 
-    fillPhone();
-    await submitPhone(user);
+    await submitCode(user);
 
-    expect(await screen.findByText("auth.errorSendingCode")).toBeInTheDocument();
-    expect(onOtpScreen()).toBe(false);
-    expect(onPhoneScreen()).toBe(true);
-    expect(screen.queryByText("auth.smsCodeSent")).not.toBeInTheDocument();
+    expect(await screen.findByText("auth.error.badCode")).toBeInTheDocument();
+    expect(onCodeScreen()).toBe(true);
+    expect(screen.getByTestId("sms-code-input")).toHaveValue("");
   });
 
-  test("no challenge at all means already authenticated: log in and route on", async () => {
-    Auth.signIn.mockResolvedValue({ isSignedIn: true, nextStep: { signInStep: "DONE" } });
-    Auth.getCurrentUser.mockResolvedValue({ username: PHONE_E164, userId: "test-user" });
+  test("a third wrong code in a row forces a fresh start rather than a fourth dead attempt", async () => {
+    authFetch.queue(
+      "verify",
+      { status: 401, body: { ok: false, code: "bad_code", message: "nope" } },
+      { status: 401, body: { ok: false, code: "bad_code", message: "nope" } },
+      { status: 401, body: { ok: false, code: "bad_code", message: "nope" } },
+    );
     const { user } = renderLogin();
+    await startThenAwaitCode(user);
+
+    await submitCode(user);
+    await screen.findByText("auth.error.badCode");
+    await submitCode(user);
+    await screen.findByText("auth.error.badCode");
+    await submitCode(user);
+
+    // Back on the identifier screen: Cognito's own three-answer budget is
+    // spent, and a fourth submit would only get bad_code again for a reason
+    // the client cannot tell apart from the first three (contract §3).
+    await waitFor(() => expect(onIdentifierScreen()).toBe(true));
+    expect(onCodeScreen()).toBe(false);
+    expect(authFetch.countOf("verify")).toBe(3);
+  });
+
+  test("too_many_codes locks the parent out with the wait time, then returns to the identifier screen", async () => {
+    // Real dictionary here, not the identity t(): the {minutes} substitution
+    // is a string .replace() in the component, and the identity function's
+    // output ("auth.error.tooManyCodes") has no "{minutes}" substring in it
+    // for that replace to find, so it would pass this assertion vacuously.
+    const dict = en as Record<string, string>;
+    authFetch.queue("start", { status: 200, body: { ok: true, challenge: "c1", channel: "sms", expiresIn: 300 } });
+    authFetch.queue("verify", { status: 429, body: { ok: false, code: "too_many_codes", message: "nope", retryAfterSeconds: 1 } });
+    const { user } = renderLogin({ realTranslations: true });
 
     fillPhone();
-    await submitPhone(user);
+    await user.click(screen.getByRole("button", { name: dict["auth.sendCode"] }));
+    await screen.findByTestId("sms-code-input");
+    await user.type(screen.getByTestId("sms-code-input"), "123456");
+    await user.click(screen.getByRole("button", { name: dict["auth.verify"] }));
+
+    const locked = await screen.findByTestId("passwordless-locked-out");
+    expect(locked).toHaveTextContent(dict["auth.error.tooManyCodes"].replace("{minutes}", "1"));
+    expect(onCodeScreen()).toBe(false);
+
+    await waitFor(() => expect(onIdentifierScreen()).toBe(true), { timeout: 3000 });
+  });
+
+  test.each([
+    ["unsupported_destination", "auth.error.sendFailed.unsupportedDestination"],
+    ["budget_exhausted", "auth.error.sendFailed.budgetExhausted"],
+    ["rate_limited", "auth.error.sendFailed.rateLimited"],
+    ["delivery_failed", "auth.error.sendFailed.deliveryFailed"],
+  ])("send_failed reason %s shows %s and sends the parent back to start", async (reason, key) => {
+    authFetch.queue("verify", { status: 409, body: { ok: false, code: "send_failed", message: "x", reason } });
+    const { user } = renderLogin();
+    await startThenAwaitCode(user);
+
+    await submitCode(user);
+
+    expect(await screen.findByText(key)).toBeInTheDocument();
+    expect(onIdentifierScreen()).toBe(true);
+  });
+
+  test("unavailable from /auth/verify keeps the challenge so the parent can just retry", async () => {
+    authFetch.queue("verify", { status: 503, body: { ok: false, code: "unavailable", message: "x" } });
+    const { user } = renderLogin();
+    await startThenAwaitCode(user);
+
+    await submitCode(user);
+
+    expect(await screen.findByText("auth.error.unavailable")).toBeInTheDocument();
+    expect(onCodeScreen()).toBe(true); // handle kept; contract says retry, not restart
+  });
+
+  test("session_invalid from /auth/token does NOT sign the parent in: it sends them back to start", async () => {
+    authFetch.queue("verify", { status: 200, body: { ok: true, session: "sess-1", expiresIn: 2592000 } });
+    authFetch.queue("token", { status: 401, body: { ok: false, code: "session_invalid", message: "x" } });
+    const { user } = renderLogin();
+    await startThenAwaitCode(user);
+
+    await submitCode(user);
+
+    expect(await screen.findByText("auth.error.sessionInvalid")).toBeInTheDocument();
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
+    expect(screen.queryByText(LANDING)).not.toBeInTheDocument();
+    expect(readPersistedSessionHandle()).toBeNull();
+  });
+
+  test("a correct code signs the parent in and never writes accessToken/idToken to storage", async () => {
+    authFetch.queue("verify", { status: 200, body: { ok: true, session: "sess-1", expiresIn: 2592000 } });
+    authFetch.queue("token", { status: 200, body: { ok: true, accessToken: "secret-access", idToken: "secret-id", expiresIn: 3600 } });
+    const { user } = renderLogin();
+    await startThenAwaitCode(user);
+
+    await submitCode(user);
 
     expect(await screen.findByText(LANDING)).toBeInTheDocument();
     expect(screen.getByTestId("auth-state")).toHaveTextContent("signed-in");
-  });
 
-  test("answers the language handshake round, in the parent's language, before the OTP screen", async () => {
-    // Cognito does not forward sign-in clientMetadata to the SMS lambda, so the
-    // backend's first round collects the UI language and sends nothing. Answering
-    // it DOES forward clientMetadata, and the next round sends the OTP in that
-    // language — the whole reason the round exists.
-    const handshakeUser = {
-      isSignedIn: false,
-      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: { challengeType: "LANGUAGE_HANDSHAKE" } },
-    };
-    Auth.signIn.mockResolvedValue(handshakeUser);
-    Auth.confirmSignIn.mockResolvedValue({
-      isSignedIn: false,
-      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
-    });
-    const { user } = renderLogin("es");
-
-    fillPhone();
-    await submitPhone(user);
-
-    expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
-    expect(Auth.confirmSignIn).toHaveBeenCalledWith({
-      challengeResponse: "HANDSHAKE_ACK",
-      options: { clientMetadata: { language: "es" } },
-    });
+    // The one durable value the contract allows (§6, §8).
+    expect(readPersistedSessionHandle()).toBe("sess-1");
+    // The in-memory cache got it...
+    expect(getCachedIdToken()).toBe("secret-id");
+    // ...but neither raw token string is anywhere in localStorage.
+    const storedValues = Object.keys(localStorage).map((k) => localStorage.getItem(k)).join("\n");
+    expect(storedValues).not.toContain("secret-access");
+    expect(storedValues).not.toContain("secret-id");
   });
 });
 
-describe("unknown number falls back to sign-up", () => {
-  test.each(["UserNotFoundException", "NotAuthorizedException"])(
-    "%s creates the account with the phone number and UI locale",
-    async (code) => {
-      // NotAuthorizedException matters as much as UserNotFoundException: the app
-      // client has PreventUserExistenceErrors on, so an unknown number surfaces
-      // as a failed auth rather than a missing user.
-      Auth.signIn.mockRejectedValueOnce(cognitoError(code));
-      Auth.signIn.mockResolvedValueOnce({
-        isSignedIn: false,
-        nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
-      });
-      const { user } = renderLogin("vi");
-
-      fillPhone();
-      await submitPhone(user);
-
-      expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
-
-      // Our endpoint, not Amplify. Cognito's public SignUp API is closed, and
-      // going back to it would reopen the door the endpoint exists to shut.
-      expect(Auth.signUp).not.toHaveBeenCalled();
-      expect(signupFetch).toHaveBeenCalledTimes(1);
-      const [url, init] = signupFetch.mock.calls[0];
-      expect(String(url)).toContain("auth/signup");
-      expect(init.method).toBe("POST");
-      expect(JSON.parse(init.body)).toMatchObject({
-        phoneNumber: PHONE_E164,
-        language: "vi",
-      });
-      // No password crosses this boundary any more. The endpoint mints one
-      // the account's owner never learns.
-      expect(init.body).not.toContain("password");
-    },
-  );
-
-  test("an unrelated Cognito error creates no account and shows its own message", async () => {
-    Auth.signIn.mockRejectedValue(cognitoError("InvalidParameterException"));
-    const { user } = renderLogin();
-
+describe("passwordless flow: leaving and returning mid-flow", () => {
+  test("a challenge left mid-flow resumes the code screen on remount, with no second /auth/start", async () => {
+    authFetch.queue("start", { status: 200, body: { ok: true, challenge: "c1", channel: "sms", expiresIn: 300 } });
+    const first = renderLogin();
     fillPhone();
-    await submitPhone(user);
+    await first.user.click(screen.getByRole("button", { name: "auth.sendCode" }));
+    await screen.findByTestId("sms-code-input");
 
-    expect(await screen.findByText("auth.errorPhoneFormat")).toBeInTheDocument();
-    expect(Auth.signUp).not.toHaveBeenCalled();
-    expect(onOtpScreen()).toBe(false);
+    // The bottom nav is a route change: leaving unmounts this component.
+    first.unmount();
+
+    renderLogin();
+
+    // First render after remount — not asserting after an action, per
+    // CLAUDE.md's rule for this exact defect class (resumeTranslationRequest).
+    expect(onCodeScreen()).toBe(true);
+    expect(onIdentifierScreen()).toBe(false);
+    expect(authFetch.countOf("start")).toBe(1);
   });
 
-  test("a number created between the two calls is not a race any more", async () => {
-    Auth.signIn.mockRejectedValueOnce(cognitoError("UserNotFoundException"));
-    Auth.signUp.mockRejectedValue(cognitoError("UsernameExistsException"));
-    Auth.signIn.mockResolvedValueOnce({
-      isSignedIn: false,
-      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
-    });
-    const { user } = renderLogin();
+  test("an expired persisted challenge is not resumed: a stale code screen never traps a parent", async () => {
+    const { persistChallenge } = await import("../common/auth/passwordless-auth");
+    persistChallenge({ challenge: "stale", destination: "+15551234567", channel: "sms", expiresAt: Date.now() - 1000 });
 
-    fillPhone();
-    await submitPhone(user);
+    renderLogin();
 
-    expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
-    // The endpoint answers 200 with created:false rather than throwing, so
-    // there is no UsernameExists branch to fall into and the parent simply
-    // continues to the code screen. Saying "that number is taken" would also
-    // be the account enumeration PreventUserExistenceErrors exists to stop.
-    expect(screen.getByText("auth.smsCodeSentNewUser")).toBeInTheDocument();
-    expect(Auth.signIn).toHaveBeenCalledTimes(2);
+    expect(onIdentifierScreen()).toBe(true);
+    expect(onCodeScreen()).toBe(false);
   });
 });
 
-describe("single-SMS signup", () => {
-  const arrangeAutoConfirmedSignup = () => {
+describe("passwordless flow: copy is real words, not raw translation keys", () => {
+  test("an error code the parent hits resolves to English text, not its own dot-key", async () => {
+    authFetch.queue("start", { status: 429, body: { ok: false, code: "rate_limited", message: "english fallback" } });
+    const { user } = renderLogin({ realTranslations: true });
+
+    fillPhone();
+    await user.click(screen.getByRole("button", { name: en["auth.sendCode"] }));
+
+    const shown = await screen.findByText((_, node) => node?.textContent === en["auth.error.rateLimited"]);
+    expect(shown).toBeInTheDocument();
+    expect(shown.textContent).not.toBe("auth.error.rateLimited");
+  });
+});
+
+describe("legacy Amplify flow still renders when the flag is off", () => {
+  const signupFetchAsLegacy = () => {
+    // The legacy flow's own fetch is exercised through the same global mock;
+    // it never calls auth/start|verify|token, so any queued response there
+    // would simply never be consumed. Route it to the old signup shape.
+    authFetch.fn.mockImplementation(async (url: unknown) => {
+      if (String(url).includes("auth/signup")) {
+        return { ok: true, status: 200, json: async () => ({ created: true }) } as Response;
+      }
+      throw new Error(`unexpected fetch to ${String(url)} in legacy-flow test`);
+    });
+  };
+
+  test("an unknown phone number still falls back to the legacy /auth/signup endpoint", async () => {
+    signupFetchAsLegacy();
     Auth.signIn.mockRejectedValueOnce(cognitoError("UserNotFoundException"));
     Auth.signIn.mockResolvedValueOnce({
       isSignedIn: false,
       nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
-      username: PHONE_E164,
     });
-  };
-
-  test("skips the confirmation step and goes straight to the login OTP", async () => {
-    arrangeAutoConfirmedSignup();
-    const { user } = renderLogin();
+    const { user } = renderLogin({ flagOn: false });
 
     fillPhone();
-    await submitPhone(user);
+    await user.click(screen.getByRole("button", { name: "auth.sendSmsCode" }));
 
     expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
-    expect(screen.getByText("auth.smsCodeSentNewUser")).toBeInTheDocument();
-    // The PreSignUp trigger minted no signup code, so there is nothing to
-    // confirm — asking for one would strand the parent on a dead screen.
-    expect(Auth.confirmSignUp).not.toHaveBeenCalled();
-    expect(Auth.resendSignUpCode).not.toHaveBeenCalled();
-    expect(signupFetch).toHaveBeenCalledTimes(1);
+    expect(authFetch.fn).toHaveBeenCalledWith(
+      expect.stringContaining("auth/signup"),
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
-  test("the one code the parent receives is the custom-auth code, and it logs them in", async () => {
-    arrangeAutoConfirmedSignup();
-    Auth.confirmSignIn.mockResolvedValue({
-      isSignedIn: true, nextStep: { signInStep: "DONE" },
-    });
-    Auth.getCurrentUser.mockResolvedValue({ username: PHONE_E164, userId: "test-user" });
-    const { user } = renderLogin();
+  test("the email tab still shows the legacy password form, not the new identifier-only one", async () => {
+    const { user } = renderLogin({ flagOn: false });
 
-    fillPhone();
-    await submitPhone(user);
-    await screen.findByTestId("sms-code-input");
-    await submitCode(user, OTP);
+    await user.click(screen.getByRole("button", { name: "auth.emailLogin" }));
 
-    expect(await screen.findByText("auth.phoneVerificationSuccess")).toBeInTheDocument();
-    expect(screen.getByTestId("auth-state")).toHaveTextContent("signed-in");
-    expect(Auth.confirmSignIn).toHaveBeenCalledWith({
-      challengeResponse: OTP,
-      options: { clientMetadata: { language: "en" } },
-    });
-    expect(Auth.confirmSignUp).not.toHaveBeenCalled();
-    // The redirect is deliberately delayed a beat so the success alert is read.
-    expect(await screen.findByText(LANDING, undefined, { timeout: 3000 })).toBeInTheDocument();
-  });
-});
-
-describe("an account left unconfirmed by the old signup flow", () => {
-  /**
-   * New accounts are created already verified, so this state can no longer be
-   * produced. Accounts made before that change can still be sitting in it,
-   * and they surface as UserNotConfirmedException on sign-in: Cognito mints a
-   * signup code and the parent must confirm before any login OTP is issued.
-   *
-   * Kept, and re-pointed at the path that can still reach it. The screen is
-   * live for real people; only the way in has changed. Still unreachable from
-   * an E2E journey that asserts a single SMS.
-   */
-  const arrangeUnconfirmedSignup = async () => {
-    Auth.signIn.mockRejectedValueOnce(cognitoError("UserNotConfirmedException"));
-    Auth.resendSignUpCode.mockResolvedValue({});
-    const { user } = renderLogin();
-
-    fillPhone();
-    await submitPhone(user);
-    await screen.findByTestId("sms-code-input");
-    return user;
-  };
-
-  test("collects the signup code without asking Cognito for a second SMS", async () => {
-    await arrangeUnconfirmedSignup();
-
-    // A different prompt from a new signup, because this parent already has
-    // an account and is being asked to finish confirming it.
-    expect(screen.getByText("auth.phoneAccountConfirmPrompt")).toBeInTheDocument();
-    expect(onOtpScreen()).toBe(true);
-    // Exactly one code: the resent signup code. Starting custom auth here
-    // would send a second SMS and the parent would not know which to type.
-    // (Call 1 is the probe that threw UserNotConfirmedException.)
-    expect(Auth.signIn).toHaveBeenCalledTimes(1);
-    expect(Auth.resendSignUpCode).toHaveBeenCalledTimes(1);
-    expect(signupFetch).not.toHaveBeenCalled();
-  });
-
-  test("the first code confirms the account, then a login code is requested", async () => {
-    const user = await arrangeUnconfirmedSignup();
-    Auth.signIn.mockResolvedValueOnce({
-      isSignedIn: false,
-      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
-      username: PHONE_E164,
-    });
-
-    await submitCode(user, OTP);
-
-    expect(await screen.findByText("auth.accountConfirmedNewCode")).toBeInTheDocument();
-    expect(Auth.confirmSignUp).toHaveBeenCalledWith({
-      username: PHONE_E164,
-      confirmationCode: OTP,
-    });
-    // The signup code is a confirmation code, never a custom-auth answer.
-    expect(Auth.confirmSignIn).not.toHaveBeenCalled();
-    expect(Auth.signIn).toHaveBeenCalledTimes(2);
-    // Cleared so the parent types the NEW code into an empty field.
-    expect(screen.getByTestId("sms-code-input")).toHaveValue("");
-  });
-
-  test("the second code completes the login", async () => {
-    const user = await arrangeUnconfirmedSignup();
-    Auth.signIn.mockResolvedValueOnce({
-      isSignedIn: false,
-      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
-      username: PHONE_E164,
-    });
-    await submitCode(user, OTP);
-    await screen.findByText("auth.accountConfirmedNewCode");
-
-    Auth.confirmSignIn.mockResolvedValue({
-      isSignedIn: true, nextStep: { signInStep: "DONE" },
-    });
-    Auth.getCurrentUser.mockResolvedValue({ username: PHONE_E164, userId: "test-user" });
-    await submitCode(user, SECOND_OTP);
-
-    expect(await screen.findByText("auth.phoneVerificationSuccess")).toBeInTheDocument();
-    expect(screen.getByTestId("auth-state")).toHaveTextContent("signed-in");
-    expect(Auth.confirmSignIn).toHaveBeenCalledWith({
-      challengeResponse: SECOND_OTP,
-      options: { clientMetadata: { language: "en" } },
-    });
-  });
-
-  test("a wrong signup code keeps the parent on the code screen with a retryable message", async () => {
-    const user = await arrangeUnconfirmedSignup();
-    Auth.confirmSignUp.mockRejectedValue(cognitoError("CodeMismatchException"));
-
-    await submitCode(user, OTP);
-
-    expect(await screen.findByText("auth.invalidSmsCode")).toBeInTheDocument();
-    expect(onOtpScreen()).toBe(true);
-    expect(screen.getByTestId("sms-code-input")).toHaveValue("");
-    expect(Auth.signIn).toHaveBeenCalledTimes(1);
-  });
-
-  test("a post-confirmation SMS failure sends the parent back to the phone screen", async () => {
-    const user = await arrangeUnconfirmedSignup();
-    // Confirmed, but the follow-up custom auth could not send its code.
-    Auth.signIn.mockResolvedValueOnce({
-      isSignedIn: false,
-      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: { error: "SNS publish failed" } },
-    });
-
-    await submitCode(user, OTP);
-
-    await waitFor(() => expect(onPhoneScreen()).toBe(true));
-    expect(screen.getByText("auth.errorGeneric")).toBeInTheDocument();
-    expect(onOtpScreen()).toBe(false);
-  });
-});
-
-/**
- * The Amplify v6 regression the nightly resignup journey caught.
- *
- * v5's Auth.signIn replaced an existing session silently. v6 refuses, throwing
- * UserAlreadyAuthenticatedException, and CustomLogin branched only on
- * UserNotFoundException / NotAuthorizedException / UserNotConfirmedException,
- * so it fell through to the generic "something went wrong" message with no way
- * forward.
- *
- * A session outlives the account it belonged to: deleting an account navigates
- * to the login screen before signOut resolves, so any page load in that window
- * rehydrates tokens from storage. The parent then cannot sign up again at all.
- *
- * The mock models the SDK's real guard rather than asserting a call order:
- * signIn throws while `sessionPresent`, and only a genuine signOut clears it.
- * That is what makes this fail before the fix and pass after, instead of
- * green-stamping whichever calls the component happens to make.
- */
-describe("a session left over from a deleted account", () => {
-  let sessionPresent = false;
-
-  const challenge = {
-    isSignedIn: false,
-    nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
-    username: PHONE_E164,
-  };
-
-  beforeEach(() => {
-    sessionPresent = false;
-    Auth.getCurrentUser.mockImplementation(async () => {
-      if (!sessionPresent) throw new Error("not authenticated");
-      return { username: PHONE_E164 };
-    });
-    Auth.signOut.mockImplementation(async () => {
-      sessionPresent = false;
-    });
-    Auth.signIn.mockImplementation(async () => {
-      if (sessionPresent) throw cognitoError("UserAlreadyAuthenticatedException");
-      return challenge;
-    });
-  });
-
-  test("does not block the next sign-in: the parent still reaches the code screen", async () => {
-    sessionPresent = true;
-    const { user } = renderLogin();
-
-    fillPhone();
-    await submitPhone(user);
-
-    await screen.findByTestId("sms-code-input");
-    expect(screen.queryByText("auth.errorGeneric")).not.toBeInTheDocument();
-    expect(Auth.signOut).toHaveBeenCalled();
-  });
-
-  test("costs no signOut when nobody is signed in", async () => {
-    const { user } = renderLogin();
-
-    fillPhone();
-    await submitPhone(user);
-
-    await screen.findByTestId("sms-code-input");
-    expect(Auth.signOut).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText("auth.enterPassword")).toBeInTheDocument();
+    // The new flow's button never renders on this path.
+    expect(screen.queryByRole("button", { name: "auth.sendCode" })).not.toBeInTheDocument();
   });
 });

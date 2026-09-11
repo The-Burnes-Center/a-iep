@@ -26,8 +26,10 @@ import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import { useAuth } from '../common/auth-provider';
 import { cognitoErrorKey } from '../common/helpers/cognito-error-helper';
 import { useTurnstile, TurnstileStatus } from '../common/hooks/use-turnstile';
+import { useFeatures } from '../common/hooks/use-features';
 import { AppContext } from '../common/app-context';
 import AuthHeader from './AuthHeader';
+import PasswordlessAuthForm from './PasswordlessAuthForm';
 import PasswordInput from './PasswordInput';
 import PasswordRequirements from './PasswordRequirements';
 import AlertMessages from './AlertMessages';
@@ -143,6 +145,11 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   const turnstile = useTurnstile(language);
   const turnstileStatusKey = TURNSTILE_STATUS_KEYS[turnstile.status];
   const appConfig = useContext(AppContext);
+  // Gates the /auth/start + /auth/verify flow in docs/AUTH_API_CONTRACT.md.
+  // On in dev/staging, off in prod until it has carried real traffic — see
+  // common/features.ts. Both backends stay live either way, so flipping this
+  // back is a full rollback with no deploy.
+  const { isFeatureEnabled } = useFeatures();
   const [showMobileLogin, setShowMobileLogin] = useState(true);  
   const [mobileLoading, setMobileLoading] = useState(false);
   const [smsCode, setSmsCode] = useState('');
@@ -174,6 +181,18 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     // PreferredLanguage will handle onboarding decisions based on profile.showOnboarding
     const from = location.state?.from?.pathname || '/preferred-language';
     navigate(from, { replace: true });
+  };
+
+  /**
+   * The passwordless flow never touches Amplify, so there is no
+   * getCurrentUser() to hand to login() the way every Amplify path below
+   * does. The real Cognito tokens stay server-side against the session
+   * handle (contract §6); this just marks the app authenticated for this
+   * page load so ProtectedRoute lets the parent through.
+   */
+  const handlePasswordlessSignedIn = () => {
+    login({ passwordlessAuth: true });
+    handleSuccessfulAuthentication();
   };
 
   const handleSignIn = async (e: React.FormEvent) => {
@@ -1023,6 +1042,16 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       )}
       <AuthHeader title={t('auth.signInHeader')} showLogo={showLogo} />
 
+      {isFeatureEnabled('passwordlessAuth') ? (
+        <PasswordlessAuthForm
+          t={t}
+          language={language}
+          httpEndpoint={appConfig?.httpEndpoint ?? '/'}
+          turnstile={turnstile}
+          onSignedIn={handlePasswordlessSignedIn}
+        />
+      ) : (
+      <>
       <LoginMethodToggle
         showMobileLogin={showMobileLogin}
         onMobileLoginClick={() => setShowMobileLogin(true)}
@@ -1327,7 +1356,8 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             </div>
           </Form>
         )}
-      
+      </>
+      )}
     </>
   );
 };

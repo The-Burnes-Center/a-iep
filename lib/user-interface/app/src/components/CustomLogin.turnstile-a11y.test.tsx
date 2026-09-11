@@ -77,6 +77,16 @@ const renderLogin = (language: SupportedLanguage = "en") => {
   const appConfig = {
     httpEndpoint: "https://api.example.test/",
     turnstileSiteKey: SITE_KEY,
+    // This suite is written against the legacy Amplify phone/email flow,
+    // where Turnstile lives on the phone tab only and switching to email
+    // unmounts it with nothing to replace it. Pinned explicitly rather than
+    // left to fall back (an absent field defaults to every feature ON,
+    // including passwordlessAuth): the new flow renders Turnstile on both
+    // tabs since /auth/start needs a token regardless of destination type, so
+    // switching tabs there mounts a fresh widget instead of leaving none, and
+    // "was reset" is no longer the right thing to announce. That behaviour
+    // has its own coverage in PasswordlessAuthForm.test.tsx.
+    enabledFeatures: ["tts", "referrals", "parentNameGate"],
   } as never;
 
   const view = render(

@@ -21,11 +21,19 @@ export type Feature =
   // The onboarding redirect that forces a parent with no saved name to fill it
   // in before reaching the app. Only the referral console and referral links
   // display that name, so the prompt is pointless where referrals are dark.
-  | 'parentNameGate';
+  | 'parentNameGate'
+  // CustomLogin's identifier -> /auth/start -> /auth/verify flow (see
+  // docs/AUTH_API_CONTRACT.md), replacing the client-side branch that called
+  // Amplify signIn first and only fell back to /auth/signup on
+  // UserNotFoundException/NotAuthorizedException. Both backends are live at
+  // once (the old Amplify custom-auth path keeps working either way), so this
+  // flag is what makes the rollout reversible: flipping it back puts every
+  // parent on today's path with no backend deploy at all.
+  | 'passwordlessAuth';
 
 // Master list, in a stable order. Add a feature here (plus the two build
 // configs) to make it gateable app-wide.
-export const ALL_FEATURES: Feature[] = ['tts', 'referrals', 'parentNameGate'];
+export const ALL_FEATURES: Feature[] = ['tts', 'referrals', 'parentNameGate', 'passwordlessAuth'];
 
 export const isFeature = (feature: unknown): feature is Feature =>
   typeof feature === 'string' && (ALL_FEATURES as string[]).includes(feature);

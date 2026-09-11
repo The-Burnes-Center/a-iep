@@ -34,18 +34,22 @@ function resolveEnabledLanguages(): string[] {
 }
 
 // Optional features offered in the UI per environment, same mechanism as the
-// languages above. TTS, referrals and the parent-name gate run on dev/staging
-// but are dark on prod: the code ships and the backend (audio lambda, referral
-// table and routes) stays deployed and unused, so prod and staging keep
-// building from one source and enabling a feature is a config flip rather than
-// a release. An explicit ENABLED_FEATURES env var (comma-separated names)
-// overrides the default. Kept in sync with the dev-build logic in
+// languages above. TTS, referrals, the parent-name gate and the passwordless
+// auth flow run on dev/staging but are dark on prod: the code ships and the
+// backend stays deployed and unused, so prod and staging keep building from
+// one source and enabling a feature is a config flip rather than a release.
+// An explicit ENABLED_FEATURES env var (comma-separated names) overrides the
+// default. Kept in sync with the dev-build logic in
 // lib/user-interface/app/vite.config.ts, and with the feature list in
 // lib/user-interface/app/src/common/features.ts.
-export const ALL_FEATURES = ["tts", "referrals", "parentNameGate"];
+export const ALL_FEATURES = ["tts", "referrals", "parentNameGate", "passwordlessAuth"];
 // Referrals went live on prod 2026-08-04: the invite entry point in Account
 // Center is all the flag gates, and the referral table and routes were already
-// deployed and idle. TTS and the parent-name gate stay dark.
+// deployed and idle. TTS, the parent-name gate and passwordlessAuth stay dark.
+// passwordlessAuth gates CustomLogin's /auth/start + /auth/verify flow
+// (docs/AUTH_API_CONTRACT.md): the old Amplify custom-auth path keeps working
+// in every environment regardless of this flag, so turning it on in prod is a
+// config flip once the new path has carried real dev/staging traffic.
 export const PROD_FEATURES: string[] = ["referrals"];
 function resolveEnabledFeatures(): string[] {
   const override = process.env.ENABLED_FEATURES;

@@ -1,4 +1,5 @@
 import { fetchAuthSession } from 'aws-amplify/auth'
+import { getCachedIdToken } from './auth/passwordless-auth';
 export class Utils {
   // static isDevelopment() {
   //   return import.meta.env.MODE === "development";
@@ -130,6 +131,16 @@ export class Utils {
   }
 
   static async authenticate(): Promise<string> {
+    // A parent who signed in through the passwordlessAuth flow (see
+    // CustomLogin.tsx / docs/AUTH_API_CONTRACT.md) never has an Amplify
+    // session at all — the real Cognito tokens stay server-side against the
+    // session handle. Checked first, and it is a no-op for every other
+    // caller: getCachedIdToken() only ever returns non-null right after that
+    // flow's own /auth/token exchange populated it in memory, within the
+    // same page load.
+    const passwordlessToken = getCachedIdToken();
+    if (passwordlessToken) return passwordlessToken;
+
     try {
       // v6: the ID token comes from fetchAuthSession(); v5's
       // currentUser.signInUserSession.idToken.jwtToken no longer exists.
