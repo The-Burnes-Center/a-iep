@@ -17,6 +17,7 @@
     "prebuild": "node scripts/sync-bootstrap.cjs"
   },
   "dependencies": {
+    "@cantoo/pdf-lib": "^2.11.0",
     "@directus/sdk": "^20.1.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",

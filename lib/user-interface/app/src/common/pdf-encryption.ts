@@ -98,8 +98,14 @@ const PDF_TAIL_SCAN_BYTES = 128 * 1024;
  * /Encrypt followed by an indirect reference ("12 0 R") or an inline
  * dictionary ("<<"). A bare "/Encrypt" substring is deliberately not enough
  * to match: those two shapes are the only way the key legitimately appears.
+ *
+ * Exported because pdf-decrypt.ts's lossless rebuild has to prove its output
+ * would NOT be flagged by this exact check before it hands it back. Sharing
+ * the constant rather than restating the shape is the point: a rebuild that
+ * satisfied a slightly different pattern would still come back here as
+ * "encrypted" and put the parent in a prompt loop.
  */
-const ENCRYPT_ENTRY_PATTERN = /\/Encrypt\s+(?:\d+\s+\d+\s+R\b|<<)/;
+export const ENCRYPT_ENTRY_PATTERN = /\/Encrypt\s+(?:\d+\s+\d+\s+R\b|<<)/;
 
 /**
  * Byte value N -> char code N, i.e. an 8-bit-clean "binary string".
