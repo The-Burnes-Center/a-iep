@@ -2,6 +2,7 @@
 DynamoDB Service Lambda - Centralized database operations for Step Functions workflow
 Handles all DynamoDB read/write operations with standardized interface
 """
+import base64
 import json
 import os
 import time
@@ -18,10 +19,19 @@ from s3_content_handler import (
     save_ocr_to_s3,
     get_ocr_s3_key
 )
+from student_name_restore import restore_content, usable_student_name
 
 # Initialize DynamoDB client
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(os.environ['IEP_DOCUMENTS_TABLE'])
+
+# Read for exactly one thing: the child's name, for get_student_name and
+# restore_student_name. os.environ.get rather than [...] so every other
+# operation in this service still imports without it.
+USER_PROFILES_TABLE = os.environ.get('USER_PROFILES_TABLE')
+kms_client = boto3.client(
+    'kms', region_name=os.environ.get('AWS_REGION',
+                                      os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')))
 
 
 class DocumentDeleted(Exception):
@@ -173,6 +183,10 @@ def lambda_handler(event, context):
             return save_content_to_s3_operation(params)
         elif operation == 'expire_stale_pending_uploads':
             return expire_stale_pending_uploads(params)
+        elif operation == 'get_student_name':
+            return get_student_name(params)
+        elif operation == 'restore_student_name':
+            return restore_student_name(params)
         else:
             raise ValueError(f"Unknown operation: {operation}")
             
@@ -841,6 +855,148 @@ def save_content_to_s3_operation(params):
                 'iep_id': iep_id
             }, default=str)
         }
+
+
+_CONTENT_FIELDS = ('summaries', 'sections', 'document_index', 'abbreviations')
+
+
+# No child's name is this long. A KMS ciphertext blob, base64-encoded, always
+# is: that is what tells an undecryptable ciphertext apart from a legacy
+# plaintext name that happens to be valid base64 ("Anna").
+_MAX_PLAINTEXT_NAME_LENGTH = 100
+
+
+def _decrypt_profile_field(value):
+    """Decrypt a KMS-encrypted profile field, or hand back what was stored.
+
+    Same contract as kms_decrypt_string in user-profile-handler, which is what
+    wrote the value: child names became CMK-encrypted when the name was made
+    mandatory, and rows written before that are still plaintext. Falling
+    through on a decrypt failure is what keeps those legacy rows readable.
+
+    With one addition, because this value is written into a summary rather
+    than returned to an API: a failure to decrypt something that is plainly
+    ciphertext returns None, not the ciphertext. Otherwise a revoked key or a
+    narrowed IAM policy would print a base64 blob to a parent as their child's
+    name, which is worse than the neutral phrase they get instead.
+    """
+    if not isinstance(value, str) or not value:
+        return value
+    try:
+        blob = base64.b64decode(value)
+    except Exception:
+        return value  # not base64, so it was never encrypted
+    try:
+        return kms_client.decrypt(CiphertextBlob=blob)['Plaintext'].decode('utf-8')
+    except Exception as e:
+        # Class name only, and no value: this function's argument and result
+        # are a child's name.
+        print(f"Profile field decrypt failed: {type(e).__name__}")
+        if len(value) > _MAX_PLAINTEXT_NAME_LENGTH:
+            return None
+        return value
+
+
+def _student_name(user_id, child_id):
+    """The child's name from their profile, decrypted, or None.
+
+    Read here rather than passed in: a name in a step's event is a name in
+    Step Functions execution history, which is kept for 90 days and sits
+    outside every deletion path this project has.
+    """
+    if not user_id or not child_id or not USER_PROFILES_TABLE:
+        return None
+    profiles = dynamodb.Table(USER_PROFILES_TABLE)
+    profile = profiles.get_item(Key={'userId': user_id}).get('Item') or {}
+    for child in profile.get('children') or []:
+        if isinstance(child, dict) and child.get('childId') == child_id:
+            return usable_student_name(_decrypt_profile_field(child.get('name')))
+    return None
+
+
+def get_student_name(params):
+    """The child's name, for the redaction step's strict mention matcher.
+
+    The only operation in this service that returns PII. It goes to
+    redact_ocr, which uses it to decide which NAME entities become the student
+    token, and never stores or logs it.
+    """
+    name = _student_name(params.get('user_id'), params.get('child_id'))
+    return {
+        'statusCode': 200,
+        'body': json.dumps({'name': name or ''})
+    }
+
+
+def restore_student_name(params):
+    """Put the child's name back into finished content, once.
+
+    Called by finalize_results before the row is marked PROCESSED, so every
+    reader after that -- the API, the PDF, the TTS voice -- sees a name rather
+    than a placeholder without any of them knowing a placeholder existed.
+
+    This service owns it because content lives in one of two places (inline on
+    the row, or an S3 blob once the row approaches DynamoDB's item limit) and
+    this is the only lambda that already knows both.
+    """
+    iep_id = params['iep_id']
+    child_id = params['child_id']
+    user_id = params.get('user_id')
+
+    response = table.get_item(Key={'iepId': iep_id, 'childId': child_id})
+    if 'Item' not in response:
+        return {
+            'statusCode': 404,
+            'body': json.dumps({'error': 'Document not found'})
+        }
+    item = response['Item']
+
+    name = _student_name(user_id, child_id)
+    # No usable name is not an error: the parent may not have been asked yet.
+    # restore_content falls back to the localized neutral phrase per language.
+    if not name:
+        print('Restoring the student token without a profile name; using the '
+              'neutral phrase')
+
+    if 'contentS3Reference' in item:
+        s3_ref = item['contentS3Reference']
+        content = get_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
+        if content is None:
+            raise Exception('Content object could not be read for name restoration')
+        restored, stats = restore_content(content, name)
+        if stats['tokens_restored'] or stats['mangled_tokens_restored']:
+            _write_content_reference(
+                iep_id, child_id, save_content_to_s3(iep_id, child_id, restored))
+    else:
+        inline = {field: item[field] for field in _CONTENT_FIELDS if field in item}
+        restored, stats = restore_content(inline, name)
+        if stats['tokens_restored'] or stats['mangled_tokens_restored']:
+            _guarded_update(
+                Key={'iepId': iep_id, 'childId': child_id},
+                UpdateExpression='SET ' + ', '.join(
+                    f'{field} = :{field}' for field in restored) + ', updated_at = :updated_at',
+                ExpressionAttributeValues={
+                    **{f':{field}': value for field, value in restored.items()},
+                    ':updated_at': datetime.utcnow().isoformat()
+                }
+            )
+
+    # Counts only. A mangled count above zero is a model that reformatted the
+    # token despite being told not to, which is worth seeing in CloudWatch
+    # before it is worth seeing on a parent's screen.
+    print(f"Student name restored: {stats['tokens_restored']} tokens, "
+          f"{stats['mangled_tokens_restored']} mangled, "
+          f"name_available={bool(name)}")
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps({
+            'message': 'Student name restored',
+            'iep_id': iep_id,
+            'name_available': bool(name),
+            **stats
+        }, default=str)
+    }
 
 
 def _write_content_reference(iep_id, child_id, s3_ref):

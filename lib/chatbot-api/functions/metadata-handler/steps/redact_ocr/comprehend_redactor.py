@@ -3,20 +3,32 @@ import time
 from typing import List, Dict, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
+from student_name import STUDENT_TOKEN, is_student_mention
 
 # Allowed PII entity types (only these types are allowed, everything else is redacted)
-ALLOWED_PII_ENTITY_TYPES = {"NAME", "DATE_TIME"}
+# NAME is NOT allowed: it used to be, which meant the child's name, both
+# parents' names and every teacher, therapist and administrator named in the
+# IEP reached OpenAI twice -- once in the parsing agent, again in each
+# translation run. Every name is now replaced before the document leaves this
+# step. The student's mentions become STUDENT_TOKEN and are restored from the
+# profile after processing (ddb-service restore_student_name); every other
+# name becomes [NAME] and is never restored.
+ALLOWED_PII_ENTITY_TYPES = {"DATE_TIME"}
 
 # Initialize AWS Comprehend client
 comprehend = boto3.client("comprehend")
 
 
-def redact_single_text(text, language_code="en"):
+def redact_single_text(text, language_code="en", student_name=None):
     """
     Redact PII from a single text string using AWS Comprehend.
     Args:
         text (str): Text to redact (content of one page)
         language_code (str): Language code for Comprehend
+        student_name (str): The child's name from their profile, used only to
+            decide which NAME entities become STUDENT_TOKEN instead of [NAME].
+            None (no name saved, or the lookup failed) simply means no mention
+            is singled out: every name still gets replaced.
     Returns:
         tuple: (redacted_text, entity_counter, redacted_counter)
     Raises:
@@ -49,7 +61,12 @@ def redact_single_text(text, language_code="en"):
             redacted_counter += 1
             begin = entity["BeginOffset"] + offset
             end = entity["EndOffset"] + offset
+            # Offsets index the ORIGINAL text; `offset` only shifts them for
+            # the splice into the partially rewritten copy.
+            mention = text[entity["BeginOffset"]:entity["EndOffset"]]
             replacement = f"[{entity_type}]"
+            if entity_type == "NAME" and is_student_mention(mention, student_name):
+                replacement = STUDENT_TOKEN
             redacted = redacted[:begin] + replacement + redacted[end:]
             offset += len(replacement) - (end - begin)
             
@@ -70,20 +87,23 @@ def redact_single_text(text, language_code="en"):
         raise
 
 
-def redact_pii_from_texts(texts: List[str], language_code: str = "en") -> Tuple[List[str], Dict]:
+def redact_pii_from_texts(texts: List[str], language_code: str = "en",
+                          student_name: str = None) -> Tuple[List[str], Dict]:
     """
-    Redact all PII except names from a list of texts using AWS Comprehend.
+    Redact all PII, names included, from a list of texts using AWS Comprehend.
     Each item in the list represents one page from the OCR output.
     Uses ThreadPoolExecutor to process multiple pages in parallel.
-    
+
     Args:
         texts (List[str]): List of page texts (OCR output), one item per page
         language_code (str): Language code for Comprehend (default: 'en')
+        student_name (str): The child's profile name (see redact_single_text)
     Returns:
         Tuple[List[str], Dict]: (List of redacted texts, stats dictionary)
     """
     if not texts:
-        return [], {"total_entities": 0, "redacted_entities": 0, "entity_types": {}}
+        return [], {"total_entities": 0, "redacted_entities": 0, "entity_types": {},
+                    "student_tokens": 0}
     
     # Count non-empty pages for logging
     valid_count = sum(1 for text in texts if text and text.strip())
@@ -111,7 +131,8 @@ def redact_pii_from_texts(texts: List[str], language_code: str = "en") -> Tuple[
         # Submit only non-empty pages for processing
         for idx, text in enumerate(texts):
             if text and text.strip():
-                future = executor.submit(redact_single_text, text, language_code)
+                future = executor.submit(redact_single_text, text, language_code,
+                                         student_name)
                 future_to_idx[future] = idx
             else:
                 # Keep empty pages as-is
@@ -142,16 +163,28 @@ def redact_pii_from_texts(texts: List[str], language_code: str = "en") -> Tuple[
     # Calculate statistics
     total_entities = sum(total_entity_counter.values())
     
+    # How many mentions were singled out as the student's. Counted from the
+    # output rather than threaded back out of each worker, which keeps
+    # redact_single_text's return shape as it was. A count of 0 on a document
+    # whose parent saved a name means the matcher never recognised the
+    # spelling: the run is still safe (those mentions read [NAME]) and the
+    # parsing prompt still asks the model for the token, but it is the signal
+    # that the strict match missed, and the only one that reaches CloudWatch.
+    student_tokens = sum(text.count(STUDENT_TOKEN)
+                         for text in redacted_texts if isinstance(text, str))
+
     # Create a stats dictionary for reporting
     stats = {
         "total_entities": total_entities,
         "redacted_entities": total_redacted,
         "allowed_entities": total_entities - total_redacted,
         "entity_types": dict(total_entity_counter),
+        "student_tokens": student_tokens,
         "processing_time_seconds": round(elapsed_time, 2)
     }
-    
+
     # Log concise PII statistics
     print(f"PII redaction: found {total_entities} entities, redacted {total_redacted} in {elapsed_time:.2f}s")
+    print(f"Student-name mentions tokenized: {student_tokens}")
     
     return redacted_texts, stats 

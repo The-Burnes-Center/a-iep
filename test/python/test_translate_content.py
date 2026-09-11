@@ -158,6 +158,7 @@ def handler_module(monkeypatch):
         unload('translate_content_handler_under_test')
         unload('translation_agent')
         unload('config')
+        unload('student_token')  # sibling import
 
 
 def _wire(handler_module, monkeypatch, get_document=OK_GET_DOCUMENT, save=OK_SAVE):
@@ -294,3 +295,93 @@ def test_agent_translation_failure_neither_logs_nor_returns_the_document_text(
     # The returned body is the half that persists; assert it separately.
     assert SENTINEL not in json.dumps(result)
     assert 'RuntimeError' in result['error']
+
+
+# ---------------------------------------------------------------------------
+# The student placeholder has to come back out of every translation
+# ---------------------------------------------------------------------------
+#
+# The English content refers to the child as {{S}}: their real name was
+# replaced before the document ever reached a model, and is put back once,
+# server-side, after every language has been produced. A translation that came
+# back without the token would be saved and read by a parent, and what fills
+# the gap is either nothing or a name the model invented. So the count is
+# checked, and a run that fails it fails the step -- Step Functions retries,
+# which is a fresh model run.
+
+TOKENIZED_DOCUMENT = {
+    'summaries': {'en': '{{S}} is making progress.'},
+    'sections': {'en': [{'title': 'Goals', 'content': 'Goals for {{S}}.',
+                         'page_numbers': [1]}]},
+    'document_index': {'en': 'Index'},
+    'abbreviations': {'en': []},
+}
+OK_GET_TOKENIZED = {'statusCode': 200, 'body': json.dumps(TOKENIZED_DOCUMENT)}
+
+
+def _translated(summary):
+    return {'summary': summary,
+            'sections': [{'title': 'Goals', 'content': 'Metas de {{S}}.',
+                          'page_numbers': [1]}],
+            'document_index': 'Indice', 'abbreviations': []}
+
+
+def test_a_translation_that_kept_the_placeholder_is_stored(handler_module, monkeypatch):
+    fake = _wire(handler_module, monkeypatch, get_document=OK_GET_TOKENIZED)
+    _stub_translation_results(handler_module, monkeypatch,
+                              {'es': _translated('{{S}} progresa.')})
+
+    result = handler_module.lambda_handler(
+        {**IDS, 'target_languages': ['es'], 'content_type': 'parsing_result'}, None)
+
+    assert result['languages_processed'] == ['es']
+    saved, = fake.payloads('save_content_to_s3')
+    assert saved['params']['content']['summaries']['es'] == '{{S}} progresa.'
+
+
+@pytest.mark.parametrize('summary', [
+    'El estudiante progresa.',   # dropped entirely
+    'Jordan Smith progresa.',    # replaced with an invented name
+    '{{ S }} progresa.',         # reformatted
+    '｛｛S｝｝ 进步了。',             # full-width braces, the Chinese run's version
+])
+def test_a_translation_that_lost_the_placeholder_fails_the_step(
+        handler_module, monkeypatch, summary):
+    fake = _wire(handler_module, monkeypatch, get_document=OK_GET_TOKENIZED)
+    _stub_translation_results(handler_module, monkeypatch, {'es': _translated(summary)})
+
+    with pytest.raises(Exception):
+        handler_module.lambda_handler(
+            {**IDS, 'target_languages': ['es'], 'content_type': 'parsing_result'}, None)
+
+    # Nothing is stored: the run that produced it is the one being retried.
+    assert fake.payloads('save_content_to_s3') == []
+
+
+def test_the_placeholder_failure_never_logs_the_translated_text(
+        handler_module, monkeypatch, capsys):
+    _wire(handler_module, monkeypatch, get_document=OK_GET_TOKENIZED)
+    _stub_translation_results(handler_module, monkeypatch,
+                              {'es': _translated(f'{SENTINEL} progresa.')})
+
+    with pytest.raises(Exception):
+        handler_module.lambda_handler(
+            {**IDS, 'target_languages': ['es'], 'content_type': 'parsing_result'}, None)
+
+    logged = capsys.readouterr().out
+    assert SENTINEL not in logged
+    assert 'StudentTokenLost' in logged  # the class name survives for triage
+
+
+def test_content_without_a_placeholder_translates_as_before(handler_module, monkeypatch):
+    """Documents whose parent saved no name have no token to preserve, and
+    must not fail every translation on the way through."""
+    fake = _wire(handler_module, monkeypatch)  # the tokenless ENGLISH_DOCUMENT
+    _stub_translation_results(handler_module, monkeypatch,
+                              {'es': _translated('El estudiante progresa.')})
+
+    result = handler_module.lambda_handler(
+        {**IDS, 'target_languages': ['es'], 'content_type': 'parsing_result'}, None)
+
+    assert result['languages_processed'] == ['es']
+    assert fake.payloads('save_content_to_s3')

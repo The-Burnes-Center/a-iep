@@ -56,6 +56,43 @@ def _safe_error_summary(e):
     return type(e).__name__
 
 
+def _fetch_student_name(lambda_client, ddb_service_name, user_id, child_id):
+    """The child's name from their profile, or None.
+
+    Only ever used to decide which NAME entities become the student token, so
+    None is a degraded result and never an unsafe one: every name is redacted
+    either way, and the parsing prompt asks the model for the token from
+    context regardless. That is why a lookup failure is logged and swallowed
+    rather than raised -- failing a document, and deleting its original, over
+    a placeholder that the model can supply anyway is the worse trade.
+
+    The name is never returned to Step Functions, never logged, and never put
+    in this step's output: execution history is kept for 90 days and sits
+    outside every deletion path this project has.
+    """
+    try:
+        response = lambda_client.invoke(
+            FunctionName=ddb_service_name,
+            InvocationType='RequestResponse',
+            Payload=json.dumps({
+                'operation': 'get_student_name',
+                'params': {'user_id': user_id, 'child_id': child_id}
+            })
+        )
+        result = json.loads(response['Payload'].read())
+        if result.get('statusCode') != 200:
+            print('Student name lookup did not return 200; redacting without a '
+                  'targeted token')
+            return None
+        return json.loads(result['body']).get('name') or None
+    except Exception as e:
+        # Class name only: this call's RESPONSE carries the name, so a boto3
+        # or JSON error quoting what it choked on would quote the name.
+        print(f"Student name lookup failed: {type(e).__name__}; redacting "
+              f"without a targeted token")
+        return None
+
+
 def lambda_handler(event, context):
     """
     Redact PII from OCR text using AWS Comprehend.
@@ -183,9 +220,15 @@ def lambda_handler(event, context):
         
         if page_texts:
             print(f"Redacting PII from {len(page_texts)} pages of text")
-            
+
+            # Read the child's name here, not from the event: it decides which
+            # name mentions become the student token rather than [NAME].
+            student_name = _fetch_student_name(
+                lambda_client, ddb_service_name, user_id, child_id)
+
             # Use Comprehend to redact PII
-            redacted_texts, stats = redact_pii_from_texts(page_texts)
+            redacted_texts, stats = redact_pii_from_texts(
+                page_texts, student_name=student_name)
             
             if redacted_texts:
                 # Create redacted OCR result maintaining original structure

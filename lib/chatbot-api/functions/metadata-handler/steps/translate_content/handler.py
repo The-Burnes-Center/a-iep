@@ -6,6 +6,7 @@ import os
 import boto3
 import traceback
 from translation_agent import OptimizedTranslationAgent, _safe_error_summary
+from student_token import count_tokens, verify_token_survived
 
 # Only non-sensitive metadata is safe to log. These events can carry
 # FERPA-protected document content (OCR text, parsed sections, translated
@@ -171,10 +172,16 @@ def lambda_handler(event, context):
             raise Exception("OPENAI_API_KEY not available from environment or SSM")
         
         optimized_agent = OptimizedTranslationAgent()
-        
+
         # Translate content to target languages using agent framework
         translations = {}
-        
+
+        # The child is referred to as {{S}} throughout the English content and
+        # the real name is restored once, after this step. Count the
+        # placeholders going in so each translation can be checked coming out.
+        expected_student_tokens = count_tokens(source_result)
+        print(f"Student placeholders in source content: {expected_student_tokens}")
+
         for lang in target_languages:
             print(f"Translating {content_type} to {lang} using optimized agent framework")
             
@@ -188,7 +195,14 @@ def lambda_handler(event, context):
             if "error" in translated_content:
                 print(f"Translation to {lang} failed: {translated_content['error']}")
                 continue
-            
+
+            # Raises, so a run that lost the placeholder is never stored. Not
+            # treated like the model error above (skip the language, carry on):
+            # a skipped language is missing, which the state machine can see,
+            # while a translation with the placeholder gone is a summary that
+            # silently calls the child by no name or an invented one.
+            verify_token_survived(expected_student_tokens, translated_content, lang)
+
             translations[lang] = translated_content
             print(f"Translation to {lang} completed successfully using optimized agent framework")
         
