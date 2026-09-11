@@ -19,15 +19,15 @@ from s3_content_handler import (
     save_ocr_to_s3,
     get_ocr_s3_key
 )
-from student_name_restore import restore_content, usable_student_name
 
 # Initialize DynamoDB client
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(os.environ['IEP_DOCUMENTS_TABLE'])
 
-# Read for exactly one thing: the child's name, for get_student_name and
-# restore_student_name. os.environ.get rather than [...] so every other
-# operation in this service still imports without it.
+# Read for exactly one thing: the child's name, for get_student_name. Content
+# is stored with the {{S}} placeholder and stays that way; the name is
+# substituted by whichever lambda serves a read. os.environ.get rather than
+# [...] so every other operation in this service still imports without it.
 USER_PROFILES_TABLE = os.environ.get('USER_PROFILES_TABLE')
 kms_client = boto3.client(
     'kms', region_name=os.environ.get('AWS_REGION',
@@ -185,8 +185,6 @@ def lambda_handler(event, context):
             return expire_stale_pending_uploads(params)
         elif operation == 'get_student_name':
             return get_student_name(params)
-        elif operation == 'restore_student_name':
-            return restore_student_name(params)
         else:
             raise ValueError(f"Unknown operation: {operation}")
             
@@ -857,7 +855,16 @@ def save_content_to_s3_operation(params):
         }
 
 
-_CONTENT_FIELDS = ('summaries', 'sections', 'document_index', 'abbreviations')
+# What the parent never actually gave us. 'My Child' is the placeholder older
+# profiles carry; the onboarding gate writes '' until a name is entered.
+_PLACEHOLDER_NAMES = {'', 'my child'}
+
+
+def usable_student_name(value):
+    """The profile name to hand the redaction matcher, or None if unusable."""
+    if not isinstance(value, str) or value.strip().casefold() in _PLACEHOLDER_NAMES:
+        return None
+    return value.strip()
 
 
 # No child's name is this long. A KMS ciphertext blob, base64-encoded, always
@@ -925,77 +932,6 @@ def get_student_name(params):
     return {
         'statusCode': 200,
         'body': json.dumps({'name': name or ''})
-    }
-
-
-def restore_student_name(params):
-    """Put the child's name back into finished content, once.
-
-    Called by finalize_results before the row is marked PROCESSED, so every
-    reader after that -- the API, the PDF, the TTS voice -- sees a name rather
-    than a placeholder without any of them knowing a placeholder existed.
-
-    This service owns it because content lives in one of two places (inline on
-    the row, or an S3 blob once the row approaches DynamoDB's item limit) and
-    this is the only lambda that already knows both.
-    """
-    iep_id = params['iep_id']
-    child_id = params['child_id']
-    user_id = params.get('user_id')
-
-    response = table.get_item(Key={'iepId': iep_id, 'childId': child_id})
-    if 'Item' not in response:
-        return {
-            'statusCode': 404,
-            'body': json.dumps({'error': 'Document not found'})
-        }
-    item = response['Item']
-
-    name = _student_name(user_id, child_id)
-    # No usable name is not an error: the parent may not have been asked yet.
-    # restore_content falls back to the localized neutral phrase per language.
-    if not name:
-        print('Restoring the student token without a profile name; using the '
-              'neutral phrase')
-
-    if 'contentS3Reference' in item:
-        s3_ref = item['contentS3Reference']
-        content = get_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
-        if content is None:
-            raise Exception('Content object could not be read for name restoration')
-        restored, stats = restore_content(content, name)
-        if stats['tokens_restored'] or stats['mangled_tokens_restored']:
-            _write_content_reference(
-                iep_id, child_id, save_content_to_s3(iep_id, child_id, restored))
-    else:
-        inline = {field: item[field] for field in _CONTENT_FIELDS if field in item}
-        restored, stats = restore_content(inline, name)
-        if stats['tokens_restored'] or stats['mangled_tokens_restored']:
-            _guarded_update(
-                Key={'iepId': iep_id, 'childId': child_id},
-                UpdateExpression='SET ' + ', '.join(
-                    f'{field} = :{field}' for field in restored) + ', updated_at = :updated_at',
-                ExpressionAttributeValues={
-                    **{f':{field}': value for field, value in restored.items()},
-                    ':updated_at': datetime.utcnow().isoformat()
-                }
-            )
-
-    # Counts only. A mangled count above zero is a model that reformatted the
-    # token despite being told not to, which is worth seeing in CloudWatch
-    # before it is worth seeing on a parent's screen.
-    print(f"Student name restored: {stats['tokens_restored']} tokens, "
-          f"{stats['mangled_tokens_restored']} mangled, "
-          f"name_available={bool(name)}")
-
-    return {
-        'statusCode': 200,
-        'body': json.dumps({
-            'message': 'Student name restored',
-            'iep_id': iep_id,
-            'name_available': bool(name),
-            **stats
-        }, default=str)
     }
 
 

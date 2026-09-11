@@ -10,9 +10,10 @@ from student_name import STUDENT_TOKEN, is_student_mention
 # parents' names and every teacher, therapist and administrator named in the
 # IEP reached OpenAI twice -- once in the parsing agent, again in each
 # translation run. Every name is now replaced before the document leaves this
-# step. The student's mentions become STUDENT_TOKEN and are restored from the
-# profile after processing (ddb-service restore_student_name); every other
-# name becomes [NAME] and is never restored.
+# step. The student's mentions become STUDENT_TOKEN and stay that way in
+# storage: every reader substitutes the profile name on the way out, so the
+# name is never written into a stored summary or translation. Every other name
+# becomes [NAME] and is never substituted.
 ALLOWED_PII_ENTITY_TYPES = {"DATE_TIME"}
 
 # Initialize AWS Comprehend client

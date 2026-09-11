@@ -4,6 +4,7 @@ call ElevenLabs/OpenAI over HTTPS). The endpoint's contract matters because
 it reads content server-side (it must not be usable as a free TTS proxy) and
 caches synthesized audio by content hash.
 """
+import base64
 import hashlib
 import json
 from types import SimpleNamespace
@@ -148,6 +149,7 @@ def tts(monkeypatch):
             unload('tts_lambda')
             unload('providers')
             unload('text_utils')
+            unload('student_name_substitution')  # both lambdas ship one; do not leak it
 
 
 def seed_document(tts, user=USER, with_content=True):
@@ -258,3 +260,177 @@ def test_audio_provider_failure_is_502(tts, monkeypatch):
 
     monkeypatch.setattr(tts.provider, 'synthesize', lambda text, language: (b'', 'audio/mpeg'))
     assert call(tts)[0] == 502  # empty audio is also a failure
+
+
+# ---------------------------------------------------------------------------
+# The child's name, substituted before synthesis
+#
+# Stored content calls the child {{S}} and keeps doing so; the name lives only
+# in the profile and is substituted by whichever lambda serves a read. Here
+# that has to happen before markdown_to_text and before the cache key is
+# derived from the text, for two separate reasons: the provider would
+# otherwise read the braces out loud, and the cached mp3 would be keyed by a
+# hash that does not know whose name is in it.
+
+CHILD_NAME = 'Jordan Smith'
+TOKEN_CONTENT = {
+    'summaries': {'en': '{{S}} is making **progress**.', 'es': '{{S}} progresa.'},
+    'sections': {'en': [{'title': 'Goals', 'content': 'Reading goals for {{S}}.'}]},
+}
+
+
+def encrypted(name):
+    """A name as user-profile-handler stores it: KMS ciphertext, base64."""
+    kms = boto3.client('kms', region_name='us-east-1')
+    key_id = kms.create_key()['KeyMetadata']['KeyId']
+    blob = kms.encrypt(KeyId=key_id, Plaintext=name.encode('utf-8'))['CiphertextBlob']
+    return base64.b64encode(blob).decode('utf-8')
+
+
+def seed_named_document(tts, name, content=None):
+    tts.profiles.put_item(Item={
+        'userId': USER,
+        'children': [{'childId': 'child-1', 'name': name}],
+    })
+    key = 'iep-data/iep-1/child-1/content.json'
+    tts.s3.put_object(Bucket=BUCKET, Key=key,
+                      Body=json.dumps(content or TOKEN_CONTENT).encode())
+    tts.documents.put_item(Item={
+        'iepId': 'iep-1', 'childId': 'child-1', 'userId': USER,
+        'contentS3Reference': {'bucket': BUCKET, 's3Key': key},
+    })
+
+
+def spoken(tts):
+    """What the provider was actually asked to say, not what it returned."""
+    return tts.provider.synth_calls[-1][0]
+
+
+def test_the_provider_is_given_the_childs_name_never_the_placeholder(tts):
+    seed_named_document(tts, encrypted(CHILD_NAME))
+
+    assert call(tts)[0] == 200
+
+    assert spoken(tts) == 'Jordan Smith progresa.'
+    assert '{{S}}' not in spoken(tts)
+
+
+def test_a_section_read_aloud_is_substituted_too(tts):
+    seed_named_document(tts, encrypted(CHILD_NAME))
+
+    status, _ = call(tts, body={'childId': 'child-1', 'language': 'en',
+                                'target': 'section', 'sectionName': 'Goals'})
+
+    assert status == 200
+    assert spoken(tts) == 'Reading goals for Jordan Smith.'
+
+
+def test_the_stored_content_object_is_left_exactly_as_it_was(tts):
+    seed_named_document(tts, encrypted(CHILD_NAME))
+
+    call(tts)
+
+    stored = json.loads(tts.s3.get_object(
+        Bucket=BUCKET, Key='iep-data/iep-1/child-1/content.json')['Body'].read())
+    assert stored == TOKEN_CONTENT
+    assert CHILD_NAME not in json.dumps(stored)
+
+
+@pytest.mark.parametrize('stored_name', ['', 'My Child'])
+def test_no_usable_name_is_spoken_as_the_neutral_phrase(tts, stored_name):
+    seed_named_document(tts, stored_name)
+
+    assert call(tts)[0] == 200
+
+    assert spoken(tts) == 'su hijo o hija progresa.'
+    assert '{{S}}' not in spoken(tts)
+
+
+def test_a_kms_failure_is_spoken_as_the_neutral_phrase_not_a_blob(tts, monkeypatch):
+    """_decrypt_profile_field hands back the ciphertext when a decrypt fails.
+    Reading base64 aloud for a minute and a half is worse than saying "su hijo
+    o hija", and failing the request is worse than both."""
+    ciphertext = encrypted(CHILD_NAME)
+    seed_named_document(tts, ciphertext)
+
+    def denied(**kwargs):
+        raise RuntimeError('AccessDeniedException')
+    monkeypatch.setattr(tts.module.kms_client, 'decrypt', denied)
+
+    status, _ = call(tts)
+
+    assert status == 200
+    assert spoken(tts) == 'su hijo o hija progresa.'
+    assert ciphertext[:24] not in spoken(tts)
+
+
+def test_a_profile_read_failure_is_spoken_as_the_neutral_phrase(tts, monkeypatch):
+    """The ownership check reads the profile first and must still succeed; it
+    is the second read, the one for the name, that fails here."""
+    seed_named_document(tts, encrypted(CHILD_NAME))
+    real_get_item = tts.module.user_profiles_table.get_item
+    calls = []
+
+    def flaky(**kwargs):
+        calls.append(kwargs)
+        if len(calls) > 1:
+            raise RuntimeError('ProvisionedThroughputExceededException')
+        return real_get_item(**kwargs)
+    monkeypatch.setattr(tts.module.user_profiles_table, 'get_item', flaky)
+
+    status, _ = call(tts)
+
+    assert status == 200
+    assert spoken(tts) == 'su hijo o hija progresa.'
+
+
+@pytest.mark.parametrize('mangled', ['{{ S }}', '{ {S} }', '{S}', '{{s}}', '｛｛S｝｝'])
+def test_a_token_a_translation_reformatted_is_never_read_aloud(tts, mangled):
+    seed_named_document(tts, encrypted(CHILD_NAME),
+                        content={'summaries': {'es': f'{mangled} progresa.'}})
+
+    assert call(tts)[0] == 200
+
+    assert spoken(tts) == 'Jordan Smith progresa.'
+
+
+def test_a_corrected_name_does_not_replay_the_old_audio(tts):
+    """The cache key is a hash of the text handed to the provider, and the
+    name is in that text by then, so a corrected name misses the cache instead
+    of playing the misspelling back. This is what the substitution ordering
+    buys: put it after the hash and the parent hears the old name forever."""
+    seed_named_document(tts, encrypted('Jorden Smith'))
+    assert call(tts)[0] == 200
+    assert spoken(tts) == 'Jorden Smith progresa.'
+
+    tts.profiles.put_item(Item={
+        'userId': USER,
+        'children': [{'childId': 'child-1', 'name': encrypted(CHILD_NAME)}],
+    })
+    status, body = call(tts)
+
+    assert status == 200
+    assert body['cached'] is False
+    assert len(tts.provider.synth_calls) == 2
+    assert spoken(tts) == 'Jordan Smith progresa.'
+
+
+def test_the_same_name_twice_still_hits_the_cache(tts):
+    """The corrected-name miss above must not have cost every repeat play a
+    paid synthesis."""
+    seed_named_document(tts, encrypted(CHILD_NAME))
+
+    assert call(tts)[1]['cached'] is False
+    assert call(tts)[1]['cached'] is True
+    assert len(tts.provider.synth_calls) == 1
+
+
+def test_the_substitution_logs_counts_and_never_the_name_or_the_content(tts, capsys):
+    seed_named_document(tts, encrypted(CHILD_NAME))
+
+    call(tts)
+
+    logged = capsys.readouterr().out
+    assert 'Substituted the student token in 1 place(s)' in logged
+    assert CHILD_NAME not in logged
+    assert 'progresa' not in logged

@@ -14,7 +14,8 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from conftest import load_lambda_module, unload
+from conftest import (FakeLambdaClient, ScopedBoto3, load_lambda_module,
+                      unload)
 
 PROFILES_TABLE = 'profiles-test'
 DOCUMENTS_TABLE = 'documents-test'
@@ -114,6 +115,7 @@ def api(monkeypatch):
             unload('lambda_function')
             unload('user_profile_api')
             unload('router')  # imported as a sibling during module exec
+            unload('student_name_substitution')  # both lambdas ship one; do not leak it
 
 
 def api_event(path, method, body=None, user=USER):
@@ -580,6 +582,234 @@ def test_get_documents_never_returns_other_users_docs(api):
     status, body = call(api, '/profile/children/child-1/documents', 'GET')
     assert status == 200
     assert body['documents'] == []
+
+
+# ---------------------------------------------------------------------------
+# The child's name, substituted on the way out
+#
+# Stored content never holds the child's name. The models are handed {{S}} and
+# the content object keeps that placeholder permanently, so the name only
+# exists in the profile: it is substituted here, on every read, for whichever
+# language is being returned.
+#
+# Two things follow, and both are the reason the design is this way rather
+# than a swap at write time. The on-demand add-a-language path re-reads this
+# same stored content, so the translating model never sees a name no matter
+# how long after the upload a parent asks. And a parent who corrects a
+# misspelling fixes every summary and every translation they already have.
+#
+# get_child_documents has four ways of filling those fields (S3 object,
+# migrated document, inline row after a failed migration, inline row after a
+# migration error). Missing one prints a literal {{S}} to a parent, so the
+# substitution is one site after they converge and the tests below walk all
+# four.
+
+TOKEN_CONTENT = {
+    'summaries': {'en': '{{S}} is making progress.', 'es': '{{S}} progresa.'},
+    'sections': {'en': [{'title': 'Goals', 'content': 'Goals for {{S}}.'}]},
+    'document_index': {'en': 'Page 1: {{S}}'},
+    'abbreviations': {'en': [{'abbreviation': 'IEP', 'full_form': 'Individualized Education Program'}]},
+}
+CHILD_NAME = 'Jordan Smith'
+
+
+def profile_with_named_child(api, name, child_id='child-1', user=USER):
+    """A profile whose child name is stored the way add_child stores it."""
+    api.profiles.put_item(Item={
+        'userId': user,
+        'children': [{'childId': child_id, 'name': name, 'schoolCity': 'Boston'}],
+    })
+
+
+def fake_ddb_service(api, monkeypatch, handler):
+    """Stand in for the ddb-service invoke the lazy-migration branch makes."""
+    fake = FakeLambdaClient(handler)
+    monkeypatch.setattr(api.module, 'boto3', ScopedBoto3(fake))
+    return fake
+
+
+def test_the_summary_reaches_a_parent_with_their_childs_name_in_it(api):
+    profile_with_named_child(api, encrypt(api, CHILD_NAME))
+    put_document(api, content=TOKEN_CONTENT)
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert status == 200
+    assert body['summaries']['en'] == 'Jordan Smith is making progress.'
+    assert body['sections']['en'][0]['content'] == 'Goals for Jordan Smith.'
+    assert body['document_index']['en'] == 'Page 1: Jordan Smith'
+    # The absence is the assertion: one field still holding a token would mean
+    # the walk stopped somewhere, and a parent reads the braces.
+    assert '{{S}}' not in json.dumps(body)
+
+
+def test_every_language_gets_the_name_not_only_the_one_being_read(api):
+    """The response carries all of them and the frontend picks; substituting
+    only the preferred language would leak a token on the language switch."""
+    profile_with_named_child(api, encrypt(api, CHILD_NAME))
+    put_document(api, content=TOKEN_CONTENT)
+
+    body = call(api, '/profile/children/child-1/documents', 'GET')[1]
+
+    assert body['summaries']['es'] == 'Jordan Smith progresa.'
+
+
+def test_the_stored_content_object_is_left_exactly_as_it_was(api):
+    """The whole point of substituting on the read. The stored copy is what
+    the on-demand translation re-reads, so a name written back into it is a
+    name sent to OpenAI the next time a parent adds a language."""
+    profile_with_named_child(api, encrypt(api, CHILD_NAME))
+    put_document(api, content=TOKEN_CONTENT)
+
+    call(api, '/profile/children/child-1/documents', 'GET')
+
+    stored = json.loads(api.s3.get_object(
+        Bucket=BUCKET, Key='iep-data/iep-1/child-1/content.json')['Body'].read())
+    assert stored == TOKEN_CONTENT
+    assert CHILD_NAME not in json.dumps(stored)
+
+
+def test_the_migrated_document_shape_is_substituted_too(api, monkeypatch):
+    """A row with no contentS3Reference is migrated through the ddb-service,
+    and the content comes back from there rather than from S3."""
+    profile_with_named_child(api, encrypt(api, CHILD_NAME))
+    put_document(api)  # no contentS3Reference: takes the migration branch
+    fake_ddb_service(api, monkeypatch, lambda payload: {
+        'statusCode': 200, 'body': json.dumps(TOKEN_CONTENT)})
+
+    body = call(api, '/profile/children/child-1/documents', 'GET')[1]
+
+    assert body['summaries']['en'] == 'Jordan Smith is making progress.'
+    assert '{{S}}' not in json.dumps(body)
+
+
+def test_the_inline_row_a_failed_migration_falls_back_to_is_substituted_too(api, monkeypatch):
+    profile_with_named_child(api, encrypt(api, CHILD_NAME))
+    put_document(api, **TOKEN_CONTENT)
+    fake_ddb_service(api, monkeypatch, lambda payload: {
+        'statusCode': 500, 'body': json.dumps({'error': 'migration failed'})})
+
+    body = call(api, '/profile/children/child-1/documents', 'GET')[1]
+
+    assert body['summaries']['en'] == 'Jordan Smith is making progress.'
+    assert body['sections']['en'][0]['content'] == 'Goals for Jordan Smith.'
+    assert '{{S}}' not in json.dumps(body)
+
+
+def test_the_inline_row_a_migration_error_falls_back_to_is_substituted_too(api, monkeypatch):
+    """The except branch, which is a different `latest_doc.update` from the
+    one above and would be missed by a per-branch substitution."""
+    profile_with_named_child(api, encrypt(api, CHILD_NAME))
+    put_document(api, **TOKEN_CONTENT)
+
+    def explode(payload):
+        raise RuntimeError('ddb-service unreachable')
+    fake_ddb_service(api, monkeypatch, explode)
+
+    body = call(api, '/profile/children/child-1/documents', 'GET')[1]
+
+    assert body['summaries']['en'] == 'Jordan Smith is making progress.'
+    assert '{{S}}' not in json.dumps(body)
+
+
+def test_a_document_written_before_the_redaction_is_returned_unchanged(api):
+    """Its summary holds real names and no token at all. Substitution is a
+    no-op on it: there is nothing to fail closed about, and nothing to fix."""
+    profile_with_named_child(api, encrypt(api, CHILD_NAME))
+    legacy = {'summaries': {'en': 'Jordan Smith met with Ms. Alvarez.'},
+              'sections': {'en': [{'title': 'Goals', 'content': 'Read more.'}]}}
+    put_document(api, content=legacy)
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert status == 200
+    assert body['summaries']['en'] == 'Jordan Smith met with Ms. Alvarez.'
+    assert body['sections']['en'][0]['content'] == 'Read more.'
+
+
+@pytest.mark.parametrize('stored_name', ['', 'My Child'])
+def test_no_usable_name_reads_as_the_neutral_phrase_in_each_language(api, stored_name):
+    """A parent can reach a finished document before onboarding asks for a
+    name, and older profiles carry the 'My Child' placeholder. Neither may
+    print as the child's name, and neither may print as a raw token."""
+    profile_with_named_child(api, stored_name)
+    put_document(api, content=TOKEN_CONTENT)
+
+    body = call(api, '/profile/children/child-1/documents', 'GET')[1]
+
+    assert body['summaries']['en'] == 'your child is making progress.'
+    assert body['summaries']['es'] == 'su hijo o hija progresa.'
+    assert '{{S}}' not in json.dumps(body)
+    assert 'My Child' not in json.dumps(body)
+
+
+def test_a_kms_failure_degrades_to_the_neutral_phrase_rather_than_a_500(api, monkeypatch):
+    """If the CMK is revoked or kms:Decrypt narrowed, kms_decrypt_string hands
+    back the base64 ciphertext it was given. Printing that to a parent as
+    their child's name is worse than the neutral phrase, and failing the whole
+    request is worse than both: the summary itself is still readable."""
+    ciphertext = encrypt(api, CHILD_NAME)
+    profile_with_named_child(api, ciphertext)
+    put_document(api, content=TOKEN_CONTENT)
+
+    def denied(**kwargs):
+        raise RuntimeError('AccessDeniedException')
+    monkeypatch.setattr(api.module.kms_client, 'decrypt', denied)
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert status == 200
+    assert body['summaries']['en'] == 'your child is making progress.'
+    assert ciphertext[:24] not in json.dumps(body)
+    assert '{{S}}' not in json.dumps(body)
+
+
+def test_a_profile_read_failure_degrades_to_the_neutral_phrase(api, monkeypatch):
+    """The ownership check reads the profile first and must still succeed; it
+    is the second read, the one for the name, that fails here."""
+    profile_with_named_child(api, encrypt(api, CHILD_NAME))
+    put_document(api, content=TOKEN_CONTENT)
+
+    real_get_item = api.module.user_profiles_table.get_item
+    calls = []
+
+    def flaky(**kwargs):
+        calls.append(kwargs)
+        if len(calls) > 1:
+            raise RuntimeError('ProvisionedThroughputExceededException')
+        return real_get_item(**kwargs)
+    monkeypatch.setattr(api.module.user_profiles_table, 'get_item', flaky)
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert status == 200
+    assert body['summaries']['en'] == 'your child is making progress.'
+    assert '{{S}}' not in json.dumps(body)
+
+
+@pytest.mark.parametrize('mangled', ['{{ S }}', '{ {S} }', '{S}', '{{s}}', '｛｛S｝｝'])
+def test_a_token_a_translation_reformatted_is_still_swept(api, mangled):
+    """translate_content fails a run that drops the token outright, but a
+    model that merely reshapes it still reaches storage. This read is the last
+    thing between that and a parent seeing braces."""
+    profile_with_named_child(api, encrypt(api, CHILD_NAME))
+    put_document(api, content={'summaries': {'zh': f'{mangled} 正在进步。'}})
+
+    body = call(api, '/profile/children/child-1/documents', 'GET')[1]
+
+    assert body['summaries']['zh'] == 'Jordan Smith 正在进步。'
+
+
+def test_the_substitution_logs_counts_and_never_the_name_or_the_content(api, capsys):
+    profile_with_named_child(api, encrypt(api, CHILD_NAME))
+    put_document(api, content=TOKEN_CONTENT)
+
+    call(api, '/profile/children/child-1/documents', 'GET')
+
+    logged = capsys.readouterr().out
+    assert 'Substituted the student token in 4 place(s)' in logged
+    assert CHILD_NAME not in logged
+    assert 'is making progress' not in logged
 
 
 # ---------------------------------------------------------------------------

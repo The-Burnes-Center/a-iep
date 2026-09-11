@@ -1226,9 +1226,10 @@ describe('Bedrock is not granted on a wildcard', () => {
 });
 
 // ── DDB service function: student-name grants ───────────────────────────
-// WHY: get_student_name and restore_student_name
-// (metadata-handler/ddb-service/handler.py) read the child's name from the
-// user-profiles table and decrypt it with the CMK. Every grant that makes
+// WHY: get_student_name (metadata-handler/ddb-service/handler.py) reads the
+// child's name from the user-profiles table and decrypts it with the CMK. It
+// is what tells redact_ocr which NAME entities are the student's, so those
+// mentions become {{S}} rather than [NAME]. Every grant that makes
 // that work already existed before the feature landed: the DynamoDB
 // statement in stepFunctionPolicies already named the user-profiles table,
 // ddbServiceFunction already carried the kmsPolicy's kms:Decrypt scoped to
@@ -1238,10 +1239,12 @@ describe('Bedrock is not granted on a wildcard', () => {
 //
 // That is the gap. If any one of them is narrowed later, nothing fails
 // loudly: _decrypt_profile_field falls through, _student_name returns None,
-// and restore_student_name substitutes the neutral phrase. Every parent
-// quietly gets "your child" where their child's name belongs, the pipeline
-// still reports success, and no alarm fires.
-// test/python/test_ddb_service.py::test_an_undecryptable_name_becomes_the_neutral_phrase_not_a_blob
+// and get_student_name answers with ''. Every mention of the child then
+// redacts to [NAME] instead of the placeholder that read-time substitution
+// turns back into their name, so every parent quietly gets "[NAME]" where
+// their child's name belongs, the pipeline still reports success, and no
+// alarm fires.
+// test/python/test_ddb_service.py::test_an_undecryptable_name_is_no_name_rather_than_a_blob
 // pins that the degradation is SAFE; these three pin the grant that keeps it
 // from happening at all -- the same shape as the bucket rename this file
 // already guards against, a safe fallback that makes a real regression
@@ -1321,6 +1324,87 @@ describe('DDB service function: student-name grants', () => {
     const [userProfilesTableId] = tables[0];
 
     const envVars = ddbServiceFn.Properties?.Environment?.Variables ?? {};
+    expect(envVars.USER_PROFILES_TABLE).toBeDefined();
+    expect(JSON.stringify(envVars.USER_PROFILES_TABLE)).toContain(userProfilesTableId);
+  });
+});
+
+// ── TTS handler: the grants that let it say the child's name ─────────────
+// WHY: stored content refers to the child as the {{S}} placeholder and keeps
+// doing so. tts-handler substitutes the real name at read time
+// (tts-handler/lambda_function.py::_child_name), which means it now reads the
+// user-profiles table and decrypts a field with the CMK for a reason it did
+// not have before: those two grants existed only for the ownership check and
+// for environment encryption.
+//
+// That is the gap. Narrow either one and nothing fails loudly:
+// _decrypt_profile_field falls through, usable_student_name rejects the
+// ciphertext on length, and every parent's summary is read aloud as "your
+// child". The request still returns 200, the mp3 still caches, and no alarm
+// fires. Same shape as the DDB-service pins above, and for the same reason.
+//
+// Staging only, same reasoning as the block above: neither the TTS policy
+// statements nor its USER_PROFILES_TABLE entry sits behind a getEnvironment()
+// branch in functions.ts.
+describe('TTS handler: student-name grants', () => {
+  const ttsRoleStatements = (): any[] => {
+    const ttsIds = Object.keys(template.findResources('AWS::Lambda::Function'))
+      .filter((id) => id.includes('TTSHandlerFunction'));
+    // Vacuity floor: the pins below assert nothing if the function vanished.
+    expect(ttsIds).toHaveLength(1);
+
+    const policies = Object.values(template.findResources('AWS::IAM::Policy'))
+      .filter((policy: any) =>
+        JSON.stringify(policy.Properties?.Roles ?? []).includes('TTSHandlerFunctionServiceRole'));
+    // Vacuity floor: a role hint that stops matching would make every pin
+    // below pass on zero statements instead of failing.
+    expect(policies.length).toBeGreaterThan(0);
+
+    return policies.flatMap((policy: any) => policy.Properties?.PolicyDocument?.Statement ?? []);
+  };
+
+  test('can GetItem on the user-profiles table', () => {
+    const tables = resourcesMatching(template, 'AWS::DynamoDB::Table', 'UserProfilesTable');
+    expect(tables).toHaveLength(1);
+    const [userProfilesTableId] = tables[0];
+
+    const grants = ttsRoleStatements().filter((statement) =>
+      statement.Effect === 'Allow'
+      && [statement.Action ?? []].flat().includes('dynamodb:GetItem')
+      && JSON.stringify(statement.Resource ?? []).includes(userProfilesTableId));
+
+    expect(grants.length).toBeGreaterThan(0);
+  });
+
+  test('can decrypt with the application CMK, and nothing wider', () => {
+    const keys = resourcesMatching(template, 'AWS::KMS::Key', 'AppKmsKey');
+    expect(keys).toHaveLength(1);
+    const [appKmsKeyId] = keys[0];
+
+    const decryptStatements = ttsRoleStatements().filter((statement) =>
+      statement.Effect === 'Allow' && [statement.Action ?? []].flat().includes('kms:Decrypt'));
+    // Vacuity floor: no matching statement means the loop below runs zero times.
+    expect(decryptStatements.length).toBeGreaterThan(0);
+
+    for (const statement of decryptStatements) {
+      const resources = [statement.Resource ?? []].flat();
+      expect(resources).not.toContain('*');
+      expect(resources.length).toBeGreaterThan(0);
+      expect(resources.every((resource: unknown) => JSON.stringify(resource).includes(appKmsKeyId))).toBe(true);
+    }
+  });
+
+  test('has USER_PROFILES_TABLE in its environment', () => {
+    const ttsFns = Object.entries(template.findResources('AWS::Lambda::Function'))
+      .filter(([id]) => id.includes('TTSHandlerFunction'));
+    expect(ttsFns).toHaveLength(1);
+    const [, ttsFn] = ttsFns[0] as [string, any];
+
+    const tables = resourcesMatching(template, 'AWS::DynamoDB::Table', 'UserProfilesTable');
+    expect(tables).toHaveLength(1);
+    const [userProfilesTableId] = tables[0];
+
+    const envVars = ttsFn.Properties?.Environment?.Variables ?? {};
     expect(envVars.USER_PROFILES_TABLE).toBeDefined();
     expect(JSON.stringify(envVars.USER_PROFILES_TABLE)).toContain(userProfilesTableId);
   });

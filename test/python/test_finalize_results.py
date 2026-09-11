@@ -1,5 +1,11 @@
-"""finalize_results step tests: the pipeline's last step, which restores the
-child's name and marks the document PROCESSED via the centralized ddb-service.
+"""finalize_results step tests: the pipeline's last step, which marks the
+document PROCESSED via the centralized ddb-service and does nothing else.
+
+"Nothing else" is load-bearing. This step used to put the child's real name
+back into the stored summary before reporting success; it does not any more.
+Content keeps the {{S}} placeholder permanently and the name is substituted at
+read time, so the name never enters stored content, never reaches a
+translation model, and a parent correcting it reaches every existing summary.
 
 No dedicated suite existed for this handler before this change. Coverage here
 is deliberately minimal (just enough to prove the fixture's mocking is real)
@@ -45,57 +51,12 @@ def test_marks_the_document_processed(step, monkeypatch):
     assert result['status'] == 'PROCESSED'
     assert result['progress'] == 100
     assert result['finalized'] is True
-    # The name goes back in first: everything downstream of PROCESSED (the
-    # API, the PDF, the TTS voice) reads the stored summary.
-    assert [p['operation'] for _, p in fake.invocations] == [
-        'restore_student_name', 'update_progress']
+    # Exactly one call, and it writes status only. A second operation here
+    # would be this step touching content again, which is the write-time
+    # restore this design removed.
+    assert [p['operation'] for _, p in fake.invocations] == ['update_progress']
     assert {name for name, _ in fake.invocations} == {DDB_SERVICE}
     assert fake.payloads('update_progress')[0]['params']['status'] == 'PROCESSED'
-
-
-def test_the_restore_call_carries_ids_and_nothing_else(step, monkeypatch):
-    """Step Functions keeps execution history for 90 days, outside every
-    deletion path this project has, so the name is read inside the ddb-service
-    from the profile rather than passed to it."""
-    fake = wire(step, monkeypatch, lambda payload: OK_UPDATE)
-
-    step.module.lambda_handler({**IDS}, None)
-
-    restore_payload, = fake.payloads('restore_student_name')
-    assert restore_payload['params'] == IDS
-
-
-def test_a_failed_restore_stops_short_of_marking_the_document_processed(
-        step, monkeypatch):
-    """A document whose summary still says "{{S}} is making progress" has not
-    finished. Raising sends it back through the step's retries and then to
-    RecordFailure, rather than showing a parent a placeholder."""
-    def handler(payload):
-        if payload['operation'] == 'restore_student_name':
-            return {'statusCode': 500, 'body': json.dumps({'error': 'S3 read failed'})}
-        return OK_UPDATE
-    fake = wire(step, monkeypatch, handler)
-
-    with pytest.raises(Exception):
-        step.module.lambda_handler({**IDS}, None)
-
-    assert fake.payloads('update_progress') == []
-
-
-def test_a_document_with_no_tokens_left_still_completes(step, monkeypatch):
-    """Nothing to restore is a normal outcome, not a failure: a parent may
-    have saved no name, or the strict matcher may have recognised no spelling
-    and the model emitted no token."""
-    def handler(payload):
-        if payload['operation'] == 'restore_student_name':
-            return {'statusCode': 200,
-                    'body': json.dumps({'tokens_restored': 0,
-                                        'mangled_tokens_restored': 0,
-                                        'name_available': False})}
-        return OK_UPDATE
-    wire(step, monkeypatch, handler)
-
-    assert step.module.lambda_handler({**IDS}, None)['status'] == 'PROCESSED'
 
 
 def test_outer_catch_all_never_logs_the_rejected_value(step, monkeypatch, capsys):

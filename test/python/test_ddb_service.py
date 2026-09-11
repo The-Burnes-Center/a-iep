@@ -61,7 +61,6 @@ def service(monkeypatch):
         finally:
             unload('ddb_service')
             unload('s3_content_handler')  # sibling import caches BUCKET at import
-            unload('student_name_restore')  # sibling import
 
 
 def op(service, operation, **params):
@@ -777,18 +776,17 @@ def test_save_content_to_s3_error_log_line_never_leaks_document_content(
     assert 'Error saving content to S3' in captured.out
 
 
-# --- the student name: read it, and put it back ------------------------------
+# --- the student name: read it, and never write it back ----------------------
 #
 # The pipeline replaces every name before the document reaches OpenAI, and the
-# child's mentions come back as {{S}}. These two operations are the ends of
-# that: get_student_name feeds the redaction step's matcher, and
-# restore_student_name is the single place the token becomes a name again,
-# called by finalize_results before the row is marked PROCESSED. TTS and the
-# PDF read the stored summary, so restoring at read time would have left the
-# voice reading a placeholder aloud.
+# child's mentions come back as {{S}}. This service holds one end of that:
+# get_student_name feeds the redaction step's matcher. It holds no other end.
+# Stored content keeps the placeholder permanently and the name is substituted
+# by whichever lambda serves a read, so nothing here ever writes a name into a
+# summary. That is what makes the placeholder survive into every translation
+# and makes a corrected name reach documents that finished months ago.
 
 CHILD_NAME = 'Jordan Smith'
-LANGUAGES = ('en', 'es', 'vi', 'zh', 'ar')
 
 
 def encrypted(name):
@@ -805,19 +803,6 @@ def seed_profile(service, name, child_id=CHILD):
         'children': [{'childId': 'other-child', 'name': encrypted('Casey Brooks')},
                      {'childId': child_id, 'name': name}],
     })
-
-
-def tokenized_content(languages=LANGUAGES):
-    """Content as the models produce it: the child is {{S}} everywhere."""
-    return {
-        'summaries': {lang: f'{{{{S}}}} is making progress.' for lang in languages},
-        'sections': {lang: [{'title': 'Goals', 'content': f'Goals for {{{{S}}}}.',
-                             'page_numbers': [3]}] for lang in languages},
-        'document_index': {lang: 'Page 1: cover' for lang in languages},
-        'abbreviations': {lang: [{'abbreviation': 'IEP',
-                                  'full_form': 'Individualized Education Program'}]
-                          for lang in languages},
-    }
 
 
 def test_get_student_name_decrypts_what_the_profile_stored(service):
@@ -843,120 +828,19 @@ def test_get_student_name_is_empty_when_there_is_no_profile(service):
     assert op(service, 'get_student_name', user_id=USER, child_id=CHILD)[1]['name'] == ''
 
 
-def test_restore_swaps_the_token_in_an_inline_row(service):
-    seed_document(service, **tokenized_content())
-    seed_profile(service, encrypted(CHILD_NAME))
-
-    status, body = op(service, 'restore_student_name', **IDS)
-
-    assert status == 200
-    assert body['name_available'] is True
-    assert body['tokens_restored'] == 10  # summary + section, five languages
-    doc = item(service)
-    for lang in LANGUAGES:
-        assert doc['summaries'][lang] == 'Jordan Smith is making progress.'
-        assert doc['sections'][lang][0]['content'] == 'Goals for Jordan Smith.'
-    assert '{{S}}' not in json.dumps(doc, default=str)
-
-
-def test_restore_swaps_the_token_in_an_s3_backed_row(service):
-    """Content moves to S3 once the row approaches DynamoDB's item limit, and
-    this service is the only lambda that already knows both storage paths."""
-    seed_document(service)
-    op(service, 'save_content_to_s3', iep_id=IEP, child_id=CHILD,
-       content=tokenized_content())
-    seed_profile(service, encrypted(CHILD_NAME))
-    assert 'contentS3Reference' in item(service)
-
-    status, body = op(service, 'restore_student_name', **IDS)
-
-    assert (status, body['tokens_restored']) == (200, 10)
-    ref = item(service)['contentS3Reference']
-    content = json.loads(service.s3.get_object(
-        Bucket=ref['bucket'], Key=ref['s3Key'])['Body'].read())
-    assert content['summaries']['es'] == 'Jordan Smith is making progress.'
-    assert '{{S}}' not in json.dumps(content)
-
-
-def test_restore_uses_a_localized_phrase_when_there_is_no_name(service):
-    """A parent can reach a finished document before the name gate reaches
-    their environment. They get "your child", not a raw token and not the
-    literal 'My Child'."""
-    seed_document(service, **tokenized_content())
-    seed_profile(service, 'My Child')
-
-    status, body = op(service, 'restore_student_name', **IDS)
-
-    assert (status, body['name_available']) == (200, False)
-    doc = item(service)
-    assert doc['summaries']['en'] == 'your child is making progress.'
-    assert doc['summaries']['es'] == 'su hijo o hija is making progress.'
-    assert doc['summaries']['vi'].startswith('con quý vị')
-    assert doc['summaries']['zh'].startswith('您的孩子')
-    assert doc['summaries']['ar'].startswith('طفلك')
-    assert '{{S}}' not in json.dumps(doc, default=str)
-    assert 'My Child' not in json.dumps(doc, default=str)
-
-
-@pytest.mark.parametrize('mangled', ['{{ S }}', '{ {S} }', '{S}', '{{s}}', '｛｛S｝｝'])
-def test_restore_sweeps_tokens_a_translation_reformatted(service, mangled):
-    """translate_content fails a run that mangles the token, so these should
-    not get here. If one does, a parent reading braces is the worse outcome."""
-    seed_document(service, summaries={'zh': f'{mangled} 进步了。'})
-    seed_profile(service, encrypted(CHILD_NAME))
-
-    status, body = op(service, 'restore_student_name', **IDS)
-
-    assert (status, body['mangled_tokens_restored']) == (200, 1)
-    assert item(service)['summaries']['zh'] == 'Jordan Smith 进步了。'
-
-
-def test_restoring_twice_does_not_double_up(service):
-    """finalize_results can be retried: Step Functions retries the step three
-    times before recording a failure."""
-    seed_document(service, **tokenized_content())
-    seed_profile(service, encrypted(CHILD_NAME))
-
-    op(service, 'restore_student_name', **IDS)
-    second = op(service, 'restore_student_name', **IDS)[1]
-
-    assert second['tokens_restored'] == 0
-    assert item(service)['summaries']['en'] == 'Jordan Smith is making progress.'
-
-
-def test_restore_reports_a_missing_document_rather_than_creating_one(service):
-    seed_profile(service, encrypted(CHILD_NAME))
-    assert op(service, 'restore_student_name', **IDS)[0] == 404
-    assert item(service) is None
-
-
-def test_restore_logs_counts_and_never_the_name_or_the_content(service, capsys):
-    seed_document(service, **tokenized_content())
-    seed_profile(service, encrypted(CHILD_NAME))
-
-    op(service, 'restore_student_name', **IDS)
-
-    logged = capsys.readouterr().out
-    assert CHILD_NAME not in logged
-    assert 'is making progress' not in logged
-    assert 'Student name restored: 10 tokens' in logged
-
-
-def test_an_undecryptable_name_becomes_the_neutral_phrase_not_a_blob(service, monkeypatch):
+def test_an_undecryptable_name_is_no_name_rather_than_a_blob(service, monkeypatch):
     """If the CMK is ever revoked or the role's kms:Decrypt narrowed, the
-    stored value is a base64 ciphertext. Handing that to the restore would
-    print it to a parent as their child's name."""
+    stored value is a base64 ciphertext. Handing that to the redaction matcher
+    as the child's name would look for a blob in the OCR text and find
+    nothing, and the value itself would travel further than the profile."""
     ciphertext = encrypted(CHILD_NAME)
-    seed_document(service, **tokenized_content(('en',)))
     seed_profile(service, ciphertext)
 
     def denied(**kwargs):
         raise Exception('AccessDeniedException')
     monkeypatch.setattr(service.module.kms_client, 'decrypt', denied)
 
-    assert op(service, 'get_student_name', user_id=USER, child_id=CHILD)[1]['name'] == ''
-    status, body = op(service, 'restore_student_name', **IDS)
+    status, body = op(service, 'get_student_name', user_id=USER, child_id=CHILD)
 
-    assert (status, body['name_available']) == (200, False)
-    assert item(service)['summaries']['en'] == 'your child is making progress.'
-    assert ciphertext[:24] not in json.dumps(item(service), default=str)
+    assert (status, body['name']) == (200, '')
+    assert ciphertext[:24] not in json.dumps(body)

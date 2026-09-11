@@ -72,44 +72,6 @@ def lambda_handler(event, context):
         lambda_client = boto3.client('lambda')
         ddb_service_name = os.environ.get('DDB_SERVICE_FUNCTION_NAME', 'DDBService')
 
-        # Put the child's name back before anything reports success. The
-        # parsing and translation models only ever saw a placeholder; every
-        # reader from here on (the API, the PDF, the TTS voice) reads the
-        # stored summary, so this is the one place the name goes back in.
-        #
-        # Only IDs go over this call: the DDB service reads the name from the
-        # profile itself, because a name in this step's event is a name in
-        # Step Functions execution history for 90 days.
-        restore_response = lambda_client.invoke(
-            FunctionName=ddb_service_name,
-            InvocationType='RequestResponse',
-            Payload=json.dumps({
-                'operation': 'restore_student_name',
-                'params': {
-                    'iep_id': iep_id,
-                    'user_id': user_id,
-                    'child_id': child_id
-                }
-            })
-        )
-
-        restore_payload_response = restore_response['Payload'].read()
-        if not restore_payload_response:
-            raise Exception("Empty response from DDB service during name restoration")
-
-        try:
-            restore_result = json.loads(restore_payload_response)
-        except json.JSONDecodeError as e:
-            raise Exception(f"Failed to parse name restoration response: {e}")
-
-        # Raising here leaves the document short of PROCESSED, which is the
-        # honest outcome: the summary still holds placeholders, and a parent
-        # reading "{{S}} is working on..." is worse than a retry.
-        if not restore_result or restore_result.get('statusCode') != 200:
-            raise Exception(
-                f"Failed to restore the student name: "
-                f"status {restore_result.get('statusCode') if isinstance(restore_result, dict) else 'unknown'}")
-
         print(f"Marking document {iep_id} as PROCESSED with 100% progress")
         
         # Update status to PROCESSED with 100% completion

@@ -6,6 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Dict, List, Optional, Literal
 from router import Router, UserProfileRouter, RouteNotFoundException
+from student_name_substitution import substitute_content, usable_student_name
 import base64
 import copy
 from botocore.exceptions import ClientError
@@ -23,6 +24,10 @@ print(f"KMS client initialized for region: {region}, using key alias: {kms_key_a
 
 SUPPORTED_LANGUAGES = ['en', 'zh', 'es', 'vi', 'ar']
 DEFAULT_LANGUAGE = 'en'
+
+# Where a document's content lives, whether inline on the row or in the S3
+# object. Every shape get_child_documents can return fills all four.
+CONTENT_FIELDS = ('summaries', 'sections', 'document_index', 'abbreviations')
 
 # Document processing statuses
 DocumentStatus = Literal['PROCESSING', 'PROCESSING_TRANSLATIONS', 'PROCESSED', 'FAILED']
@@ -629,6 +634,30 @@ def _user_owns_child(user_id: str, child_id: str) -> bool:
     )
 
 
+def _child_name(user_id: str, child_id: str) -> Optional[str]:
+    """The child's name from the profile, decrypted, or None.
+
+    None is a complete answer rather than a failure: the parent may not have
+    been asked for a name yet, and the caller falls back to the neutral phrase
+    for the language being read. Nothing here raises. A profile read or a
+    decrypt that fails costs a parent the name inside their summary, which is
+    not worth a 500 on a document they could otherwise read.
+
+    kms_decrypt_string hands back the ciphertext it was given when a decrypt
+    fails; usable_student_name's length guard is what stops that base64 blob
+    being printed to a parent as their child's name.
+    """
+    try:
+        profile = user_profiles_table.get_item(Key={'userId': user_id}).get('Item') or {}
+        for child in profile.get('children') or []:
+            if isinstance(child, dict) and child.get('childId') == child_id:
+                return usable_student_name(kms_decrypt_string(child.get('name')))
+    except Exception as e:
+        # Class name only: this function's result is a child's name.
+        print(f"Could not read the child's name for substitution: {type(e).__name__}")
+    return None
+
+
 def get_child_documents(event: Dict) -> Dict:
     """
     Get document associated with a specific child.
@@ -778,7 +807,27 @@ def get_child_documents(event: Dict) -> Dict:
         # If no document found
         if not latest_doc:
             return create_response(event, 200, {'documents': [], 'message': 'No document found for this child'})
-        
+
+        # The child's name is never written into stored content: it keeps the
+        # {{S}} placeholder and every reader substitutes on the way out. That
+        # is why the on-demand translation can re-read this same content
+        # without handing the model a name, and why correcting a misspelled
+        # name fixes every summary a parent already has.
+        #
+        # One site, after the branches above have converged on one dict,
+        # rather than one per branch: a return shape added later cannot skip
+        # it. Documents that predate the redaction hold real names and no
+        # token, and pass through unchanged.
+        try:
+            stored = {field: latest_doc[field] for field in CONTENT_FIELDS if field in latest_doc}
+            substituted, count = substitute_content(stored, _child_name(user_id, child_id))
+            latest_doc = {**latest_doc, **substituted}
+            print(f"Substituted the student token in {count} place(s) for {latest_doc['iepId']}")
+        except Exception as e:
+            # A placeholder on screen is bad; losing a readable document to a
+            # 500 is worse. Class name only, never the content.
+            print(f"Student name substitution failed: {type(e).__name__}")
+
         return create_response(event, 200, latest_doc)
         
     except Exception as e:

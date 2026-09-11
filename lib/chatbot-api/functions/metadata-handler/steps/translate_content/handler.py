@@ -62,7 +62,7 @@ def lambda_handler(event, context):
         child_id = event['child_id']
         target_languages = event['target_languages']
         content_type = event.get('content_type', 'parsing_result')
-        
+
         if not target_languages:
             print("No target languages provided, skipping translation")
             event_copy = {k: v for k, v in event.items() if k not in ['progress', 'current_step']}
@@ -78,7 +78,10 @@ def lambda_handler(event, context):
         lambda_client = boto3.client('lambda')
         ddb_service_name = os.environ.get('DDB_SERVICE_FUNCTION_NAME', 'DDBService')
         
-        # Get the document with content (handles S3 storage and lazy migration)
+        # Get the document with content (handles S3 storage and lazy migration).
+        # Stored content refers to the child as {{S}} and keeps doing so, here
+        # and on the on-demand add-a-language path: the name is substituted by
+        # whichever lambda serves a read, so this step never sees it.
         source_payload = {
             'operation': 'get_document_with_content',
             'params': {
