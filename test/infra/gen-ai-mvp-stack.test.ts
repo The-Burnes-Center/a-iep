@@ -100,18 +100,32 @@ const KNOWLEDGE_BUCKET_NAMES = {
 // The knowledge bucket and the user-data tables carry no explicit TableName,
 // so their identity is their logical ID: a changed construct path replaces
 // the resource (new, empty table) just as surely as a changed bucket name.
+//
+// The user pool and the CMK are in this list as well as in the retention
+// tests above, because the two catch different mistakes. The retention tests
+// find the resource by a substring of its logical ID ('NewUserPool',
+// 'AppKmsKey'), so they fail on a rename that drops the substring but pass
+// straight through a construct MOVE — nesting it one level deeper, or
+// renaming the parent construct — which changes the whole hashed path while
+// keeping the substring. That is exactly the shape a refactor produces, and
+// for the pool it is unrecoverable: Cognito cannot export credentials, so a
+// replaced pool locks every family out with no restore path.
 const USER_DATA_LOGICAL_IDS = {
   staging: [
     'ChatbotAPIstagingKnowledgeSourceBucket6569EF05',
     'ChatbotAPIstagingUserProfilesTable49F35014',
     'ChatbotAPIstagingIepDocumentsTable38D1586F',
     'ChatbotAPIstagingReferralsTableF8A5555D',
+    'NewAuthorizationstagingNewUserPoolE62D52A8',
+    'ChatbotAPIstagingAppKmsKey70AB614E',
   ],
   production: [
     'ChatbotAPIKnowledgeSourceBucketD704DDFD',
     'ChatbotAPIUserProfilesTable3923A78F',
     'ChatbotAPIIepDocumentsTable6A6A0420',
     'ChatbotAPIReferralsTable4107EA6C',
+    'NewAuthorizationNewUserPoolD1894B52',
+    'ChatbotAPIAppKmsKey027D7204',
   ],
 } as const;
 
@@ -183,6 +197,32 @@ function describeDurableStoreRetention(envLabel: EnvLabel, getTemplate: () => Te
       expect(userDataTables).toHaveLength(USER_DATA_TABLE_HINTS.length);
 
       expect(retentionOffenders(userDataTables)).toEqual([]);
+    });
+
+    // Retain is a CloudFormation-level protection against a
+    // CloudFormation-level event, and nothing else. It does not help against a
+    // bad ops script, a console delete, or an UpdateItem on the wrong row, and
+    // those had no restore path at all: the knowledge bucket got versioning
+    // after the 2026-06-22 loss and the tables got nothing.
+    //
+    // Deletion protection is also the drift fix. Two production tables had it
+    // enabled by hand and declared nowhere in CDK; CloudFormation only tracks
+    // drift on properties that are set explicitly, so an undeclared flag is
+    // one that can quietly go away.
+    test('every user-data DynamoDB table has a restore point and cannot be deleted by hand', () => {
+      const tables = Object.entries(getTemplate().findResources('AWS::DynamoDB::Table'))
+        .filter(([logicalId]) => USER_DATA_TABLE_HINTS.some((hint) => logicalId.includes(hint)));
+      // Vacuity floor, same as above: all three, or the pin is hollow.
+      expect(tables).toHaveLength(USER_DATA_TABLE_HINTS.length);
+
+      const offenders = tables
+        .filter(([, r]) =>
+          r.Properties?.PointInTimeRecoverySpecification?.PointInTimeRecoveryEnabled !== true ||
+          r.Properties?.DeletionProtectionEnabled !== true)
+        .map(([logicalId, r]) =>
+          `${logicalId} (PITR: ${r.Properties?.PointInTimeRecoverySpecification?.PointInTimeRecoveryEnabled}, ` +
+          `DeletionProtectionEnabled: ${r.Properties?.DeletionProtectionEnabled})`);
+      expect(offenders).toEqual([]);
     });
 
     // Cognito cannot export or re-import credentials, so a replaced or
