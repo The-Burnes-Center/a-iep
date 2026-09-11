@@ -218,6 +218,7 @@ export class MonitoringStack extends Construct {
     this.addSmsPathAlarms(props.authTriggerFunctions);
     this.addSmsDeliveryFailureAlarm();
     this.addSignupPathAlarms(props.signupFunction);
+    this.addDeletionAlarms(props.apiFunctions);
     this.addTranslationAndUsageAlarms(props.translationStateMachine);
     this.addDailyBrief(props.kmsKey, [
       ...props.pipelineFunctions,
@@ -949,6 +950,63 @@ export class MonitoringStack extends Construct {
         statistic: 'Sum',
         period: cdk.Duration.minutes(15),
       }),
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+  }
+
+  /**
+   * A parent asked us to delete their records and we only partly did.
+   *
+   * Watched through a marker rather than Errors, for the usual reason: these
+   * handlers catch and return an HTTP status, so Errors stays flat. It used to
+   * be worse than flat. Every deletion step was wrapped in its own try/except
+   * that printed and continued, and the handler returned 200 'successfully
+   * deleted' regardless, so a failed S3 purge or a failed row delete told the
+   * parent their child's records were gone when they were still there.
+   *
+   * Split by essential/non-essential because the two need different
+   * responses. An essential survivor means FERPA-protected content still
+   * exists after someone asked for it to go, and needs a person. A
+   * non-essential one (a cached mp3, a referral row) is worth knowing and is
+   * not worth waking anyone.
+   */
+  private addDeletionAlarms(apiFunctions: MonitoredFunction[]): void {
+    const metricNamespace = 'AI-IEP/Pipeline';
+    const watched = apiFunctions.filter((f) =>
+      f.label === 'user profile' || f.label === 'document delete');
+    if (watched.length === 0) {
+      return;
+    }
+
+    for (const { label, fn } of watched) {
+      new logs.MetricFilter(this, `DeletionIncompleteFilter${label.replace(/[^A-Za-z0-9]/g, '')}`, {
+        logGroup: fn.logGroup,
+        // Both halves must match: the marker AND essential=yes. A metric
+        // filter on the marker alone would page for an orphaned mp3.
+        filterPattern: logs.FilterPattern.allTerms('DELETION_INCOMPLETE', 'essential=yes'),
+        metricNamespace,
+        metricName: 'DeletionIncompleteEssential',
+        metricValue: '1',
+        defaultValue: 0,
+      });
+    }
+
+    this.alarm('DeletionIncompleteAlarm', {
+      severity: 'critical',
+      name: 'a parent asked us to delete their records and we did not',
+      description:
+        'A delete request only partly completed, so a child\'s documents or ' +
+        'profile still exist after a parent asked for them to be removed. ' +
+        'They need removing by hand.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'DeletionIncompleteEssential',
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(15),
+      }),
+      // One is enough: there is no benign volume of a deletion that did not
+      // happen.
       threshold: 1,
       evaluationPeriods: 1,
     });

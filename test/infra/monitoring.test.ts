@@ -51,6 +51,7 @@ const EXPECTED_ALARM_SUFFIXES = [
   'the SMS provider is rejecting login codes',
   'the pipeline cannot write to its database',
   'a failed document kept its unredacted copy',
+  'a parent asked us to delete their records and we did not',
   // The signup endpoint. It is the ONLY way to create an account, because
   // Cognito's public SignUp API is closed, and for its first day it had no
   // alarm of any kind: not in pipelineFunctions, not in authTriggerFunctions,
@@ -376,6 +377,40 @@ describe.each([
       expect(alarm.Threshold).toBe(1);
       expect(alarm.MetricName).toBe('Errors');
     }
+  });
+});
+
+describe('a deletion that only partly happened', () => {
+  // These handlers catch and return an HTTP status, so Errors stays flat.
+  // Worse, they used to return 200 'successfully deleted' no matter which
+  // steps failed, so a parent could be told their child's records were gone
+  // while they were still there. The marker is the only signal.
+  //
+  // Pinned on the lambda side in test/python/test_user_profile_api.py and
+  // test/python/test_knowledge_delete_s3.py.
+  test('DELETION_INCOMPLETE is counted, but only when it is essential', () => {
+    const filters = Object.values(synth('production').findResources('AWS::Logs::MetricFilter'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'));
+
+    // One per watched handler: the account/profile path and the document path.
+    expect(filters.length).toBeGreaterThanOrEqual(2);
+    for (const filter of filters) {
+      // Both terms, load-bearing: matching the marker alone would page for an
+      // orphaned audio file.
+      expect(filter.FilterPattern).toContain('DELETION_INCOMPLETE');
+      expect(filter.FilterPattern).toContain('essential=yes');
+    }
+  });
+
+  test('one incomplete deletion is enough to alarm, at critical', () => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes('asked us to delete their records'));
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Threshold).toBe(1);
+    expect(alarm.AlarmDescription).toContain('[critical]');
   });
 });
 

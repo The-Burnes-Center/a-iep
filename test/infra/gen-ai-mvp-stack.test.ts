@@ -855,6 +855,55 @@ describe('S3 data protection', () => {
   });
 });
 
+// ── Cross-project blast radius ──────────────────────────────────────────
+// This AWS account is shared with other Burnes Center projects, so a
+// wildcard resource here does not stop at A-IEP's own data.
+//
+// The case that produced this pin: every step-function lambda plus the DDB
+// service -- eight roles -- carried bedrock:InvokeModel, bedrock:Retrieve and
+// bedrock-agent-runtime:Retrieve with `Resource: ['<model-arn>', '*']`. The
+// model ARN next to the wildcard made the wildcard the whole grant, and
+// bedrock:Retrieve on '*' reads knowledge bases belonging to the other
+// projects in this account. Nothing in this repo has ever called Bedrock:
+// the pipeline uses Mistral, Comprehend and OpenAI, and the statement was
+// inherited from the template this repo started from.
+//
+// The grant is a plausible thing to want back (docs/AI_EVALUATION_RESEARCH.md
+// proposes a Claude-on-Bedrock eval judge), which is exactly why the shape is
+// pinned rather than just deleted: it has to come back scoped to one model
+// and one function.
+describe('Bedrock is not granted on a wildcard', () => {
+  const bedrockStatements = (t: Template): any[] =>
+    Object.values(t.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[])
+      .filter((st) => st.Effect === 'Allow')
+      .filter((st) => [st.Action ?? []].flat()
+        .some((a: unknown) => typeof a === 'string' && a.startsWith('bedrock')));
+
+  // Staging only, and that is enough: the statement lived in the shared
+  // `stepFunctionPolicies` list in functions.ts with no environment gate, so
+  // both templates carry whatever this one carries. A second full synth would
+  // cost ~20s to re-assert the same fact.
+  test('any future Bedrock grant names a model, never a wildcard', () => {
+    for (const statement of bedrockStatements(template)) {
+      const resources = [statement.Resource ?? []].flat();
+      // A '*' anywhere in the list IS the grant, however many specific ARNs
+      // sit beside it. That is precisely how the deleted statement read.
+      expect(resources).not.toContain('*');
+      expect(resources.length).toBeGreaterThan(0);
+      expect(JSON.stringify(resources)).toContain('foundation-model');
+    }
+  });
+
+  // Vacuity guard. The test above passes trivially when there are no Bedrock
+  // statements at all, which is the state we want, so assert that state
+  // explicitly: if a statement appears, this fails and forces someone to
+  // read the block above before widening the loop's exemptions.
+  test('there are no Bedrock statements at all today', () => {
+    expect(bedrockStatements(template)).toEqual([]);
+  });
+});
+
 // ── Encryption ──────────────────────────────────────────────────────────
 // WHY: on 2026-09-08 an audit found the encryption posture correct in the
 // live account but pinned by nothing. `encryptionKey` and `environmentEncryption`

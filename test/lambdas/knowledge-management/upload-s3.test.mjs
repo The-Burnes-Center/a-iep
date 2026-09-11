@@ -107,6 +107,35 @@ describe('request validation', () => {
         const { status } = await call({ ...GOOD_UPLOAD, fileName: 'report..pdf' });
         expect(status).toBe(200);
     });
+
+    // Every one of these three rejections used to be silent, so "the upload
+    // button does nothing" was undiagnosable: nothing in CloudWatch said a
+    // request had arrived and been turned away, or why.
+    //
+    // The filename must stay OUT of the log line. It is the parent's own
+    // filename and routinely carries the child's name, and this repo does not
+    // log document content or anything derived from it.
+    describe.each([
+        ['missing field', { ...GOOD_UPLOAD, childId: undefined }, /childId/],
+        ['missing fileType', { ...GOOD_UPLOAD, fileType: undefined }, /fileType/],
+        ['path separator', { ...GOOD_UPLOAD, fileName: 'Nadia-IEP/../secret.pdf' }, /separator/],
+    ])('a %s rejection', (_label, requestBody, reason) => {
+        test('says why, without naming the file', async () => {
+            const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                const { status } = await call(requestBody);
+                expect(status).toBe(400);
+
+                expect(warn).toHaveBeenCalledTimes(1);
+                const line = warn.mock.calls.flat().join(' ');
+                expect(line).toMatch(reason);
+                expect(line).not.toContain('Nadia');
+                expect(line).not.toContain('.pdf');
+            } finally {
+                warn.mockRestore();
+            }
+        });
+    });
 });
 
 describe('upload', () => {
@@ -115,15 +144,27 @@ describe('upload', () => {
         expect(status).toBe(200);
 
         expect(body.iepId).toMatch(/^iep-/);
-        // Key layout {userId}/{childId}/{iepId}/{fileName}: the JWT sub, not
-        // anything client-supplied, is the ownership prefix.
-        expect(body.documentUrl).toBe(`s3://${BUCKET}/${USER}/child-1/${body.iepId}/report.pdf`);
 
         const url = new URL(body.signedUrl);
         expect(url.hostname).toContain(BUCKET);
         expect(url.pathname).toBe(`/${USER}/child-1/${body.iepId}/report.pdf`);
         expect(url.searchParams.get('X-Amz-Signature')).toBeTruthy();
         expect(url.searchParams.get('X-Amz-Expires')).toBe('300');
+    });
+
+    // The response used to carry documentUrl, i.e. `s3://{BUCKET}/{key}`, so
+    // every upload handed the browser the physical name of the bucket
+    // holding other families' IEPs. Nothing read it: the browser needs the
+    // presigned URL to PUT to and the iepId to poll on.
+    //
+    // The presigned URL necessarily contains the bucket (it is the host it
+    // PUTs to), so this asserts the shape of the response rather than the
+    // absence of the string.
+    test('the response does not hand the client the bucket name', async () => {
+        const { body } = await call(GOOD_UPLOAD);
+
+        expect(Object.keys(body).sort()).toEqual(['iepId', 'signedUrl']);
+        expect(body.documentUrl).toBeUndefined();
     });
 
     test('writes the document record for the authenticated user', async () => {
@@ -136,9 +177,29 @@ describe('upload', () => {
         expect(Item.iepId).toBe(body.iepId);
         expect(Item.childId).toBe('child-1');
         expect(Item.userId).toBe(USER);
-        expect(Item.documentUrl).toBe(body.documentUrl);
         expect(Item.summaries).toEqual({});
         expect(typeof Item.createdAt).toBe('number');
+    });
+
+    // documentUrl left the RESPONSE, not the row. Three things parse the
+    // stored value as `s3://bucket/key`: ddb-service's
+    // _cleanup_unredacted_artifacts, which is what purges the unredacted
+    // original; user-profile-handler; and scripts/purge-orphaned-artifacts.py.
+    // Dropping the persisted field would leave unredacted uploads in S3, so
+    // the exact stored form is pinned here, where the key layout is also
+    // pinned: {userId}/{childId}/{iepId}/{fileName}, prefixed by the JWT sub
+    // rather than by anything the client sent.
+    test('the persisted row still carries the s3:// URL the purge parses', async () => {
+        const { body } = await call(GOOD_UPLOAD);
+        const { Item } = ddbMock.commandCalls(PutCommand)[0].args[0].input;
+
+        expect(Item.documentUrl)
+            .toBe(`s3://${BUCKET}/${USER}/child-1/${body.iepId}/report.pdf`);
+
+        // The parser in ddb-service is `url[len('s3://'):].partition('/')`.
+        const [bucket, ...keyParts] = Item.documentUrl.slice('s3://'.length).split('/');
+        expect(bucket).toBe(BUCKET);
+        expect(keyParts.join('/')).toBe(`${USER}/child-1/${body.iepId}/report.pdf`);
     });
 
     // The row is written before this handler knows the browser's presigned

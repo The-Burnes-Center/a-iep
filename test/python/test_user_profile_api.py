@@ -82,13 +82,24 @@ def api(monkeypatch):
         kms = boto3.client('kms', region_name='us-east-1')
         key_id = kms.create_key()['KeyMetadata']['KeyId']
         kms.create_alias(AliasName=KMS_ALIAS, TargetKeyId=key_id)
+        # A signed-in user always has a Cognito account behind them, and CDK
+        # always passes USER_POOL_ID, so the fixture provides both. It used to
+        # provide neither, which was fine while a surviving login was reported
+        # as a successful account deletion; now that it is reported as a
+        # failure, "no pool configured" has to be an explicit case (see
+        # test_delete_profile_wipes_user_data_even_without_cognito) rather
+        # than the default every test runs under.
+        cognito = boto3.client('cognito-idp', region_name='us-east-1')
+        pool_id = cognito.create_user_pool(PoolName='api-fixture-pool')['UserPool']['Id']
+        cognito.admin_create_user(UserPoolId=pool_id, Username=USER,
+                                  MessageAction='SUPPRESS')
 
         monkeypatch.setenv('USER_PROFILES_TABLE', PROFILES_TABLE)
         monkeypatch.setenv('IEP_DOCUMENTS_TABLE', DOCUMENTS_TABLE)
         monkeypatch.setenv('REFERRALS_TABLE', REFERRALS_TABLE)
         monkeypatch.setenv('BUCKET', BUCKET)
         monkeypatch.setenv('AIEP_KMS_KEY_ALIAS', KMS_ALIAS)
-        monkeypatch.delenv('USER_POOL_ID', raising=False)
+        monkeypatch.setenv('USER_POOL_ID', pool_id)
 
         module = load_lambda_module('user-profile-handler', 'user_profile_api')
         # router.py lazily re-imports `lambda_function` inside each route
@@ -97,7 +108,8 @@ def api(monkeypatch):
         try:
             yield SimpleNamespace(module=module, profiles=profiles,
                                   documents=documents, s3=s3, kms=kms,
-                                  referrals=referrals)
+                                  referrals=referrals, cognito=cognito,
+                                  pool_id=pool_id)
         finally:
             unload('lambda_function')
             unload('user_profile_api')
@@ -310,9 +322,10 @@ def test_server_errors_do_not_leak_internals_to_the_caller(api, monkeypatch):
     assert body['message'] == 'Could not update your profile. Please try again later.'
 
 
-def test_update_profile_language_sync_failure_is_non_blocking(api):
+def test_update_profile_language_sync_failure_is_non_blocking(api, monkeypatch):
     # No USER_POOL_ID configured: the Cognito locale mirror fails, the
     # profile update itself must still succeed.
+    monkeypatch.delenv('USER_POOL_ID')
     api.profiles.put_item(Item={'userId': USER})
     status, _ = call(api, '/profile', 'PUT', body={'secondaryLanguage': 'es'})
     assert status == 200
@@ -441,19 +454,25 @@ def test_delete_documents_removes_s3_and_records(api):
 # ---------------------------------------------------------------------------
 # DELETE /profile
 
-def test_delete_profile_wipes_user_data_even_without_cognito(api):
+def test_delete_profile_wipes_user_data_even_without_cognito(api, monkeypatch):
+    """The data goes even when the login cannot, and the parent is told.
+
+    Pin changed 2026-09-10. This asserted 200 with cognitoUserDeleted False,
+    which is the account-deletion request answered "done" while the account
+    the parent asked us to delete is still there and still able to sign in.
+    The data wipe is unchanged; only the honesty of the answer is.
+    """
+    monkeypatch.delenv('USER_POOL_ID')
     profile_with_child(api)
     put_document(api)
     api.s3.put_object(Bucket=BUCKET, Key=f'{USER}/child-1/iep-1/original.pdf', Body=b'pdf')
 
     status, body = call(api, '/profile', 'DELETE')
-    assert status == 200
+    assert status == 500
     summary = body['deletionSummary']
     assert summary['profileDeleted'] is True
     assert summary['documentsDeleted'] == 1
     assert summary['s3ObjectsDeleted'] == 1
-    # Documented quirk (plan section 9): Cognito deletion is best-effort;
-    # with no pool configured the response is still 200 and the flag False.
     assert summary['cognitoUserDeleted'] is False
     assert stored_profile(api) is None
 
@@ -570,7 +589,14 @@ def test_delete_child_documents_purges_cached_audio(api):
 
 
 def test_delete_profile_keeps_going_when_one_artifact_delete_fails(api, monkeypatch):
-    """An S3 failure must not abort the account deletion."""
+    """An S3 failure must not abort the account deletion, or be called success.
+
+    Pin changed 2026-09-10: this asserted 200 with documentsDeleted == 1, so a
+    parent whose summary and cached audio were still in the bucket was told
+    their child's records were gone. The rest of the deletion still runs (the
+    profile goes), but the row whose artifacts survived is deliberately kept:
+    it is the only pointer to them.
+    """
     profile_with_child(api)
     put_document(api, content={'summaries': {'en': 'S'}})
 
@@ -580,8 +606,10 @@ def test_delete_profile_keeps_going_when_one_artifact_delete_fails(api, monkeypa
     monkeypatch.setattr(api.module, '_delete_document_artifacts', boom)
 
     status, body = call(api, '/profile', 'DELETE')
-    assert status == 200
-    assert body['deletionSummary']['documentsDeleted'] == 1
+    assert status == 500
+    assert body['deletionSummary']['documentsDeleted'] == 0
+    assert api.documents.get_item(
+        Key={'iepId': 'iep-1', 'childId': 'child-1'}).get('Item') is not None
     assert stored_profile(api) is None
 
 
@@ -597,6 +625,184 @@ def test_delete_profile_deletes_cognito_account_when_configured(api, monkeypatch
     assert body['deletionSummary']['cognitoUserDeleted'] is True
     with pytest.raises(cognito.exceptions.UserNotFoundException):
         cognito.admin_get_user(UserPoolId=pool_id, Username=USER)
+
+
+# ---------------------------------------------------------------------------
+# A deletion says what actually happened
+#
+# Both handlers used to catch every step into a print and then return 200
+# unconditionally, so a parent whose documents were still in the bucket was
+# told they were gone. These pin the three things that fixes: the status is
+# derived from what survived, DELETION_INCOMPLETE gives an alarm something to
+# count, and the ordering leaves every partial failure retryable.
+
+def markers(capsys):
+    return [line for line in capsys.readouterr().out.splitlines()
+            if line.startswith('DELETION_INCOMPLETE')]
+
+
+def failing_prefix_sweep(api, monkeypatch, only_prefix):
+    """Break _delete_prefix for one prefix, leaving the other sweeps working."""
+    real = api.module._delete_prefix
+
+    def selective(s3, bucket, prefix):
+        if prefix.startswith(only_prefix):
+            raise ClientError({'Error': {'Code': 'InternalError'}}, 'ListObjectsV2')
+        return real(s3, bucket, prefix)
+
+    monkeypatch.setattr(api.module, '_delete_prefix', selective)
+    return real
+
+
+def test_delete_child_documents_does_not_report_success_when_files_survive(api, monkeypatch, capsys):
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}})
+    raw_key = f'{USER}/child-1/iep-1/original.pdf'
+    api.s3.put_object(Bucket=BUCKET, Key=raw_key, Body=b'pdf')
+    failing_prefix_sweep(api, monkeypatch, f'{USER}/')
+
+    status, body = call(api, '/profile/children/child-1/documents', 'DELETE')
+
+    assert status == 500
+    assert 'InternalError' not in json.dumps(body), 'internals leaked to the caller'
+    assert key_exists(api, raw_key) is True, 'test proves nothing: the file was deleted'
+
+    marker = markers(capsys)
+    assert marker, 'nothing for an alarm to count'
+    assert 'scope=child-documents' in marker[0] and 'essential=yes' in marker[0]
+    assert 'survived=raw-uploads' in marker[0]
+    assert 'child=child-1' in marker[0]
+    # Ids and kinds only: no key names, no child name, no exception text.
+    assert 'original.pdf' not in marker[0] and 'InternalError' not in marker[0]
+
+
+def test_delete_child_documents_keeps_the_row_when_its_artifacts_survive(api, monkeypatch):
+    """The row is the only pointer to the summary and the audio."""
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}})
+    failing_prefix_sweep(api, monkeypatch, 'iep-data/')
+
+    assert call(api, '/profile/children/child-1/documents', 'DELETE')[0] == 500
+    assert api.documents.get_item(
+        Key={'iepId': 'iep-1', 'childId': 'child-1'}).get('Item') is not None
+
+
+def test_delete_child_documents_retry_converges(api, monkeypatch):
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}})
+    audio_keys = put_audio(api)
+    raw_key = f'{USER}/child-1/iep-1/original.pdf'
+    api.s3.put_object(Bucket=BUCKET, Key=raw_key, Body=b'pdf')
+
+    real = failing_prefix_sweep(api, monkeypatch, f'{USER}/')
+    assert call(api, '/profile/children/child-1/documents', 'DELETE')[0] == 500
+
+    # S3 healthy again: the second attempt finishes the job rather than
+    # tripping over the work the first one already did.
+    monkeypatch.setattr(api.module, '_delete_prefix', real)
+    assert call(api, '/profile/children/child-1/documents', 'DELETE')[0] == 200
+
+    assert key_exists(api, raw_key) is False
+    assert key_exists(api, 'iep-data/iep-1/child-1/content.json') is False
+    for key in audio_keys:
+        assert key_exists(api, key) is False
+    assert api.documents.get_item(
+        Key={'iepId': 'iep-1', 'childId': 'child-1'}).get('Item') is None
+
+
+def test_a_clean_account_deletion_returns_200_and_stays_quiet(api, capsys):
+    """The happy path still removes everything, and must not trip the alarm."""
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}})
+    audio_keys = put_audio(api)
+    raw_key = f'{USER}/child-1/iep-1/original.pdf'
+    api.s3.put_object(Bucket=BUCKET, Key=raw_key, Body=b'pdf')
+
+    status, body = call(api, '/profile', 'DELETE')
+
+    assert status == 200
+    assert body['deletionSummary']['cognitoUserDeleted'] is True
+    assert key_exists(api, raw_key) is False
+    assert key_exists(api, 'iep-data/iep-1/child-1/content.json') is False
+    for key in audio_keys:
+        assert key_exists(api, key) is False
+    assert api.documents.get_item(
+        Key={'iepId': 'iep-1', 'childId': 'child-1'}).get('Item') is None
+    assert stored_profile(api) is None
+    with pytest.raises(api.cognito.exceptions.UserNotFoundException):
+        api.cognito.admin_get_user(UserPoolId=api.pool_id, Username=USER)
+    assert markers(capsys) == [], 'a clean deletion must not fire the alarm'
+
+
+def test_account_deletion_keeps_the_login_when_data_survived(api, monkeypatch, capsys):
+    """The JWT is the parent's only way to retry.
+
+    Deleting the login while their child's documents are still in the bucket
+    would strand those documents where no request they can make reaches them.
+    """
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}})
+    failing_prefix_sweep(api, monkeypatch, 'iep-data/')
+
+    status, body = call(api, '/profile', 'DELETE')
+
+    assert status == 500
+    assert body['deletionSummary']['cognitoUserDeleted'] is False
+    api.cognito.admin_get_user(UserPoolId=api.pool_id, Username=USER)  # raises if gone
+
+    marker = markers(capsys)[0]
+    assert 'scope=account' in marker and 'essential=yes' in marker
+    assert 'survived=cognito-account,derived-artifacts,document-rows' in marker
+
+
+def test_account_deletion_retry_converges(api, monkeypatch):
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}})
+    audio_keys = put_audio(api)
+
+    real = failing_prefix_sweep(api, monkeypatch, 'iep-data/')
+    assert call(api, '/profile', 'DELETE')[0] == 500
+
+    monkeypatch.setattr(api.module, '_delete_prefix', real)
+    status, body = call(api, '/profile', 'DELETE')
+
+    assert status == 200
+    assert body['deletionSummary']['cognitoUserDeleted'] is True
+    assert key_exists(api, 'iep-data/iep-1/child-1/content.json') is False
+    for key in audio_keys:
+        assert key_exists(api, key) is False
+    assert api.documents.get_item(
+        Key={'iepId': 'iep-1', 'childId': 'child-1'}).get('Item') is None
+
+
+def test_account_deletion_converges_when_the_login_is_already_gone(api):
+    """A retry must not fail on work the previous attempt finished."""
+    api.cognito.admin_delete_user(UserPoolId=api.pool_id, Username=USER)
+    profile_with_child(api)
+
+    status, body = call(api, '/profile', 'DELETE')
+    assert status == 200
+    assert body['deletionSummary']['cognitoUserDeleted'] is True
+
+
+def test_a_stuck_referral_row_is_alarmed_but_not_the_parents_problem(api, monkeypatch, capsys):
+    """Best-effort by classification: a link code carries no document content,
+    the account is fully deleted, and there is nothing for a parent to retry."""
+    profile_with_child(api)
+
+    def boom(*args, **kwargs):
+        raise ClientError({'Error': {'Code': 'InternalError'}}, 'Scan')
+
+    monkeypatch.setattr(api.module, '_purge_referral_data', boom)
+
+    status, _ = call(api, '/profile', 'DELETE')
+    assert status == 200
+    assert stored_profile(api) is None
+    with pytest.raises(api.cognito.exceptions.UserNotFoundException):
+        api.cognito.admin_get_user(UserPoolId=api.pool_id, Username=USER)
+
+    marker = markers(capsys)[0]
+    assert 'essential=no' in marker and 'survived=referrals' in marker
 
 
 # ---------------------------------------------------------------------------
