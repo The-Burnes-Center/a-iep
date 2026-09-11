@@ -24,6 +24,14 @@ supports is "the student's name never reaches the model that writes or
 translates the summary", not "no vendor ever sees it". Say it that way in the
 release note.
 
+We hold an enterprise contract with Mistral under which they do not train on or
+otherwise use our data. That governs what they may do with what they receive; it
+does not change what they receive. Keep the two separate when describing this:
+the contract is a legal control on use, the redaction is a technical control on
+exposure, and only the second is something the pipeline itself enforces. A
+release note that leans on the contract to imply the name is not sent would be
+wrong, and a parent reading it could not check it either way.
+
 ## Why every name, not only the student's
 
 The request was scoped to the student's name. Redacting only that name means
