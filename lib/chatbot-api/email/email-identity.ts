@@ -67,8 +67,19 @@ import type { Severity } from '../monitoring/monitoring';
  * to name it) but staging and production share ONE domain identity and would
  * each want their own configuration set on it. Two stacks fighting over one
  * account-level setting, flipping it on every deploy, is worse than the gap.
- * The send path names the configuration set explicitly and a unit test pins
- * that it does.
+ *
+ * Be clear about how big that gap is, because it is easy to read as smaller
+ * than it is. The alternative to naming our configuration set is NOT plain
+ * SES. `a-iep.org` already carries a default configuration set,
+ * `my-first-configuration-set`, which belongs to another project in this
+ * account and has zero event destinations. So a send that omits
+ * `ConfigurationSetName` does not fail and does not degrade: it succeeds, it
+ * counts against the shared account's reputation, and its bounces and
+ * complaints are routed nowhere and discarded. Nothing would ever reach the
+ * suppression list, and nothing would say so.
+ *
+ * That makes the unit test pinning `ConfigurationSetName` on every SendEmail
+ * call the control itself rather than a nicety. It is mutation-checked.
  *
  * ## Why our own suppression list, when SES already has one
  *
@@ -150,6 +161,14 @@ const COMPLAINT_COUNT_ANY = 1;
 // we are sending, not with who we are sending it to.
 const REJECT_COUNT_ANY = 1;
 
+// A receiving server deferring us. Three rather than one because a single
+// delay is one provider having a bad minute, while three in a quarter hour is
+// a provider throttling us, which is the polite first stage of a reputation
+// problem. It is also the only email failure mode invisible from the bounce
+// and complaint series: the code usually still arrives, just late enough that
+// a parent has given up and asked for another.
+const DELIVERY_DELAY_COUNT = 3;
+
 /**
  * A hard bounce is permanent, so its suppression row is permanent. A
  * transient one (full mailbox, a receiving server having a bad day) is not,
@@ -197,11 +216,14 @@ export class EmailIdentityStack extends Construct {
 
   private readonly identityArn: string;
   private readonly configurationSetArn: string;
+  /** Held so wireSender can alarm on the sender's own log markers. */
+  private readonly alarmTopic: sns.ITopic;
 
   constructor(scope: Construct, id: string, props: EmailIdentityProps) {
     super(scope, id);
 
     const stack = cdk.Stack.of(this);
+    this.alarmTopic = props.alarmTopic;
     this.fromAddress = props.fromAddress ?? DEFAULT_FROM_ADDRESS;
     this.identityArn = `arn:${cdk.Aws.PARTITION}:ses:${stack.region}:${stack.account}:identity/${MAIL_DOMAIN}`;
 
@@ -346,7 +368,6 @@ export class EmailIdentityStack extends Construct {
     fn.addEnvironment('SES_CONFIGURATION_SET', this.configurationSetName);
     fn.addEnvironment('SES_FROM_ADDRESS', this.fromAddress);
     fn.addEnvironment('EMAIL_SUPPRESSION_TABLE', this.suppressionTable.tableName);
-    fn.addEnvironment('EMAIL_POLICY_PARAM_PREFIX', emailPolicyParamPrefix());
 
     // Read-only on the suppression table. The send path must never be able to
     // remove an address from it: taking somebody off this list is a decision
@@ -365,17 +386,122 @@ export class EmailIdentityStack extends Construct {
       },
     }));
 
-    // The email ceilings, same arrangement as the SMS ones: the operational
-    // numbers live in Parameter Store so they are not published in a public
-    // repo, the code carries tighter floors, and this role can read that
-    // subtree and nothing else -- and cannot write its own ceilings.
-    fn.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['ssm:GetParameter', 'ssm:GetParameters'],
-      resources: [
-        `arn:${cdk.Aws.PARTITION}:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${emailPolicyParamPrefix()}/*`,
-      ],
-    }));
+    // No ssm:GetParameter, and no /a-iep/<env>/email-policy subtree.
+    //
+    // An earlier draft of this construct mirrored the SMS path, which reads
+    // its ceilings from Parameter Store with compiled floors behind them.
+    // Neither /a-iep/dev/sms-policy/* nor /a-iep/prod/sms-policy/* was ever
+    // created, so those floors have been the policy since the day they
+    // shipped and the grant reads nothing. Adding a second never-populated
+    // subtree would buy a second grant and the same illusion of
+    // configurability. The email ceilings are compiled into
+    // phone-otp-auth/email-suppression.js and that file says why they are
+    // safe to publish.
+
+    this.addSendPathAlarms(fn);
+  }
+
+  /**
+   * The send path, watched through the markers it logs.
+   *
+   * Lambda Errors cannot see any of this, and that is not an oversight in the
+   * trigger: create-auth-challenge reports a failed send through the
+   * challenge parameter rather than raising, so its error count stays at zero
+   * through a total delivery outage and every "login broken" alarm stays
+   * green. The markers are the only signal there is. Exactly the arrangement
+   * monitoring.ts already makes for the SMS half.
+   *
+   * These filters live here, on the SENDER's log group, rather than in
+   * MonitoringStack, because the marker, the filter, the alarm and the IAM
+   * grant that makes the send possible at all then sit in one reviewable
+   * place. That is the reason wireSender exists.
+   */
+  private addSendPathAlarms(fn: lambda.Function): void {
+    const metricNamespace = 'AI-IEP/Email';
+
+    const markerMetric = (id: string, marker: string, metricName: string) => {
+      new logs.MetricFilter(this, id, {
+        logGroup: fn.logGroup,
+        // Marker only. Pinned by the lambda's own unit tests and by
+        // test/infra/email-identity.test.ts, because a reworded log line
+        // would disarm the alarm without failing anything.
+        filterPattern: logs.FilterPattern.literal(marker),
+        metricNamespace,
+        metricName,
+        metricValue: '1',
+        defaultValue: 0,
+      });
+      return new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName,
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+      });
+    };
+
+    this.alarm(this.alarmTopic, 'EmailSuppressionCheckUnavailableAlarm', {
+      severity: 'critical',
+      name: 'email sign-in is refusing everyone: the do-not-email check is down',
+      description:
+        'The do-not-email list cannot be read, so every email login code is ' +
+        'being refused rather than risk mailing a bad address. Parents using ' +
+        'email cannot sign in until this clears.',
+      // One occurrence, because the control is binary: either the check runs
+      // or email sign-in is down. Five minutes rather than fifteen for the
+      // same reason.
+      metric: markerMetric(
+        'EmailSuppressionUnavailableFilter', 'EMAIL_SUPPRESSION_UNAVAILABLE',
+        'EmailSuppressionUnavailable',
+      ),
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+
+    this.alarm(this.alarmTopic, 'EmailSuppressedDestinationAlarm', {
+      severity: 'medium',
+      name: 'login codes being requested for addresses we may not email',
+      description:
+        'Sign-in is being attempted with addresses already on the ' +
+        'do-not-email list. The codes are refused, so nothing is sent, but ' +
+        'this is what an abuse run replaying old addresses looks like.',
+      // Same shape as the SMS destination alarm: one parent whose old address
+      // bounced must not page anyone, and a run produces these in bulk.
+      metric: markerMetric(
+        'EmailSuppressedDestinationFilter', 'EMAIL_SUPPRESSED_DESTINATION',
+        'EmailSuppressedDestination',
+      ),
+      threshold: 10,
+      evaluationPeriods: 1,
+    });
+
+    this.alarm(this.alarmTopic, 'EmailBudgetExhaustedAlarm', {
+      severity: 'critical',
+      name: 'email login codes are being refused: the sending limit is reached',
+      description:
+        'The service-wide limit on emailed login codes has been hit, so ' +
+        'parents are being turned away at sign-in. Either an abuse run is ' +
+        'under way or real demand has outgrown the limit.',
+      // Any occurrence: by the time this fires a real parent was refused.
+      metric: markerMetric(
+        'EmailBudgetExhaustedFilter', 'EMAIL_BUDGET_EXHAUSTED', 'EmailBudgetExhausted',
+      ),
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+
+    this.alarm(this.alarmTopic, 'EmailSendFailedAlarm', {
+      severity: 'critical',
+      name: 'email login codes are not being delivered',
+      description:
+        'Emailing a login code is failing outright, so no parent can sign in ' +
+        'with an email address. This is the alarm the trigger error alarms ' +
+        'cannot raise, because a failed send is reported, not thrown.',
+      metric: markerMetric(
+        'EmailSendFailedFilter', 'EMAIL_SEND_FAILED', 'EmailSendFailed',
+      ),
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
   }
 
   /**
@@ -400,13 +526,41 @@ export class EmailIdentityStack extends Construct {
       description: 'Records SES bounces and complaints so a bad address is never mailed again',
     });
 
-    // Write, not read-write-delete: this function adds to the list and
-    // increments tallies. Nothing here ever needs to take an address off.
-    this.suppressionTable.grantWriteData(fn);
+    // UpdateItem and nothing else, hand-rolled rather than grantWriteData().
+    //
+    // grantWriteData() would be the idiomatic call and it grants PutItem,
+    // BatchWriteItem and DeleteItem alongside it. DeleteItem is the problem:
+    // this is the only function that writes the do-not-email list, so it
+    // would also be the only function that could empty it, and an address
+    // removed from this list is one we start mailing again with nothing
+    // saying so. Taking somebody off is a decision a person makes.
+    //
+    // Every write here is an UpdateItem (the suppression and the tally are
+    // both updates so they can share a row without clobbering each other),
+    // so this is not a narrowing of what the handler can do -- only of what
+    // a bug in it could do. The key grant is the same one grantWriteData
+    // would have added; without it every write fails on the CMK.
+    this.suppressionTable.grant(fn, 'dynamodb:UpdateItem');
+    kmsKey.grant(fn, 'kms:Decrypt', 'kms:DescribeKey', 'kms:Encrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*');
     this.eventTopic.addSubscription(new subscriptions.LambdaSubscription(fn));
     tagResource(fn, { Resource: 'Lambda', Function: 'SesBounceHandler' });
     return fn;
   }
+
+  // Two absences here are deliberate, and both read as oversights.
+  //
+  // **No dead-letter queue.** SNS retries a failed invocation and then
+  // discards the event. Nothing in this repo sets deadLetterQueue, onFailure
+  // or reservedConcurrentExecutions, and adding one here alone would be a
+  // house convention of one. SesBounceHandlerErrorAlarm is what catches a
+  // handler that is not recovering.
+  //
+  // **Not in MonitoringProps.apiFunctions.** MonitoringStack is created last
+  // on purpose, so everything it watches already exists, and this construct
+  // has to be created after it because it needs the alarm topic. The house
+  // Errors/Throttles loop therefore never sees the bounce handler. That is
+  // fine only because SesBounceHandlerErrorAlarm below covers the same
+  // ground; adding it to that list would produce two alarms for one failure.
 
   /**
    * The two rates AWS suspends accounts over.
@@ -529,6 +683,18 @@ export class EmailIdentityStack extends Construct {
       threshold: REJECT_COUNT_ANY,
       evaluationPeriods: 1,
     });
+
+    this.alarm(alarmTopic, 'EmailDeliveryDelayAlarm', {
+      severity: 'low',
+      name: 'email login codes are arriving late',
+      description:
+        'Login codes are being held up on the way to parents, who will be ' +
+        'staring at an empty inbox and asking for another one. The code ' +
+        'usually still arrives, so this is worth reading, not waking for.',
+      metric: count('DeliveryDelay'),
+      threshold: DELIVERY_DELAY_COUNT,
+      evaluationPeriods: 1,
+    });
   }
 
   /**
@@ -623,18 +789,4 @@ export class EmailIdentityStack extends Construct {
     this.alarms.push(alarm);
     return alarm;
   }
-}
-
-/**
- * Where the email ceilings live. Created OUT OF BAND, never by CDK, for the
- * same reason as the SMS ones: a number set in this repo is a number
- * published in it. The send path falls back to compiled floors that are
- * tighter than the real values, so a missing parameter narrows the service
- * rather than widening it.
- *
- *   <prefix>/max-per-hour-global   positive integer
- *   <prefix>/max-per-day-global    positive integer
- */
-export function emailPolicyParamPrefix(): string {
-  return `/a-iep/${getEnvironment()}/email-policy`;
 }

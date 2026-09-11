@@ -7,6 +7,7 @@ import { TableStack } from "./tables/tables"
 import { S3BucketStack } from "./buckets/buckets"
 import { LoggingStack } from "./logging/logging"
 import { MonitoringStack } from "./monitoring/monitoring"
+import { EmailIdentityStack } from "./email/email-identity"
 
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { HttpJwtAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
@@ -27,6 +28,8 @@ export class ChatBotApi extends Construct {
   public readonly logging: LoggingStack;
   /** Outage alerting. Subscribe AWS Chatbot to monitoring.alarmTopic. */
   public monitoring!: MonitoringStack;
+  /** SES configuration set, suppression list and reputation alarms. */
+  public email!: EmailIdentityStack;
   public readonly userProfilesTable: any;
   private lambdaFunctions: LambdaFunctionStack;
   private tables: TableStack;
@@ -350,6 +353,33 @@ export class ChatBotApi extends Construct {
       httpApi: this.httpAPI.restAPI,
       kmsKey: appKmsKey,
     });
+
+    // Email abuse protection, created AFTER monitoring because it alarms on
+    // the raw alarm topic that construct owns. Nothing sends email yet: the
+    // OTP email branch is a later change, and this deliberately lands first
+    // so the rails exist before the first send rather than after the first
+    // incident. It is not idle in the meantime — the two Reputation.* alarms
+    // read the ACCOUNT series, and this account is shared with two other
+    // Burnes Center domains, so they start reporting on the reputation A-IEP
+    // is about to depend on the day they deploy.
+    this.email = new EmailIdentityStack(this, 'EmailIdentity', {
+      alarmTopic: this.monitoring.alarmTopic,
+      kmsKey: appKmsKey,
+    });
+
+    // By construct id, not by the Slack label: a label lookup that misses
+    // returns undefined, which would grant ses:SendEmail to nothing (or, after
+    // a reorder, to the wrong trigger) and synth perfectly happily either way.
+    // Throwing here makes that a build failure instead of a runtime one.
+    const createAuthChallenge = authentication.authTriggerFunctions
+      .find(({ fn }) => fn.node.id === 'CreateAuthChallengeFunction');
+    if (!createAuthChallenge) {
+      throw new Error(
+        'EmailIdentity: CreateAuthChallengeFunction not found among the auth triggers. '
+        + 'Nothing would be granted ses:SendEmail and email sign-in would fail at runtime.',
+      );
+    }
+    this.email.wireSender(createAuthChallenge.fn);
 
     // Prints out the AppSync GraphQL API key to the terminal
     new cdk.CfnOutput(this, "HTTP-API - apiEndpoint", {
