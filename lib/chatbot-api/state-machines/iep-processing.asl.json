@@ -65,9 +65,15 @@
     "MistralOCR": {
       "Type": "Task",
       "Resource": "${MistralOCRArn}",
-      "Comment": "Extract text from document using Mistral OCR API",
+      "Comment": "Extract text from document using Mistral OCR API. mistral_ocr/handler.py raises OcrClientError for a 4xx (other than 429) from Mistral: that means the file itself was rejected -- a password-protected PDF is the incident this was written for -- so retrying an unchanged request is guaranteed to fail three more times. That error is retried zero times, below. Everything else (5xx, 429, or a timeout/connection error that never got a response) falls through to the States.ALL retrier and keeps the original 3-attempt policy.",
       "ResultPath": null,
       "Retry": [
+        {
+          "ErrorEquals": [
+            "OcrClientError"
+          ],
+          "MaxAttempts": 0
+        },
         {
           "ErrorEquals": [
             "States.ALL"

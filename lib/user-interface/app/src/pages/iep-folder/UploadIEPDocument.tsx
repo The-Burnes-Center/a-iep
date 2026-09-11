@@ -16,6 +16,7 @@ import { Utils } from '../../common/utils';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faFileAlt, faTimesCircle, faUpload } from '@fortawesome/free-solid-svg-icons';
 import { useLanguage } from '../../common/language-context';
+import { isLikelyEncryptedPdf } from '../../common/pdf-encryption';
 import './UploadIEPDocument.css';
 
 // Define allowed file types and MIME types
@@ -47,23 +48,31 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
 
   const { t } = useLanguage();
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (!selectedFile) return;
-    
+
     const fileExtension = selectedFile.name.slice(selectedFile.name.lastIndexOf('.')).toLowerCase();
-    
+
     if (!fileExtensions.has(fileExtension)) {
       setFileError(t('upload.fileError.format'));
       setFile(null);
     } else if (selectedFile.size > 100 * 1024 * 1024) { // 100MB
       setFileError(t('upload.fileError.size'));
       setFile(null);
+    // Only PDFs carry the /Encrypt trailer entry this checks for; a .doc/.docx
+    // uses a different (OOXML/OLE) encryption mechanism this does not detect.
+    // isLikelyEncryptedPdf never rejects: any error reading the file resolves
+    // false, so a check that cannot run lets the upload proceed rather than
+    // blocking a parent (see pdf-encryption.ts).
+    } else if (fileExtension === '.pdf' && await isLikelyEncryptedPdf(selectedFile)) {
+      setFileError(t('upload.fileError.encrypted'));
+      setFile(null);
     } else {
       setFile(selectedFile);
       setFileError(null);
     }
-    
+
     setGlobalError(null);
   };
 

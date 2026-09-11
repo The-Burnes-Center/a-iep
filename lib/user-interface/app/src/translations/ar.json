@@ -114,6 +114,7 @@
     "upload.maxSize": "الحد الأقصى لحجم الملف: 100 ميغابايت.",
     "upload.fileError.format": "صيغة الملف غير مدعومة",
     "upload.fileError.size": "حجم الملف يتجاوز الحد المسموح وهو 100 ميغابايت",
+    "upload.fileError.encrypted": "ملف PDF هذا محمي بكلمة مرور ولا يمكن معالجته. يرجى حفظ نسخة بدون كلمة المرور ورفعها بدلاً من ذلك.",
     "upload.supportedFormats": "الصيغ المدعومة:",
     "upload.error.general": "حدث خطأ أثناء الرفع",
     "upload.success": "تم رفع الملف بنجاح!",

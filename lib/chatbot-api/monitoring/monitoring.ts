@@ -105,6 +105,18 @@ const PIPELINE_STEP_RETRY_INVOCATIONS = 4;
 const PIPELINE_STEP_ERROR_THRESHOLD = PIPELINE_STEP_RETRY_INVOCATIONS + 1;
 
 /**
+ * 1: alarm on every document failure, not a rate. This was 3 (inside 15
+ * minutes) until the 2026-09-11 password-protected-PDF incident, where the
+ * single failure this alarm exists to catch produced no alarm at all -- the
+ * whole point of a rate threshold is that one occurrence is exactly what it
+ * will not page for. The product owner chose, explicitly and knowingly, to
+ * accept the resulting noise while upload volume stays low rather than wait
+ * for a pattern. Raising this back to a rate (3, say) is the one-line
+ * change to make if volume grows enough that the noise stops being worth it.
+ */
+const DOCUMENT_FAILURE_ALARM_THRESHOLD = 1;
+
+/**
  * Cognito enforces its own hard, non-adjustable 5-second budget on every
  * SYNCHRONOUS trigger invocation -- verified against AWS's own Cognito
  * documentation: "You can't change this five-second timeout value." That is
@@ -538,12 +550,15 @@ export class MonitoringStack extends Construct {
   }
 
   /**
-   * Aggregate "documents are failing", from the marker record_failure logs.
+   * Every single document failure, from the marker record_failure logs.
    *
-   * Threshold is a rate, not a count: some documents legitimately fail (a
+   * Deliberately a count of one, not a rate: see
+   * DOCUMENT_FAILURE_ALARM_THRESHOLD for why, and for what to change if that
+   * decision needs revisiting. The rate-based reasoning this alarm used to
+   * follow was sound as far as it went -- some documents legitimately fail (a
    * corrupt PDF, a scan OCR cannot read), and production has run about 5.5%
-   * lifetime failures, so alarming on a single failure would page for normal
-   * operation. Three inside fifteen minutes is not normal.
+   * lifetime failures -- it just meant a single parent's failure, on its own,
+   * would never be the thing that pages anyone.
    */
   private addDocumentFailureAlarm(ddbServiceFunction: lambda.Function): void {
     const metricNamespace = 'AI-IEP/Pipeline';
@@ -674,17 +689,18 @@ export class MonitoringStack extends Construct {
 
     this.alarm('DocumentsFailingAlarm', {
       severity: 'medium',
-      name: 'document pipeline failing',
+      name: 'a document failed to process',
       description:
-        'Uploads are erroring instead of producing summaries. Usually Mistral ' +
-        'OCR, OpenAI or Comprehend is down.',
+        'A document failed to process, so a parent got an error instead of a ' +
+        'summary. Often one unreadable or unsupported file; a burst in 15 ' +
+        'minutes usually means Mistral OCR, OpenAI or Comprehend is down.',
       metric: new cloudwatch.Metric({
         namespace: metricNamespace,
         metricName,
         statistic: 'Sum',
         period: cdk.Duration.minutes(15),
       }),
-      threshold: 3,
+      threshold: DOCUMENT_FAILURE_ALARM_THRESHOLD,
       evaluationPeriods: 1,
     });
   }

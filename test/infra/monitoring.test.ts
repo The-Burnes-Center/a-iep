@@ -27,7 +27,7 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 
 /** Every alarm the construct is expected to create, by name suffix. */
 const EXPECTED_ALARM_SUFFIXES = [
-  'document pipeline failing',
+  'a document failed to process',
   'document stuck: pipeline execution timed out',
   'pending-upload sweep has stopped running',
   'pending-upload sweep failing to invoke',
@@ -306,13 +306,19 @@ describe.each([
     });
   });
 
-  // A single legitimately-unreadable scan must not page anyone: production has
-  // run roughly 5.5% lifetime failures, so the threshold is a rate.
-  test('the document-failure alarm needs several failures, not one', () => {
+  // Deliberately reversed from this alarm's earlier form (which required
+  // three failures inside fifteen minutes): the 2026-09-11 password-protected
+  // PDF incident was exactly one failure, and a rate threshold is precisely
+  // the shape of alarm that cannot fire on exactly one. The product owner
+  // chose to accept the resulting noise while upload volume stays low. See
+  // DOCUMENT_FAILURE_ALARM_THRESHOLD in monitoring.ts for the one-line
+  // change back to a rate if that stops being the right tradeoff.
+  test('the document-failure alarm fires on a single failure, by deliberate choice', () => {
     const alarm = alarms.find(
-      (a) => a.AlarmName === `${namePrefix}document pipeline failing`,
+      (a) => a.AlarmName === `${namePrefix}a document failed to process`,
     );
-    expect(alarm!.Threshold).toBeGreaterThanOrEqual(3);
+    expect(alarm).toBeDefined();
+    expect(alarm!.Threshold).toBe(1);
     expect(alarm!.MetricName).toBe('DocumentFailures');
   });
 

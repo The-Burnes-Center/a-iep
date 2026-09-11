@@ -114,6 +114,7 @@
     "upload.maxSize": "Maximum file size: 100MB.",
     "upload.fileError.format": "File format not supported",
     "upload.fileError.size": "File size exceeds 100MB limit",
+    "upload.fileError.encrypted": "This PDF is password-protected and can't be processed. Save a copy without the password and upload that instead.",
     "upload.supportedFormats": "Supported formats:",
     "upload.error.general": "An error occurred during upload",
     "upload.success": "File has been uploaded successfully!",

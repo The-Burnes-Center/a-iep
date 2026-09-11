@@ -116,6 +116,7 @@
     "upload.maxSize": "Tamaño máximo de archivo: 100MB.",
     "upload.fileError.format": "Formato de archivo no compatible",
     "upload.fileError.size": "El tamaño del archivo excede el límite de 100MB",
+    "upload.fileError.encrypted": "Este PDF está protegido con contraseña y no se puede procesar. Guarde una copia sin la contraseña y súbala en su lugar.",
     "upload.supportedFormats": "Formatos compatibles:",
     "upload.error.general": "Ocurrió un error durante la carga",
     "upload.success": "¡El archivo se ha subido correctamente!",

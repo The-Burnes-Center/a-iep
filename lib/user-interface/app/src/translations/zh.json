@@ -116,6 +116,7 @@
     "upload.maxSize": "最大文件大小：100MB。",
     "upload.fileError.format": "不支持的文件格式",
     "upload.fileError.size": "文件大小超过100MB限制",
+    "upload.fileError.encrypted": "此 PDF 受密码保护，无法处理。请保存一份未加密的副本，然后重新上传。",
     "upload.supportedFormats": "支持的格式：",
     "upload.error.general": "上传过程中出错",
     "upload.success": "文件已成功上传！",

@@ -110,6 +110,35 @@ def test_record_failure_task_reads_the_same_paths_this_guard_relies_on(states):
     assert params['failed_step.$'] == '$.failed_step'
 
 
+def test_mistral_ocr_retries_a_permanent_client_error_zero_times(states):
+    # OcrClientError (mistral_ocr/handler.py) means Mistral rejected the FILE
+    # -- a password-protected PDF is the incident this was written for -- so
+    # retrying an unchanged request is guaranteed to fail the same way three
+    # more times. This retrier must be listed BEFORE the States.ALL one:
+    # Step Functions uses the first Retry entry whose ErrorEquals matches.
+    retriers = states['MistralOCR']['Retry']
+    assert retriers[0]['ErrorEquals'] == ['OcrClientError']
+    assert retriers[0]['MaxAttempts'] == 0
+
+
+def test_mistral_ocr_still_retries_everything_else_three_times(states):
+    # 5xx, 429, and a timeout/connection error (no status code at all) must
+    # keep the original policy: these are transient, and the file may still
+    # succeed on a later attempt.
+    retriers = states['MistralOCR']['Retry']
+    fallback = next(r for r in retriers if r['ErrorEquals'] == ['States.ALL'])
+    assert fallback['MaxAttempts'] == 3
+
+
+def test_mistral_ocr_permanent_failure_still_reaches_record_failure(states):
+    # The zero-retry path must still fall into the same Catch as everything
+    # else: a document rejected outright must be recorded FAILED, not left
+    # PROCESSING with no execution failure Step Functions or RecordFailure
+    # ever sees.
+    catchers = states['MistralOCR']['Catch']
+    assert any(c['ErrorEquals'] == ['States.ALL'] for c in catchers)
+
+
 def test_a_partial_translation_success_is_not_caught_by_this_narrow_guard(states):
     # Documented, known limitation (matches the single-language machine's own
     # precedent): the Choice only checks languages_processed[0], i.e. "at

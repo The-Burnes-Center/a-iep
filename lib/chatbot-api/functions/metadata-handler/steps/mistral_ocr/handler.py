@@ -32,6 +32,38 @@ def _safe_event_meta(event):
     return meta
 
 
+# A 4xx status other than 429 means Mistral rejected the FILE, not the
+# request: the request is unchanged on retry and the provider's answer will
+# not change either. A password-protected PDF (400) is the case this was
+# written for. 429 is excluded on purpose -- it means "you", not "this
+# file": Mistral is throttling the account, and the identical request has a
+# real chance of succeeding once the throttle clears. Anything else --
+# 5xx, or no status code at all because a timeout or connection error never
+# got a response back -- is transient and keeps the default retry policy.
+_PERMANENT_OCR_FAILURE_STATUS_RANGE = range(400, 500)
+_RETRYABLE_CLIENT_STATUS = 429
+
+
+class OcrClientError(Exception):
+    """Mistral rejected the document itself; retrying it is pointless.
+
+    Raised instead of a bare Exception so the state machine's Retry can tell
+    the two apart by name (iep-processing.asl.json's MistralOCR state matches
+    on this class name and sets MaxAttempts: 0 for it, versus 3 for
+    everything else). The message is passed through unchanged from the
+    "OCR processing failed: ..." text below, which -- like every error this
+    pipeline raises -- must stay content-free: see f48b08f.
+    """
+
+
+def _is_permanent_ocr_failure(status_code):
+    """True for a 4xx (other than 429) from the OCR call; see the comment on
+    _PERMANENT_OCR_FAILURE_STATUS_RANGE above for the reasoning."""
+    return status_code is not None \
+        and status_code in _PERMANENT_OCR_FAILURE_STATUS_RANGE \
+        and status_code != _RETRYABLE_CLIENT_STATUS
+
+
 def _safe_error_summary(e):
     """Content-free triage string for the outermost catch-all.
 
@@ -75,6 +107,8 @@ def lambda_handler(event, context):
         if "error" in ocr_result:
             error_message = f"OCR processing failed: {ocr_result['error']}"
             print(error_message)
+            if _is_permanent_ocr_failure(ocr_result.get('status_code')):
+                raise OcrClientError(error_message)
             raise Exception(error_message)
         
         print(f"OCR completed successfully. Found {len(ocr_result.get('pages', []))} pages")

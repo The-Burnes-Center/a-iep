@@ -30,6 +30,19 @@ OCR_READ_TIMEOUT_SECONDS = 300
 _cached_mistral_api_key = None
 
 
+def _http_status_code(exc):
+    """The provider's HTTP status code, if this exception carries one.
+
+    Only requests.exceptions.HTTPError -- raised by Response.raise_for_status()
+    -- carries a response object. A connection error or a timeout never got a
+    response at all, and correctly reports None here, which handler.py treats
+    as transient (see OcrClientError there): those failures say nothing about
+    whether the FILE is acceptable, only that this attempt did not complete.
+    """
+    response = getattr(exc, 'response', None)
+    return getattr(response, 'status_code', None) if response is not None else None
+
+
 def _safe_key(key):
     """An S3 key (or filename) with the parent-chosen name removed.
 
@@ -184,7 +197,7 @@ def process_document_with_mistral_ocr(bucket, key):
         logger.info(f"File successfully uploaded to Mistral with ID: {file_id}")
     except Exception as e:
         logger.error(f"Error uploading file to Mistral: {str(e)}")
-        return {"error": f"Error uploading file to Mistral: {str(e)}"}
+        return {"error": f"Error uploading file to Mistral: {str(e)}", "status_code": _http_status_code(e)}
     
     # Step 2: Get a signed URL for the uploaded file
     try:
@@ -212,7 +225,7 @@ def process_document_with_mistral_ocr(bucket, key):
         logger.info(f"Successfully obtained signed URL for file ID: {file_id}")
     except Exception as e:
         logger.error(f"Error getting signed URL from Mistral: {str(e)}")
-        return {"error": f"Error getting signed URL from Mistral: {str(e)}"}
+        return {"error": f"Error getting signed URL from Mistral: {str(e)}", "status_code": _http_status_code(e)}
     
     # Step 3: Process the document with Mistral OCR API using the signed URL
     try:
@@ -249,5 +262,5 @@ def process_document_with_mistral_ocr(bucket, key):
         return ocr_result
     except Exception as e:
         logger.error(f"Error calling Mistral OCR API: {str(e)}")
-        return {"error": str(e)}
+        return {"error": str(e), "status_code": _http_status_code(e)}
 
