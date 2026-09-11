@@ -63,6 +63,25 @@ export const REFERRER_USER = '+15555550121';
 export const REFERRAL_SIGNUP_USER = '+15555550122';
 
 /**
+ * Persistent user for the encrypted-PDF upload journey.
+ *
+ * Kept off DOCUMENTS_USER deliberately, even though that journey also drives
+ * the upload page: asking the real backend for an upload URL DELETES the
+ * child's existing document before it answers (upload-s3/index.mjs), so
+ * sharing the number would destroy the processed document documents.spec.ts
+ * and tts.spec.ts both depend on. The encrypted-PDF journey stubs that
+ * endpoint (see the spec's docblock), so this account's only real state is
+ * its profile and the child consent creates.
+ *
+ * Taken from the 0120-0129 block, which new-auth.ts's TEST_PHONE_NUMBERS
+ * describes as the re-signup journey's throwaway pool: 0126 is allowlisted
+ * there and unclaimed, and this journey holds it persistently (like
+ * 0111-0114) rather than burning it, so a run pays for onboarding only the
+ * first time.
+ */
+export const ENCRYPTED_PDF_USER = '+15555550126';
+
+/**
  * Dedicated to the passwordlessAuth wrong-code journey (a single bad code,
  * then a successful retry). Kept off PASSWORDLESS_LOCKOUT_USER so a stray
  * failed-verification count from this spec can never shorten the number of

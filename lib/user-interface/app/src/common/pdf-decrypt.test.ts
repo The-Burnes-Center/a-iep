@@ -90,8 +90,17 @@ function createFakeLoadingTask(options: { correctPassword?: string; loadFailure?
     }
     const correctPassword = options.correctPassword ?? "";
     const attempt: UpdatePassword = (response) => {
-      if (response instanceof Error) {
-        fail(response);
+      if (typeof response !== "string") {
+        // Real pdf.js DISCARDS whatever non-string it is handed and rejects
+        // with its own PasswordException. Rejecting with the caller's own
+        // object instead is what let a real defect ship: resolveEncryptedPdf
+        // identified a cancel with `err instanceof PdfPasswordCancelledError`,
+        // which held in this mock and never once in a browser, so a parent
+        // who backed out of the prompt was told their file could not be
+        // processed. Match the real contract, per CLAUDE.md.
+        const passwordException = new Error("No password given");
+        passwordException.name = "PasswordException";
+        fail(passwordException);
         return;
       }
       if (response === correctPassword) {

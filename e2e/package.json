@@ -18,6 +18,7 @@
     "@aws-sdk/client-ssm": "3.1097.0",
     "@playwright/test": "1.62.0",
     "@types/node": "20.19.43",
+    "jspdf": "4.2.1",
     "typescript": "5.9.3"
   }
 }

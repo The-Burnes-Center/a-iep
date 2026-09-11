@@ -133,9 +133,18 @@ export const REBUILD_RENDER_SCALE = REBUILD_TARGET_DPI / 72;
 export const REBUILD_JPEG_QUALITY = 0.92;
 
 /**
- * Thrown into pdf.js's `updatePassword()` to make the loading task's promise
- * reject when the parent cancels the prompt, so `resolveEncryptedPdf` can
- * tell "the parent backed out" apart from "something actually went wrong".
+ * Handed to pdf.js's `updatePassword()` to make the loading task's promise
+ * reject when the parent cancels the prompt. A non-string is not a password
+ * pdf.js can use, so the load fails instead of prompting again.
+ *
+ * It does NOT survive the trip: pdf.js discards this object and rejects with
+ * its own PasswordException, so `instanceof` on the caught error is always
+ * false. `wasCancelled` in resolveEncryptedPdf is what actually classifies a
+ * cancel, and this exists only to stop the load. Relying on the identity
+ * check instead shipped a real defect: a parent who backed out of the prompt
+ * was told the file could not be processed, which is the dead end this whole
+ * module removes.
+ *
  * Carries no data from the attempt -- not the password, not a page count,
  * nothing -- there is never anything to accidentally log here.
  */
@@ -436,6 +445,10 @@ export async function resolveEncryptedPdf(
   // is the only binding it is ever held in, and the `finally` below clears
   // it on every exit, including a throw.
   let openedWith: string | null = null;
+  // Set on the cancel paths below, and the only thing that tells a cancel
+  // apart from a real failure: the sentinel handed to updatePassword does not
+  // come back out (see PdfPasswordCancelledError).
+  let wasCancelled = false;
   try {
     const pdfjs = await loadPdfJs();
     // pdf.js transfers this buffer to its worker, which detaches it here, so
@@ -458,12 +471,20 @@ export async function resolveEncryptedPdf(
       hasPromptedParent = true;
       requestPassword(wrongPassword).then(
         (password) => {
+          if (password === null) {
+            wasCancelled = true;
+            updatePassword(new PdfPasswordCancelledError());
+            return;
+          }
           // Whatever is recorded last is what the loading task settled on,
           // so a wrong guess is overwritten by the next attempt.
           openedWith = password;
-          updatePassword(password === null ? new PdfPasswordCancelledError() : password);
+          updatePassword(password);
         },
-        () => updatePassword(new PdfPasswordCancelledError()),
+        () => {
+          wasCancelled = true;
+          updatePassword(new PdfPasswordCancelledError());
+        },
       );
     };
 
@@ -471,7 +492,7 @@ export async function resolveEncryptedPdf(
     try {
       pdfDocument = await loadingTask.promise;
     } catch (err) {
-      if (err instanceof PdfPasswordCancelledError) {
+      if (wasCancelled) {
         return { status: 'cancelled' };
       }
       throw err;
