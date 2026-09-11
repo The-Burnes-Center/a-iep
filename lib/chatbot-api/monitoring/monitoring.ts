@@ -168,6 +168,18 @@ export interface MonitoringProps {
    * built during an incident, wired into the API, and never added to a list.
    */
   readonly signupFunction: MonitoredFunction;
+  /**
+   * The /auth/* endpoints and the dispatcher behind them.
+   *
+   * Their own list rather than apiFunctions, for two reasons. Their alarms are
+   * critical where an API handler's are medium: the app being partly broken is
+   * not the same as nobody being able to get in. And these are the first
+   * functions in this repo with reserved concurrency, which is a hard cap as
+   * well as a floor -- past it Lambda returns 429 before the handler runs, and
+   * what it sheds here is a parent's sign-in. A throttle on this list means
+   * something a generic capacity alarm would understate.
+   */
+  readonly authEndpointFunctions: MonitoredFunction[];
   /** Request-path lambdas behind the HTTP API. */
   readonly apiFunctions: MonitoredFunction[];
   /** The lambda that runs record_failure, whose log group is filtered. */
@@ -244,11 +256,13 @@ export class MonitoringStack extends Construct {
     this.addSmsPathAlarms(props.authTriggerFunctions);
     this.addSmsDeliveryFailureAlarm();
     this.addSignupPathAlarms(props.signupFunction);
+    this.addAuthEndpointAlarms(props.authEndpointFunctions);
     this.addDeletionAlarms(props.apiFunctions);
     this.addTranslationAndUsageAlarms(props.translationStateMachine);
     this.addDailyBrief(props.kmsKey, [
       ...props.pipelineFunctions,
       ...props.authTriggerFunctions,
+      ...props.authEndpointFunctions,
       ...props.apiFunctions,
       props.signupFunction,
     ].map(({ label, fn, purpose }) => ({
@@ -788,6 +802,140 @@ export class MonitoringStack extends Construct {
         evaluationPeriods: 1,
       });
     }
+  }
+
+  /**
+   * The passwordless login path: /auth/start, /auth/verify, /auth/token and
+   * the dispatcher that sends the code.
+   *
+   * Watched through markers as well as Errors, for the same reason
+   * create-auth-challenge and the signup endpoint are. Nearly every way these
+   * functions turn a parent away is a deliberate 4xx that raises nothing, so
+   * Lambda Errors stays flat through a total sign-in outage, and the
+   * dispatcher never raises at all: it catches, records the reason on the
+   * challenge row, and returns. The markers are the only signal there is.
+   */
+  private addAuthEndpointAlarms(fns: MonitoredFunction[]): void {
+    const metricNamespace = 'AI-IEP/Auth';
+    const id = (label: string) => label.replace(/[^A-Za-z0-9]/g, '');
+
+    for (const { label, fn } of fns) {
+      this.alarm(`AuthEndpointErrors${id(label)}`, {
+        severity: 'critical',
+        name: `sign-in broken: ${label}`,
+        description:
+          `The ${label} step of signing in is failing. Parents cannot get into `
+          + 'the app, and the ones already in will be locked out within an hour.',
+        metric: fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+        threshold: 1,
+        evaluationPeriods: 1,
+      });
+
+      // Reserved concurrency is a CAP as well as a floor. Twenty is roughly
+      // three orders of magnitude above real demand, so a throttle here means
+      // either a flood or a wedged function, and either way a real parent is
+      // getting a 429 before any of our code runs.
+      this.alarm(`AuthEndpointThrottles${id(label)}`, {
+        severity: 'critical',
+        name: `sign-in throttled: ${label}`,
+        description:
+          `The ${label} step hit its concurrency cap, so sign-ins are being `
+          + 'refused before any of our code runs. Failing on capacity, not a bug.',
+        metric: fn.metricThrottles({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+        threshold: 1,
+        evaluationPeriods: 1,
+      });
+    }
+
+    const markerMetric = (filterId: string, logGroup: logs.ILogGroup, marker: string, metricName: string) => {
+      new logs.MetricFilter(this, filterId, {
+        logGroup,
+        // Marker only, and pinned by the lambdas' own unit tests: a reworded
+        // log line would disarm the alarm without failing anything.
+        filterPattern: logs.FilterPattern.literal(marker),
+        metricNamespace,
+        metricName,
+        metricValue: '1',
+        defaultValue: 0,
+      });
+      return new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName,
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+      });
+    };
+
+    const byId = (constructId: string) => fns.find(({ fn }) => fn.node.id === constructId);
+    const start = byId('AuthStartFunction');
+    const verify = byId('AuthVerifyFunction');
+    const dispatch = byId('AuthDispatchFunction');
+    if (!start || !verify || !dispatch) {
+      // By construct id, not by the Slack label: a label lookup that misses
+      // returns undefined and would silently create no filter at all, and
+      // synth would be perfectly happy. Throwing makes that a build failure.
+      throw new Error(
+        'MonitoringStack: the auth endpoint list is missing AuthStartFunction, '
+        + 'AuthVerifyFunction or AuthDispatchFunction, so the sign-in markers '
+        + 'would go unwatched.',
+      );
+    }
+
+    this.alarm('AuthStartRefusedAlarm', {
+      severity: 'medium',
+      name: 'sign-ins are being refused in bulk',
+      description:
+        'Sign-in attempts are being turned away by the limits or the bot check. '
+        + 'Either an abuse run is under way and the limits are holding, or the '
+        + 'limits are too tight and real parents cannot get in.',
+      metric: markerMetric('AuthStartRefusedFilter', start.fn.logGroup, 'AUTH_START_REFUSED', 'AuthStartRefused'),
+      // Above the per-source floor of ten an hour, so one parent having a bad
+      // day never reaches Slack.
+      threshold: 25,
+      evaluationPeriods: 1,
+    });
+
+    // The one that Lambda Errors can never see. The dispatcher catches
+    // everything and records it on the challenge row, so a total SMS or email
+    // outage looks like a perfectly healthy function.
+    this.alarm('AuthCodeNotSentAlarm', {
+      severity: 'critical',
+      name: 'login codes are not being sent',
+      description:
+        'Parents are asking for a login code and it is not going out. They see '
+        + 'a code screen with nothing arriving, and cannot get into the app.',
+      metric: markerMetric('AuthDispatchFailedFilter', dispatch.fn.logGroup, 'AUTH_DISPATCH_FAILED', 'AuthDispatchFailed'),
+      threshold: 3,
+      evaluationPeriods: 1,
+    });
+
+    // The guess counter on /auth/verify fails OPEN by design, so a database
+    // problem degrades it silently and everything stays green. This is the
+    // only thing that says the control is switched off.
+    this.alarm('AuthVerifyCounterDegradedAlarm', {
+      severity: 'medium',
+      name: 'the wrong-code limit is not being enforced',
+      description:
+        'The counter that stops repeated wrong codes cannot be read, so it is '
+        + 'letting attempts through. Sign-in still works for parents; the brute '
+        + 'force limit is down to Cognito\'s three tries per code.',
+      metric: markerMetric('AuthVerifyCounterFilter', verify.fn.logGroup, 'AUTH_VERIFY_COUNTER_UNAVAILABLE', 'AuthVerifyCounterUnavailable'),
+      threshold: 5,
+      evaluationPeriods: 1,
+    });
+
+    // SIGNUP_ORPHANED is logged by the dispatcher with the SAME literal the
+    // signup endpoint uses, so this second filter feeds the SAME metric and
+    // the SAME critical alarm rather than adding a second page for one event.
+    // See addSignupPathAlarms, which owns that alarm.
+    new logs.MetricFilter(this, 'AuthDispatchOrphanedFilter', {
+      logGroup: dispatch.fn.logGroup,
+      filterPattern: logs.FilterPattern.literal('SIGNUP_ORPHANED'),
+      metricNamespace,
+      metricName: 'SignupOrphaned',
+      metricValue: '1',
+      defaultValue: 0,
+    });
   }
 
   /**

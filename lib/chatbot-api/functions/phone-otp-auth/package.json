@@ -4,10 +4,15 @@
   "description": "Lambda functions for Phone OTP authentication with AWS Cognito using SNS",
   "license": "CC-BY-NC-4.0",
   "main": "index.js",
+  "//": "These are NOT installed. This directory is zipped verbatim by lambda.Code.fromAsset with no bundling step, so every module below comes from the Node.js 20 Lambda runtime's own copy of the AWS SDK v3. The list is here so a maintainer can see what the handlers reach for, and so adding a client that the runtime does NOT ship is a visible change rather than a MODULE_NOT_FOUND at the first send.",
   "dependencies": {
     "@aws-sdk/client-sns": "^3.529.1",
     "@aws-sdk/client-dynamodb": "^3.529.1",
-    "@aws-sdk/lib-dynamodb": "^3.529.1"
+    "@aws-sdk/lib-dynamodb": "^3.529.1",
+    "@aws-sdk/client-cognito-identity-provider": "^3.529.1",
+    "@aws-sdk/client-lambda": "^3.529.1",
+    "@aws-sdk/client-sesv2": "^3.529.1",
+    "@aws-sdk/client-ssm": "^3.529.1"
   },
   "engines": {
     "node": ">=18.0.0"

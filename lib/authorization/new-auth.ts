@@ -10,6 +10,7 @@ import { getEnvironment, getTagProps, tagResource } from '../tags';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import { CfnUserPool } from 'aws-cdk-lib/aws-cognito';
+import { createIepDataDenyStatement } from '../chatbot-api/security';
 
 // Allowed OTP destinations, as E.164 dialling prefixes. A-IEP serves families
 // in the United States, so +1 covers every real user, and refusing anything
@@ -80,10 +81,45 @@ const TEST_PHONE_NUMBERS = [
   '+15555550125', '+15555550126', '+15555550127', '+15555550128', '+15555550129',
 ];
 
+// The email half of the same allowlist, for the /auth/start and /auth/verify
+// journeys. `a-iep.invalid` is reserved by RFC 2606 and can never be
+// delegated, which makes it the email equivalent of the NANP 555-01XX block:
+// a leaked bypass token cannot be pointed at an address a real person could
+// receive mail at. create-auth-challenge and destination.js both re-check the
+// domain against a hard-coded expression regardless of this list.
+const TEST_EMAIL_ADDRESSES = [
+  'e2e-login@a-iep.invalid',
+  'e2e-lockout@a-iep.invalid',
+  'e2e-signup@a-iep.invalid',
+];
+
 // Where the backdoored codes land. Both lambdas read this from the
 // TEST_OTP_PARAM_PREFIX env var; both IAM grants below scope
 // ssm:PutParameter to exactly this subtree.
 const TEST_OTP_PARAM_PREFIX = '/a-iep/staging/test-otp';
+
+// ── Reserved concurrency on the auth path ────────────────────────────────
+//
+// Nothing in this repo reserved concurrency on anything before this. That cut
+// both ways and both of them matter once every sign-in funnels through these
+// functions: a document-pipeline burst can starve login, and a login flood can
+// starve the pipeline.
+//
+// TWENTY, and the number is chosen rather than copied. Reserved concurrency is
+// a hard CAP as well as a floor: past it Lambda returns 429 at invoke time,
+// before the handler runs, and on this path the thing it sheds is a parent's
+// sign-in. So the cap has to sit far above any real peak.
+//
+// Real demand is a few dozen sign-ins a day. A sign-in holds a container for
+// roughly a second, so twenty concurrent executions is on the order of twenty
+// sign-ins a second, or 72,000 an hour -- about three orders of magnitude
+// above anything this service has seen. The service-wide SMS and email
+// budgets (50 an hour) bind thousands of times sooner, so in practice this cap
+// can only ever be reached by traffic that is already being refused upstream.
+//
+// The account has 1,000 concurrent executions with 940 unreserved, so four
+// functions at twenty costs 80 and leaves 860 for everything else.
+const AUTH_RESERVED_CONCURRENCY = 20;
 
 // Staging-only bypass for the signup bot check, same gate and same reasoning
 // as the OTP backdoor above. Turnstile refuses automated browsers by design,
@@ -99,6 +135,10 @@ const E2E_TURNSTILE_BYPASS_PARAM = '/a-iep/staging/e2e-turnstile-bypass';
  */
 export interface NewAuthorizationStackProps extends cdk.StackProps {
   userProfilesTable?: any; // DynamoDB table for user profiles
+  /** The application CMK. The session table holds live Cognito refresh tokens
+   *  for every signed-in family, so it is encrypted with the same key as the
+   *  IEP documents rather than an AWS-managed one. */
+  kmsKey?: kms.IKey;
 }
 
 /**
@@ -124,7 +164,24 @@ export class NewAuthorizationStack extends Construct {
    *  signup. Exposed so ChatbotAPI can put an unauthenticated route on it:
    *  there is no token to authorize with before an account exists. */
   public signupFunction!: lambda.Function;
+  /** The client the BROWSER holds. Still carries ALLOW_CUSTOM_AUTH; see the
+   *  rollout note beside it. */
   public readonly userPoolClient: UserPoolClient;
+  /** The client only this backend holds, with a client secret. Its id is an
+   *  extra audience on the API's JWT authorizer, because tokens minted through
+   *  it carry it as `aud` / `client_id` and would otherwise be rejected by
+   *  every route the moment a parent signed in the new way. */
+  public readonly backendAuthClient!: UserPoolClient;
+  /** Server-side sessions: the in-flight challenge, and the Cognito tokens
+   *  that never reach the browser. */
+  public authSessionTable!: dynamodb.Table;
+  /** The /auth/* handlers, exposed so ChatbotAPI can route to them and
+   *  MonitoringStack can alarm on them. */
+  public authStartFunction!: lambda.Function;
+  public authVerifyFunction!: lambda.Function;
+  public authSessionFunction!: lambda.Function;
+  /** Off the request path: does the work /auth/start deliberately defers. */
+  public authDispatchFunction!: lambda.Function;
 
   constructor(scope: Construct, id: string, props?: NewAuthorizationStackProps) {
     super(scope, id);
@@ -199,6 +256,14 @@ export class NewAuthorizationStack extends Construct {
       // so auto-confirm and the password rotation both move into that
       // endpoint. See signup-endpoint.js.
       selfSignUpEnabled: false,
+      // Pinned, not chosen. Both live pools are already ESSENTIALS, put there
+      // OUT OF BAND, and CDK set neither this nor the sign-in policy below --
+      // so the repo did not know its own pools allowed SMS_OTP as a native
+      // first auth factor, and a deploy could have silently changed the tier
+      // (and the bill, and which features exist) with nothing to review it
+      // against. Declaring the value that is already live changes nothing
+      // today and makes the next change to it visible.
+      featurePlan: cognito.FeaturePlan.ESSENTIALS,
       mfa: cognito.Mfa.OPTIONAL,
       autoVerify: { email: true, phone: true },
       signInAliases: {
@@ -255,6 +320,26 @@ export class NewAuthorizationStack extends Construct {
     cfnUserPool.smsAuthenticationMessage = 'Your login code for The GovLab AIEP is: {####}. Do not share this code.';
     cfnUserPool.smsVerificationMessage = 'Your OTP from The GovLab AIEP is: {####}. Do not share this code. Msg & data rates may apply.';
 
+    // 4b. The sign-in policy, which aws-cdk-lib 2.177's L2 UserPool cannot
+    // express (no `signInPolicy` prop yet), so it drops to the L1 the same way
+    // smsConfiguration above does. addPropertyOverride MERGES, which matters:
+    // Policies already carries the PasswordPolicy from the L2 props and
+    // assigning cfnUserPool.policies wholesale would silently drop it.
+    //
+    // PASSWORD and nothing else. Both live pools currently read
+    // ['PASSWORD', 'SMS_OTP'], set out of band, which means Cognito's native
+    // passwordless SMS flow is ENABLED at the pool and unreachable only
+    // because no app client requests ALLOW_USER_AUTH. That is one
+    // ExplicitAuthFlows edit away from being an OTP send path with no
+    // Turnstile, no suppression check, no per-parent language and none of the
+    // alarms in front of it -- and nobody reviewing that edit would think to
+    // check it against a document. Removing SMS_OTP here takes nothing away:
+    // no client can reach it today, and SMS MFA is a different setting
+    // (MfaConfiguration / EnabledMfas) that this does not touch.
+    //
+    // AllowedFirstAuthFactors must include PASSWORD when it is set at all.
+    cfnUserPool.addPropertyOverride('Policies.SignInPolicy.AllowedFirstAuthFactors', ['PASSWORD']);
+
     // 5. Create Lambda functions for Phone OTP authentication
     this.createPhoneOtpLambdaTriggers(userPool, props?.userProfilesTable);
 
@@ -278,6 +363,26 @@ export class NewAuthorizationStack extends Construct {
       },
     });
     
+    // ── The client the BROWSER holds ──────────────────────────────────────
+    //
+    // TODO(rollout step 2a): REMOVE `custom: true` from this client once the
+    // frontend posts to /auth/start and /auth/verify instead of calling
+    // InitiateAuth itself.
+    //
+    // That removal is the change that actually closes the hole. The app client
+    // id necessarily ships in the browser bundle and InitiateAuth is a public,
+    // unauthenticated API, so while ALLOW_CUSTOM_AUTH is on this client anyone
+    // who knows a registered number can loop it and A-IEP will text that
+    // number, with no bot check anywhere in the path. Closing self-service
+    // SignUp stopped an attacker CREATING accounts; it does nothing about
+    // making us SEND to the 221 that already exist.
+    //
+    // It is deliberately NOT removed in the same change that adds the new
+    // endpoints. The deployed frontend calls InitiateAuth directly, so taking
+    // it away now would break sign-in for every parent the moment it landed.
+    // Both paths run side by side until the frontend has switched.
+    // test/infra/gen-ai-mvp-stack.test.ts pins the current state and names
+    // this as the follow-up.
     const userPoolClient = new UserPoolClient(this, 'NewUserPoolClient', {
       userPool,
       authFlows: {
@@ -320,7 +425,50 @@ export class NewAuthorizationStack extends Construct {
     });
 
     this.userPoolClient = userPoolClient;
-    
+
+    // ── The client only the BACKEND holds ────────────────────────────────
+    //
+    // A confidential client, with a secret. This is what makes "there is one
+    // door" true rather than nearly true: once the browser's client loses
+    // ALLOW_CUSTOM_AUTH, InitiateAuth from a browser fails at Cognito no
+    // matter what the caller knows, and Turnstile is genuinely in front of
+    // every code A-IEP sends rather than in front of account creation only.
+    //
+    // The secret is NEVER read by CDK. Referencing
+    // `client.userPoolClientSecret` would make CDK add an AwsCustomResource
+    // that calls DescribeUserPoolClient, and CloudFormation stores that
+    // custom resource's response -- so the live client secret would end up in
+    // stack state and in the custom resource's logs. The lambdas call
+    // DescribeUserPoolClient themselves at runtime instead (secret-hash.js),
+    // which keeps it in exactly two places: Cognito, and the memory of a
+    // function that already holds every token it protects. test/infra asserts
+    // no ClientSecret appears in the template.
+    //
+    // No oAuth block and no callback URLs: nothing human ever signs in
+    // through this client, so a hosted-UI surface on it would be a door with
+    // no building behind it.
+    const backendAuthClient = new UserPoolClient(this, 'BackendAuthClient', {
+      userPool,
+      userPoolClientName: 'a-iep-backend-auth',
+      generateSecret: true,
+      authFlows: {
+        // CUSTOM_AUTH for the OTP rounds, and refresh (always on) for
+        // /auth/token. Deliberately no userPassword and no userSrp: this
+        // client must never be able to accept a password, so a stolen client
+        // secret cannot be turned into a password-guessing oracle.
+        custom: true,
+      },
+      // The whole handshake plus OTP round has to fit the five minutes the
+      // message promises, same as the browser's client.
+      authSessionValidity: cdk.Duration.minutes(5),
+      supportedIdentityProviders: [UserPoolClientIdentityProvider.COGNITO],
+      preventUserExistenceErrors: true,
+    });
+    (this as { backendAuthClient: UserPoolClient }).backendAuthClient = backendAuthClient;
+
+    // ── The /auth/* endpoints ────────────────────────────────────────────
+    this.createAuthEndpoints(userPool, backendAuthClient, props?.kmsKey);
+
     new cdk.CfnOutput(this, "New UserPool ID", {
       value: userPool.userPoolId || "",
     });
@@ -340,6 +488,230 @@ export class NewAuthorizationStack extends Construct {
     new cdk.CfnOutput(this, "CognitoSmsRoleArn", {
       value: cognitoSmsRole.roleArn,
     });
+  }
+
+  /**
+   * POST /auth/start, /auth/verify, /auth/token, /auth/logout, and the
+   * dispatcher that does the work /auth/start deliberately defers.
+   *
+   * Four functions rather than one, because they have different inputs,
+   * different limits and different failure modes, and a single route with a
+   * mode field would pay every set of validation on every call and produce a
+   * log line that cannot say which thing failed.
+   */
+  private createAuthEndpoints(userPool: UserPool, backendClient: UserPoolClient, kmsKey?: kms.IKey) {
+    const stack = cdk.Stack.of(this);
+    const assetPath = path.join(__dirname, '../chatbot-api/functions/phone-otp-auth');
+
+    // ── The session store ────────────────────────────────────────────────
+    //
+    // RETAIN, PITR and deletion protection, matching the treatment
+    // tables.ts gives the profile/document/referral tables, and for the same
+    // reason rather than by imitation. The rows here are short-lived -- a
+    // challenge lives five minutes, a session thirty days -- so this is NOT
+    // about restoring old data. It is about the 2026-06-22 failure mode: a
+    // rename, a logical-ID change or a construct move must STRAND this table,
+    // never replace it, because a replacement is an empty table and an empty
+    // table signs every currently-signed-in family out at once with no way to
+    // tell them why. Deletion protection blocks the same thing from the
+    // console, where CloudFormation is not involved at all.
+    //
+    // CMK-encrypted because it holds live Cognito refresh tokens for every
+    // signed-in parent -- the single most sensitive thing in this stack after
+    // the documents themselves, and the reason those tokens are here instead
+    // of in a browser.
+    this.authSessionTable = new dynamodb.Table(this, 'AuthSessionTable', {
+      // sha256(handle), never the handle: a read of this table yields the hash
+      // of a credential rather than a credential.
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'expiresAt',
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      pointInTimeRecovery: true,
+      deletionProtection: true,
+      encryption: kmsKey
+        ? dynamodb.TableEncryption.CUSTOMER_MANAGED
+        : dynamodb.TableEncryption.AWS_MANAGED,
+      ...(kmsKey ? { encryptionKey: kmsKey } : {}),
+      // Same shared-account reasoning as the referrals and email-suppression
+      // tables: no IEP content, but a row here IS a signed-in family, so every
+      // principal outside the IEP-data allowlist is denied explicitly. An
+      // identity-based policy cannot override this.
+      resourcePolicy: new iam.PolicyDocument({
+        statements: [createIepDataDenyStatement(stack.account, ['dynamodb:*'], ['*'])],
+      }),
+    });
+    tagResource(this.authSessionTable, {
+      Resource: 'DynamoDB',
+      TableName: 'AuthSessionTable',
+      Purpose: 'ApplicationData',
+    });
+
+    const clientId = backendClient.userPoolClientId;
+    const sharedEnvironment = {
+      USER_POOL_ID: userPool.userPoolId,
+      AUTH_CLIENT_ID: clientId,
+      AUTH_SESSION_TABLE: this.authSessionTable.tableName,
+    };
+
+    // No environmentEncryption on any of these, deliberately and unlike the
+    // ChatbotAPI lambdas: every variable below is a table name, a client id, a
+    // function name or a parameter NAME. The one genuinely secret value, the
+    // confidential client's secret, is not an environment variable at all --
+    // it is read from Cognito at runtime precisely so that it never lands in a
+    // template, a stack parameter or a console page.
+
+    // Only this one can call Cognito's admin APIs for account creation, and
+    // it is not reachable from the internet.
+    this.authDispatchFunction = new lambda.Function(this, 'AuthDispatchFunction', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      code: lambda.Code.fromAsset(assetPath),
+      handler: 'auth-dispatch.handler',
+      environment: sharedEnvironment,
+      // Creating an account is three Cognito calls and sending the code is two
+      // more, all of them on the far side of a network. 30s is the same
+      // ceiling every other lambda here uses.
+      timeout: cdk.Duration.seconds(30),
+      reservedConcurrentExecutions: AUTH_RESERVED_CONCURRENCY,
+      logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
+      description: 'Creates the account and sends the login code, off the request path',
+    });
+    tagResource(this.authDispatchFunction, { Resource: 'Lambda', Function: 'AuthDispatch' });
+
+    // Exactly these actions, on exactly this pool. AdminCreateUser without
+    // AdminSetUserPassword would leave every new account holding a password
+    // its creator was handed, and AdminDeleteUser is the rollback for the gap
+    // between the two. Pinned as an exact list in test/infra: an exact-match
+    // IAM assertion is the only kind that catches a permission creeping in.
+    this.authDispatchFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'cognito-idp:AdminCreateUser',
+        'cognito-idp:AdminDeleteUser',
+        'cognito-idp:AdminGetUser',
+        'cognito-idp:AdminInitiateAuth',
+        'cognito-idp:AdminRespondToAuthChallenge',
+        'cognito-idp:AdminSetUserPassword',
+        'cognito-idp:DescribeUserPoolClient',
+      ],
+      resources: [userPool.userPoolArn],
+    }));
+    this.authSessionTable.grantWriteData(this.authDispatchFunction);
+
+    // ── /auth/start ──────────────────────────────────────────────────────
+    this.authStartFunction = new lambda.Function(this, 'AuthStartFunction', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      code: lambda.Code.fromAsset(assetPath),
+      handler: 'auth-start.handler',
+      environment: {
+        OTP_RATE_LIMIT_TABLE: this.otpRateLimitTable.tableName,
+        AUTH_SESSION_TABLE: this.authSessionTable.tableName,
+        AUTH_ALLOWED_COUNTRY_CODES: SMS_ALLOWED_COUNTRY_CODES.join(','),
+        TURNSTILE_SECRET_PARAM,
+        AUTH_DISPATCH_FUNCTION: this.authDispatchFunction.functionName,
+        // Staging only, and only because the E2E suite signs in repeatedly
+        // from one CI address, which no rule can tell apart from abuse.
+        ...(getEnvironment() !== 'prod'
+          ? { MAX_AUTH_STARTS_PER_IP_HOUR: '60', MAX_AUTH_STARTS_PER_HOUR: '200' }
+          : {}),
+      },
+      // One outbound call to Cloudflare, bounded at 5s inside the handler.
+      timeout: cdk.Duration.seconds(30),
+      reservedConcurrentExecutions: AUTH_RESERVED_CONCURRENCY,
+      logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
+      description: 'Starts a sign-in: bot check, limits, then one code',
+    });
+    tagResource(this.authStartFunction, { Resource: 'Lambda', Function: 'AuthStart' });
+
+    this.otpRateLimitTable.grantWriteData(this.authStartFunction);
+    this.authSessionTable.grantWriteData(this.authStartFunction);
+    this.authDispatchFunction.grantInvoke(this.authStartFunction);
+    this.authStartFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['ssm:GetParameter'],
+      resources: [
+        `arn:aws:ssm:${stack.region}:${stack.account}:parameter${TURNSTILE_SECRET_PARAM}`,
+      ],
+    }));
+
+    // ── /auth/verify ─────────────────────────────────────────────────────
+    this.authVerifyFunction = new lambda.Function(this, 'AuthVerifyFunction', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      code: lambda.Code.fromAsset(assetPath),
+      handler: 'auth-verify.handler',
+      environment: {
+        ...sharedEnvironment,
+        OTP_RATE_LIMIT_TABLE: this.otpRateLimitTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(30),
+      reservedConcurrentExecutions: AUTH_RESERVED_CONCURRENCY,
+      logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
+      description: 'Checks the code a parent typed and issues a session handle',
+    });
+    tagResource(this.authVerifyFunction, { Resource: 'Lambda', Function: 'AuthVerify' });
+
+    // No AdminCreateUser, no AdminSetUserPassword, no AdminDeleteUser. This
+    // function answers an unauthenticated route with a caller-supplied code;
+    // it must not be able to mint or remove an account even if it is wrong.
+    // AdminUpdateUserAttributes is here for one purpose: setting
+    // email_verified once a code has actually arrived at an address, which is
+    // what possession means and is the only thing that will ever fix the 8
+    // production accounts sitting on email_verified: false.
+    this.authVerifyFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'cognito-idp:AdminRespondToAuthChallenge',
+        'cognito-idp:AdminUpdateUserAttributes',
+        'cognito-idp:DescribeUserPoolClient',
+      ],
+      resources: [userPool.userPoolArn],
+    }));
+    this.authSessionTable.grantReadWriteData(this.authVerifyFunction);
+    this.otpRateLimitTable.grantReadWriteData(this.authVerifyFunction);
+
+    // ── /auth/token and /auth/logout ─────────────────────────────────────
+    this.authSessionFunction = new lambda.Function(this, 'AuthSessionFunction', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      code: lambda.Code.fromAsset(assetPath),
+      handler: 'auth-session.handler',
+      environment: sharedEnvironment,
+      timeout: cdk.Duration.seconds(30),
+      reservedConcurrentExecutions: AUTH_RESERVED_CONCURRENCY,
+      logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
+      description: 'Exchanges a session handle for short-lived tokens, and revokes it',
+    });
+    tagResource(this.authSessionFunction, { Resource: 'Lambda', Function: 'AuthSession' });
+
+    // AdminInitiateAuth here is REFRESH_TOKEN_AUTH only in practice, but IAM
+    // cannot express "only that flow", so the narrowing that IS available is
+    // used instead: this client carries no password flow at all, so the worst
+    // this permission reaches is a refresh with a token it already holds.
+    this.authSessionFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'cognito-idp:AdminInitiateAuth',
+        'cognito-idp:AdminUserGlobalSignOut',
+        'cognito-idp:DescribeUserPoolClient',
+      ],
+      resources: [userPool.userPoolArn],
+    }));
+    this.authSessionTable.grantReadWriteData(this.authSessionFunction);
+
+    // Production gets no env var and no grant, so the bypass branch in
+    // auth-start is unreachable there rather than merely unused. Pinned on
+    // both sides in test/infra/gen-ai-mvp-stack.test.ts.
+    if (getEnvironment() !== 'prod') {
+      this.authStartFunction.addEnvironment('E2E_BYPASS_PARAM', E2E_TURNSTILE_BYPASS_PARAM);
+      this.authStartFunction.addEnvironment('TEST_PHONE_NUMBERS', TEST_PHONE_NUMBERS.join(','));
+      this.authStartFunction.addEnvironment('TEST_EMAIL_ADDRESSES', TEST_EMAIL_ADDRESSES.join(','));
+      this.authStartFunction.addToRolePolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['ssm:GetParameter'],
+        resources: [
+          `arn:aws:ssm:${stack.region}:${stack.account}:parameter${E2E_TURNSTILE_BYPASS_PARAM}`,
+        ],
+      }));
+    }
   }
 
   /**
@@ -462,6 +834,7 @@ export class NewAuthorizationStack extends Construct {
     // both sides (test/infra/gen-ai-mvp-stack.test.ts).
     if (getEnvironment() !== 'prod') {
       createAuthChallengeFunction.addEnvironment('TEST_PHONE_NUMBERS', TEST_PHONE_NUMBERS.join(','));
+      createAuthChallengeFunction.addEnvironment('TEST_EMAIL_ADDRESSES', TEST_EMAIL_ADDRESSES.join(','));
       createAuthChallengeFunction.addEnvironment('TEST_OTP_PARAM_PREFIX', TEST_OTP_PARAM_PREFIX);
       createAuthChallengeFunction.addToRolePolicy(new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,

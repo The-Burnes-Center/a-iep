@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "lib/user-interface/app"],
+      "port": 3000
+    },
+    {
+      "name": "frontend-prod-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "preview", "--prefix", "lib/user-interface/app"],
+      "port": 4173
+    }
+  ]
+}

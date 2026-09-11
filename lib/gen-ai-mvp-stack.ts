@@ -34,7 +34,11 @@ export class GenAiMvpStack extends cdk.Stack {
     // Create the new UserPool with self sign-up and email/phone support
     // Pass the user profiles table to enable user profile creation on phone OTP verification
     const authentication = new NewAuthorizationStack(this, getResourceName("NewAuthorization"), {
-      userProfilesTable: chatbotAPI.userProfilesTable
+      userProfilesTable: chatbotAPI.userProfilesTable,
+      // The auth session table holds live Cognito refresh tokens for every
+      // signed-in family, so it is encrypted with the same application CMK as
+      // the IEP documents rather than an AWS-managed key.
+      kmsKey: chatbotAPI.kmsKey
     });
     
     // Update the chatbot API with the authentication

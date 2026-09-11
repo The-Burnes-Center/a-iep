@@ -87,12 +87,19 @@ const otpMetadata = (code, ageMs = 0) => JSON.stringify({
     attempt: 2,
 });
 
+// errorCode joined `error` when /auth/start began reading this shape.
+// `error` is parent-facing copy in their own language and copy gets
+// reworded; a caller deciding whether a destination will EVER work must not
+// be parsing English prose to find out. Kept as an exact match on purpose:
+// an exact-match shape is the only kind that catches a field creeping in.
 const ERROR_SHAPE = {
     error: 'Failed to send verification code. Please try again.',
+    errorCode: 'delivery_failed',
 };
 
 const RATE_LIMITED_SHAPE = {
     error: 'Too many verification codes requested. Please wait an hour and try again.',
+    errorCode: 'rate_limited',
 };
 
 const updateCalls = () => mockDdbSend.mock.calls.filter(([cmd]) => cmd instanceof UpdateCommand);
@@ -267,6 +274,7 @@ describe('create-auth-challenge', () => {
         expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
         expect(event.response.publicChallengeParameters).toEqual({
             error: 'Text messaging is temporarily unavailable. Please try again in a little while.',
+            errorCode: 'budget_exhausted',
         });
     });
 
@@ -309,6 +317,7 @@ describe('create-auth-challenge', () => {
         // than a message the provider accepts and never delivers.
         const BUDGET_SHAPE = {
             error: 'Text messaging is temporarily unavailable. Please try again in a little while.',
+            errorCode: 'budget_exhausted',
         };
 
         // Counts every UpdateCommand for a given key prefix as its own window,
@@ -472,6 +481,7 @@ describe('create-auth-challenge', () => {
         const PREFIX = '/a-iep/test/sms-policy';
         const BUDGET_SHAPE = {
             error: 'Text messaging is temporarily unavailable. Please try again in a little while.',
+            errorCode: 'budget_exhausted',
         };
 
         const paramsReturn = (values) => {
@@ -612,6 +622,7 @@ describe('create-auth-challenge', () => {
             // failure copy would be a lie.
             expect(event.response.publicChallengeParameters).toEqual({
                 error: 'This phone number is not supported. A-IEP can only send codes to United States numbers.',
+                errorCode: 'unsupported_destination',
             });
         });
 

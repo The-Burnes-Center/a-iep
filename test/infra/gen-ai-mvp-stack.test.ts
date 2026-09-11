@@ -32,9 +32,27 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 //                    happens inside the handler instead: destination policy,
 //                    per-source and global rate limits, then anti-abuse
 //                    verification, cheapest check first.
+//   /auth/start      the same, for the passwordless path: a parent signing in
+//                    has no token yet. Unlike /auth/signup this one also
+//                    fronts the OTP SEND, which is why the bot check moved in
+//                    front of it.
+//   /auth/verify     reachable only with a challenge handle from /auth/start,
+//                    which cannot be obtained without passing that bot check.
+//   /auth/token      this is the route that ISSUES the JWT, so it cannot
+//                    require one. It is authorized by the opaque session
+//                    handle instead, which is looked up server-side.
+//   /auth/logout     same handle, and it must work for an expired session --
+//                    which is exactly the case a JWT authorizer would reject.
 //
 // Anything added here must survive the same scrutiny.
-const PUBLIC_ROUTE_KEYS = ['POST /referral/click', 'POST /auth/signup'];
+const PUBLIC_ROUTE_KEYS = [
+  'POST /referral/click',
+  'POST /auth/signup',
+  'POST /auth/start',
+  'POST /auth/verify',
+  'POST /auth/token',
+  'POST /auth/logout',
+];
 
 // The one pipeline state whose failure must NOT reach RecordFailure, and only
 // one. PurgeRedactedOCR runs AFTER the document is finished, so recording a
@@ -86,7 +104,16 @@ const APPROVED_RUNTIMES = ['python3.12', 'nodejs20.x'];
 //     it costs at most one hour of rate-limit history)
 //   - CustomSenderKey (staging-only KMS key for Cognito codes that live for
 //     minutes; pinned as Delete by its own test above)
-const USER_DATA_TABLE_HINTS = ['UserProfilesTable', 'IepDocumentsTable', 'ReferralsTable'];
+// AuthSessionTable joined them when the login path moved server-side. Its
+// ROWS are short-lived -- a challenge lives five minutes, a session thirty
+// days -- so retention here is not about restoring old data. It is the same
+// 2026-06-22 failure mode: a rename or a construct move must STRAND this
+// table, never replace it, because a replacement is an EMPTY table and an
+// empty table signs every currently-signed-in family out at once. It also
+// holds live Cognito refresh tokens, which is why it carries the CMK.
+const USER_DATA_TABLE_HINTS = [
+  'UserProfilesTable', 'IepDocumentsTable', 'ReferralsTable', 'AuthSessionTable',
+];
 
 // The live bucket names, per environment. These are the names the production
 // and staging documents in DynamoDB (contentS3Reference) already point at.
@@ -117,6 +144,7 @@ const USER_DATA_LOGICAL_IDS = {
     'ChatbotAPIstagingIepDocumentsTable38D1586F',
     'ChatbotAPIstagingReferralsTableF8A5555D',
     'NewAuthorizationstagingNewUserPoolE62D52A8',
+    'NewAuthorizationstagingAuthSessionTable6BBCBD81',
     'ChatbotAPIstagingAppKmsKey70AB614E',
   ],
   production: [
@@ -125,6 +153,7 @@ const USER_DATA_LOGICAL_IDS = {
     'ChatbotAPIIepDocumentsTable6A6A0420',
     'ChatbotAPIReferralsTable4107EA6C',
     'NewAuthorizationNewUserPoolD1894B52',
+    'NewAuthorizationAuthSessionTable344055BA',
     'ChatbotAPIAppKmsKey027D7204',
   ],
 } as const;
@@ -188,12 +217,13 @@ function describeDurableStoreRetention(envLabel: EnvLabel, getTemplate: () => Te
 
     test('every user-data DynamoDB table retains on delete and on replace', () => {
       const tables = Object.entries(getTemplate().findResources('AWS::DynamoDB::Table'));
-      // Three user-data tables plus the OTP rate limiter.
-      expect(tables.length).toBeGreaterThanOrEqual(4);
+      // Four user-data tables plus the OTP rate limiter and the email
+      // suppression list.
+      expect(tables.length).toBeGreaterThanOrEqual(6);
 
       const userDataTables = tables.filter(([logicalId]) =>
         USER_DATA_TABLE_HINTS.some((hint) => logicalId.includes(hint)));
-      // Vacuity floor: all three must be found, or a rename hollowed the pin out.
+      // Vacuity floor: all four must be found, or a rename hollowed the pin out.
       expect(userDataTables).toHaveLength(USER_DATA_TABLE_HINTS.length);
 
       expect(retentionOffenders(userDataTables)).toEqual([]);
@@ -212,7 +242,7 @@ function describeDurableStoreRetention(envLabel: EnvLabel, getTemplate: () => Te
     test('every user-data DynamoDB table has a restore point and cannot be deleted by hand', () => {
       const tables = Object.entries(getTemplate().findResources('AWS::DynamoDB::Table'))
         .filter(([logicalId]) => USER_DATA_TABLE_HINTS.some((hint) => logicalId.includes(hint)));
-      // Vacuity floor, same as above: all three, or the pin is hollow.
+      // Vacuity floor, same as above: all four, or the pin is hollow.
       expect(tables).toHaveLength(USER_DATA_TABLE_HINTS.length);
 
       const offenders = tables
@@ -301,7 +331,7 @@ describe('HTTP API authorization', () => {
   // data (child profiles, IEP documents, referral admin); a route that synths
   // without the JWT authorizer is a public leak, so this must fail for any
   // new or existing route that isn't explicitly in PUBLIC_ROUTE_KEYS.
-  test('every route requires the JWT authorizer except the two public ones', () => {
+  test('every route requires the JWT authorizer except the public ones', () => {
     const routes = template.findResources('AWS::ApiGatewayV2::Route');
 
     // Sanity floor: if the API "lost" this many routes, the template is
@@ -337,13 +367,27 @@ describe('HTTP API authorization', () => {
   // An AuthorizerId is only as strong as the authorizer behind it: it must
   // validate Authorization-header JWTs issued by OUR user pool for OUR app
   // client, not merely exist.
-  test('the JWT authorizer validates tokens from the app user pool client', () => {
+  test('the JWT authorizer validates tokens from both app user pool clients', () => {
     template.resourceCountIs('AWS::ApiGatewayV2::Authorizer', 1);
     template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {
       AuthorizerType: 'JWT',
       IdentitySource: ['$request.header.Authorization'],
       JwtConfiguration: Match.objectLike({
-        Audience: [{ Ref: Match.stringLikeRegexp('NewUserPoolClient') }],
+        // TWO, and the second is load-bearing rather than belt-and-braces. A
+        // JWT authorizer checks `aud` on an ID token and `client_id` on an
+        // access token, and both carry the id of the client that MINTED the
+        // token. Tokens from /auth/verify are minted through the confidential
+        // backend client, so without its id here every FERPA-scoped route
+        // would 401 the instant a parent signed in the new way: the API up,
+        // the login working, and nothing in the app loading.
+        //
+        // Order matters to CloudFormation only as a list, but it is pinned
+        // exactly so that REMOVING either one fails here. The browser client's
+        // id comes out in the same change that drops ALLOW_CUSTOM_AUTH from it.
+        Audience: [
+          { Ref: Match.stringLikeRegexp('NewUserPoolClient') },
+          { Ref: Match.stringLikeRegexp('BackendAuthClient') },
+        ],
         Issuer: { 'Fn::GetAtt': [Match.stringLikeRegexp('NewUserPool'), 'ProviderURL'] },
       }),
     });
@@ -481,17 +525,84 @@ describe('Cognito custom-auth wiring', () => {
     ]);
   });
 
+  // Two clients now, and which one is which is the whole point of the split.
+  const userPoolClients = () => Object.entries(template.findResources('AWS::Cognito::UserPoolClient'));
+  const clientNamed = (hint: string) => {
+    const found = userPoolClients().filter(([logicalId]) => logicalId.includes(hint));
+    expect(found).toHaveLength(1);
+    return found[0][1].Properties as any;
+  };
+
   test('user pool client keeps the custom-auth contract', () => {
-    template.resourceCountIs('AWS::Cognito::UserPoolClient', 1);
-    template.hasResourceProperties('AWS::Cognito::UserPoolClient', Match.objectLike({
-      // The define-auth-challenge handler's userNotFound guard is written
-      // against this setting; flipping it changes how unknown numbers fail.
-      PreventUserExistenceErrors: 'ENABLED',
-      // Without CUSTOM_AUTH the OTP flow can't even start.
-      ExplicitAuthFlows: Match.arrayWith(['ALLOW_CUSTOM_AUTH']),
-      // The whole handshake+OTP session must fit the 5-minute validity the
-      // SMS text promises (see lib/authorization/new-auth.ts).
-      AuthSessionValidity: 5,
+    template.resourceCountIs('AWS::Cognito::UserPoolClient', 2);
+    const browser = clientNamed('NewUserPoolClient');
+
+    // The define-auth-challenge handler's userNotFound guard is written
+    // against this setting; flipping it changes how unknown numbers fail.
+    expect(browser.PreventUserExistenceErrors).toBe('ENABLED');
+    // The whole handshake+OTP session must fit the 5-minute validity the
+    // SMS text promises (see lib/authorization/new-auth.ts).
+    expect(browser.AuthSessionValidity).toBe(5);
+
+    // ROLLOUT STATE, not a target state. ALLOW_CUSTOM_AUTH on the client the
+    // BROWSER holds is the remaining hole: the client id necessarily ships in
+    // the bundle and InitiateAuth is a public unauthenticated API, so anyone
+    // who knows a registered number can loop it and A-IEP will text that
+    // number with no bot check in the path.
+    //
+    // It stays for now because the deployed frontend calls InitiateAuth
+    // directly and removing it would break sign-in for every parent the
+    // moment it landed. When the frontend has switched to /auth/start, delete
+    // `custom: true` from this client in new-auth.ts and flip this assertion
+    // to not.toContain. Both changes belong in the same commit.
+    expect(browser.ExplicitAuthFlows).toContain('ALLOW_CUSTOM_AUTH');
+  });
+
+  test('the backend client is confidential, and the browser client is not', () => {
+    const browser = clientNamed('NewUserPoolClient');
+    const backend = clientNamed('BackendAuthClient');
+
+    // The property the whole two-client split rests on. A secret on the
+    // browser's client would be a secret shipped in a JavaScript bundle.
+    expect(browser.GenerateSecret).toBeUndefined();
+    expect(backend.GenerateSecret).toBe(true);
+
+    // CUSTOM_AUTH and refresh, and nothing else. No password and no SRP, so a
+    // stolen client secret cannot be turned into a password-guessing oracle
+    // against 296 real accounts. Exact match: an added flow must fail here.
+    expect([...backend.ExplicitAuthFlows].sort()).toEqual([
+      'ALLOW_CUSTOM_AUTH',
+      'ALLOW_REFRESH_TOKEN_AUTH',
+    ]);
+    expect(backend.PreventUserExistenceErrors).toBe('ENABLED');
+    expect(backend.AuthSessionValidity).toBe(5);
+  });
+
+  // CDK will happily hand out `client.userPoolClientSecret`, which adds an
+  // AwsCustomResource calling DescribeUserPoolClient -- and CloudFormation
+  // stores that custom resource's response, so the live secret ends up in
+  // stack state and in the custom resource's logs. The lambdas read it from
+  // Cognito at runtime instead. This is the assertion that catches somebody
+  // "simplifying" that into an environment variable.
+  test('the client secret is nowhere in the template', () => {
+    expect(JSON.stringify(template.toJSON())).not.toContain('ClientSecret');
+  });
+
+  // Both live pools are ESSENTIALS and both allow SMS_OTP as a native first
+  // auth factor, set OUT OF BAND with nothing in this repo declaring either.
+  // That left a supported passwordless send path enabled at the pool and
+  // unreachable only because no app client asks for ALLOW_USER_AUTH -- one
+  // line away from an OTP path with no bot check, no suppression list and no
+  // per-parent language in front of it.
+  test('the pool pins its feature plan and its sign-in policy', () => {
+    template.hasResourceProperties('AWS::Cognito::UserPool', Match.objectLike({
+      UserPoolTier: 'ESSENTIALS',
+      Policies: Match.objectLike({
+        SignInPolicy: { AllowedFirstAuthFactors: ['PASSWORD'] },
+        // The override must MERGE, not replace: assigning Policies wholesale
+        // would silently drop the password rules the L2 put there.
+        PasswordPolicy: Match.objectLike({ MinimumLength: 8, RequireNumbers: true }),
+      }),
     }));
   });
 
@@ -507,6 +618,67 @@ describe('Cognito custom-auth wiring', () => {
     expect(props.KeySchema).toEqual([{ AttributeName: 'pk', KeyType: 'HASH' }]);
     expect(props.BillingMode).toBe('PAY_PER_REQUEST');
     expect(props.TimeToLiveSpecification).toEqual({ AttributeName: 'expiresAt', Enabled: true });
+  });
+
+  // The server-side session store. Retention, PITR, deletion protection and
+  // CMK encryption are covered by the durable-store pins above (it is in
+  // USER_DATA_TABLE_HINTS); this pins the shape the handlers are written
+  // against. Lose the TTL and a challenge handle outlives the Cognito session
+  // behind it, and every session row lives forever.
+  test('auth session table: pk hash key, on-demand billing, TTL on expiresAt', () => {
+    const tables = Object.entries(template.findResources('AWS::DynamoDB::Table'))
+      .filter(([logicalId]) => logicalId.includes('AuthSessionTable'));
+    expect(tables).toHaveLength(1);
+
+    const props: any = tables[0][1].Properties;
+    expect(props.KeySchema).toEqual([{ AttributeName: 'pk', KeyType: 'HASH' }]);
+    expect(props.BillingMode).toBe('PAY_PER_REQUEST');
+    expect(props.TimeToLiveSpecification).toEqual({ AttributeName: 'expiresAt', Enabled: true });
+  });
+
+  // Nothing in this repo reserved concurrency on anything before the auth
+  // endpoints, so there is no precedent to lean on and the value is worth
+  // pinning rather than inheriting.
+  //
+  // It is a hard CAP as well as a floor: past it Lambda returns 429 at invoke
+  // time, before the handler runs, and what it sheds on this path is a
+  // parent's sign-in. Twenty is roughly three orders of magnitude above real
+  // demand (a few dozen sign-ins a day), and the service-wide SMS and email
+  // budgets bind thousands of times sooner. Lowering it is how a well-meaning
+  // cost change turns into a login outage, so the number is asserted, not the
+  // presence of the property.
+  test('every auth endpoint reserves concurrency, at the value that was reasoned about', () => {
+    const AUTH_HANDLERS = [
+      'auth-start.handler', 'auth-verify.handler', 'auth-dispatch.handler', 'auth-session.handler',
+    ];
+    const functions = Object.values(template.findResources('AWS::Lambda::Function'))
+      .map((fn: any) => fn.Properties)
+      .filter((p: any) => AUTH_HANDLERS.includes(p.Handler));
+
+    // Vacuity floor: all four, or a renamed handler hollowed this out.
+    expect(functions.map((p: any) => p.Handler).sort()).toEqual([...AUTH_HANDLERS].sort());
+    for (const p of functions) {
+      expect(p.ReservedConcurrentExecutions).toBe(20);
+    }
+  });
+
+  // The confidential client's secret is read from Cognito at runtime, which
+  // only works if the role is allowed to ask. Without this every /auth/*
+  // Cognito call throws NotAuthorizedException with nothing in the message
+  // pointing at why -- which is the exact failure the SECRET_HASH work exists
+  // to avoid, moved one layer down.
+  test('every function that signs a Cognito call can read the client secret', () => {
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[]);
+    const describers = statements.filter((st) =>
+      JSON.stringify(st.Action).includes('cognito-idp:DescribeUserPoolClient'));
+
+    // Dispatch, verify and session: the three that call AdminInitiateAuth or
+    // AdminRespondToAuthChallenge on the confidential client.
+    expect(describers).toHaveLength(3);
+    for (const st of describers) {
+      expect(JSON.stringify(st.Resource)).not.toContain('"*"');
+    }
   });
 
   // Data events are the only record that an IEP document or a profile row was
@@ -614,21 +786,68 @@ describe('Cognito custom-auth wiring', () => {
   // neither sign in (it is stuck in FORCE_CHANGE_PASSWORD, so custom auth
   // never runs) nor sign up again (the number is taken), so the number is
   // permanently unusable unless the endpoint removes what it just made.
-  test('the signup endpoint can create a user AND replace its password, on one pool', () => {
+  test('the account-creating roles can create a user AND replace its password, on one pool', () => {
     const statements = Object.values(template.findResources('AWS::IAM::Policy'))
       .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[]);
     const cognitoAdmin = statements.filter((st) =>
       JSON.stringify(st.Action).includes('cognito-idp:AdminCreateUser'));
 
-    expect(cognitoAdmin).toHaveLength(1);
-    const actions = ([] as string[]).concat(cognitoAdmin[0].Action).sort();
-    expect(actions).toEqual([
+    // EXACTLY TWO roles may create an account: the old signup endpoint and the
+    // new auth dispatcher. Both are the same control in two places while the
+    // frontend switches over; the first one goes when /auth/signup does.
+    // Anything else acquiring AdminCreateUser must fail here.
+    expect(cognitoAdmin).toHaveLength(2);
+
+    const actionSets = cognitoAdmin
+      .map((st) => ([] as string[]).concat(st.Action).sort())
+      .sort((a, b) => a.length - b.length);
+
+    // Exact matches, not arrayWith: an exact-match IAM assertion is the only
+    // kind that catches a permission creeping in.
+    expect(actionSets[0]).toEqual([
       'cognito-idp:AdminCreateUser',
       'cognito-idp:AdminDeleteUser',
       'cognito-idp:AdminSetUserPassword',
     ]);
-    // Scoped to the pool, never '*': this role can mint AND delete accounts.
-    expect(JSON.stringify(cognitoAdmin[0].Resource)).not.toContain('"*"');
+    expect(actionSets[1]).toEqual([
+      'cognito-idp:AdminCreateUser',
+      'cognito-idp:AdminDeleteUser',
+      'cognito-idp:AdminGetUser',
+      'cognito-idp:AdminInitiateAuth',
+      'cognito-idp:AdminRespondToAuthChallenge',
+      'cognito-idp:AdminSetUserPassword',
+      'cognito-idp:DescribeUserPoolClient',
+    ]);
+
+    // Scoped to the pool, never '*': these roles can mint AND delete accounts.
+    for (const st of cognitoAdmin) {
+      expect(JSON.stringify(st.Resource)).not.toContain('"*"');
+    }
+  });
+
+  // The verify handler answers an UNAUTHENTICATED route with a caller-supplied
+  // code. It must not be able to mint or remove an account even if it is
+  // wrong, so its permissions are asserted as an exact list of their own.
+  test('the verify endpoint cannot create, delete or re-password an account', () => {
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[]);
+    // AdminRespondToAuthChallenge is what identifies this role: the profile
+    // handler also holds AdminUpdateUserAttributes, for account deletion.
+    const verifyStatements = statements.filter((st) => {
+      const actions = JSON.stringify(st.Action);
+      return actions.includes('cognito-idp:AdminRespondToAuthChallenge')
+        && actions.includes('cognito-idp:AdminUpdateUserAttributes');
+    });
+
+    expect(verifyStatements).toHaveLength(1);
+    expect(([] as string[]).concat(verifyStatements[0].Action).sort()).toEqual([
+      'cognito-idp:AdminRespondToAuthChallenge',
+      // Only so a code that actually arrived at an address can set
+      // email_verified, which is what possession means and is the only thing
+      // that will ever fix the 8 production accounts sitting on false.
+      'cognito-idp:AdminUpdateUserAttributes',
+      'cognito-idp:DescribeUserPoolClient',
+    ]);
   });
 
   // The signup abuse control. It only works because it runs in the trigger:
@@ -1861,6 +2080,24 @@ describe('production synth: the OTP test backdoor must not exist', () => {
       .map(([logicalId]) => logicalId);
 
     expect(offenders).toEqual([]);
+  });
+
+  // The email half of the same allowlist, added with /auth/start. Same double
+  // lock as the phone one: an env var production never gets, plus a hard-coded
+  // reserved-domain expression in create-auth-challenge and destination.js.
+  // Both halves must be provably absent, not merely unused.
+  test('no production lambda carries TEST_EMAIL_ADDRESSES', () => {
+    const functions = Object.entries(prodTemplate.findResources('AWS::Lambda::Function'));
+    expect(functions.length).toBeGreaterThanOrEqual(20);
+
+    const offenders = functions
+      .filter(([, fn]: [string, any]) => 'TEST_EMAIL_ADDRESSES' in (fn.Properties?.Environment?.Variables ?? {}))
+      .map(([logicalId]) => logicalId);
+    expect(offenders).toEqual([]);
+
+    // And the fictional domain itself appears nowhere, which also catches an
+    // address that reached the template by some other route.
+    expect(JSON.stringify(prodTemplate.toJSON())).not.toContain('a-iep.invalid');
   });
 
   test('no production resource references the test-otp SSM prefix', () => {

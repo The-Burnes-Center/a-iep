@@ -120,8 +120,22 @@ export class ChatBotApi extends Construct {
         kmsKey: appKmsKey,
       })
 
+    // TWO audiences, and the second one is not optional.
+    //
+    // A JWT authorizer checks `aud` on an ID token and `client_id` on an
+    // access token, and both carry the id of the app client that MINTED them.
+    // Tokens issued through the confidential backend client therefore carry a
+    // different value from the browser client's, so leaving it out here would
+    // 401 every FERPA-scoped route the instant a parent signed in the new
+    // way -- the API would be up, the login would work, and nothing in the app
+    // would load. Both are listed so the old and new paths work side by side
+    // during the rollout; the browser client's id comes out with
+    // ALLOW_CUSTOM_AUTH, in the same change.
     const httpAuthorizer = new HttpJwtAuthorizer('HTTPAuthorizer', authentication.userPool.userPoolProviderUrl,{
-      jwtAudience: [authentication.userPoolClient.userPoolClientId],
+      jwtAudience: [
+        authentication.userPoolClient.userPoolClientId,
+        authentication.backendAuthClient.userPoolClientId,
+      ],
     });
 
     const s3GetKnowledgeAPIIntegration = new HttpLambdaIntegration('S3GetKnowledgeAPIIntegration', this.lambdaFunctions.getS3KnowledgeFunction);
@@ -139,6 +153,50 @@ export class ChatBotApi extends Construct {
       path: "/auth/signup",
       methods: [apigwv2.HttpMethod.POST],
       integration: signupIntegration,
+      authorizer: new apigwv2.HttpNoneAuthorizer(),
+    })
+
+    // The passwordless login path. Unauthenticated for the same unavoidable
+    // reason /auth/signup is: a parent signing in has no token yet, and one of
+    // these routes is how they get one. Everything an authorizer would do
+    // happens inside the handlers instead -- destination policy, per-source
+    // and global limits, then the bot check, cheapest first -- and this is the
+    // first time the OTP SEND path has had a bot check in front of it at all.
+    //
+    // See docs/AUTH_API_CONTRACT.md. /auth/start and /auth/verify are the
+    // sign-in; /auth/token and /auth/logout are what an opaque session handle
+    // is for, and neither can be authorized by a JWT the caller does not have
+    // yet (that is precisely what /auth/token issues).
+    const authStartIntegration = new HttpLambdaIntegration(
+      'AuthStartAPIIntegration', authentication.authStartFunction);
+    this.httpAPI.restAPI.addRoutes({
+      path: "/auth/start",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: authStartIntegration,
+      authorizer: new apigwv2.HttpNoneAuthorizer(),
+    })
+
+    const authVerifyIntegration = new HttpLambdaIntegration(
+      'AuthVerifyAPIIntegration', authentication.authVerifyFunction);
+    this.httpAPI.restAPI.addRoutes({
+      path: "/auth/verify",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: authVerifyIntegration,
+      authorizer: new apigwv2.HttpNoneAuthorizer(),
+    })
+
+    const authSessionIntegration = new HttpLambdaIntegration(
+      'AuthSessionAPIIntegration', authentication.authSessionFunction);
+    this.httpAPI.restAPI.addRoutes({
+      path: "/auth/token",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: authSessionIntegration,
+      authorizer: new apigwv2.HttpNoneAuthorizer(),
+    })
+    this.httpAPI.restAPI.addRoutes({
+      path: "/auth/logout",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: authSessionIntegration,
       authorizer: new apigwv2.HttpNoneAuthorizer(),
     })
 
@@ -323,6 +381,19 @@ export class ChatBotApi extends Construct {
         label: 'signup', fn: authentication.signupFunction,
         purpose: 'the only way to create an account; runs once per new family',
       },
+      // The passwordless login path. Its own list, not apiFunctions: an API
+      // handler failing breaks part of the app, and one of these failing means
+      // nobody can get in at all.
+      authEndpointFunctions: [
+        { label: 'auth start', fn: authentication.authStartFunction,
+          purpose: 'takes a phone number or email and asks for a login code; runs on every sign-in' },
+        { label: 'auth send', fn: authentication.authDispatchFunction,
+          purpose: 'creates the account if needed and sends the code; runs on every sign-in' },
+        { label: 'auth verify', fn: authentication.authVerifyFunction,
+          purpose: 'checks the code a parent typed and starts their session; runs on every sign-in' },
+        { label: 'auth session', fn: authentication.authSessionFunction,
+          purpose: 'keeps a signed-in parent signed in; runs hourly for every open app' },
+      ],
       apiFunctions: [
         { label: 'user profile', fn: this.lambdaFunctions.userProfileFunction, purpose: 'the account screen: name, child, languages, and account deletion' },
         { label: 'upload', fn: this.lambdaFunctions.uploadS3KnowledgeFunction, purpose: 'accepts an IEP upload from a parent' },
@@ -349,6 +420,9 @@ export class ChatBotApi extends Construct {
         // Throttling here now stops login outright, because the service-wide
         // SMS budget fails closed on a DynamoDB error.
         { label: 'login rate limiting', table: authentication.otpRateLimitTable },
+        // Every signed-in parent's session lives here. Throttling means
+        // sign-ins fail and open apps stop being able to refresh.
+        { label: 'sign-in sessions', table: authentication.authSessionTable },
       ],
       httpApi: this.httpAPI.restAPI,
       kmsKey: appKmsKey,
