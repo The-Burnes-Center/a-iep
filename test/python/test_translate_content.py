@@ -238,3 +238,24 @@ def test_when_every_language_succeeds_completion_is_true(handler_module, monkeyp
 
     assert result['languages_processed'] == ['es']
     assert result['parsing_result_translation_completed'] is True
+
+
+def test_outer_catch_all_never_logs_the_rejected_value(handler_module, monkeypatch, capsys):
+    """The outermost catch-all used to print(str(e)) and
+    traceback.format_exc() verbatim -- the last uncovered path by which a
+    rejected value could reach CloudWatch after f48b08f's fixes elsewhere in
+    the pipeline. The ddb-service invoke is made to fail directly so this
+    reaches the outer handler.py catch before any translation runs."""
+    def _boom(payload):
+        raise Exception(SENTINEL)
+    fake = FakeLambdaClient(_boom)
+    monkeypatch.setattr(handler_module, 'boto3', ScopedBoto3(fake))
+
+    with pytest.raises(Exception):
+        handler_module.lambda_handler(
+            {**IDS, 'target_languages': ['es'], 'content_type': 'parsing_result'}, None)
+
+    logged = capsys.readouterr().out
+    assert SENTINEL not in logged
+    assert 'Traceback (most recent call last)' not in logged
+    assert 'Exception' in logged  # the class name survives

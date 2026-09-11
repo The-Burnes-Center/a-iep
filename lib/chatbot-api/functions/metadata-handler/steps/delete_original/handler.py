@@ -64,6 +64,18 @@ def _safe_event_meta(event):
     return meta
 
 
+def _safe_error_summary(e):
+    """Content-free triage string for the outermost catch-all.
+
+    This is the last uncovered path by which a rejected value could reach
+    CloudWatch: every step re-raises, so whatever this catches is about to be
+    logged (and the Lambda runtime logs it again, unhandled, on top of that).
+    Reduced to the exception class only -- unlike a message string, a class
+    name cannot itself carry document text.
+    """
+    return type(e).__name__
+
+
 def delete_raw_ocr(event):
     """Delete the raw (unredacted) OCR payload via the centralized DDB service."""
     lambda_client = boto3.client('lambda')
@@ -118,6 +130,8 @@ def lambda_handler(event, context):
         return event  # Pass through all input data unchanged
         
     except Exception as e:
-        print(f"DeleteOriginal error: {str(e)}")
-        print(traceback.format_exc())
+        print(f"DeleteOriginal error: {_safe_error_summary(e)}")
+        # NOT traceback.format_exc(): its last line renders str(e), which is
+        # exactly what the summary above was built to avoid.
+        print(''.join(traceback.format_tb(e.__traceback__)))
         raise  # Let Step Functions retry policy handle the error

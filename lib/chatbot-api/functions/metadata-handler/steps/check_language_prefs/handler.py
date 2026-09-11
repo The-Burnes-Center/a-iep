@@ -42,6 +42,18 @@ def _safe_event_meta(event):
     return meta
 
 
+def _safe_error_summary(e):
+    """Content-free triage string for the outermost catch-all.
+
+    This is the last uncovered path by which a rejected value could reach
+    CloudWatch: every step re-raises, so whatever this catches is about to be
+    logged (and the Lambda runtime logs it again, unhandled, on top of that).
+    Reduced to the exception class only -- unlike a message string, a class
+    name cannot itself carry document text.
+    """
+    return type(e).__name__
+
+
 def lambda_handler(event, context):
     """
     Check user language preferences and determine if translations are needed.
@@ -100,7 +112,9 @@ def lambda_handler(event, context):
         return result
         
     except Exception as e:
-        print(f"CheckLanguagePrefs error: {str(e)}")
+        print(f"CheckLanguagePrefs error: {_safe_error_summary(e)}")
+        # NOT traceback.format_exc(): its last line renders str(e), which is
+        # exactly what the summary above was built to avoid.
         import traceback
-        print(traceback.format_exc())
+        print(''.join(traceback.format_tb(e.__traceback__)))
         raise

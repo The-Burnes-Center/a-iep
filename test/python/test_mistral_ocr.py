@@ -21,6 +21,7 @@ from conftest import load_lambda_module, unload
 BUCKET = 'iep-uploads-test'
 STUDENT_NAME = 'Jordan Smith'
 KEY = f'user-1/child-1/iep-1/{STUDENT_NAME} IEP 2026.pdf'
+SENTINEL = 'Sentinel-Jordan-Smith-9f3c-do-not-log-this'
 
 
 class _FakeResponse:
@@ -189,3 +190,25 @@ def test_json_file_rejection_message_carries_no_key_or_filename(handler_module, 
 
     logged = capsys.readouterr().out
     assert STUDENT_NAME not in logged
+
+
+def test_outer_catch_all_never_logs_the_rejected_value(handler_module, monkeypatch, capsys):
+    """The outermost catch-all used to print(str(e)) and
+    traceback.format_exc() verbatim -- the last uncovered path by which a
+    rejected value could reach CloudWatch after f48b08f's fixes elsewhere in
+    the pipeline."""
+    def _boom(bucket, key):
+        raise Exception(SENTINEL)
+    monkeypatch.setattr(handler_module, 'process_document_with_mistral_ocr', _boom)
+
+    event = {
+        'iep_id': 'iep-1', 'user_id': 'user-1', 'child_id': 'child-1',
+        's3_bucket': BUCKET, 's3_key': KEY,
+    }
+    with pytest.raises(Exception):
+        handler_module.lambda_handler(event, None)
+
+    logged = capsys.readouterr().out
+    assert SENTINEL not in logged
+    assert 'Traceback (most recent call last)' not in logged
+    assert 'Exception' in logged  # the class name survives

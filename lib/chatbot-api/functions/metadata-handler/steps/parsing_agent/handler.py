@@ -5,7 +5,7 @@ import json
 import os
 import boto3
 import traceback
-from open_ai_agent import OpenAIAgent
+from open_ai_agent import OpenAIAgent, _safe_error_summary
 
 # Only non-sensitive metadata is safe to log. These events can carry
 # FERPA-protected document content (OCR text, parsed sections, translated
@@ -196,6 +196,9 @@ def lambda_handler(event, context):
         }
         
     except Exception as e:
-        print(f"ParsingAgent error: {str(e)}")
-        print(traceback.format_exc())
+        print(f"ParsingAgent error: {_safe_error_summary(e)}")
+        # NOT traceback.format_exc(): its last line renders str(e), which is
+        # exactly what the summary above (the same helper open_ai_agent.py
+        # uses for a pydantic ValidationError) was built to avoid.
+        print(''.join(traceback.format_tb(e.__traceback__)))
         raise  # Let Step Functions retry policy handle the error

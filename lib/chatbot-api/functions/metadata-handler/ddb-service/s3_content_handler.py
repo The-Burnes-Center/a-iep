@@ -189,8 +189,14 @@ def migrate_dynamodb_to_s3(iep_id: str, child_id: str, ddb_item: Dict, table) ->
         return s3_ref
         
     except Exception as e:
-        print(f"Error migrating {iep_id}/{child_id} to S3: {str(e)}")
+        # content (summaries/sections/document_index/abbreviations) is what's
+        # being migrated here, so str(e) is one of the few messages in this
+        # file that could realistically quote it; only the exception class
+        # is guaranteed not to. traceback.format_exc()'s last line renders
+        # str(e) too -- the same leak -- so format_tb (call stack only, no
+        # values) replaces it rather than just the summary line above.
+        print(f"Error migrating {iep_id}/{child_id} to S3: {type(e).__name__}")
         import traceback
-        print(traceback.format_exc())
+        print(''.join(traceback.format_tb(e.__traceback__)))
         return None
 

@@ -30,6 +30,26 @@ class TTSProviderError(Exception):
     """Raised when a provider is misconfigured or its API call fails."""
 
 
+def _failure_class(status: int) -> str:
+    """A coarse, content-free category for a provider's HTTP failure status.
+
+    Deliberately never the response body: the request body here (`text`)
+    is a chunk of a child's IEP summary, and both providers return
+    validation/content-moderation rejections that can echo the submitted
+    text back in the body. The status code is the only part of a failed
+    response guaranteed not to carry it.
+    """
+    if status in (401, 403):
+        return 'auth_error'
+    if status == 429:
+        return 'rate_limited'
+    if 400 <= status < 500:
+        return 'client_error'
+    if 500 <= status < 600:
+        return 'server_error'
+    return 'unknown_error'
+
+
 def _get_ssm_parameter(env_var: str, default=None, ttl=CONFIG_TTL_SECONDS, decrypt=False):
     param_name = os.environ.get(env_var)
     if not param_name:
@@ -118,8 +138,12 @@ class ElevenLabsProvider(TTSProvider):
                 timeout=urllib3.Timeout(connect=10, read=90),
             )
             if resp.status != 200:
+                # NOT resp.data: `chunk` above is a slice of a child's IEP
+                # summary, and ElevenLabs' validation/moderation errors can
+                # echo the submitted text back in the response body.
                 raise TTSProviderError(
-                    f'ElevenLabs returned {resp.status}: {resp.data[:300]!r}'
+                    f'{self.name} request failed: status={resp.status} '
+                    f'({_failure_class(resp.status)})'
                 )
             audio += resp.data
         return audio, 'audio/mpeg'
@@ -169,8 +193,12 @@ class OpenAIProvider(TTSProvider):
                 timeout=urllib3.Timeout(connect=10, read=90),
             )
             if resp.status != 200:
+                # NOT resp.data: `chunk` above is a slice of a child's IEP
+                # summary, and OpenAI's validation/moderation errors can echo
+                # the submitted text back in the response body.
                 raise TTSProviderError(
-                    f'OpenAI returned {resp.status}: {resp.data[:300]!r}'
+                    f'{self.name} request failed: status={resp.status} '
+                    f'({_failure_class(resp.status)})'
                 )
             audio += resp.data
         return audio, 'audio/mpeg'

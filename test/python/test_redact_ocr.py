@@ -19,6 +19,7 @@ from conftest import FakeLambdaClient, ScopedBoto3, load_lambda_module, unload
 IDS = {'iep_id': 'iep-1', 'user_id': 'user-sub-1', 'child_id': 'child-1'}
 DDB_SERVICE = 'DDBServiceTest'
 OK_SAVE = {'statusCode': 200, 'body': json.dumps({'message': 'ok'})}
+SENTINEL = 'Sentinel-Jordan-Smith-9f3c-do-not-log-this'
 
 
 class FakeComprehend:
@@ -287,3 +288,26 @@ def test_handler_rejects_an_unrecognized_ocr_shape(redact, monkeypatch):
     with pytest.raises(Exception):
         redact.module.lambda_handler({**IDS, 'ddb_service_arn': DDB_SERVICE}, None)
     assert fake.payloads('save_ocr_data') == []
+
+
+def test_outer_catch_all_never_logs_the_rejected_value(redact, monkeypatch, capsys):
+    """The outermost catch-all used to print(str(e)) and
+    traceback.format_exc() verbatim -- the last uncovered path by which a
+    rejected value could reach CloudWatch after f48b08f's fixes elsewhere in
+    the pipeline. The ddb-service invoke is made to fail directly (rather
+    than routing the sentinel through Comprehend) so this pins only the
+    outer handler.py catch-all: comprehend_redactor.py's own internal
+    per-page catch (a separate, pre-existing str(e) of its own) is out of
+    scope for this fix and would otherwise muddy what this test is proving."""
+    def _boom(payload):
+        raise Exception(SENTINEL)
+    fake = FakeLambdaClient(_boom)
+    monkeypatch.setattr(redact.module, 'boto3', ScopedBoto3(fake))
+
+    with pytest.raises(Exception):
+        redact.module.lambda_handler({**IDS, 'ddb_service_arn': DDB_SERVICE}, None)
+
+    logged = capsys.readouterr().out
+    assert SENTINEL not in logged
+    assert 'Traceback (most recent call last)' not in logged
+    assert 'Exception' in logged  # the class name survives

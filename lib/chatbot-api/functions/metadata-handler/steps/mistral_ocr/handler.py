@@ -32,6 +32,18 @@ def _safe_event_meta(event):
     return meta
 
 
+def _safe_error_summary(e):
+    """Content-free triage string for the outermost catch-all.
+
+    This is the last uncovered path by which a rejected value could reach
+    CloudWatch: every step re-raises, so whatever this catches is about to be
+    logged (and the Lambda runtime logs it again, unhandled, on top of that).
+    Reduced to the exception class only -- unlike a message string, a class
+    name cannot itself carry document text.
+    """
+    return type(e).__name__
+
+
 def lambda_handler(event, context):
     """
     Extract text from document using Mistral OCR API.
@@ -107,6 +119,8 @@ def lambda_handler(event, context):
         }
         
     except Exception as e:
-        print(f"MistralOCR error: {str(e)}")
-        print(traceback.format_exc())
+        print(f"MistralOCR error: {_safe_error_summary(e)}")
+        # NOT traceback.format_exc(): its last line renders str(e), which is
+        # exactly what the summary above was built to avoid.
+        print(''.join(traceback.format_tb(e.__traceback__)))
         raise  # Let Step Functions retry policy handle the error
