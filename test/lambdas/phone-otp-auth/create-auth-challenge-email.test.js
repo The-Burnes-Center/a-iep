@@ -163,6 +163,56 @@ describe('create-auth-challenge, email branch', () => {
         expect(event.response.privateChallengeParameters.issuedAt).toBeDefined();
     });
 
+    test('both parts are filled in, and the subject carries no code', async () => {
+        // {minutes} appears twice in the HTML (the preview line and the body),
+        // so a `replace` rather than a `replaceAll` leaves the second one
+        // reading literally "{minutes}" in a parent's inbox.
+        const event = await handler(emailEvent([HANDSHAKE_PASS]));
+        const code = event.response.privateChallengeParameters.secretLoginCode;
+        const { Subject, Body } = sesCalls()[0].Content.Simple;
+
+        for (const part of [Body.Text.Data, Body.Html.Data, Subject.Data]) {
+            expect(part).not.toMatch(/\{[^}]*\}/);
+        }
+        // The subject and the inbox preview reach places the body does not:
+        // a lock screen, a forwarded copy, a mail server log.
+        expect(Subject.Data).not.toContain(code);
+        expect(Body.Html.Data.split(code).length - 1).toBe(1);
+        expect(Body.Text.Data.split(code).length - 1).toBe(1);
+    });
+
+    test('nothing from the profile row but the language reaches the email', async () => {
+        // See the SMS twin in create-auth-challenge.test.js. The profile is
+        // read to pick a language; the rest of that row describes a child and
+        // their records, and a mail provider we do not control keeps whatever
+        // we send.
+        process.env.USER_PROFILES_TABLE = 'test-profiles-table';
+        const bait = {
+            secondaryLanguage: 'vi',
+            childName: 'BAIT-CHILD-NAME',
+            documentName: 'BAIT-DOCUMENT-NAME',
+            parentName: 'BAIT-PARENT-NAME',
+            schoolDistrict: 'BAIT-DISTRICT',
+        };
+        mockDdbSend.mockImplementation(async (cmd) => {
+            if (cmd.kind === 'update') return { Attributes: { emailCount: 1 } };
+            return cmd.input.TableName === 'test-profiles-table' ? { Item: bait } : {};
+        });
+
+        await handler(emailEvent([HANDSHAKE_PASS]));
+        const { Subject, Body } = sesCalls()[0].Content.Simple;
+
+        // The language DID come from the row, so the lookup really happened.
+        expect(Subject.Data).toBe(getMessages('vi').otpLoginEmailSubject);
+
+        const sent = [Subject.Data, Body.Text.Data, Body.Html.Data].join('\n');
+        for (const value of Object.values(bait).filter((v) => v !== 'vi')) {
+            expect({ value, leaked: sent.includes(value) }).toEqual({ value, leaked: false });
+        }
+        // The address is the destination, never the copy.
+        expect(sent).not.toContain(EMAIL);
+    });
+
     // ── Fail-closed controls ─────────────────────────────────────────────
     test('a suppressed address is refused BEFORE SES is called', async () => {
         // SES's own suppression refuses INSIDE SES: the API call succeeds, a

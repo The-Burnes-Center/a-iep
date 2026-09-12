@@ -317,8 +317,19 @@ export class NewAuthorizationStack extends Construct {
       externalId: this.node.addr,
       snsCallerArn: cognitoSmsRole.roleArn,
     };
-    cfnUserPool.smsAuthenticationMessage = 'Your login code for The GovLab AIEP is: {####}. Do not share this code.';
-    cfnUserPool.smsVerificationMessage = 'Your OTP from The GovLab AIEP is: {####}. Do not share this code. Msg & data rates may apply.';
+    // The pool's own fallback copy, reached only when the CustomMessage
+    // trigger cannot localize (it catches and returns the event unchanged, so
+    // Cognito renders these). Kept byte-identical to the English entries in
+    // phone-otp-auth/messages.js, which is the source of truth, and mirrored
+    // again in custom-sms-sender/index.js for the staging sender. Change one,
+    // change all three, or the environments drift in what a parent reads.
+    //
+    // No "Msg & data rates may apply" and no STOP/HELP line: CTIA classes a
+    // two-factor code as a single-message program, which is not required to
+    // carry either in the body, and both already appear on the phone-number
+    // entry screen. See the messages.js docblock.
+    cfnUserPool.smsAuthenticationMessage = 'A-IEP login code: {####}\nDo not share it.';
+    cfnUserPool.smsVerificationMessage = 'A-IEP verification code: {####}\nDo not share it.';
 
     // 4b. The sign-in policy, which aws-cdk-lib 2.177's L2 UserPool cannot
     // express (no `signInPolicy` prop yet), so it drops to the L1 the same way

@@ -192,6 +192,42 @@ describe('create-auth-challenge', () => {
         expect(mockSnsSend.mock.calls[0][0].input.Message).toBe(expected);
     });
 
+    test('nothing from the profile row but the language reaches the text', async () => {
+        // The profile is read to pick a language. Everything else on that row
+        // describes a child and their records, and a text message leaves our
+        // systems entirely: it crosses carriers and lands on a lock screen.
+        // The templates are constants, so this holds by construction -- which
+        // is exactly the kind of thing that stays true until someone
+        // personalizes the copy.
+        process.env.USER_PROFILES_TABLE = 'test-profiles-table';
+        const bait = {
+            secondaryLanguage: 'es',
+            childName: 'BAIT-CHILD-NAME',
+            documentName: 'BAIT-DOCUMENT-NAME',
+            parentName: 'BAIT-PARENT-NAME',
+            email: 'bait@example.com',
+            schoolDistrict: 'BAIT-DISTRICT',
+        };
+        mockDdbSend.mockImplementation(async (cmd) => {
+            if (cmd instanceof UpdateCommand) return { Attributes: { smsCount: 1 } };
+            return { Item: bait };
+        });
+
+        const event = await handler(baseEvent([HANDSHAKE_PASS]));
+        const { Message, PhoneNumber } = mockSnsSend.mock.calls[0][0].input;
+
+        // The language DID come from the row, so the lookup really happened.
+        const code = event.response.privateChallengeParameters.secretLoginCode;
+        expect(Message).toBe(getMessages('es').otpLoginSms.replace('{code}', code).replace('{minutes}', 5));
+
+        for (const value of Object.values(bait).filter((v) => v !== 'es')) {
+            expect({ value, leaked: Message.includes(value) }).toEqual({ value, leaked: false });
+        }
+        // The destination is the phone number and nothing about it is in the body.
+        expect(PhoneNumber).toBe(PHONE);
+        expect(Message).not.toContain(PHONE);
+    });
+
     test('reuses the previous OTP inside the 5-minute window without re-texting', async () => {
         const previous = otpMetadata('654321', 60 * 1000);
         const event = await handler(baseEvent([HANDSHAKE_PASS, {
