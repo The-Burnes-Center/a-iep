@@ -29,6 +29,39 @@ OCR_READ_TIMEOUT_SECONDS = 300
 # Global cache for API key (reused across Lambda invocations)
 _cached_mistral_api_key = None
 
+# Mistral takes the uploaded file's type from the multipart part below, not by
+# sniffing the bytes, so this has to match what the parent actually picked. It
+# was hardcoded to 'application/pdf', while the uploader offers .doc and .docx
+# too (UploadIEPDocument.tsx's fileExtensions), which made every Word upload a
+# guaranteed permanent failure: Mistral answers 422, and handler.py -- correctly
+# -- treats a non-429 4xx as "this file will never be accepted" and retries it
+# zero times. One such .doc is the 422 in scripts/audit-residue.py's docblock.
+#
+# Word is not a format Mistral has to be talked into: its Document AI OCR FAQ
+# ("What document types are supported?") lists Word Documents (.docx, .doc)
+# next to PDF. Only the declared type was wrong.
+#
+# Keyed by extension rather than guessed with mimetypes.guess_type, whose table
+# is assembled partly from the host's /etc/mime.types and so is not the same on
+# a developer's Mac as in the Lambda image. These three are the ones the
+# uploader offers, spelled exactly as its own mimeTypes map spells them.
+_CONTENT_TYPE_BY_EXTENSION = {
+    '.pdf': 'application/pdf',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+}
+
+# For an extension the uploader does not offer, which should be unreachable.
+# Deliberately not 'application/pdf': declaring a type the bytes are not is the
+# entire defect above, and a generic "some bytes" at least says nothing false.
+_DEFAULT_CONTENT_TYPE = 'application/octet-stream'
+
+
+def _content_type_for(filename):
+    """The MIME type to declare for `filename` when posting it to Mistral."""
+    _stem, _dot, extension = str(filename).rpartition('.')
+    return _CONTENT_TYPE_BY_EXTENSION.get(f'.{extension}'.lower(), _DEFAULT_CONTENT_TYPE)
+
 
 def _http_status_code(exc):
     """The provider's HTTP status code, if this exception carries one.
@@ -169,11 +202,16 @@ def process_document_with_mistral_ocr(bucket, key):
     
     # Step 1: Upload the file to Mistral
     try:
-        logger.info("Uploading file to Mistral")
+        # The declared type, not the filename: the filename is the parent's own
+        # and can carry a child's name (see _safe_key). A value from the fixed
+        # map above is safe to log and is the first thing to check when Mistral
+        # rejects a file, since a mismatch here is a permanent, unretried 422.
+        content_type = _content_type_for(filename)
+        logger.info(f"Uploading file to Mistral as {content_type}")
 
         upload_url = "https://api.mistral.ai/v1/files"
         files = {
-            'file': (filename, file_content, 'application/pdf')
+            'file': (filename, file_content, content_type)
         }
         data = {
             'purpose': 'ocr'

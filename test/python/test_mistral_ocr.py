@@ -9,6 +9,8 @@ an explicit (connect, read) timeout tuple.
 """
 import json
 import logging
+import os
+import re
 from types import SimpleNamespace
 
 import boto3
@@ -16,7 +18,7 @@ import pytest
 import requests
 from moto import mock_aws
 
-from conftest import load_lambda_module, unload
+from conftest import REPO_ROOT, load_lambda_module, unload
 
 BUCKET = 'iep-uploads-test'
 STUDENT_NAME = 'Jordan Smith'
@@ -195,6 +197,95 @@ def test_a_4xx_at_the_upload_step_also_surfaces_its_status_code(mistral_ocr_modu
         result = mistral_ocr_module.process_document_with_mistral_ocr(BUCKET, KEY)
 
     assert result['status_code'] == 413
+
+
+# ---------------------------------------------------------------------------
+# The content type declared to Mistral must follow the file the parent picked.
+#
+# It was hardcoded to 'application/pdf'. The uploader offers .doc and .docx as
+# well (UploadIEPDocument.tsx), and Mistral's OCR processor supports both, so
+# the only thing wrong with a Word upload was the lie in the multipart part --
+# which Mistral answers with a 422, which is a non-429 4xx, which handler.py
+# retries zero times. Every Word document a parent uploaded failed permanently
+# after a full wait on the processing screen; one of them is the 422 recorded
+# in scripts/audit-residue.py's docblock.
+# ---------------------------------------------------------------------------
+
+DOCX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+
+def _content_type_sent_to_mistral(module, monkeypatch, filename):
+    """Run an upload for `filename` and return the multipart part's MIME type."""
+    key = f'user-1/child-1/iep-1/{filename}'
+    with mock_aws():
+        _wire_s3_object(key=key, body=b'fake document bytes')
+        fake_requests = _RecordingRequests(list(SUCCESSFUL_SEQUENCE))
+        monkeypatch.setattr(module, 'requests', fake_requests)
+
+        result = module.process_document_with_mistral_ocr(BUCKET, key)
+
+    assert 'error' not in result
+    upload_call = fake_requests.calls[0]
+    assert upload_call['url'] == 'https://api.mistral.ai/v1/files'
+    _sent_filename, _sent_bytes, content_type = upload_call['kwargs']['files']['file']
+    return content_type
+
+
+@pytest.mark.parametrize('filename, expected', [
+    (f'{STUDENT_NAME} IEP 2026.pdf', 'application/pdf'),
+    (f'{STUDENT_NAME} IEP 2026.doc', 'application/msword'),
+    (f'{STUDENT_NAME} IEP 2026.docx', DOCX_CONTENT_TYPE),
+])
+def test_the_upload_declares_the_type_of_the_file_the_parent_actually_picked(
+        mistral_ocr_module, monkeypatch, filename, expected):
+    assert _content_type_sent_to_mistral(mistral_ocr_module, monkeypatch, filename) == expected
+
+
+def test_the_extension_is_matched_regardless_of_its_case(mistral_ocr_module, monkeypatch):
+    # A parent's file picker hands over whatever the file is actually named,
+    # and Windows still writes .DOC/.DOCX. Case must not decide whether the
+    # document is processed or permanently rejected.
+    assert _content_type_sent_to_mistral(
+        mistral_ocr_module, monkeypatch, 'IEP 2026.DOCX') == DOCX_CONTENT_TYPE
+
+
+@pytest.mark.parametrize('filename', ['IEP 2026.rtf', 'IEP 2026'])
+def test_an_unrecognised_file_is_never_announced_as_a_pdf(
+        mistral_ocr_module, monkeypatch, filename):
+    # Nothing the uploader offers lands here, but if something ever does, the
+    # fallback must not repeat the original defect by asserting a type the
+    # bytes are not. It says "unknown bytes" instead, which is true.
+    content_type = _content_type_sent_to_mistral(mistral_ocr_module, monkeypatch, filename)
+    assert content_type == 'application/octet-stream'
+
+
+def test_every_extension_the_uploader_offers_has_a_content_type(mistral_ocr_module):
+    """The pin that would have caught this when .doc was added to the picker.
+
+    The two halves live in different languages and different directories, so
+    nothing else stops the file picker from gaining a format this step cannot
+    name. Read the uploader's own allowlist and require an entry for each.
+    """
+    uploader = os.path.join(REPO_ROOT, 'lib', 'user-interface', 'app', 'src',
+                            'pages', 'iep-folder', 'UploadIEPDocument.tsx')
+    with open(uploader, encoding='utf-8') as handle:
+        source = handle.read()
+
+    match = re.search(r'fileExtensions\s*=\s*new Set\(\[(.*?)\]\)', source, re.S)
+    # Not a soft skip: a test that quietly passes when it can no longer find
+    # what it checks is worse than no test at all.
+    assert match, ('Could not find fileExtensions in UploadIEPDocument.tsx. If the '
+                   'file picker was refactored, point this test at the new allowlist '
+                   'rather than deleting it.')
+    offered = re.findall(r'["\']([^"\']+)["\']', match.group(1))
+    assert offered, 'fileExtensions parsed as empty; the regex above needs updating'
+
+    missing = [ext for ext in offered
+               if ext.lower() not in mistral_ocr_module._CONTENT_TYPE_BY_EXTENSION]
+    assert not missing, (
+        f'The uploader accepts {missing} but mistral_ocr.py has no content type for '
+        'them, so they would be uploaded as application/octet-stream. Add them to '
+        '_CONTENT_TYPE_BY_EXTENSION, or stop offering them at the file picker.')
 
 
 # ---------------------------------------------------------------------------
