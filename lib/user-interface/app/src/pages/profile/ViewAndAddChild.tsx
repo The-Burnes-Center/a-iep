@@ -1,25 +1,41 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Container, Form, Button, Row, Col, Alert, Spinner } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
+import { Form, Button, Alert, Spinner, Container } from 'react-bootstrap';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { IconArrowLeft } from '@tabler/icons-react';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { UserProfile } from '../../common/types';
 import { useLanguage } from '../../common/language-context';
+import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useFeatures } from '../../common/hooks/use-features';
 import { isPlaceholderChildName } from '../../common/features';
-import './ProfileForms.css';
+import MobileTopNavigation from '../../components/MobileTopNavigation';
+import LanguageDropdown from '../../components/LanguageDropdown';
+import './ViewAndAddChild.css';
+
+// The school district is no longer asked for: nothing reads schoolCity - not
+// the pipeline, not a summary, no logic - and the design has one field. The
+// backend still rejects addChild without one (user-profile-handler, "Missing
+// required fields"), so an existing value is kept and a new child gets the
+// same default the other three addChild call sites send.
+const SCHOOL_CITY_DEFAULT = 'Not specified';
 
 export default function ViewAndAddChild() {
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
   const iepDocumentClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
-  const { t } = useLanguage();
+  const location = useLocation();
+  const { t, language, setLanguage, enabledLanguages } = useLanguage();
   const { isFeatureEnabled } = useFeatures();
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Two separate failures: a profile that will not load leaves nothing to
+  // show, but a save that fails must leave the form (and what the parent
+  // typed) on screen to retry, with the reason above it.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [childName, setChildName] = useState<string>('');
   const [schoolCity, setSchoolCity] = useState<string>('');
@@ -27,6 +43,16 @@ export default function ViewAndAddChild() {
   const [firstChildId, setFirstChildId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [hasExistingDocument, setHasExistingDocument] = useState<boolean>(false);
+
+  const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
+
+  // Only the first entry in a history stack keeps the key 'default', so this
+  // asks "is one of our screens behind this one?" rather than
+  // window.history.length, which counts other sites and never goes down. A
+  // parent who opened this URL directly, or who landed here on the first
+  // navigation after signing in, gets no Back button instead of one that
+  // leaves the app.
+  const canGoBack = location.key !== 'default';
 
   useEffect(() => {
     loadProfileAndCheckDocument();
@@ -36,11 +62,11 @@ export default function ViewAndAddChild() {
   const loadProfileAndCheckDocument = async () => {
     try {
       setLoading(true);
-      
+
       // Load user profile
       const data = await apiClient.profile.getProfile();
       setProfile(data);
-      
+
       // Check if the user has any children
       if (data.children && data.children.length > 0) {
         const firstChild = data.children[0];
@@ -55,14 +81,14 @@ export default function ViewAndAddChild() {
       } else {
         setHasExistingChild(false);
       }
-      
+
       // Always check for existing documents regardless of children
       await checkForExistingDocument();
-      
-      setError(null);
+
+      setLoadError(null);
     } catch (err) {
       // console.error('Error loading profile or checking document:', err);
-      setError(t('profile.error.serviceUnavailable'));
+      setLoadError(t('profile.error.serviceUnavailable'));
     } finally {
       setLoading(false);
     }
@@ -71,7 +97,7 @@ export default function ViewAndAddChild() {
   const checkForExistingDocument = async () => {
     try {
       const document = await iepDocumentClient.getMostRecentDocumentWithSummary();
-      
+
       // Check if document exists and has been processed or is processing
       if (document && (document.status === "PROCESSED" || document.status === "PROCESSING")) {
         setHasExistingDocument(true);
@@ -86,37 +112,40 @@ export default function ViewAndAddChild() {
   };
 
   const handleSaveAndContinue = async () => {
-    if (!childName.trim() || !schoolCity.trim()) {
+    if (!isFormValid()) {
       return; // Button should be disabled in this case
     }
 
     try {
       setSaving(true);
-      
-      if (hasExistingChild && firstChildId) {
-        // Update existing child's information
-        const updatedProfile = { ...profile };
-        if (updatedProfile.children && updatedProfile.children.length > 0) {
-          updatedProfile.children[0] = {
-            ...updatedProfile.children[0],
-            name: childName,
-            schoolCity: schoolCity,
-            // Keep the existing childId
-            childId: firstChildId
-          };
+      setSaveError(null);
+      // Whatever the child already has on file, or the shared default: the
+      // screen no longer asks, but the API still requires it.
+      const childSchoolCity = schoolCity.trim() || profile?.city || SCHOOL_CITY_DEFAULT;
 
-          const updatedChildInfo = {children: [updatedProfile.children[0]]};
-          
-          await apiClient.profile.updateProfile(updatedChildInfo);
+      if (hasExistingChild && firstChildId) {
+        // Update the existing child, as a new object: the profile in state is
+        // read again on the way out of this handler.
+        const existingChild = profile?.children?.[0];
+        if (existingChild) {
+          await apiClient.profile.updateProfile({
+            children: [{
+              ...existingChild,
+              name: childName,
+              schoolCity: childSchoolCity,
+              // Keep the existing childId
+              childId: firstChildId
+            }]
+          });
         }
       } else {
         // Add new child
-        await apiClient.profile.addChild(childName, schoolCity);
-        
+        await apiClient.profile.addChild(childName, childSchoolCity);
+
         // After adding a new child, check for documents again
         await checkForExistingDocument();
       }
-      
+
       // Mark onboarding as completed since user has finished child setup
       try {
         await apiClient.profile.updateProfile({ showOnboarding: false });
@@ -125,7 +154,7 @@ export default function ViewAndAddChild() {
         // console.error('Error updating onboarding status:', onboardingError);
         // Don't fail the flow if this update fails
       }
-      
+
       // Onboarding order: the student's name comes first (product call), so
       // once it is saved, check whether the parent-name gate is still owed
       // before reaching the app -- otherwise a parent missing both names
@@ -143,16 +172,22 @@ export default function ViewAndAddChild() {
         navigate('/welcome-intro');
       }
     } catch (err) {
-      // Inline, on the banner this page already renders: this failure used to
-      // be reported only by a toast.
-      setError(hasExistingChild ? t('child.error.updateFailed') : t('child.error.addFailed'));
+      // Inline, above the form the parent just filled in: this failure used
+      // to be reported only by a toast.
+      setSaveError(hasExistingChild ? t('child.error.updateFailed') : t('child.error.addFailed'));
     } finally {
       setSaving(false);
     }
   };
 
+  // The one field also submits on the keyboard's Go/Enter key.
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    void handleSaveAndContinue();
+  };
+
   const isFormValid = () => {
-    return childName.trim() !== '' && schoolCity.trim() !== '';
+    return childName.trim() !== '';
   };
 
   if (loading) {
@@ -165,72 +200,72 @@ export default function ViewAndAddChild() {
     );
   }
 
-  if (error) {
+  if (loadError) {
     return (
       <Container>
-        <Alert variant="danger">{error}</Alert>
+        <Alert variant="danger">{loadError}</Alert>
       </Container>
     );
   }
 
   return (
-    <Container 
-      fluid 
-      className="profile-form-container"
-    >
-      <Row style={{ width: '100%', justifyContent: 'center' }}>
-        <Col xs={12} md={8} lg={6}>
-          <div className="profile-form">
-            <h2 className="text-center profile-title">
-              {t('child.title')}
-            </h2>
-            <p className="text-muted text-center">{t('child.description')}</p>
-
-            <Form>
-              <Row className="mb-3">
-                <Col md={12}>
-                  <Form.Group controlId="formChildName">
-                    <Form.Label className="form-label">{t('child.name.label')}</Form.Label>
-                    <Form.Control 
-                      type="text" 
-                      placeholder={t('child.name.placeholder')}
-                      value={childName} 
-                      onChange={(e) => setChildName(e.target.value)}
-                    />
-                  </Form.Group>
-                </Col>
-              </Row>
-
-              <Row className="mb-4">
-                <Col md={12}>
-                  <Form.Group controlId="formSchoolCity">
-                    <Form.Label className="form-label">{t('child.school.label')}</Form.Label>
-                    <Form.Control 
-                      type="text" 
-                      placeholder={t('child.school.placeholder')}
-                      value={schoolCity} 
-                      onChange={(e) => setSchoolCity(e.target.value)}
-                    />
-                  </Form.Group>
-                </Col>
-              </Row>
-
-              <div className="d-grid">
-                <Button
-                  variant="primary"
-                  onClick={handleSaveAndContinue}
-                  disabled={!isFormValid() || saving}
-                  className="button-text"
-                  // Stable E2E hook: the label is localized
-                  data-testid="child-save-button"
-                >
-                  {saving ? t('child.button.saving') : t('child.button.save')}
-                </Button>
-              </div>
-            </Form>
+    <>
+      <MobileTopNavigation />
+      <div className="child-name-page">
+        <div className="child-name-topbar">
+          {canGoBack && (
+            <Button
+              variant="outline-secondary"
+              className="aiep-button child-name-back"
+              onClick={() => navigate(-1)}
+            >
+              <IconArrowLeft size={18} stroke={2} className="arrow-icon" aria-hidden="true" />
+              {t('common.back')}
+            </Button>
+          )}
+          <div className="child-name-language">
+            <LanguageDropdown
+              language={language}
+              languageOptions={languageOptions}
+              onLanguageChange={setLanguage}
+              variant="secondary"
+            />
           </div>
-        </Col>
-      </Row>
-    </Container>
+        </div>
+
+        {/* One question and one field, per the design. What the name is used
+            for is explained on the privacy screen further into onboarding, not
+            here: `child.description` is still in the dictionaries for it. */}
+        <h1 className="child-name-heading">{t('child.heading')}</h1>
+
+        {saveError && <Alert variant="danger" className="child-name-error">{saveError}</Alert>}
+
+        <Form onSubmit={handleSubmit}>
+          <Form.Group controlId="formChildName" className="child-name-field">
+            {/* The design shows no label; screen readers still need one. */}
+            <Form.Label className="visually-hidden">{t('child.name.label')}</Form.Label>
+            <Form.Control
+              type="text"
+              placeholder={t('child.name.placeholder')}
+              value={childName}
+              onChange={(e) => setChildName(e.target.value)}
+            />
+          </Form.Group>
+
+          <div className="d-grid">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!isFormValid() || saving}
+              className="child-name-submit"
+              // Stable E2E hook: the label is localized
+              data-testid="child-save-button"
+            >
+              {saving ? t('child.button.saving') : t('child.button.save')}
+            </Button>
+          </div>
+        </Form>
+      </div>
+    </>
   );
 }

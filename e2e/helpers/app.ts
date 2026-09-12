@@ -42,7 +42,6 @@ export const EN = {
   sessionFailed: 'Invalid verification code. Please try again.',
   preferEnglish: 'I prefer English',
   agreeAndContinue: 'AGREE AND CONTINUE',
-  saveAndContinue: 'Save & Continue',
   welcomeContinue: 'Continue',
   updateProfile: 'Update Profile',
   navigateToAccount: 'Navigate to Account',
@@ -309,12 +308,10 @@ export async function completeOnboardingIfShown(page: Page): Promise<string> {
         const childNameInput = page.locator('#formChildName');
         if (await childNameInput.isVisible()) {
           await childNameInput.fill('E2E Test Child');
-          // Save & Continue stays disabled until BOTH fields hold something.
-          // Consent auto-creates the child with a school city, but a profile
-          // whose child predates that, or whose creation failed, has it
-          // blank, and the loop would then spin on a permanently dead button.
-          await page.locator('#formSchoolCity').fill('E2E Test City');
-          await page.getByRole('button', { name: EN.saveAndContinue }).click();
+          // By testid rather than the label: the button's text is localized,
+          // and helpers/profile.ts already addresses it this way so it keeps
+          // working for an account left in any language.
+          await page.getByTestId('child-save-button').click();
           // Saving chains the child write, showOnboarding=false and the
           // parent-name check before it routes; wait the navigation out so
           // the loop cannot double-submit.

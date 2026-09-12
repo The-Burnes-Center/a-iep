@@ -1,0 +1,65 @@
+/* The student-name step, built to the designer's mobile screen: a back /
+   language row, a two-line heading, one field, one button, all left-aligned
+   on the app's cream page.
+
+   Buttons here are the shared .aiep-button / .btn-primary, which
+   styles/buttons.css and CustomLogin.css load AFTER this file (main.tsx
+   imports the app before the style sheets), so every rule that adjusts one
+   is written as a compound selector rather than relying on source order. */
+
+.child-name-page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 3rem;
+  text-align: start;
+}
+
+.child-name-topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 2.5rem;
+}
+
+/* Sits right whether or not the Back button rendered. */
+.child-name-language {
+  margin-inline-start: auto;
+}
+
+.child-name-topbar .child-name-back {
+  margin: 0;
+  min-width: 0;
+  gap: 0.4rem;
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+
+.child-name-heading {
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-size: 2rem;
+  line-height: 1.2;
+  color: #1E1E1E;
+  margin-bottom: 2rem;
+}
+
+.child-name-error {
+  margin-bottom: 1.5rem;
+}
+
+.child-name-field {
+  margin-bottom: 2rem;
+}
+
+/* .btn-primary already carries the green, the uppercase and the 20px pill;
+   this only makes it full width and gives it the design's taller tap
+   target. Three classes on purpose: CustomLogin.css styles
+   `.btn-primary[type="submit"]` with its own padding shorthand at the same
+   specificity as a two-class rule. */
+.child-name-page .btn-primary.child-name-submit {
+  width: 100%;
+  margin: 0;
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+}
