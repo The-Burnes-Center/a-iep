@@ -65,7 +65,7 @@
   justify-content: center;
   background: none;
   border: none;
-  color: #7AAD8E;
+  color: var(--aiep-on-green-muted);
   cursor: pointer;
   transition: all 0.2s ease;
   padding: 6px 8px;
@@ -73,10 +73,12 @@
   min-width: 60px;
   text-decoration: none;
   position: relative;
+  /* Reserved so switching tabs does not move the row. See .nav-item.active. */
+  border-bottom: 3px solid transparent;
 }
 
 .landing-top-navigation .nav-item:hover {
-  color: #F5F3EE;
+  color: var(--aiep-cream);
   background-color: rgba(0, 64, 186, 0.05);
 }
 
@@ -85,13 +87,20 @@
 }
 
 .landing-top-navigation .nav-item:focus {
-  outline: 2px solid #F5F3EE;
+  outline: 2px solid var(--aiep-cream);
   outline-offset: 2px;
 }
 
+/* Same as the in-app bar: the active background matches the bar it sits on,
+   so the tab you are on needs a signal that is not colour (SC 1.4.1). */
 .landing-top-navigation .nav-item.active {
-  color: #F5F3EE;
-  background-color: #014620;
+  color: var(--aiep-cream);
+  background-color: var(--aiep-green-dark);
+  border-bottom-color: var(--aiep-cream);
+}
+
+.landing-top-navigation .nav-item.active .nav-label {
+  font-weight: 700;
 }
 
 .landing-top-navigation .nav-item i {

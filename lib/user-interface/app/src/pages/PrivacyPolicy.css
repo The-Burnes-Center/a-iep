@@ -36,18 +36,18 @@
 .breadcrumb-text {
   font-size: 0.875rem;
   font-weight: 600;
-  color: #999;
+  color: var(--aiep-muted);
   letter-spacing: 0.05em;
   font-family: 'akzidenz-grotesk-next-pro', sans-serif;
 }
 
 .breadcrumb-text.active {
-  color: #333;
+  color: var(--aiep-ink);
 }
 
 .breadcrumb-separator {
   margin: 0 0.5rem;
-  color: #999;
+  color: var(--aiep-muted);
   font-weight: 600;
 }
 

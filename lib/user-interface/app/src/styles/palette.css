@@ -1,0 +1,115 @@
+/* The app's colour palette, and the only place a colour value is allowed to be
+   introduced.
+
+   `src/common/color-contrast.test.ts` parses this file, then scans every
+   stylesheet and component the app actually imports and fails if it finds a
+   colour literal that is not one of these values, or a token here that no
+   measured contrast pair covers. So a new colour cannot reach a parent without
+   someone writing down what it sits on and what ratio that gives.
+
+   Ratios below are WCAG 2.1 relative-luminance contrast against the cream page
+   background #F5F3EE unless stated. AA wants 4.5:1 for body text, 3:1 for text
+   at 24px (or 18.66px bold) and above, and 3:1 for the boundary of a control
+   or a graphic you need to see to use the page.
+
+   The two greens are the brand and both already pass, so nothing here moves
+   them. Everything that did move, moved the shortest distance that clears its
+   threshold with room to spare. */
+
+:root {
+  /* ---- Brand ---------------------------------------------------------- */
+  --aiep-green: #00682f; /* 6.27 on cream; cream on it 6.27 */
+  --aiep-green-dark: #014620; /* 9.98 on cream; cream on it 9.98 */
+  --aiep-cream: #f5f3ee; /* the page */
+  --aiep-ink: #1e1e1e; /* 15.03 body text */
+
+  /* ---- Surfaces ------------------------------------------------------- */
+  --aiep-surface-sunk: #eeebe5; /* carousels and failure cards */
+  --aiep-surface-field: #e7e4dc; /* input fill and open-accordion fill */
+  --aiep-surface-white: #ffffff; /* code blocks, QR quiet zone */
+  --aiep-surface-tint: #f8f9fa; /* file-picker button, welcome page */
+  --aiep-surface-tint-strong: #e9ecef; /* the same, pressed or inert */
+  --aiep-cream-veil: #f5f3ee70; /* 1px grid texture on the modal scrim */
+  --aiep-overlay-navy: #0e1b2a; /* full-bleed QR overlay */
+  --aiep-black: #000000; /* QR modules only: scanners need true black */
+
+  /* ---- Boundaries ----------------------------------------------------- */
+  /* Was #CBC6BC (1.53) for card, table and control edges, plus #dee2e6 (1.17)
+     and #e9ecef (1.07) on inputs and tables. A parent could not see where a
+     field began. Same warm-grey hue as #CBC6BC, dropped to clear 3:1 on every
+     surface it renders over: 3.56 on cream, 3.32 on #EEEBE5, 3.11 on #E7E4DC. */
+  --aiep-border: #877f73;
+
+  /* ---- Text ----------------------------------------------------------- */
+  /* Was #6c757d (4.23 on cream, 3.69 on the #E7E4DC field fill), plus #999
+     (2.57) and #A8A9A5 (2.13). Warm grey to sit with the cream: 5.78 on cream,
+     5.39 on #EEEBE5, 5.05 on #E7E4DC. */
+  --aiep-muted: #645e55;
+
+  /* Bootstrap's grey-700, kept where it already passed: 7.37 on cream, 6.41
+     on white. The chosen filename in the upload control, and the consent line
+     under prefers-contrast: high. */
+  --aiep-ink-soft: #495057;
+
+  --aiep-link: #0040ba; /* 7.75 */
+
+  /* Was #007AD1 (4.03 both as text on cream and as a fill under cream text).
+     Same blue, darkened: 5.78 on cream, 5.39 on #EEEBE5, cream on it 5.78. */
+  --aiep-accent-blue: #0061a8;
+  --aiep-accent-blue-hover: #0056b3; /* 6.35, the jargon-term hover */
+
+  /* Was #F01E19 (3.86). This is the text a parent reads when something has
+     gone wrong, so it is the one that mattered most. 5.48 on cream, and cream
+     on it 5.48 for the filled hover state. Also replaces Bootstrap's #dc3545
+     (4.08) on the text-to-speech error. */
+  --aiep-error: #c4140e;
+
+  /* ---- Large-display accents ------------------------------------------ */
+  /* These two are only ever used on the landing hero (36px mobile / 48px
+     desktop) and the how-it-works heading (48px), so AA asks 3:1, not 4.5:1.
+     Both were far under even that: orange #FF8724 was 2.17 and pink #F995A1
+     was 1.92, which is why "AI for Impact" and "community-centered AI" were
+     the hardest words on the page to read. Deepened to 3.66 and 4.03.
+     If either is ever used below 24px it needs a darker value; the contrast
+     test names the selectors and sizes that justify the 3:1 threshold. */
+  --aiep-accent-orange: #cc5e00;
+  --aiep-accent-rose: #cc4a5c;
+
+  /* ---- On the greens --------------------------------------------------- */
+  /* Nav labels. Was #7AAD8E, which is 2.71 on the #00682F bar: the four
+     labels a parent navigates by failed even the 3:1 floor. 4.95 on #00682F,
+     7.88 on #014620. The active tab no longer relies on this difference
+     alone -- see .nav-item.active. */
+  --aiep-on-green-muted: #c6e0ce;
+
+  /* Login-screen language dropdown, on #014620. Was #67B275 (4.32). 5.47. */
+  --aiep-sage: #84c593;
+
+  /* The brand-pattern photographs behind the hub cards run from 1.39 (yellow)
+     to 3.10 (red) against the cream card text. This scrim puts the worst of
+     them at 5.31. Ink rather than a brand green on purpose: a neutral darkens
+     without shifting the hue, so the six cards stay red / gold / orange /
+     rose / navy / green instead of all reading olive. */
+  --aiep-image-scrim: rgba(30, 30, 30, 0.6);
+
+  /* The lighter one, for the 40px cream headings on the rights cards, where AA
+     asks 3:1 rather than 4.5:1. patterns-pink.jpg was 1.61 bare and
+     patterns-blue.jpg 2.49; this puts them at 3.99 and 5.55. */
+  --aiep-image-scrim-soft: rgba(30, 30, 30, 0.45);
+
+  /* ---- Disabled -------------------------------------------------------- */
+  /* WCAG 1.4.3 and 1.4.11 both exempt an inactive control, and looking
+     inactive is the point, so these stay where they were. */
+  --aiep-disabled-border: #cbc6bc;
+  --aiep-disabled-text: #b3ada9;
+
+  /* ---- Bootstrap alert palette ----------------------------------------- */
+  /* Vendor defaults, reproduced in AlertMessages.css rather than overridden
+     because all three pairs already clear AA (7.08 to 7.22). */
+  --aiep-alert-success-fg: #0f5132;
+  --aiep-alert-success-bg: #d1e7dd;
+  --aiep-alert-danger-fg: #842029;
+  --aiep-alert-danger-bg: #f8d7da;
+  --aiep-alert-info-fg: #055160;
+  --aiep-alert-info-bg: #d1ecf1;
+}

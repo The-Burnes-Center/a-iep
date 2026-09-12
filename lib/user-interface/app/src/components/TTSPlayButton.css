@@ -15,6 +15,6 @@
 }
 
 .tts-play-button-error {
-  color: #dc3545;
-  border-color: #dc3545;
+  color: var(--aiep-error);
+  border-color: var(--aiep-error);
 }

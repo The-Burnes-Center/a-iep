@@ -5,7 +5,7 @@
   
   .welcome-container {
     min-height: 100vh;
-    background-color: #f8f9fa;
+    background-color: var(--aiep-surface-tint);
     display: flex;
     align-items: center;
     justify-content: center;

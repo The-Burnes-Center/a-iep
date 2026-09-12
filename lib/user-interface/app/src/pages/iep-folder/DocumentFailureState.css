@@ -4,14 +4,14 @@
    fault of their own, not a warning about something they should undo. */
 .document-failure-state {
   background-color: #EEEBE5;
-  border: 1px solid #CBC6BC;
+  border: 1px solid var(--aiep-border);
   border-radius: 16px;
   padding: 1.5rem;
   text-align: start;
 }
 
 .document-failure-icon {
-  color: #007AD1;
+  color: var(--aiep-accent-blue);
   font-size: 1.25rem;
   margin-bottom: 0.5rem;
 }

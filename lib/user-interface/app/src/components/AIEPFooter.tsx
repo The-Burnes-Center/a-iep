@@ -80,8 +80,9 @@ const AIEPFooter: React.FC<AIEPFooterProps> = ({ footerLinks }) => {
     {isPublic && (
       <>
         <PartnerBanner position="bottom" />
-        <div style={{ height: '40px', backgroundColor: '#00682F', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 1rem' }}>
-          <p style={{ margin: 0, fontSize: '0.75rem', color: 'rgba(255,255,255,0.7)', lineHeight: '1.2', textAlign: 'center' }}>
+        {/* 0.85, not 0.7: at 0.7 this 12px line was 4.27:1 on the green. */}
+        <div style={{ height: '40px', backgroundColor: 'var(--aiep-green)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 1rem' }}>
+          <p style={{ margin: 0, fontSize: '0.75rem', color: 'rgba(255,255,255,0.85)', lineHeight: '1.2', textAlign: 'center' }}>
             {t('auth.smsFrequencyDisclaimer')}
           </p>
         </div>

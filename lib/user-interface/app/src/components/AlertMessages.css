@@ -10,16 +10,16 @@
 }
 
 .alert-success {
-  background-color: #d1e7dd;
-  color: #0f5132;
+  background-color: var(--aiep-alert-success-bg);
+  color: var(--aiep-alert-success-fg);
 }
 
 .alert-danger {
-  background-color: #f8d7da;
-  color: #842029;
+  background-color: var(--aiep-alert-danger-bg);
+  color: var(--aiep-alert-danger-fg);
 }
 
 .alert-info {
-  background-color: #d1ecf1;
-  color: #055160;
+  background-color: var(--aiep-alert-info-bg);
+  color: var(--aiep-alert-info-fg);
 }

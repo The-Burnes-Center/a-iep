@@ -172,7 +172,7 @@
 
 /* Background color for open accordion header */
 .summary-accordion .accordion-button:not(.collapsed) {
-  background-color: #E7E4DC;
+  background-color: var(--aiep-surface-field);
 }
 
 .summary-accordion .accordion-item:first-child {
@@ -263,7 +263,7 @@ background-color: #F5f3EE;
 .markdown-content table, 
 .markdown-content th, 
 .markdown-content td {
-  border: 1px solid #dee2e6;
+  border: 1px solid var(--aiep-border);
 }
 
 .markdown-content th,
@@ -276,7 +276,7 @@ background-color: #F5f3EE;
   border-inline-start: 4px solid #0040BA;
   padding-inline-start: 1rem;
   margin-inline-start: 0;
-  color: #6c757d;
+  color: var(--aiep-muted);
 }
 
 .markdown-content img {
@@ -286,14 +286,14 @@ background-color: #F5f3EE;
 }
 
 .markdown-content pre {
-  background-color: #FFFFFF;
+  background-color: var(--aiep-surface-white);
   padding: 1rem;
   border-radius: 4px;
   overflow-x: auto;
 }
 
 .markdown-content code {
-  background-color: #FFFFFF;
+  background-color: var(--aiep-surface-white);
   padding: 0.2rem 0.4rem;
   border-radius: 4px;
   font-size: 0.875rem;
@@ -315,7 +315,7 @@ background-color: #F5f3EE;
 
 /* More prominent with animated underline */
 .jargon-term {
-color: #007AD1;
+color: var(--aiep-accent-blue);
 font-weight: 500;
 position: relative;
 cursor: pointer;
@@ -325,7 +325,7 @@ padding: 0 2px;
 }
 
 .jargon-term:hover {
-color: #0056b3;
+color: var(--aiep-accent-blue-hover);
 text-decoration-thickness: 2px;
 }
 
@@ -339,8 +339,8 @@ background-color: #F5F3EE;
 }
 
 .jargon-drawer .offcanvas-header {
-border-bottom: 1px solid #dee2e6;
-background-color: #007AD1;
+border-bottom: 1px solid var(--aiep-border);
+background-color: var(--aiep-accent-blue);
 }
 
 .jargon-drawer .offcanvas-title {
@@ -431,7 +431,7 @@ padding: 0 1rem;
 /* Language dropdown styling in button-container */
 .button-container .dropdown .dropdown-toggle {
 background-color: #F5F3EE;
-border: 1px solid #CBC6BC;
+border: 1px solid var(--aiep-border);
 border-radius: 30px;
 color: #1E1E1E;
 min-width: 100px;
@@ -501,7 +501,7 @@ display: none !important;
 }
 
 .page-numbers-label {
-  color: #A8A9A5;
+  color: var(--aiep-muted);
 }
 
 .page-numbers-value {

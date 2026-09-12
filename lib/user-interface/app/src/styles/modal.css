@@ -12,7 +12,7 @@
   height: 100%;
   background-color: #014620;
   z-index: -100;
-  background-image: linear-gradient(to bottom, #E7E4DC 0px, #f5f3ee70 1px), linear-gradient(to right, #E7E4DC 0px, #f5f3ee70 1px);
+  background-image: linear-gradient(to bottom, var(--aiep-surface-field) 0px, var(--aiep-cream-veil) 1px), linear-gradient(to right, var(--aiep-surface-field) 0px, var(--aiep-cream-veil) 1px);
   background-size: 100% 40px;
   background-repeat: repeat;
 }
@@ -44,7 +44,7 @@
   max-width: 800px;
   margin-left: auto;
   margin-right: auto;
-  border: solid 1px black;
+  border: solid 1px var(--aiep-ink);
   border-radius: 10px;
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
 }

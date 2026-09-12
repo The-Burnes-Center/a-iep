@@ -1,5 +1,5 @@
 .resources-banner-container {
-    background-color: #007AD1;
+    background-color: var(--aiep-accent-blue);
     width: 100%;
     display: flex;
     position: relative;

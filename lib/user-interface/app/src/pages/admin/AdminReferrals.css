@@ -28,7 +28,7 @@
 }
 
 .admin-referrals-panel {
-  border: 1px solid rgba(30, 30, 30, 0.25);
+  border: 1px solid var(--aiep-border);
   border-radius: 10px;
   padding: 1.5rem;
   margin-bottom: 1.5rem;
@@ -64,7 +64,7 @@
 .admin-referrals-card .form-select,
 .admin-referrals-card .form-control {
   color: #1E1E1E;
-  border-color: #CBC6BC;
+  border-color: var(--aiep-border);
 }
 
 .admin-referrals-card .form-select:focus,
@@ -115,7 +115,7 @@
 
 .admin-referrals-modal .form-control:not(.is-invalid),
 .admin-referrals-modal .form-select:not(.is-invalid) {
-  border-color: #CBC6BC;
+  border-color: var(--aiep-border);
 }
 
 .admin-referrals-modal .form-control:focus:not(.is-invalid),
@@ -141,7 +141,7 @@
   font-size: 0.85rem;
   color: #1E1E1E;
   background-color: #F5F3EE;
-  border: 1px solid rgba(30, 30, 30, 0.15);
+  border: 1px solid var(--aiep-border);
   border-radius: 6px;
   padding: 0.4rem 0.6rem;
 }

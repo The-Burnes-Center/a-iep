@@ -70,7 +70,7 @@
 
 /* Background color for open accordion header */
 .faqs-accordion .accordion-button:not(.collapsed) {
-  background-color: #E7E4DC;
+  background-color: var(--aiep-surface-field);
 }
 
 .faqs-accordion .accordion-item:first-child {
@@ -113,7 +113,7 @@
 .faq-content table, 
 .faq-content th, 
 .faq-content td {
-  border: 1px solid #dee2e6;
+  border: 1px solid var(--aiep-border);
 }
 
 .faq-content th, 
@@ -126,7 +126,7 @@
   border-inline-start: 4px solid #0040BA;
   padding-inline-start: 1rem;
   margin-inline-start: 0;
-  color: #6c757d;
+  color: var(--aiep-muted);
 }
 
 .faq-content img {
@@ -136,14 +136,14 @@
 }
 
 .faq-content pre {
-  background-color: #FFFFFF;
+  background-color: var(--aiep-surface-white);
   padding: 1rem;
   border-radius: 4px;
   overflow-x: auto;
 }
 
 .faq-content code {
-  background-color: #FFFFFF;
+  background-color: var(--aiep-surface-white);
   padding: 0.2rem 0.4rem;
   border-radius: 4px;
   font-size: 0.875rem;

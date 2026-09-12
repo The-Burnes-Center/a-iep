@@ -31,6 +31,13 @@ import { useLanguage } from '../../common/language-context';
 import { CloseIcon } from './InviteIcons';
 import './InviteQrOverlay.css';
 
+// True black on true white, not the brand ink on the brand cream: a scanner
+// reads module contrast, and this is the one place in the app where the
+// palette's warmer neutrals would cost a parent a failed scan. Named here so
+// the contrast test can see them (--aiep-black / --aiep-surface-white).
+const QR_DARK = '#000000';
+const QR_LIGHT = '#FFFFFF';
+
 /**
  * Screen Wake Lock, feature-detected. Holding a phone up for someone else to
  * scan is precisely when the display would otherwise dim and lock. This is a
@@ -185,8 +192,8 @@ export default function InviteQrOverlay({ url, onClose }: InviteQrOverlayProps) 
           // modules noticeably denser at this URL length.
           level="M"
           marginSize={4}
-          bgColor="#FFFFFF"
-          fgColor="#000000"
+          bgColor={QR_LIGHT}
+          fgColor={QR_DARK}
           aria-label={t('invite.qr.imageAlt')}
         />
 

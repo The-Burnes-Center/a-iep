@@ -21,7 +21,11 @@
   line-height: 1.5;
 }
 
+/* Was var(--black), which nothing in this app or in Bootstrap defines, so the
+   declaration was invalid at computed-value time and the colour silently fell
+   back to the inherited ink. Same rendered colour, now on purpose. Bootstrap's
+   underline on <a> is what tells these apart from the text around them. */
 .landing-content-list-item a {
-  color: var(--black);
+  color: var(--aiep-ink);
   font-weight: 500;
 }

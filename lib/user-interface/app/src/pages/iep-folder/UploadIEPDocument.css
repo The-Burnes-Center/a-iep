@@ -1,6 +1,6 @@
 .upload-container {
     background-color: transparent;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--aiep-border);
     border-radius: 12px;
     box-shadow: none;
     padding: 0;
@@ -54,22 +54,22 @@
   display: flex;
   align-items: center;
   width: 100%;
-  border: 1px solid #dee2e6;
+  border: 1px solid var(--aiep-border);
   border-radius: 20px;
   overflow: hidden;
-  background-color: #fff;
+  background-color: var(--aiep-surface-white);
   position: relative;
   z-index: 1;
   transition: border-color 0.3s ease;
 }
 
 .seamless-file-container:hover {
-  border-color: #0d6efd;
+  border-color: var(--aiep-green);
 }
 
 .seamless-file-container.disabled {
-  background-color: #e9ecef;
-  border-color: #dee2e6;
+  background-color: var(--aiep-surface-tint-strong);
+  border-color: var(--aiep-disabled-border);
   cursor: not-allowed;
 }
 
@@ -86,37 +86,37 @@
   cursor: pointer;
   pointer-events: none;
   white-space: nowrap;
-  border: 1px solid #CBC6BC;
+  border: 1px solid var(--aiep-border);
   border-radius: 20px 0 0 20px;
 }
 
 .seamless-file-container.disabled .seamless-file-button {
-  background-color: #6c757d;
+  background-color: var(--aiep-muted);
   opacity: 0.6;
 }
 
 .seamless-file-text {
   flex: 1;
   padding: 0.75rem 1rem;
-  color: #6c757d;
+  color: var(--aiep-muted);
   font-family: 'akzidenz-grotesk-next-pro', sans-serif;
   font-weight: 400;
   font-size: 1rem;
-  background-color: #E7E4DC;
+  background-color: var(--aiep-surface-field);
   border: none;
   margin: 0;
   min-height: auto;
 }
 
 .seamless-file-text.has-file {
-  color: #495057;
+  color: var(--aiep-ink-soft);
   font-weight: 500;
-  background-color: #fff;
+  background-color: var(--aiep-surface-white);
 }
 
 .seamless-file-container.disabled .seamless-file-text {
-  background-color: #e9ecef;
-  color: #6c757d;
+  background-color: var(--aiep-surface-tint-strong);
+  color: var(--aiep-muted);
 }
 
 .form-control[type="file"] {
@@ -126,11 +126,11 @@
 .form-control[type="file"]::file-selector-button {
   border: 1px solid #1E1E1E;
   border-radius: 1rem;
-  background-color: #f8f9fa;
+  background-color: var(--aiep-surface-tint);
   transition: border-color 0.15s ease-in-out;
 }
 
 .form-control[type="file"]::file-selector-button:hover {
   border-color: #1E1E1E;
-  background-color: #e9ecef;
+  background-color: var(--aiep-surface-tint-strong);
 }

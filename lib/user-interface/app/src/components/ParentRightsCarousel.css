@@ -8,7 +8,7 @@
 
 .carousel-nav-button {
   background-color: #F5F3EE;
-  border: 1px solid transparent;
+  border: 1px solid var(--aiep-border);
   border-radius: 20px;
   padding: 0.75rem 1rem;
   cursor: pointer;
@@ -19,7 +19,7 @@
 }
 
 .carousel-nav-button:hover:not(:disabled) {
-  background-color: #E7E4DC;
+  background-color: var(--aiep-surface-field);
 }
 
 .carousel-nav-button:disabled {
@@ -74,18 +74,19 @@
 
 /* Modifier classes for different background images */
 .parent-rights-card--pink {
-  background-image: url('/images/patterns-pink.jpg');
+  background-image: linear-gradient(var(--aiep-image-scrim-soft), var(--aiep-image-scrim-soft)), url('/images/patterns-pink.jpg');
 }
 
 .parent-rights-card--green {
-  background-image: url('/images/patterns-dark-green.jpg');
+  background-image: linear-gradient(var(--aiep-image-scrim-soft), var(--aiep-image-scrim-soft)), url('/images/patterns-dark-green.jpg');
 }
 
-/* Divider-only: the third section has no slide colour of its own to borrow,
-   and this is the darkest of the remaining patterns, so the cream heading
-   still clears AA at the h1's size. */
+/* Divider-only: the third section has no slide colour of its own to borrow.
+   It is the darkest of the remaining patterns but that was not enough on its
+   own -- bare, its brightest pixel puts the cream h1 at 2.49:1, under the 3:1
+   AA asks for at 40px. --aiep-image-scrim-soft is what carries it (5.55:1). */
 .parent-rights-card--blue {
-  background-image: url('/images/patterns-blue.jpg');
+  background-image: linear-gradient(var(--aiep-image-scrim-soft), var(--aiep-image-scrim-soft)), url('/images/patterns-blue.jpg');
 }
 
 /* Single h1 style for both variants */
@@ -192,7 +193,7 @@
   position: relative;
   z-index: 2;
   text-align: start;
-  color: #343a40;
+  color: var(--aiep-ink);
   height: 228px;
   margin-bottom: 1.5rem;
 }
@@ -209,7 +210,7 @@
   font-size: 1rem;
   line-height: 1.5;
   margin-bottom: 0;
-  color: #6c757d;
+  color: var(--aiep-muted);
 }
 
 /* A divider's text block stays EXACTLY as tall as every other slide's, even
@@ -235,7 +236,7 @@
   height: 8px;
   border-radius: 50%;
   border: 0.5px solid #1E1E1E;
-  background-color: #E7E4DC;
+  background-color: var(--aiep-surface-field);
   margin: 0 4px;
   transition: all 0.3s ease;
 }

@@ -106,8 +106,11 @@
   border-color: #00682F;
 }
 
+/* 0.9, not 0.8: this is the English name under the native one on an unselected
+   language button, where the text is #00682F on cream. 0.8 composites to
+   4.15:1 at 14.4px; 0.9 is 5.11:1 and still reads as the secondary line. */
 .language-name {
-  opacity: 0.8;
+  opacity: 0.9;
   font-size: 0.9rem;
 }
 
@@ -123,8 +126,8 @@
 
 /* Custom checkbox styles */
 .form-check-input:checked {
-  background-color: #0d6efd;
-  border-color: #0d6efd;
+  background-color: var(--aiep-green);
+  border-color: var(--aiep-green);
 }
 
 /* Custom button group styles for profile actions */

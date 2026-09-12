@@ -5,16 +5,16 @@
   padding: 12px 16px;
   font-size: 1rem;
   border-radius: 30px;
-  border: 2px solid #e9ecef;
+  border: 2px solid var(--aiep-border);
   transition: all 0.3s ease;
-  background-color: #E7E4DC;
+  background-color: var(--aiep-surface-field);
   color: #1E1E1E;
 }
 
 /* Placeholder styling for email input */
 .email-input-control::placeholder {
   color: #1E1E1E;
-  opacity: 0.35;
+  opacity: 0.7;
 }
 
 /* Browsers force type="email" inputs to LTR, which left-aligns the

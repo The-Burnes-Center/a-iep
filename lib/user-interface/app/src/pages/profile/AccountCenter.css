@@ -83,12 +83,12 @@
 
 /* Logout icon color for last item */
 .logout-icon {
-  color: #F01E19;
+  color: var(--aiep-error);
 }
 
 /* Background color for open accordion header */
 .account-center-accordion .accordion-button:not(.collapsed) {
-  background-color: #E7E4DC;
+  background-color: var(--aiep-surface-field);
 }
 
 .account-center-accordion .accordion-item:first-child {
@@ -100,7 +100,7 @@
 }
 
 .account-center-accordion .accordion-item:last-child .accordion-button {
-  color: #F01E19;
+  color: var(--aiep-error);
 }
 
 .no-padding-inherit-faq {
@@ -148,7 +148,7 @@
 }
 
 .support-center-accordion .accordion-button:not(.collapsed) {
-  background-color: #E7E4DC;
+  background-color: var(--aiep-surface-field);
 }
 
 .support-center-accordion .accordion-item:first-child {

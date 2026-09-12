@@ -3,7 +3,7 @@
   flex-direction: row;
   justify-content: space-between;
   align-items: center;
-  border: 1px solid #CBC6BC;
+  border: 1px solid var(--aiep-border);
   border-radius: 20px;
   padding: 16px;
   margin: 16px 0;
@@ -35,7 +35,7 @@
 }
 
 .landing-cta:hover .landing-cta-arrow {
-  background-color: #E7E4DC;
+  background-color: var(--aiep-surface-field);
 }
 
 
