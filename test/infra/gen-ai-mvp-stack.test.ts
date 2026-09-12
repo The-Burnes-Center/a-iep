@@ -164,6 +164,42 @@ function resourcesMatching(t: Template, type: string, hint: string): [string, an
   return Object.entries(t.findResources(type)).filter(([logicalId]) => logicalId.includes(hint));
 }
 
+// Every env var that decides which countries A-IEP will send a code to: the
+// OTP send path, the /auth/start front door, and the signup endpoint. All
+// three are fed from one constant in lib/authorization/new-auth.ts, so they
+// are asserted together rather than one at a time — a widening that reached
+// only two of the three would be worse than one that reached all three.
+const COUNTRY_CODE_VARS = [
+  'SMS_ALLOWED_COUNTRY_CODES',
+  'AUTH_ALLOWED_COUNTRY_CODES',
+  'SIGNUP_ALLOWED_COUNTRY_CODES',
+];
+
+/**
+ * Assert that every configured destination country in a template is +1, and
+ * that there is something there to assert.
+ *
+ * The exact value is what matters. A check that the variable merely exists
+ * passes just as happily against a list that has quietly grown a second
+ * country, which is the same weakness as asserting a grant exists without
+ * asserting it is not '*'. Run against both the staging and production
+ * synths, because neither template can speak for the other.
+ */
+function expectOnlyUsDestinations(t: Template) {
+  const configured = Object.entries(t.findResources('AWS::Lambda::Function'))
+    .flatMap(([logicalId, fn]: [string, any]) => {
+      const vars = fn.Properties?.Environment?.Variables ?? {};
+      return COUNTRY_CODE_VARS
+        .filter((name) => name in vars)
+        .map((name) => `${logicalId}.${name}=${vars[name]}`);
+    });
+
+  // Vacuity floor: a renamed variable would empty this list and let the
+  // assertion below pass while nothing at all was pinned.
+  expect(configured.length).toBeGreaterThanOrEqual(COUNTRY_CODE_VARS.length);
+  expect(configured.filter((entry) => !entry.endsWith('=+1'))).toEqual([]);
+}
+
 function retentionOffenders(entries: [string, any][]): string[] {
   return entries
     .filter(([, r]) => r.DeletionPolicy !== 'Retain' || r.UpdateReplacePolicy !== 'Retain')
@@ -891,6 +927,12 @@ describe('Cognito custom-auth wiring', () => {
   // Widening this to a country the service does not serve removes a
   // load-bearing abuse control. The lambda defaults to +1 on its own; this
   // pins the value actually deployed.
+  //
+  // The exact value is the point, not the presence: '+1,+44' would satisfy
+  // any "the variable is set" check while shipping a second country, the same
+  // way a decrypt grant widened to '*' satisfies "kms:Decrypt exists" (see
+  // 'and nothing wider' above). Staging is pinned here; the production synth
+  // pins its own copy, because this one cannot speak for that template.
   test('create-auth-challenge only texts +1 destinations', () => {
     template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
       Handler: 'create-auth-challenge.handler',
@@ -898,6 +940,8 @@ describe('Cognito custom-auth wiring', () => {
         Variables: Match.objectLike({ SMS_ALLOWED_COUNTRY_CODES: '+1' }),
       }),
     }));
+
+    expectOnlyUsDestinations(template);
   });
 
   // The SMS ceilings are read at runtime from Parameter Store so the deployed
@@ -2343,6 +2387,21 @@ describe('production synth: the OTP test backdoor must not exist', () => {
       .filter((name: any) => typeof name === 'string');
 
     expect(aliases.filter((name: string) => name.includes('custom-sender'))).toEqual([]);
+  });
+
+  // Also nested here to reuse the production synth. The staging template
+  // carries the same pin, and neither stands in for the other: these are two
+  // separate deploys of one codebase, and production is the one with real
+  // families on it.
+  test('production only ever sends a code to a +1 destination', () => {
+    prodTemplate.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
+      Handler: 'create-auth-challenge.handler',
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({ SMS_ALLOWED_COUNTRY_CODES: '+1' }),
+      }),
+    }));
+
+    expectOnlyUsDestinations(prodTemplate);
   });
 
   // Nested here to reuse this describe's production synth: the retention and

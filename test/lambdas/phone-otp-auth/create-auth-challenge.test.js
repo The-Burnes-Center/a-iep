@@ -102,6 +102,14 @@ const RATE_LIMITED_SHAPE = {
     errorCode: 'rate_limited',
 };
 
+// Every destination refusal answers with this, whatever the reason. A caller
+// must not be able to tell a country the service does not serve from a value
+// it could not read, so the two are pinned to one shape rather than two.
+const UNSUPPORTED_SHAPE = {
+    error: 'This phone number is not supported. A-IEP can only send codes to United States numbers.',
+    errorCode: 'unsupported_destination',
+};
+
 const updateCalls = () => mockDdbSend.mock.calls.filter(([cmd]) => cmd instanceof UpdateCommand);
 // Per-phone rows are keyed by sha256(phone) + hour bucket; the global budget
 // rows on the same table are keyed 'GLOBAL#...'.
@@ -297,10 +305,16 @@ describe('create-auth-challenge', () => {
         expect(JSON.parse(event.response.challengeMetadata).error).toBe('SNS is down');
     });
 
-    test('a phone number not in E.164 format is rejected before any SMS', async () => {
+    // Previously this returned the generic "try again" shape, which was both
+    // a lie (a stored value that is not a number never becomes one on a
+    // retry) and an alarm problem: it counted an unusable attribute as broken
+    // SMS delivery. It is a destination refusal, and it answers as one.
+    test('a phone number not in E.164 format is refused before any SMS', async () => {
         const event = await handler(baseEvent([HANDSHAKE_PASS], { userAttributes: { phone_number: '5551234567' } }));
-        expect(event.response.publicChallengeParameters).toEqual(ERROR_SHAPE);
+        expect(event.response.publicChallengeParameters).toEqual(UNSUPPORTED_SHAPE);
         expect(mockSnsSend).not.toHaveBeenCalled();
+        // And no counter row either: nothing was spent, so nothing is metered.
+        expect(updateCalls()).toHaveLength(0);
     });
 
     test('a missing phone number is rejected before any SMS', async () => {
@@ -679,8 +693,68 @@ describe('create-auth-challenge', () => {
             await handler(eventTo(TANZANIA));
 
             const messages = logged.mock.calls.map((args) => args.join(' ')).join('\n');
+            expect(messages).toContain('SMS_REFUSED_DESTINATION');
+            // Which refusal it was, so the two are separable in CloudWatch
+            // even though they are identical to the caller.
+            expect(messages).toContain('reason=country-code');
             expect(messages).toContain('+255');
             expect(messages).not.toContain(TANZANIA);
+            logged.mockRestore();
+        });
+
+        // The E2E suite's numbers are NANP fictional (+1 555 555-01XX), so
+        // they clear the allowlist on the country code like any other US
+        // number, with no exception carved for them. Pinned rather than
+        // assumed: the backdoor env vars are unset here, so this is the
+        // allowlist passing them and not the test path swallowing them.
+        test('the reserved E2E numbers clear the allowlist as ordinary +1 numbers', async () => {
+            for (const reserved of ['+15555550100', '+15555550101', '+15555550111']) {
+                mockSnsSend.mockClear();
+
+                const event = await handler(eventTo(reserved));
+
+                expect(mockSnsSend).toHaveBeenCalledTimes(1);
+                expect(mockSnsSend.mock.calls[0][0].input.PhoneNumber).toBe(reserved);
+                expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+            }
+        });
+
+        // Fails CLOSED on anything it cannot read, and repairs none of it.
+        // The second case is a US number missing its '+': coercing it would
+        // mean inventing a destination. The last two are the ones that used
+        // to get through, because this file carried its own E.164 expression
+        // that was looser than the one /auth/start vets a typed destination
+        // with, and the looser rule is the one that decides what is sent.
+        test.each([
+            ['no leading plus', '15555550100'],
+            ['leading whitespace', ' +15555550100'],
+            ['letters in the middle', '+1555ABC0100'],
+            ['far too short to be a number', '+12'],
+        ])('an unreadable destination (%s) is refused, never texted', async (_label, value) => {
+            const event = await handler(eventTo(value));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(updateCalls()).toHaveLength(0);
+            // Identical to the wrong-country answer on purpose.
+            expect(event.response.publicChallengeParameters).toEqual(UNSUPPORTED_SHAPE);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+        });
+
+        test('the unreadable refusal is logged with its reason and without the value', async () => {
+            const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            await handler(eventTo('15555550100'));
+
+            const messages = logged.mock.calls.map((args) => args.join(' ')).join('\n');
+            expect(messages).toContain('SMS_REFUSED_DESTINATION');
+            expect(messages).toContain('reason=unreadable');
+            // Nothing of the value itself: there is no dialling prefix worth
+            // recording on something that is not a number, and no safe way to
+            // quote the rest of it.
+            expect(messages).not.toContain('15555550100');
+            // And it is not counted as broken delivery, which would page the
+            // SMS outage alarm every time an account carries a bad attribute.
+            expect(messages).not.toContain('SMS_SEND_FAILED');
             logged.mockRestore();
         });
 
