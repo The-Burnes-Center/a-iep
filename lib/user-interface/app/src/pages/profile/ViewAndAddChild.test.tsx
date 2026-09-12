@@ -130,11 +130,18 @@ const Here = () => <div data-testid="landed-on">{useLocation().pathname}</div>;
  * decides whether the Back control renders at all.
  */
 const renderPage = (
-  { enabledFeatures = [] as Feature[], from = null as string | null } = {},
+  {
+    enabledFeatures = [] as Feature[],
+    from = null as string | null,
+    // Onboarding sets this on the way in; Account Center does not. It is the
+    // whole difference between finishing a flow and correcting a typo.
+    onboarding = true,
+  } = {},
 ) => {
+  const here = { pathname: PAGE, state: onboarding ? { onboardingContinue: true } : null };
   render(
     <MemoryRouter
-      initialEntries={from ? [from, PAGE] : [PAGE]}
+      initialEntries={from ? [from, here] : [here]}
       initialIndex={from ? 1 : 0}
     >
       <AppContext.Provider value={appConfig(enabledFeatures)}>
@@ -309,6 +316,23 @@ describe("where saving sends a parent", () => {
 
     await waitFor(() =>
       expect(screen.getByTestId("landed-on")).toHaveTextContent("/summary-and-translations"),
+    );
+  });
+
+  test("back to Account Center when the parent came to correct the name", async () => {
+    // Reached from Account Center rather than onboarding, so there is no flow
+    // left to finish: pushing them on to the welcome step would be a detour
+    // through something they completed long ago.
+    stubFetch(profileWith({}));
+    const user = renderPage({ onboarding: false });
+    await waitForForm();
+
+    await user.clear(nameField());
+    await user.type(nameField(), "Alex Rivera");
+    await user.click(saveButton());
+
+    await waitFor(() =>
+      expect(screen.getByTestId("landed-on")).toHaveTextContent("/account-center"),
     );
   });
 

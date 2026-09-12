@@ -51,6 +51,11 @@ export default function ViewAndAddChild() {
   // navigation after signing in, gets no Back button instead of one that
   // leaves the app.
   const canGoBack = location.key !== 'default';
+  // Set only by the onboarding entry points (ConsentForm, PreferredLanguage).
+  // Its absence is what tells this screen it was opened to edit a name that
+  // is already there.
+  const isOnboarding = Boolean(
+    (location.state as { onboardingContinue?: boolean } | null)?.onboardingContinue);
 
   useEffect(() => {
     loadProfileAndCheckDocument();
@@ -153,6 +158,15 @@ export default function ViewAndAddChild() {
         // Don't fail the flow if this update fails
       }
 
+
+      // Onboarding arrives here with onboardingContinue set, and carries on
+      // into the app. Account Center does not, and a parent who came to
+      // correct a name belongs back where they started rather than being
+      // pushed through the rest of a flow they finished long ago.
+      if (!isOnboarding) {
+        navigate('/account-center');
+        return;
+      }
 
       // Navigate based on whether user has existing documents
       if (hasExistingDocument) {

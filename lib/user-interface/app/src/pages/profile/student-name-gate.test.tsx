@@ -113,7 +113,10 @@ const renderPage = (
   enabledFeatures: Feature[],
 ) => {
   render(
-    <MemoryRouter initialEntries={[path]}>
+    // Every test here walks the onboarding flow, and onboarding carries this
+    // state on every hop. ViewAndAddChild reads it to tell finishing the flow
+    // apart from coming back later to correct the name.
+    <MemoryRouter initialEntries={[{ pathname: path, state: { onboardingContinue: true } }]}>
       <AppContext.Provider value={appConfig(enabledFeatures)}>
         <LanguageContext.Provider value={languageValue}>
           <AuthProvider>

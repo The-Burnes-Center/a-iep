@@ -65,6 +65,9 @@ const AccountCenter: React.FC = () => {
       case '1':
         navigate('/account-center/change-language');
         break;
+      case '6':
+        navigate('/view-update-add-child');
+        break;
       case '2':
         navigate('/account-center/delete-account');
         break;
@@ -95,6 +98,14 @@ const AccountCenter: React.FC = () => {
       id: "1",
       title: t("accountCenter.changeLanguage"),
       testId: "account-center-change-language",
+    },
+    // The only way back to the child's name once onboarding has asked for it.
+    // Without this a parent who mistyped it was stuck with it: the name heads
+    // every summary and every translation, and is read aloud.
+    {
+      id: "6",
+      title: t("accountCenter.childName"),
+      testId: "account-center-child-name",
     },
     // The only in-app entry point to the referral flow, so this row is what
     // keeps referrals dark where the feature is off (prod). The /invite route
