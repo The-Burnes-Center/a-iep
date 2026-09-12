@@ -1312,3 +1312,78 @@ def test_account_delete_does_not_claim_success_when_the_profile_row_survives(api
     status, _ = call(api, '/profile', 'DELETE')
 
     assert status != 200, 'a surviving profile row was reported as a successful deletion'
+
+
+# ---------------------------------------------------------------------------
+# Capitalising the name a parent typed
+# ---------------------------------------------------------------------------
+#
+# The name goes into the heading of every summary and every translation, and
+# is read aloud by TTS. A parent typing "dhruv" sees it that way everywhere,
+# in five languages, with no way today to go back and change it.
+
+
+def _stored_child_name(api):
+    stored = stored_profile(api)['children'][0]
+    return api.kms.decrypt(
+        CiphertextBlob=base64.b64decode(stored['name']))['Plaintext'].decode()
+
+
+@pytest.mark.parametrize('typed,stored', [
+    ('dhruv', 'Dhruv'),
+    ('dhruv kumar', 'Dhruv Kumar'),
+    ('mary-jane', 'Mary-Jane'),       # both halves, not just the first
+    ("o'brien", "O'Brien"),
+    ('josé', 'José'),                  # upper() is Unicode-aware
+    ('nguyễn', 'Nguyễn'),
+    ('dhruv   kumar', 'Dhruv Kumar'),  # the matcher splits on whitespace
+])
+def test_a_name_typed_in_lower_case_is_capitalised_on_save(api, typed, stored):
+    api.profiles.put_item(Item={'userId': USER})
+    status, _ = call(api, '/profile', 'PUT', body={
+        'children': [{'name': typed, 'schoolCity': 'Boston'}],
+    })
+    assert status == 200
+    assert _stored_child_name(api) == stored
+
+
+@pytest.mark.parametrize('typed', [
+    'AJ',             # initials, not a mis-typed "Aj"
+    'McDonald',       # would become "Mcdonald"
+    'van der Berg',   # would become "Van Der Berg"
+    'JOSÉ',           # a stuck caps lock and a deliberate choice look identical
+    'Dhruv',          # already right; must not be touched
+])
+def test_a_name_holding_any_capital_is_left_exactly_as_typed(api, typed):
+    """The narrow rule is the point.
+
+    Every cleverer rule gets somebody's name wrong, and getting a child's name
+    wrong is not a neutral error in a product about their disability. The
+    moment a parent has typed a capital, they have made a choice.
+    """
+    api.profiles.put_item(Item={'userId': USER})
+    status, _ = call(api, '/profile', 'PUT', body={
+        'children': [{'name': typed, 'schoolCity': 'Boston'}],
+    })
+    assert status == 200
+    assert _stored_child_name(api) == typed
+
+
+@pytest.mark.parametrize('typed', ['张伟', 'محمد'])
+def test_a_script_without_case_passes_through_untouched(api, typed):
+    """No-op by construction: str.upper() does nothing to these."""
+    api.profiles.put_item(Item={'userId': USER})
+    status, _ = call(api, '/profile', 'PUT', body={
+        'children': [{'name': typed, 'schoolCity': 'Boston'}],
+    })
+    assert status == 200
+    assert _stored_child_name(api) == typed
+
+
+def test_add_child_capitalises_the_same_way_as_update(api):
+    """Both write paths, or a parent gets different answers on the two routes."""
+    api.profiles.put_item(Item={'userId': USER})
+    status, _ = call(api, '/profile/children', 'POST',
+                     body={'name': 'dhruv', 'schoolCity': 'Boston'})
+    assert status in (200, 201), status
+    assert _stored_child_name(api) == 'Dhruv'

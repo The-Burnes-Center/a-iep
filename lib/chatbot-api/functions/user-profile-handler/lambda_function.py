@@ -9,6 +9,7 @@ from router import Router, UserProfileRouter, RouteNotFoundException
 from student_name_substitution import substitute_content, usable_student_name
 import base64
 import copy
+import re
 from botocore.exceptions import ClientError
 
 dynamodb = boto3.resource('dynamodb')
@@ -206,6 +207,47 @@ def kms_encrypt_string(plaintext: str) -> str:
         raise FieldEncryptionError(
             f"Field encryption failed: {type(e).__name__}"
         ) from e
+
+# Word starts, for capitalising a name: the beginning of the string, or the
+# character after a space, a hyphen, or either apostrophe. So "mary-jane" and
+# "o'brien" get both halves, not just the first.
+_NAME_WORD_START = re.compile(r"(^|[\s\-'\u2019])(\w)", re.UNICODE)
+
+
+def normalize_child_name(name: str) -> str:
+    """Tidy the name a parent typed, without ever overruling a choice they made.
+
+    A parent typing "dhruv" gets "Dhruv" in the heading of every summary, in
+    five languages, and today has no way to go back and fix it. So the lower
+    case case is worth correcting on the way in.
+
+    The rule is deliberately narrow: capitalise ONLY when the parent typed no
+    capital at all. The moment there is one, the whole value is left exactly as
+    given, because every clever rule beyond this point gets somebody's name
+    wrong:
+
+      AJ -> Aj             McDonald -> Mcdonald
+      van der Berg -> Van Der Berg      JOSE -> Jose
+
+    Those are real names, and getting a child's name wrong is not a neutral
+    error in a product about their disability. An all-capitals name is left
+    alone for the same reason: "AJ" and a stuck caps lock are indistinguishable
+    from here, and only one of the two guesses is recoverable by the parent.
+
+    Scripts without case are unaffected by construction, since str.upper() is a
+    no-op on them: Chinese, Arabic and the unaccented parts of Vietnamese all
+    pass through untouched, and Python's upper() is Unicode-aware, so
+    "nguyễn" -> "Nguyễn" and "josé" -> "José" both come out right.
+
+    Runs of whitespace are collapsed as well, so the redaction matcher, which
+    splits the name on whitespace, sees the same tokens the parent meant.
+    """
+    collapsed = ' '.join((name or '').split())
+    if any(character.isupper() for character in collapsed):
+        return collapsed
+    return _NAME_WORD_START.sub(
+        lambda match: match.group(1) + match.group(2).upper(), collapsed)
+
 
 def kms_decrypt_string(ciphertext_b64: str) -> str:
     if not ciphertext_b64:
@@ -456,7 +498,7 @@ def update_user_profile(event: Dict) -> Dict:
             # Encrypt at rest, same as phone/city/parentName above.
             update_parts.append('children = :children')
             expr_values[':children'] = [
-                {**child, 'name': kms_encrypt_string(child['name'].strip())}
+                {**child, 'name': kms_encrypt_string(normalize_child_name(child['name']))}
                 for child in body['children']
             ]
         
@@ -542,7 +584,7 @@ def add_child(event: Dict) -> Dict:
         child_id = str(uuid.uuid4())
         new_child = {
             'childId': child_id,
-            'name': kms_encrypt_string(body['name'].strip()),
+            'name': kms_encrypt_string(normalize_child_name(body['name'])),
             'schoolCity': body['schoolCity'],
             'createdAt': times['timestamp'],
             'createdAtISO': times['datetime'],
