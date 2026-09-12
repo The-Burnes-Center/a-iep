@@ -44,17 +44,25 @@ function resolveEnabledLanguages(): string[] {
 // lib/user-interface/app/vite.config.ts, and with the feature list in
 // lib/user-interface/app/src/common/features.ts.
 export const ALL_FEATURES = ["tts", "referrals", "studentNameGate", "parentNameGate", "passwordlessAuth"];
-// Referrals went live on prod 2026-08-04: the invite entry point in Account
-// Center is all the flag gates, and the referral table and routes were already
-// deployed and idle. TTS, the student-name gate, the parent-name gate and
-// passwordlessAuth stay dark. The student-name gate stays dark until the
-// redaction pipeline that makes the child's name load-bearing is verified in
-// production too; see common/features.ts.
+// Referrals went live on prod 2026-08-04. The student-name gate, the parent-
+// name gate and passwordlessAuth go live with the promotion that carries this
+// line; TTS stays dark.
+//
+// The student-name gate is not optional in prod once the redaction ships,
+// which is the part worth understanding before changing this list. The
+// pipeline's redaction is NOT behind this flag -- ALLOWED_PII_ENTITY_TYPES in
+// redact_ocr/comprehend_redactor.py runs in every environment -- so prod
+// redacts every name the moment the promotion lands. With the gate dark no
+// parent is ever asked for their child's name, nothing is substituted back,
+// and every newly processed summary calls the child "your child" throughout.
+// Turning the gate off in prod without also reverting the redaction is
+// therefore a user-visible downgrade, not a safe no-op.
+//
 // passwordlessAuth gates CustomLogin's /auth/start + /auth/verify flow
-// (docs/AUTH_API_CONTRACT.md): the old Amplify custom-auth path keeps working
-// in every environment regardless of this flag, so turning it on in prod is a
-// config flip once the new path has carried real dev/staging traffic.
-export const PROD_FEATURES: string[] = ["referrals"];
+// (docs/AUTH_API_CONTRACT.md). The old Amplify custom-auth path keeps working
+// in every environment regardless of this flag, so reverting is a config flip
+// rather than a deploy.
+export const PROD_FEATURES: string[] = ["referrals", "studentNameGate", "parentNameGate", "passwordlessAuth"];
 // Dark in every environment by default, staging included, until a feature's
 // rollout needs that. Empty for now: passwordlessAuth was the one entry here,
 // kept dark even on staging until e2e/helpers/app.ts could detect and drive

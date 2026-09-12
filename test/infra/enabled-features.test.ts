@@ -46,12 +46,34 @@ const readArrayLiteral = (source: string, name: string): string[] => {
 describe('enabled features per environment', () => {
   const viteSource = fs.readFileSync(VITE_CONFIG, 'utf8');
 
-  it('ships exactly referrals in production', () => {
-    // TTS, the student-name gate and the parent-name gate are deliberately
-    // dark in prod. Referrals went live 2026-08-04. The student-name gate
-    // stays dark until the redaction pipeline that makes the child's name
-    // load-bearing is verified in production too.
-    expect(CDK_PROD_FEATURES).toEqual(['referrals']);
+  it('ships everything but TTS in production', () => {
+    // Referrals went live 2026-08-04; the other three go live with the
+    // promotion that carries this list. TTS is the only one still dark.
+    //
+    // Asserted as an exact list, in order, rather than a membership check:
+    // this is the line that decides what every family sees, and a widening
+    // should have to be written here deliberately rather than slipping in
+    // behind a toContain.
+    expect(CDK_PROD_FEATURES).toEqual([
+      'referrals',
+      'studentNameGate',
+      'parentNameGate',
+      'passwordlessAuth',
+    ]);
+    // TTS specifically, so removing it from the list above cannot quietly
+    // light it: prod has no automated journey coverage to catch that.
+    expect(CDK_PROD_FEATURES).not.toContain('tts');
+  });
+
+  it('keeps the student-name gate on wherever the redaction runs', () => {
+    // The pipeline's redaction is not behind this flag: redact_ocr's
+    // ALLOWED_PII_ENTITY_TYPES runs in every environment. So a build that
+    // redacts names but never asks for the child's name has nothing to
+    // substitute back, and every new summary calls the child "your child".
+    // The two have to ship together, and this is the only place that can say
+    // so, since nothing in the pipeline reads enabledFeatures at all.
+    expect(CDK_PROD_FEATURES).toContain('studentNameGate');
+    expect(CDK_ALL_FEATURES).toContain('studentNameGate');
   });
 
   it('declares the same production list at deploy time and at build time', () => {
