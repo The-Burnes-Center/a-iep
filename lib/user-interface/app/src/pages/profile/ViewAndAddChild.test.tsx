@@ -299,19 +299,6 @@ describe("what it sends", () => {
 });
 
 describe("where saving sends a parent", () => {
-  test("to the parent-name step when that gate is still owed", async () => {
-    stubFetch(profileWith({ parentName: undefined }));
-    const user = renderPage({ enabledFeatures: ["parentNameGate"] });
-    await waitForForm();
-
-    await user.type(nameField(), "Alex Rivera");
-    await user.click(saveButton());
-
-    await waitFor(() =>
-      expect(screen.getByTestId("landed-on")).toHaveTextContent("/account-center/profile"),
-    );
-  });
-
   test("to the summary when a document is already on file", async () => {
     stubFetch(profileWith({}), { document: { status: "PROCESSED", iepId: "doc-1" } });
     const user = renderPage();

@@ -8,7 +8,6 @@ import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { UserProfile } from '../../common/types';
 import { useLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
-import { useFeatures } from '../../common/hooks/use-features';
 import { isPlaceholderChildName } from '../../common/features';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import LanguageDropdown from '../../components/LanguageDropdown';
@@ -28,7 +27,6 @@ export default function ViewAndAddChild() {
   const navigate = useNavigate();
   const location = useLocation();
   const { t, language, setLanguage, enabledLanguages } = useLanguage();
-  const { isFeatureEnabled } = useFeatures();
 
   const [loading, setLoading] = useState(true);
   // Two separate failures: a profile that will not load leaves nothing to
@@ -155,14 +153,6 @@ export default function ViewAndAddChild() {
         // Don't fail the flow if this update fails
       }
 
-      // Onboarding order: the student's name comes first (product call), so
-      // once it is saved, check whether the parent-name gate is still owed
-      // before reaching the app -- otherwise a parent missing both names
-      // would clear this gate and skip the other one entirely.
-      if (isFeatureEnabled('parentNameGate') && !profile?.parentName) {
-        navigate('/account-center/profile', { state: { onboardingContinue: true } });
-        return;
-      }
 
       // Navigate based on whether user has existing documents
       if (hasExistingDocument) {

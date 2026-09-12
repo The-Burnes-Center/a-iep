@@ -75,25 +75,11 @@ export default function PreferredLanguage() {
         return;
       }
 
-      // The student's name is asked FIRST (product call): a parent missing
-      // both names must see the child form before the parent-name form, so
-      // this check runs ahead of parentNameGate below rather than racing it.
-      // Dark in production until the redaction pipeline that makes this name
-      // load-bearing is verified there (common/features.ts).
+      // The child's name is the only thing onboarding asks for beyond
+      // language and consent. It is load-bearing: without it a summary can
+      // only refer to the child in the general phrase.
       if (isFeatureEnabled('studentNameGate') && isStudentNameMissing(data)) {
         navigate('/view-update-add-child', { state: { onboardingContinue: true } });
-        return;
-      }
-
-      // Same for the parent's name: nothing else in the flow collects it,
-      // and referral links / the admin console display it.
-      //
-      // Gated (see common/features.ts): those two consumers are exactly what
-      // is dark on prod, so there the gate would interrupt every one of the
-      // ~110 existing parents to collect a value nothing in that environment
-      // reads. It turns back on with the referral features, in the same flip.
-      if (isFeatureEnabled('parentNameGate') && !(data && data.parentName)) {
-        navigate('/account-center/profile', { state: { onboardingContinue: true } });
         return;
       }
 

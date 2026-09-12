@@ -23,7 +23,6 @@ import UserProfileForm from '../pages/profile/UserProfileForm';
 import IEPDocumentView from '../pages/iep-folder/IEPDocumentView';
 import SummaryAndTranslationsPage from '../pages/iep-folder/SummaryAndTranslationsPage';
 import ViewAndAddChild from '../pages/profile/ViewAndAddChild';
-import ViewAndAddParent from '../pages/profile/ViewAndAddParent';
 import UpdateProfileName from '../pages/profile/UpdateProfileName';
 import RevokeConsent from '../pages/profile/RevokeConsent';
 import RightsAndOnboarding from '../pages/RightsAndOnboarding';
@@ -139,7 +138,6 @@ export default function AppRoutes() {
         
         {/* Children & Parents */}
         <Route path="/view-update-add-child" element={<ViewAndAddChild />} />
-        <Route path="/view-and-add-parent" element={<ViewAndAddParent />} />
         
         {/* Rights & Resources */}
         <Route path="/rights-and-onboarding" element={<RightsAndOnboarding />} />

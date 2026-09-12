@@ -57,7 +57,6 @@ describe('enabled features per environment', () => {
     expect(CDK_PROD_FEATURES).toEqual([
       'referrals',
       'studentNameGate',
-      'parentNameGate',
       'passwordlessAuth',
     ]);
     // TTS specifically, so removing it from the list above cannot quietly

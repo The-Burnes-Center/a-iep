@@ -69,8 +69,6 @@ export default function ConsentForm() {
     if (profile?.consentGiven) {
       if (isFeatureEnabled('studentNameGate') && isStudentNameMissing(profile)) {
         navigate('/view-update-add-child', { state: { onboardingContinue: true } });
-      } else if (isFeatureEnabled('parentNameGate') && !profile?.parentName) {
-        navigate('/account-center/profile', { state: { onboardingContinue: true } });
       } else {
         navigate('/iep-documents');
       }
@@ -105,8 +103,6 @@ export default function ConsentForm() {
       // them), otherwise go to IEP documents. Same gating caveat as above.
       if (isFeatureEnabled('studentNameGate') && isStudentNameMissing(profile)) {
         navigate('/view-update-add-child', { state: { onboardingContinue: true } });
-      } else if (isFeatureEnabled('parentNameGate') && !profile?.parentName) {
-        navigate('/account-center/profile', { state: { onboardingContinue: true } });
       } else {
         navigate('/iep-documents');
       }

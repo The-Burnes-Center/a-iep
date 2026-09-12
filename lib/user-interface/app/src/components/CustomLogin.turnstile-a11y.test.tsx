@@ -86,7 +86,7 @@ const renderLogin = (language: SupportedLanguage = "en") => {
     // switching tabs there mounts a fresh widget instead of leaving none, and
     // "was reset" is no longer the right thing to announce. That behaviour
     // has its own coverage in PasswordlessAuthForm.test.tsx.
-    enabledFeatures: ["tts", "referrals", "parentNameGate"],
+    enabledFeatures: ["tts", "referrals"],
   } as never;
 
   const view = render(

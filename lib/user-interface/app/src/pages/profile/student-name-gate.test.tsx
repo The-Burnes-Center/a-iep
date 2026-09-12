@@ -1,5 +1,5 @@
 /**
- * studentNameGate: ordering against parentNameGate, and the redirect itself.
+ * studentNameGate: the redirect itself, and what counts as a missing name.
  *
  * The product's call is student name first, then parent name, never a race
  * between the two (docs/STUDENT_NAME_REDACTION_PLAN.md, "Mandatory student
@@ -42,7 +42,7 @@ const appConfig = (enabledFeatures: Feature[]): AppConfig =>
   }) as unknown as AppConfig;
 
 /** A returning parent: onboarding already marked done, so the mandatory
- * checks (consent, then studentNameGate, then parentNameGate) are what
+ * checks (consent, then studentNameGate) are what
  * decide where they land -- the branch these tests exercise. */
 const profileWith = (overrides: Record<string, unknown>) => ({
   userId: "parent-1",
@@ -146,20 +146,23 @@ beforeEach(() => {
 describe("PreferredLanguage's mandatory-checks gate", () => {
   test("sends a parent missing both names to the child form, not the parent form", async () => {
     stubFetch(noStudentName({ parentName: undefined }));
-    renderPage("/preferred-language", <PreferredLanguage />, ["studentNameGate", "parentNameGate"]);
+    renderPage("/preferred-language", <PreferredLanguage />, ["studentNameGate"]);
 
     await waitFor(() =>
       expect(screen.getByTestId("landed-on")).toHaveTextContent("/view-update-add-child"),
     );
   });
 
-  test("falls through to the parent-name gate once the student's name is on file", async () => {
+  test("goes straight into the app once the student's name is on file", async () => {
+    // The parent's name is no longer collected during onboarding, so the
+    // child's name is the last thing standing between here and the app.
     stubFetch(profileWith({ parentName: undefined }));
-    renderPage("/preferred-language", <PreferredLanguage />, ["studentNameGate", "parentNameGate"]);
+    renderPage("/preferred-language", <PreferredLanguage />, ["studentNameGate"]);
 
     await waitFor(() =>
-      expect(screen.getByTestId("landed-on")).toHaveTextContent("/account-center/profile"),
+      expect(screen.getByTestId("landed-on")).not.toHaveTextContent("/view-update-add-child"),
     );
+    expect(screen.getByTestId("landed-on")).not.toHaveTextContent("/account-center/profile");
   });
 
   test("treats the auto-created 'My Child' placeholder as no name given", async () => {
@@ -173,7 +176,7 @@ describe("PreferredLanguage's mandatory-checks gate", () => {
 
   test("does not redirect once a real name is on file (the gate stops firing)", async () => {
     stubFetch(profileWith({}));
-    renderPage("/preferred-language", <PreferredLanguage />, ["studentNameGate", "parentNameGate"]);
+    renderPage("/preferred-language", <PreferredLanguage />, ["studentNameGate"]);
 
     await waitFor(() =>
       expect(screen.getByTestId("landed-on")).toHaveTextContent("/summary-and-translations"),
@@ -198,7 +201,7 @@ describe("ConsentForm's continue button, when consent is already given", () => {
 
   test("sends a parent missing both names to the child form first", async () => {
     stubFetch(noStudentName({ parentName: undefined }));
-    const user = renderPage("/consent-form", <ConsentForm />, ["studentNameGate", "parentNameGate"]);
+    const user = renderPage("/consent-form", <ConsentForm />, ["studentNameGate"]);
 
     await waitFor(() => expect(screen.getByRole("checkbox")).toBeChecked());
     await user.click(screen.getByRole("button", { name: "consent.button" }));
@@ -208,15 +211,17 @@ describe("ConsentForm's continue button, when consent is already given", () => {
     );
   });
 
-  test("falls through to the parent-name gate once the student's name is on file", async () => {
+  test("goes to the documents page once the student's name is on file", async () => {
+    // No parent-name step to fall through to any more: a parent whose child
+    // is named reaches the app from here.
     stubFetch(profileWith({ parentName: undefined }));
-    const user = renderPage("/consent-form", <ConsentForm />, ["studentNameGate", "parentNameGate"]);
+    const user = renderPage("/consent-form", <ConsentForm />, ["studentNameGate"]);
 
     await waitFor(() => expect(screen.getByRole("checkbox")).toBeChecked());
     await user.click(screen.getByRole("button", { name: "consent.button" }));
 
     await waitFor(() =>
-      expect(screen.getByTestId("landed-on")).toHaveTextContent("/account-center/profile"),
+      expect(screen.getByTestId("landed-on")).toHaveTextContent("/iep-documents"),
     );
   });
 });
@@ -231,19 +236,6 @@ describe("ViewAndAddChild, the gate's destination", () => {
     )) as HTMLInputElement;
     expect(nameField.value).toBe("");
     expect(screen.getByTestId("child-save-button")).toBeDisabled();
-  });
-
-  test("continues to the parent-name gate after saving, instead of skipping it", async () => {
-    stubFetch(noStudentName({ parentName: undefined }));
-    const user = renderPage("/view-update-add-child", <ViewAndAddChild />, ["parentNameGate"]);
-
-    const nameField = await screen.findByPlaceholderText("child.name.placeholder");
-    await user.type(nameField, "Alex Rivera");
-    await user.click(screen.getByTestId("child-save-button"));
-
-    await waitFor(() =>
-      expect(screen.getByTestId("landed-on")).toHaveTextContent("/account-center/profile"),
-    );
   });
 
   test("goes on into the app when the parent-name gate is not owed", async () => {

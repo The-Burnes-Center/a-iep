@@ -97,8 +97,8 @@ const makeAuthFetch = () => {
 
 let authFetch: ReturnType<typeof makeAuthFetch>;
 
-const ALL_FLAGS_BUT_PASSWORDLESS = ["tts", "referrals", "parentNameGate"];
-const WITH_PASSWORDLESS = ["tts", "referrals", "parentNameGate", "passwordlessAuth"];
+const ALL_FLAGS_BUT_PASSWORDLESS = ["tts", "referrals"];
+const WITH_PASSWORDLESS = ["tts", "referrals", "passwordlessAuth"];
 
 const renderLogin = (opts: { language?: SupportedLanguage; flagOn?: boolean; realTranslations?: boolean } = {}) => {
   const { language = "en", flagOn = true, realTranslations = false } = opts;

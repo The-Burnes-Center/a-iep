@@ -254,17 +254,15 @@ const ONBOARDING_DEADLINE_MS = 120_000;
  * Implemented as a URL-keyed state machine polled in a loop rather than a
  * fixed click script, because how much onboarding appears depends on the
  * account's history: a fresh account sees language pick -> consent ->
- * student name -> parent name, an account whose parent name is already on
- * file gets a welcome screen in place of that last step, the stable user
- * usually sees nothing, and an account that died mid-onboarding on a
- * previous run resumes somewhere in the middle.
+ * student name, then either the welcome screen or straight into the app, the
+ * stable user usually sees nothing, and an account that died mid-onboarding
+ * on a previous run resumes somewhere in the middle.
  *
- * The two name steps are flag-dependent, not dead code: `studentNameGate`
- * and `parentNameGate` (lib/user-interface/app/src/common/features.ts) are
- * on outside prod and dark in prod, so a run against staging sees both
- * screens and one against production sees neither. Every branch below keys
- * on the URL plus an isVisible() check and never on the flags, which is what
- * lets one helper drive either configuration.
+ * The student-name step is flag-dependent, not dead code: `studentNameGate`
+ * (lib/user-interface/app/src/common/features.ts) decides whether it appears
+ * at all. Every branch below keys on the URL plus an isVisible() check and
+ * never on the flag, which is what lets one helper drive either
+ * configuration.
  *
  * (Until 2026-07-29 this also had to bypass a third-party JotForm survey
  * that /preferred-language showed to profiles with neither a language nor
@@ -332,7 +330,11 @@ export async function completeOnboardingIfShown(page: Page): Promise<string> {
           continue;
         }
       } else if (path === '/account-center/profile') {
-        // The parent-name step (routed here with onboardingContinue state).
+        // Recovery only. Onboarding no longer routes here: the parent-name
+        // step was removed from the flow. An account left sitting on this
+        // screen by an earlier build still has to be cleared, or it would
+        // spin out the deadline for a reason that has nothing to do with the
+        // journey under test.
         const nameInput = page.locator('#formParentName');
         if (await nameInput.isVisible()) {
           await nameInput.fill('E2E Test Parent');

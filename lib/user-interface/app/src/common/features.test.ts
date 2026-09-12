@@ -73,17 +73,11 @@ describe("the master feature list", () => {
     expect(isFeature("studentNameGate")).toBe(true);
   });
 
-  test("studentNameGate comes before parentNameGate, matching the product's ordering call", () => {
-    expect(ALL_FEATURES.indexOf("studentNameGate")).toBeLessThan(
-      ALL_FEATURES.indexOf("parentNameGate"),
-    );
-  });
-
   test("resolveEnabledFeatures includes studentNameGate by default (dev/staging), and only when named otherwise", () => {
     expect(resolveEnabledFeatures(undefined)).toContain("studentNameGate");
     expect(resolveEnabledFeatures(null)).toContain("studentNameGate");
     expect(resolveEnabledFeatures([])).not.toContain("studentNameGate");
     expect(resolveEnabledFeatures(["studentNameGate"])).toEqual(["studentNameGate"]);
-    expect(resolveEnabledFeatures(["parentNameGate"])).not.toContain("studentNameGate");
+    expect(resolveEnabledFeatures(["referrals"])).not.toContain("studentNameGate");
   });
 });

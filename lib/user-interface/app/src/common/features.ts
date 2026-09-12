@@ -18,19 +18,13 @@ export type Feature =
   // and the /r/:code redirect are unconditional and harmless while no codes
   // are issued, so only the entry point is gated.
   | 'referrals'
-  // The onboarding redirect that forces a parent with no saved, non-default
-  // child name to fill one in before reaching the app. Checked FIRST,
-  // ahead of parentNameGate below: the product's explicit call is student
-  // name then parent name, never the reverse, so a parent missing both sees
-  // the child form before the parent-name form. See isStudentNameMissing.
-  // The pipeline that makes this name load-bearing (it becomes `{{S}}` in
-  // every summary) is a separate change; this flag stays dark in production
-  // until that half is verified there too.
+  // The onboarding step that asks for the child's name before a parent
+  // reaches the app. See isStudentNameMissing for what counts as missing.
+  // The name is load-bearing: the pipeline replaces it with `{{S}}` before
+  // the document reaches any model, and every reader puts it back when a
+  // summary is read, so without it a summary refers to the child only in the
+  // general phrase.
   | 'studentNameGate'
-  // The onboarding redirect that forces a parent with no saved name to fill it
-  // in before reaching the app. Only the referral console and referral links
-  // display that name, so the prompt is pointless where referrals are dark.
-  | 'parentNameGate'
   // CustomLogin's identifier -> /auth/start -> /auth/verify flow (see
   // docs/AUTH_API_CONTRACT.md), replacing the client-side branch that called
   // Amplify signIn first and only fell back to /auth/signup on
@@ -42,7 +36,7 @@ export type Feature =
 
 // Master list, in a stable order. Add a feature here (plus the two build
 // configs) to make it gateable app-wide.
-export const ALL_FEATURES: Feature[] = ['tts', 'referrals', 'studentNameGate', 'parentNameGate', 'passwordlessAuth'];
+export const ALL_FEATURES: Feature[] = ['tts', 'referrals', 'studentNameGate', 'passwordlessAuth'];
 
 export const isFeature = (feature: unknown): feature is Feature =>
   typeof feature === 'string' && (ALL_FEATURES as string[]).includes(feature);

@@ -43,7 +43,7 @@ function resolveEnabledLanguages(): string[] {
 // default. Kept in sync with the dev-build logic in
 // lib/user-interface/app/vite.config.ts, and with the feature list in
 // lib/user-interface/app/src/common/features.ts.
-export const ALL_FEATURES = ["tts", "referrals", "studentNameGate", "parentNameGate", "passwordlessAuth"];
+export const ALL_FEATURES = ["tts", "referrals", "studentNameGate", "passwordlessAuth"];
 // Referrals went live on prod 2026-08-04. The student-name gate, the parent-
 // name gate and passwordlessAuth go live with the promotion that carries this
 // line; TTS stays dark.
@@ -62,7 +62,7 @@ export const ALL_FEATURES = ["tts", "referrals", "studentNameGate", "parentNameG
 // (docs/AUTH_API_CONTRACT.md). The old Amplify custom-auth path keeps working
 // in every environment regardless of this flag, so reverting is a config flip
 // rather than a deploy.
-export const PROD_FEATURES: string[] = ["referrals", "studentNameGate", "parentNameGate", "passwordlessAuth"];
+export const PROD_FEATURES: string[] = ["referrals", "studentNameGate", "passwordlessAuth"];
 // Dark in every environment by default, staging included, until a feature's
 // rollout needs that. Empty for now: passwordlessAuth was the one entry here,
 // kept dark even on staging until e2e/helpers/app.ts could detect and drive
