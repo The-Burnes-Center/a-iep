@@ -28,7 +28,12 @@ import { AuthProvider, useAuth } from "../common/auth-provider";
 import { LanguageContext } from "../common/language-context";
 import { AppContext } from "../common/app-context";
 import type { SupportedLanguage } from "../common/languages";
-import { getCachedIdToken, readPersistedSessionHandle } from "../common/auth/passwordless-auth";
+import {
+  getCachedIdToken,
+  persistSessionHandle,
+  readPersistedSessionHandle,
+  setCachedTokens,
+} from "../common/auth/passwordless-auth";
 import en from "../translations/en.json";
 
 const Auth = vi.hoisted(() => ({
@@ -506,5 +511,36 @@ describe("legacy Amplify flow still renders when the flag is off", () => {
     expect(screen.getByPlaceholderText("auth.enterPassword")).toBeInTheDocument();
     // The new flow's button never renders on this path.
     expect(screen.queryByRole("button", { name: "auth.sendCode" })).not.toBeInTheDocument();
+  });
+
+  test("a leftover passwordless handle is dropped before the new sign-in starts", async () => {
+    // clearStaleSession used to return early right here — nobody is signed in
+    // via Amplify, which is this suite's default and the normal case on a
+    // login screen. A passwordless handle is invisible to getCurrentUser(),
+    // so it survived, and checkAuth prefers the handle over the Amplify
+    // session: the next page load would sign the app in as whoever used this
+    // browser last, not as whoever just authenticated.
+    persistSessionHandle("sess-previous-parent");
+    setCachedTokens({ accessToken: "access-previous", idToken: "id-previous", expiresIn: 3600 });
+    signupFetchAsLegacy();
+    Auth.signIn.mockResolvedValueOnce({
+      isSignedIn: false,
+      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
+    });
+    const { user } = renderLogin({ flagOn: false });
+
+    fillPhone();
+    await user.click(screen.getByRole("button", { name: "auth.sendSmsCode" }));
+
+    expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
+    expect(readPersistedSessionHandle()).toBeNull();
+    expect(getCachedIdToken()).toBeNull();
+    // Local only. Deleting the browser's only copy already puts the handle
+    // beyond use, so the revoke that belongs on Sign Out is not also put on
+    // the critical path of every sign-in attempt.
+    expect(authFetch.fn).not.toHaveBeenCalledWith(
+      expect.stringContaining("auth/logout"),
+      expect.anything(),
+    );
   });
 });

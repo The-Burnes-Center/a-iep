@@ -24,6 +24,7 @@ import './CustomLogin.css'; // Import the custom CSS file
 import { useLanguage, SupportedLanguage } from '../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import { useAuth } from '../common/auth-provider';
+import { clearCachedTokens, clearPersistedSessionHandle } from '../common/auth/passwordless-auth';
 import { cognitoErrorKey } from '../common/helpers/cognito-error-helper';
 import { useTurnstile, TurnstileStatus } from '../common/hooks/use-turnstile';
 import { useFeatures } from '../common/hooks/use-features';
@@ -60,12 +61,28 @@ import VerificationCodeInput from './VerificationCodeInput';
  * time signIn throws there is nothing left to tell the parent, and discarding
  * a session they are trying to sign out of is the right answer in every case.
  * getCurrentUser first so a normal login costs no RevokeToken round trip.
+ *
+ * A passwordless session is invisible to getCurrentUser() — it is a handle in
+ * localStorage, not an Amplify session — so it is dropped first and
+ * unconditionally, outside that check. Signing in as somebody else must not
+ * leave the previous parent's handle resumable: checkAuth prefers the handle
+ * over the Amplify session, so a survivor would sign the app in as whoever
+ * used this browser last, not as whoever just authenticated.
+ *
+ * Local only, no /auth/logout. Once the handle is deleted here it exists
+ * nowhere else (the browser holds the only copy), so revoking the row buys no
+ * access that is still reachable, and it would put a network round trip that
+ * can hang on the critical path of every sign-in attempt. Revoking belongs on
+ * Sign Out, where a parent is deliberately ending a session — see
+ * AuthProvider.logout.
  */
 const clearStaleSession = async (): Promise<void> => {
+  clearPersistedSessionHandle();
+  clearCachedTokens();
   try {
     await getCurrentUser();
   } catch {
-    return; // nobody signed in, nothing to clear
+    return; // nobody signed in via Amplify, nothing left to clear
   }
   try {
     await signOut();

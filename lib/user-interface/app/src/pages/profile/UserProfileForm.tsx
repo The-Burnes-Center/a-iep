@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Container, Form, Button, Row, Col, Alert, Spinner } from 'react-bootstrap';
-import { signOut } from 'aws-amplify/auth';
 import { AppContext } from '../../common/app-context';
 import { useAuth } from '../../common/auth-provider';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -15,7 +14,7 @@ import './ProfileForms.css';
 
 export default function UserProfileForm() {
   const appContext = useContext(AppContext);
-  const { setAuthenticated } = useAuth();
+  const { logout, setAuthenticated } = useAuth();
   const apiClient = new ApiClient(appContext);
   const { t, setLanguage, enabledLanguages } = useLanguage();
 
@@ -91,14 +90,16 @@ export default function UserProfileForm() {
     setShowDeleteModal(true);
   };
 
+  // This page's own Log out button. Same reasoning as AccountCenter's: the
+  // context's logout() is the only thing that ends a passwordless session,
+  // and it runs before the navigation rather than behind it.
   const handleSignOut = async () => {
     try {
-      navigate('/', { replace: true });
-      await signOut();
+      await logout();
+    } catch {
       setAuthenticated(false);
-    } catch (error) {
-      // console.error("Error signing out:", error);
     }
+    navigate('/', { replace: true });
   };
 
   if (loading) {

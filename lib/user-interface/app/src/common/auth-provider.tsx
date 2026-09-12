@@ -6,6 +6,7 @@ import {
   clearCachedTokens,
   clearPersistedSessionHandle,
   exchangeSession,
+  logoutSession,
   readPersistedSessionHandle,
   setCachedTokens,
 } from './auth/passwordless-auth';
@@ -125,7 +126,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     checkAuth();
   }, [checkAuth]);
 
+  /**
+   * Sign out of BOTH routes, local state first.
+   *
+   * Amplify signOut() alone is not a sign-out once passwordlessAuth is on.
+   * checkAuth tries resumePasswordlessSession() before the Amplify check, so
+   * a handle left in storage signs the parent straight back in on the next
+   * page load: they tap Sign Out, the app looks signed out, and a reload
+   * hands the account back. On a shared or family computer that is the next
+   * person reading a child's IEP.
+   *
+   * Order matters. The local clears happen first and unconditionally, so a
+   * failing network call or a thrown signOut() cannot leave a live handle on
+   * the device: whatever else breaks, this browser can no longer resume.
+   * Revoking server-side is best-effort on top of that, per contract §5,
+   * which specifies /auth/logout always answers 200. The row also carries a
+   * TTL, so a missed revoke expires on its own rather than living forever.
+   */
   const logout = async () => {
+    const session = readPersistedSessionHandle();
+    clearPersistedSessionHandle();
+    clearCachedTokens();
+
+    if (session) {
+      try {
+        await logoutSession({ httpEndpoint: appConfig?.httpEndpoint ?? '/', session });
+      } catch {
+        // Already unusable on this device. A failed revoke is not a reason to
+        // keep the parent on a screen that says they are still signed in.
+      }
+    }
+
     try {
       await signOut();
       setUser(null);

@@ -8,6 +8,21 @@ import MobileTopNavigation from '../components/MobileTopNavigation';
 import AIEPFooter from '../components/AIEPFooter';
 import './WelcomePage.css';
 
+/**
+ * Legacy card hub. Its route is commented out in components/AppRoutes.tsx and
+ * nothing links here.
+ *
+ * The two signOut() calls below are deliberately NOT routed through the
+ * context's logout(), unlike every parent-facing sign-out in pages/profile/.
+ * They are not a parent asking to sign out; they are a "getCurrentUser() found
+ * nothing, tidy up" guard, and that premise is false under passwordlessAuth: a
+ * passwordless parent never has an Amplify session at all (the real tokens stay
+ * server-side against the handle), so getCurrentUser() rejects for every one of
+ * them. Calling logout() here would revoke and delete a live handle belonging
+ * to a parent who is correctly signed in. If this route is ever brought back,
+ * the check itself has to be rewritten against the session the app actually
+ * has, not this line swapped for logout().
+ */
 export default function WelcomePage() {
   const { setAuthenticated } = useAuth();
   const navigate = useNavigate();

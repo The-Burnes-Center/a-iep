@@ -1,6 +1,5 @@
 import React from 'react';
 import { useAuth } from '../../common/auth-provider';
-import { signOut } from 'aws-amplify/auth';
 import { useNavigate } from 'react-router-dom';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
@@ -14,7 +13,7 @@ import './AccountCenter.css';
 const AccountCenter: React.FC = () => {
 
   const { t, translationsLoaded } = useLanguage();
-  const { setAuthenticated } = useAuth();
+  const { logout, setAuthenticated } = useAuth();
   const { isAdmin } = useAdminIdentity();
   const { isFeatureEnabled } = useFeatures();
   const navigate = useNavigate();
@@ -32,14 +31,29 @@ const AccountCenter: React.FC = () => {
     );
   }
 
+  /**
+   * The Sign Out button.
+   *
+   * Goes through the context's logout(), never Amplify's signOut() directly:
+   * once passwordlessAuth is on, signOut() leaves the durable session handle
+   * in localStorage and the next page load exchanges it for fresh tokens, so
+   * the account comes straight back. See AuthProvider.logout in
+   * common/auth-provider.tsx for what ending a session actually involves.
+   *
+   * Routing away AFTER, not before. The old order navigated first and signed
+   * out behind it, which is the window a page load inside lands in.
+   */
   const handleSignOut = async () => {
     try {
-      navigate('/', { replace: true });
-      await signOut();
+      await logout();
+    } catch {
+      // logout() clears this device's handle and token cache first and
+      // unconditionally, so the parent is signed out here whatever else
+      // failed. Reflect that rather than leave them on a screen that still
+      // says they are signed in.
       setAuthenticated(false);
-    } catch (error) {
-      // console.error("Error signing out:", error);
     }
+    navigate('/', { replace: true });
   };
 
   // Navigation handler for accordion items

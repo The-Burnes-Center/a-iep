@@ -13,9 +13,10 @@
  * sees: which screen they land on, and (via a location log) that they get
  * there directly rather than bouncing between /login and the protected route.
  */
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth-provider";
 import { ProtectedRoute } from "../components/ProtectedRoute";
@@ -62,6 +63,35 @@ const AuthStateProbe = () => {
   );
 };
 
+/**
+ * Drives the two context functions the sign-out tests below need, and reports
+ * whether logout() settled or threw — a thrown Amplify signOut() must not be
+ * allowed to look like a successful sign-out, but it must not undo the local
+ * clear either.
+ */
+const SessionProbe = () => {
+  const { logout, checkAuth } = useAuth();
+  const [outcome, setOutcome] = useState("idle");
+  return (
+    <>
+      <div data-testid="logout-outcome">{outcome}</div>
+      <button
+        onClick={async () => {
+          try {
+            await logout();
+            setOutcome("resolved");
+          } catch {
+            setOutcome("rejected");
+          }
+        }}
+      >
+        sign out
+      </button>
+      <button onClick={() => { void checkAuth(); }}>check again</button>
+    </>
+  );
+};
+
 const renderApp = (opts: { enabledFeatures?: string[] } = {}) => {
   const { enabledFeatures = ["passwordlessAuth"] } = opts;
   const appConfig = {
@@ -77,13 +107,14 @@ const renderApp = (opts: { enabledFeatures?: string[] } = {}) => {
   };
   const { LocationLogger, visited } = visitedPaths();
 
-  render(
+  const { unmount } = render(
     <MemoryRouter initialEntries={[PROTECTED_PATH]}>
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
           <AuthProvider>
             <LocationLogger />
             <AuthStateProbe />
+            <SessionProbe />
             <Routes>
               <Route path="/login" element={<div>sign in form</div>} />
               <Route element={<ProtectedRoute />}>
@@ -96,7 +127,10 @@ const renderApp = (opts: { enabledFeatures?: string[] } = {}) => {
     </MemoryRouter>,
   );
 
-  return { visited };
+  // `unmount` then a second renderApp() is this suite's page load: a brand new
+  // AuthProvider running its mount checkAuth against whatever localStorage
+  // still holds, which is exactly what a parent's next visit does.
+  return { visited, unmount };
 };
 
 /** A fetch mock that only answers /auth/token, and records how it was called. */
@@ -119,6 +153,52 @@ const stubTokenEndpoint = (answer: "valid" | "expired" | "unreachable") => {
   });
   vi.stubGlobal("fetch", fn);
   return fn;
+};
+
+/**
+ * A fetch mock covering both endpoints a sign-out touches: /auth/token (the
+ * resume on load) and /auth/logout (the revoke). Records every call so a test
+ * can assert what was sent and, just as importantly, what was not sent again
+ * after the parent signed out.
+ */
+const stubSignOutEndpoints = (opts: { revoke?: "ok" | "unreachable" } = {}) => {
+  const { revoke = "ok" } = opts;
+  const calls: { path: string; body: unknown }[] = [];
+  const fn = vi.fn(async (url: unknown, init?: { body?: string }) => {
+    const path = String(url);
+    calls.push({ path, body: init?.body ? JSON.parse(init.body) : null });
+    if (path.includes("auth/logout")) {
+      if (revoke === "unreachable") throw new Error("network down");
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
+    expect(path).toContain("auth/token");
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, accessToken: "access-1", idToken: "id-1", expiresIn: 3600 }),
+    };
+  });
+  vi.stubGlobal("fetch", fn);
+  return {
+    tokenCalls: () => calls.filter((c) => c.path.includes("auth/token")),
+    logoutCalls: () => calls.filter((c) => c.path.includes("auth/logout")),
+  };
+};
+
+/**
+ * Signs a parent in through the passwordless route, then taps Sign Out.
+ * Every test below starts here, because the defect only exists for a parent
+ * who got in this way.
+ */
+const signInThenSignOut = async (opts: { revoke?: "ok" | "unreachable" } = {}) => {
+  persistSessionHandle("sess-valid");
+  Auth.getCurrentUser.mockRejectedValue(new Error("no amplify session"));
+  const endpoints = stubSignOutEndpoints(opts);
+  const app = renderApp();
+  expect(await screen.findByText("protected content")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "sign out" }));
+  await waitFor(() => expect(screen.getByTestId("logout-outcome")).not.toHaveTextContent("idle"));
+  return { ...app, ...endpoints };
 };
 
 beforeEach(() => {
@@ -242,6 +322,101 @@ describe("no redirect loop", () => {
     expect(visited).toEqual([PROTECTED_PATH, "/login"]);
     // A loop would also mean checkAuth (and so /auth/token) ran more than once.
     expect(tokenFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Sign-out. The one thing these have to prove is that the NEXT page load does
+ * not hand the account back.
+ *
+ * Asserting that Amplify's signOut() was called proves nothing here: that is
+ * precisely what the broken version did, and it is why the defect survived to
+ * a promotion. Once passwordlessAuth is on, signOut() is not a sign-out —
+ * checkAuth tries the persisted handle BEFORE the Amplify check, so a handle
+ * left in localStorage signs the parent straight back in. On a shared or
+ * family computer that is the next person reading a child's IEP.
+ */
+describe("signing out, then loading the page again", () => {
+  test("does not sign the parent back in: the reload lands on /login, not in the account", async () => {
+    const { unmount, tokenCalls } = await signInThenSignOut();
+
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
+    expect(tokenCalls()).toHaveLength(1); // the sign-in resume, and only that
+
+    // The page load. A brand new AuthProvider, same localStorage.
+    unmount();
+    const { visited } = renderApp();
+
+    expect(await screen.findByText("sign in form")).toBeInTheDocument();
+    expect(screen.queryByText("protected content")).not.toBeInTheDocument();
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
+    expect(visited).toEqual([PROTECTED_PATH, "/login"]);
+    // Nothing left to exchange, so the resume never even reached the network.
+    expect(tokenCalls()).toHaveLength(1);
+  });
+
+  test("re-running checkAuth within the same page load does not resume the session either", async () => {
+    // The unmount/remount case above is the page load; this is the softer one
+    // that still hands the account back — any code path that calls checkAuth
+    // again (a route change, a focus handler) after a sign-out.
+    const { tokenCalls } = await signInThenSignOut();
+
+    await userEvent.click(screen.getByRole("button", { name: "check again" }));
+
+    await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous"));
+    expect(screen.queryByText("protected content")).not.toBeInTheDocument();
+    expect(tokenCalls()).toHaveLength(1);
+  });
+
+  test("leaves no persisted handle and no cached tokens behind", async () => {
+    const { logoutCalls } = await signInThenSignOut();
+
+    expect(readPersistedSessionHandle()).toBeNull();
+    expect(getCachedIdToken()).toBeNull();
+    // And the row was revoked server-side, with the handle that was actually
+    // held — best-effort on top of the local clear, not instead of it.
+    expect(logoutCalls()).toHaveLength(1);
+    expect(logoutCalls()[0].body).toEqual({ session: "sess-valid" });
+  });
+
+  test("still signs the parent out on this device when the revoke call fails", async () => {
+    // A parent on a dead connection taps Sign Out. The revoke cannot happen,
+    // and the row's own TTL will have to do it later — but this browser must
+    // not be able to resume regardless, which is what the local-clear-first
+    // ordering buys.
+    const { unmount, logoutCalls, tokenCalls } = await signInThenSignOut({ revoke: "unreachable" });
+
+    expect(logoutCalls()).toHaveLength(1); // attempted...
+    expect(readPersistedSessionHandle()).toBeNull(); // ...and cleared anyway
+    expect(getCachedIdToken()).toBeNull();
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
+
+    unmount();
+    renderApp();
+    expect(await screen.findByText("sign in form")).toBeInTheDocument();
+    expect(tokenCalls()).toHaveLength(1);
+  });
+
+  test("still signs the parent out on this device when Amplify's signOut throws", async () => {
+    persistSessionHandle("sess-valid");
+    Auth.getCurrentUser.mockRejectedValue(new Error("no amplify session"));
+    Auth.signOut.mockRejectedValue(new Error("amplify unreachable"));
+    const { tokenCalls } = stubSignOutEndpoints();
+
+    const { unmount } = renderApp();
+    expect(await screen.findByText("protected content")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "sign out" }));
+
+    // The caller is told it failed — that is what lets a call site show the
+    // parent something — but the handle is already gone by the time it throws.
+    await waitFor(() => expect(screen.getByTestId("logout-outcome")).toHaveTextContent("rejected"));
+    expect(readPersistedSessionHandle()).toBeNull();
+    expect(getCachedIdToken()).toBeNull();
+
+    unmount();
+    renderApp();
+    expect(await screen.findByText("sign in form")).toBeInTheDocument();
+    expect(tokenCalls()).toHaveLength(1);
   });
 });
 
