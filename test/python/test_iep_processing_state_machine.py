@@ -139,6 +139,49 @@ def test_mistral_ocr_permanent_failure_still_reaches_record_failure(states):
     assert any(c['ErrorEquals'] == ['States.ALL'] for c in catchers)
 
 
+def test_finalize_results_retries_before_anything_is_recorded_as_failed(states):
+    # steps/finalize_results/handler.py deliberately records no failure of its
+    # own: it raises and lets this Catch write the row. That is only correct
+    # because a Catch fires after the Retry policy is exhausted, never between
+    # attempts -- so a document that succeeds on attempt 3 is never written
+    # FAILED, and the unredacted-artifact purge that record_failure runs never
+    # fires underneath a document that is about to try again.
+    #
+    # test_finalize_results.py reads this same MaxAttempts to decide how many
+    # attempts to replay.
+    task = states['FinalizeResults']
+    retrier = next(r for r in task['Retry'] if r['ErrorEquals'] == ['States.ALL'])
+    assert retrier['MaxAttempts'] == 3
+    assert [c['ErrorEquals'] for c in task['Catch']] == [['States.ALL']]
+
+
+def test_finalize_results_has_exactly_one_route_to_record_failure(states):
+    # The handler used to invoke record_failure itself and THEN re-raise into
+    # this Catch, so one failed document wrote the row once per attempt plus
+    # once here: up to five RECORD_FAILURE markers, which is what
+    # MonitoringStack's DocumentFailureFilter counts. A second route added here
+    # would recreate the same double-count from the other side.
+    catcher, = states['FinalizeResults']['Catch']
+    assert catcher['Next'] == 'FailedAtFinalizeResults'
+
+    namer = states['FailedAtFinalizeResults']
+    assert namer['Type'] == 'Pass'
+    assert namer['Result'] == 'FinalizeResults'      # the failed_step recorded
+    assert namer['ResultPath'] == '$.failed_step'
+    assert namer['Next'] == 'RecordFailure'
+
+    # And RecordFailure is terminal, so the row cannot be written twice by the
+    # machine looping back through it.
+    assert states['RecordFailure']['End'] is True
+
+
+def test_no_step_lambda_is_reachable_after_record_failure(states):
+    # RecordFailure ends the execution. If it ever gained a Next, every state
+    # downstream would run after the document had already been marked FAILED
+    # and its unredacted artifacts purged.
+    assert 'Next' not in states['RecordFailure']
+
+
 def test_a_partial_translation_success_is_not_caught_by_this_narrow_guard(states):
     # Documented, known limitation (matches the single-language machine's own
     # precedent): the Choice only checks languages_processed[0], i.e. "at

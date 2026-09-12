@@ -127,28 +127,28 @@ def lambda_handler(event, context):
         # exactly what the summary above was built to avoid.
         print(''.join(traceback.format_tb(e.__traceback__)))
 
-        # Record failure
-        try:
-            failure_payload = {
-                'operation': 'record_failure',
-                'params': {
-                    'iep_id': event.get('iep_id', ''),
-                    'user_id': event.get('user_id', ''),
-                    'child_id': event.get('child_id', ''),
-                    'error_message': str(e),
-                    'failed_step': 'finalize_results'
-                }
-            }
-            
-            lambda_client = boto3.client('lambda')
-            ddb_service_name = os.environ.get('DDB_SERVICE_FUNCTION_NAME', 'DDBService')
-            
-            lambda_client.invoke(
-                FunctionName=ddb_service_name,
-                InvocationType='RequestResponse',
-                Payload=json.dumps(failure_payload)
-            )
-        except:
-            print("Failed to record error in DDB")
-        
+        # Raise and record nothing. The state machine's Catch on FinalizeResults
+        # (FailedAtFinalizeResults -> RecordFailure in
+        # state-machines/iep-processing.asl.json) is the single writer of the
+        # failure row, exactly as it is for every other step in the pipeline.
+        #
+        # This step used to invoke record_failure itself and THEN re-raise, so
+        # the Catch wrote the same row a second time. FinalizeResults retries
+        # three times, so one failing document logged the RECORD_FAILURE marker
+        # up to five times: once per attempt, plus once from the Catch.
+        # MonitoringStack's DocumentFailureFilter counts that marker, so one
+        # failed document was reported as five, and ddb-service's
+        # _cleanup_unredacted_artifacts (which record_failure runs) purged the
+        # same document five times over.
+        #
+        # Nothing is lost by dropping the inner call. Cleanup lives inside
+        # record_failure in ddb-service, not here, so the Catch's invocation
+        # runs it; and the Catch's error_message ($.error.Cause) contains the
+        # errorMessage this used to pass as str(e), plus the type and stack.
+        #
+        # It also means no failure row is written on a non-final attempt, which
+        # is the point: a retry that has not run out of attempts is not a failed
+        # document. Writing one would show the parent a FAILED document the
+        # pipeline is still working on, and would run the unredacted-artifact
+        # purge on a document that is about to try again.
         raise
