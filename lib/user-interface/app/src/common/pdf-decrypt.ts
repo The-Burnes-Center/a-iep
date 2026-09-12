@@ -204,8 +204,10 @@ function loadPdfJs(): Promise<PdfjsModule> {
 
 /**
  * How much of `bytes` to convert to a string at a time when scanning for an
- * /Encrypt entry. Bounds peak memory: a 100MB upload would otherwise become
- * a 100M-character string just to run one regex over it.
+ * /Encrypt entry. Bounds peak memory: an upload at the picker's limit
+ * (MAX_FILE_SIZE_BYTES in pages/iep-folder/UploadIEPDocument.tsx, 50MB)
+ * would otherwise become a 50M-character string just to run one regex over
+ * it. The argument does not depend on that number, only on it being large.
  */
 const ENCRYPT_SCAN_CHUNK_BYTES = 64 * 1024;
 

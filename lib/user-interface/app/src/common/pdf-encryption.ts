@@ -40,7 +40,7 @@
  *   appends "...trailer <<...>> startxref <n> %%EOF" (or the xref-stream
  *   equivalent) after every other object, and does so again, further along,
  *   on every incremental update. So this window comfortably covers it while
- *   bounding how much of a (up to 100MB) upload this reads.
+ *   bounding how much of a (up to 50MB, the picker's limit) upload this reads.
  *   A useful side effect: a PDF that WAS encrypted and was later re-saved
  *   without encryption has its stale /Encrypt only in an earlier, superseded
  *   trailer, outside this window, so it is correctly read as NOT encrypted --

@@ -43,6 +43,39 @@ const CLOSED_PASSWORD_PROMPT: PasswordPromptState = {
 // Define allowed file types and MIME types
 const fileExtensions = new Set([".doc", ".docx", ".pdf"]);
 
+/**
+ * The largest file the pipeline can actually finish.
+ *
+ * Mistral's OCR API is the pipeline's first step and it rejects anything over
+ * 50 MB (its Document AI FAQ, "Are there any limits regarding the OCR API?").
+ * This gate used to sit at 100MB, so a file in between uploaded cleanly,
+ * started the pipeline, and came back as a failure after a full wait on the
+ * processing screen -- mistral_ocr/handler.py treats the provider's 4xx as
+ * permanent and the state machine retries it zero times, correctly, because
+ * the same file would be rejected every time. The parent had no way to know
+ * the size was the problem. Refusing at the picker is the same fact, told
+ * honestly, in the second they pick the file.
+ *
+ * Decimal MB rather than 1024-based: "50 MB" in the provider's docs does not
+ * say which it means, and 50 * 1000 * 1000 is the reading that cannot admit a
+ * file they would reject. It also matches the size macOS shows next to the
+ * file, so the number in the message is the number the parent sees.
+ *
+ * The same FAQ caps documents at 1,000 pages. That is deliberately NOT checked
+ * here: counting pages means parsing the file, which costs pdfjs-dist (~1.7 MB
+ * of parser and worker) on every upload, works for PDFs only -- .doc/.docx
+ * cannot be counted in the browser at all -- and a 1,000-page document that
+ * still fits under 50 MB is not a shape a scanned IEP takes. See
+ * pdf-encryption.ts's docblock, which weighed the same parser for the same
+ * kind of check and reached the same answer.
+ *
+ * Exported so UploadIEPDocument.test.tsx can check the five dictionaries still
+ * quote this number back to the parent: the limit and the copy that announces
+ * it are in different files and different languages, and nothing else notices
+ * when only one of them moves.
+ */
+export const MAX_FILE_SIZE_BYTES = 50 * 1000 * 1000;
+
 const mimeTypes = {
   '.pdf': 'application/pdf',
   '.doc': 'application/msword',
@@ -119,7 +152,7 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
     if (!fileExtensions.has(fileExtension)) {
       setFileError(t('upload.fileError.format'));
       setFile(null);
-    } else if (selectedFile.size > 100 * 1024 * 1024) { // 100MB
+    } else if (selectedFile.size > MAX_FILE_SIZE_BYTES) {
       setFileError(t('upload.fileError.size'));
       setFile(null);
     // Only PDFs carry the /Encrypt trailer entry this checks for; a .doc/.docx

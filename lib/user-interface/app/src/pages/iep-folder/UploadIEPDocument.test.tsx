@@ -8,12 +8,20 @@
  * its requestPassword callback opens/drives PdfPasswordPromptModal correctly,
  * and that an ordinary PDF never even reaches pdf-decrypt.ts -- not the
  * decrypt/rebuild logic itself, which is mocked out here entirely.
+ *
+ * Plus the size gate at the bottom of the file, which is the same idea applied
+ * to a different guaranteed failure: refuse a file the pipeline could never
+ * finish while the parent is still at the file picker, rather than after a
+ * full wait on the processing screen.
  */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import React from "react";
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import UploadIEPDocument from "./UploadIEPDocument";
+import UploadIEPDocument, { MAX_FILE_SIZE_BYTES } from "./UploadIEPDocument";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
 import type { AppConfig } from "../../common/types";
@@ -28,6 +36,16 @@ vi.mock("aws-amplify/auth", () => Auth);
 // that, with pdfjs-dist/jspdf mocked one level down instead).
 const pdfDecrypt = vi.hoisted(() => ({ resolveEncryptedPdf: vi.fn() }));
 vi.mock("../../common/pdf-decrypt", () => pdfDecrypt);
+
+// Mocked so "the file was never uploaded" is something the tests can assert
+// directly, rather than inferring it from a disabled button. getUploadURL is
+// the first network call any upload makes.
+const iepClient = vi.hoisted(() => ({ getUploadURL: vi.fn() }));
+vi.mock("../../common/api-client/iep-document-client", () => ({
+  IEPDocumentClient: class {
+    getUploadURL = iepClient.getUploadURL;
+  },
+}));
 
 const appConfig = {
   httpEndpoint: "https://api.example.test/",
@@ -248,5 +266,112 @@ describe("UploadIEPDocument: password-protected PDFs", () => {
       expect(screen.getByText("upload.fileError.format")).toBeInTheDocument();
     });
     expect(pdfDecrypt.resolveEncryptedPdf).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The size gate. Mistral's OCR API rejects anything over 50 MB, so a larger
+ * file was a certain failure from the moment it was picked: it uploaded, ran,
+ * and came back as a generic "we couldn't read your document" after the full
+ * processing wait. The gate sat at 100MB, which invited exactly that.
+ */
+describe("UploadIEPDocument: files larger than the pipeline can process", () => {
+  // A File whose bytes are not actually allocated: jsdom reports whatever
+  // `size` says, and materialising 50 MB per test to check one comparison
+  // would be a slow way to learn nothing extra.
+  const fileOfSize = (bytes: number, name = "iep-scan.pdf") => {
+    const file = plainPdf(name);
+    Object.defineProperty(file, "size", { value: bytes });
+    return file;
+  };
+
+  test("a 60 MB file is refused at the picker, with the size message, and is never uploaded", async () => {
+    // A literal size, deliberately: 60 MB sat in the band the old 100MB gate
+    // waved through and Mistral then rejected, so this test fails against the
+    // gate as it was, which a size derived from the constant would not.
+    renderUpload();
+
+    selectFile(fileOfSize(60 * 1000 * 1000));
+
+    await waitFor(() => {
+      expect(screen.getByText("upload.fileError.size")).toBeInTheDocument();
+    });
+    // Not staged, so there is nothing to submit...
+    expect(screen.queryByText("iep-scan.pdf")).not.toBeInTheDocument();
+    expect(screen.getByTestId("upload-submit-button")).toBeDisabled();
+    // ...and nothing was sent: no presigned URL was ever requested, so no
+    // bytes reached S3 and no pipeline run was started.
+    expect(iepClient.getUploadURL).not.toHaveBeenCalled();
+    // Refused on size alone. It never got as far as opening the file, which
+    // is the whole point of checking this at the picker.
+    expect(pdfDecrypt.resolveEncryptedPdf).not.toHaveBeenCalled();
+  });
+
+  test("one byte over the limit is refused, wherever the limit is set", async () => {
+    // Pins the comparison to the constant, so the gate cannot quietly become
+    // ">= limit + some slack" while the 60 MB case above still passes.
+    renderUpload();
+
+    selectFile(fileOfSize(MAX_FILE_SIZE_BYTES + 1));
+
+    await waitFor(() => {
+      expect(screen.getByText("upload.fileError.size")).toBeInTheDocument();
+    });
+    expect(iepClient.getUploadURL).not.toHaveBeenCalled();
+  });
+
+  test("a file exactly at the limit is still accepted", async () => {
+    // The boundary in both directions, so a gate tightened by an off-by-one
+    // cannot start turning away files the provider would have taken.
+    renderUpload();
+
+    selectFile(fileOfSize(MAX_FILE_SIZE_BYTES));
+
+    await waitFor(() => {
+      expect(screen.getByText("iep-scan.pdf")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("upload.fileError.size")).not.toBeInTheDocument();
+    expect(screen.getByTestId("upload-submit-button")).not.toBeDisabled();
+  });
+
+  test("every dictionary tells the parent the same limit the code enforces", () => {
+    // The limit and the five sentences announcing it live in different files
+    // and different languages, and t() has no English fallback, so a number
+    // changed on one side alone is silent -- in front of a parent, in a
+    // language nobody here reads. Dictionaries are read off disk, matching
+    // common/i18n.test.ts.
+    const translationsDir = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../translations",
+    );
+    // Rounded so the failure message stays readable if the limit is ever set
+    // in 1024-based units (52428800 bytes reports as 52MB, not 52.4288MB).
+    const megabytes = Math.round(MAX_FILE_SIZE_BYTES / 1_000_000);
+    // Not a bare substring: "50" must not be satisfied by a "150" elsewhere
+    // in the sentence.
+    const quotesTheLimit = new RegExp(`(?<!\\d)${megabytes}(?!\\d)`);
+
+    const languages = fs
+      .readdirSync(translationsDir)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => name.replace(/\.json$/, ""));
+    expect(languages.length).toBeGreaterThanOrEqual(5);
+
+    for (const language of languages) {
+      const dictionary = JSON.parse(
+        fs.readFileSync(path.join(translationsDir, `${language}.json`), "utf8"),
+      ) as Record<string, string>;
+
+      for (const key of ["upload.maxSize", "upload.fileError.size"]) {
+        expect(
+          dictionary[key],
+          `${language}.json is missing ${key}`,
+        ).toBeTruthy();
+        expect(
+          dictionary[key],
+          `${language}.json's ${key} does not quote the ${megabytes}MB limit the code enforces: ${dictionary[key]}`,
+        ).toMatch(quotesTheLimit);
+      }
+    }
   });
 });
