@@ -277,13 +277,33 @@ def process_document_with_mistral_ocr(bucket, key):
         }
         
         # Create request payload for Mistral OCR API
+        #
+        # image_limit 0 is what makes a Word document work, and it is the only
+        # thing that does. Mistral refuses a .docx whenever images could be
+        # extracted but not returned, with a 400 that reads "For .docx files,
+        # extracted images can only be returned in base64. If you don't want
+        # images, try setting image_limit=0 instead." That is a permanent,
+        # unretried failure, so every Word upload the picker accepted died
+        # there after a full processing wait.
+        #
+        # Verified against the live endpoint, not inferred: a synthetic .docx
+        # returns 400 without this and 200 with it, and a synthetic PDF
+        # returns 200 either way, so the main path is unaffected. Declaring
+        # the right content type on upload does NOT fix it: the upload
+        # succeeds either way and the refusal happens here.
+        #
+        # We never ask for images: the pipeline reads text only, and a
+        # base64-inlined image would put document content somewhere we do not
+        # want it. 0 says "extract none", which is the same answer
+        # include_image_base64 False already gives for a PDF.
         ocr_payload = {
             "model": "mistral-ocr-latest",
             "document": {
                 "type": "document_url",
                 "document_url": signed_url
             },
-            "include_image_base64": False  # Set to true if you need images
+            "include_image_base64": False,
+            "image_limit": 0
         }
         
         ocr_response = requests.post(

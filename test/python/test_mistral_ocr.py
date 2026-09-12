@@ -443,3 +443,35 @@ def test_ocr_client_error_message_stays_content_free(handler_module, monkeypatch
 
     assert STUDENT_NAME not in str(exc_info.value)
     assert KEY not in str(exc_info.value)
+
+
+def test_the_ocr_call_asks_for_no_images_so_a_word_document_is_accepted(
+        mistral_ocr_module, monkeypatch):
+    """image_limit 0 is the only thing that makes a .docx work.
+
+    Verified against Mistral's live endpoint on 2026-09-11, not inferred from
+    the docs: a synthetic .docx returns 400 without it ("For .docx files,
+    extracted images can only be returned in base64. If you don't want images,
+    try setting image_limit=0 instead.") and 200 with it, while a synthetic PDF
+    returns 200 either way. A 400 is permanent and unretried, so without this
+    every Word upload the picker accepts dies after a full processing wait.
+
+    Declaring the correct content type on upload does NOT fix it. That is worth
+    pinning separately here, because it is the intuitive fix and it is wrong:
+    the upload succeeds whatever type is declared, and the refusal happens on
+    this call.
+    """
+    fake = _RecordingRequests(SUCCESSFUL_SEQUENCE)
+    monkeypatch.setattr(mistral_ocr_module, 'requests', fake)
+
+    with mock_aws():
+        _wire_s3_object()
+        mistral_ocr_module.process_document_with_mistral_ocr(BUCKET, KEY)
+
+    ocr_call = [c for c in fake.calls if c['url'].endswith('/v1/ocr')]
+    assert len(ocr_call) == 1, fake.calls
+    payload = ocr_call[0]['kwargs']['json']
+    assert payload['image_limit'] == 0, payload
+    # The pipeline reads text only, and a base64-inlined image would put
+    # document content somewhere we do not want it.
+    assert payload['include_image_base64'] is False, payload
