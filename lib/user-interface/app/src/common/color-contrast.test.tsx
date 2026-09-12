@@ -236,6 +236,10 @@ const PAIRS: Pair[] = [
   { fg: "--aiep-accent-orange", bg: "--aiep-cream", level: "large", where: ".landing-hero-text-orange / .how-to-banner-title-orange, 36-48px" },
   { fg: "--aiep-accent-rose", bg: "--aiep-cream", level: "large", where: ".landing-hero-text-pink, 36-48px" },
 
+  // -- the gold name chip --------------------------------------------------
+  { fg: "--aiep-ink", bg: "--aiep-amber", level: "text", where: "the child's name in the chip above the upload heading" },
+  { fg: "--aiep-amber", bg: "--aiep-cream", level: "surface", where: "the chip itself against the page; the name inside it is what has to be read" },
+
   // -- boundaries ----------------------------------------------------------
   { fg: "--aiep-border", bg: "--aiep-cream", level: "ui", where: "input, select, card, table and dropdown edges" },
   { fg: "--aiep-border", bg: "--aiep-surface-sunk", level: "ui", where: "the carousel prev/next buttons" },

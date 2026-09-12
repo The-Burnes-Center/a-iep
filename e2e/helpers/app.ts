@@ -41,7 +41,6 @@ export const EN = {
   wrongCodeInSession: 'An error occurred. Please try again.',
   sessionFailed: 'Invalid verification code. Please try again.',
   preferEnglish: 'I prefer English',
-  agreeAndContinue: 'AGREE AND CONTINUE',
   welcomeContinue: 'Continue',
   updateProfile: 'Update Profile',
   navigateToAccount: 'Navigate to Account',
@@ -254,9 +253,9 @@ const ONBOARDING_DEADLINE_MS = 120_000;
  * Implemented as a URL-keyed state machine polled in a loop rather than a
  * fixed click script, because how much onboarding appears depends on the
  * account's history: a fresh account sees language pick -> consent ->
- * student name, then either the welcome screen or straight into the app, the
- * stable user usually sees nothing, and an account that died mid-onboarding
- * on a previous run resumes somewhere in the middle.
+ * student name -> how the tool works -> "do you have a PDF?" -> the upload,
+ * the stable user usually sees nothing, and an account that died
+ * mid-onboarding on a previous run resumes somewhere in the middle.
  *
  * The student-name step is flag-dependent, not dead code: `studentNameGate`
  * (lib/user-interface/app/src/common/features.ts) decides whether it appears
@@ -291,7 +290,9 @@ export async function completeOnboardingIfShown(page: Page): Promise<string> {
         const checkbox = page.getByRole('checkbox');
         if (await checkbox.isVisible()) {
           await checkbox.check();
-          await page.getByRole('button', { name: EN.agreeAndContinue }).click();
+          // By testid rather than the label: 'Continue' is localized, and it
+          // is now also the label on two later screens in this same walk.
+          await page.getByTestId('consent-continue-button').click();
           // The click chains several profile API calls before routing on
           // (consent save, default child, showOnboarding=false); wait out
           // the navigation so the loop cannot double-submit.
@@ -314,6 +315,25 @@ export async function completeOnboardingIfShown(page: Page): Promise<string> {
           // parent-name check before it routes; wait the navigation out so
           // the loop cannot double-submit.
           await page.waitForURL((url) => url.pathname !== '/view-update-add-child', { timeout: 30_000 });
+          continue;
+        }
+      } else if (path === '/how-to-use-the-tool') {
+        // First of the two screens now at the tail of onboarding: how the
+        // tool works, then "do you have a PDF?", then the upload.
+        const continueButton = page.getByTestId('how-to-use-continue');
+        if (await continueButton.isVisible()) {
+          await continueButton.click();
+          await page.waitForURL((url) => url.pathname !== '/how-to-use-the-tool', { timeout: 30_000 });
+          continue;
+        }
+      } else if (path === '/do-you-have-pdf') {
+        // Answer Yes. Every journey that gets here is carrying a fixture it
+        // already has, so the "ask the school for a PDF" branch is not the
+        // path under test; Yes routes straight to the upload.
+        const yes = page.getByTestId('have-pdf-yes');
+        if (await yes.isVisible()) {
+          await yes.click();
+          await page.waitForURL((url) => url.pathname !== '/do-you-have-pdf', { timeout: 30_000 });
           continue;
         }
       } else if (path === '/welcome-intro') {

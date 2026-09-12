@@ -1,16 +1,14 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Form, Button, Alert, Spinner, Container } from 'react-bootstrap';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { IconArrowLeft } from '@tabler/icons-react';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { UserProfile } from '../../common/types';
 import { useLanguage } from '../../common/language-context';
-import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { isPlaceholderChildName } from '../../common/features';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
-import LanguageDropdown from '../../components/LanguageDropdown';
+import OnboardingTopBar from '../../components/OnboardingChrome';
 import './ViewAndAddChild.css';
 
 // The school district is no longer asked for: nothing reads schoolCity - not
@@ -26,7 +24,7 @@ export default function ViewAndAddChild() {
   const iepDocumentClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
   const location = useLocation();
-  const { t, language, setLanguage, enabledLanguages } = useLanguage();
+  const { t } = useLanguage();
 
   const [loading, setLoading] = useState(true);
   // Two separate failures: a profile that will not load leaves nothing to
@@ -42,15 +40,6 @@ export default function ViewAndAddChild() {
   const [saving, setSaving] = useState(false);
   const [hasExistingDocument, setHasExistingDocument] = useState<boolean>(false);
 
-  const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
-
-  // Only the first entry in a history stack keeps the key 'default', so this
-  // asks "is one of our screens behind this one?" rather than
-  // window.history.length, which counts other sites and never goes down. A
-  // parent who opened this URL directly, or who landed here on the first
-  // navigation after signing in, gets no Back button instead of one that
-  // leaves the app.
-  const canGoBack = location.key !== 'default';
   // Set only by the onboarding entry points (ConsentForm, PreferredLanguage).
   // Its absence is what tells this screen it was opened to edit a name that
   // is already there.
@@ -173,7 +162,9 @@ export default function ViewAndAddChild() {
         // The legacy /welcome-page card hub is retired; Summary is the app home
         navigate('/summary-and-translations');
       } else {
-        navigate('/welcome-intro');
+        // Into the rest of onboarding: how the tool works, then the question
+        // about whether they have the IEP as a PDF, then the upload.
+        navigate('/how-to-use-the-tool');
       }
     } catch (err) {
       // Inline, above the form the parent just filled in: this failure used
@@ -215,34 +206,15 @@ export default function ViewAndAddChild() {
   return (
     <>
       <MobileTopNavigation />
-      <div className="child-name-page">
-        <div className="child-name-topbar">
-          {canGoBack && (
-            <Button
-              variant="outline-secondary"
-              className="aiep-button child-name-back"
-              onClick={() => navigate(-1)}
-            >
-              <IconArrowLeft size={18} stroke={2} className="arrow-icon" aria-hidden="true" />
-              {t('common.back')}
-            </Button>
-          )}
-          <div className="child-name-language">
-            <LanguageDropdown
-              language={language}
-              languageOptions={languageOptions}
-              onLanguageChange={setLanguage}
-              variant="secondary"
-            />
-          </div>
-        </div>
+      <div className="onboarding-page">
+        <OnboardingTopBar />
 
         {/* One question and one field, per the design. What the name is used
             for is explained on the privacy screen further into onboarding, not
             here: `child.description` is still in the dictionaries for it. */}
-        <h1 className="child-name-heading">{t('child.heading')}</h1>
+        <h1 className="onboarding-heading">{t('child.heading')}</h1>
 
-        {saveError && <Alert variant="danger" className="child-name-error">{saveError}</Alert>}
+        {saveError && <Alert variant="danger" className="onboarding-error">{saveError}</Alert>}
 
         <Form onSubmit={handleSubmit}>
           <Form.Group controlId="formChildName" className="child-name-field">
@@ -261,7 +233,7 @@ export default function ViewAndAddChild() {
               type="submit"
               variant="primary"
               disabled={!isFormValid() || saving}
-              className="child-name-submit"
+              className="onboarding-action"
               // Stable E2E hook: the label is localized
               data-testid="child-save-button"
             >

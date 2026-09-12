@@ -28,6 +28,9 @@ import RevokeConsent from '../pages/profile/RevokeConsent';
 import RightsAndOnboarding from '../pages/RightsAndOnboarding';
 import ConsentForm from '../pages/profile/ConsentForm';
 import WelcomeIntro from '../pages/profile/WelcomeIntro';
+import HowToUseTool from '../pages/profile/HowToUseTool';
+import HaveIepPdf from '../pages/profile/HaveIepPdf';
+import HowToAskForPdf from '../pages/profile/HowToAskForPdf';
 import FrequentlyAskedQuestions from '../components/FrequentlyAskedQuestions';
 import AIEPHub from '../components/AIEPHub';
 import ParentRightsCarousel from '../components/ParentRightsCarousel';
@@ -114,6 +117,14 @@ export default function AppRoutes() {
         <Route path="/onboarding-user" element={<OnboardingUser />} />
         <Route path="/consent-form" element={<ConsentForm />} />
         <Route path="/welcome-intro" element={<WelcomeIntro />} />
+        {/* The tail of onboarding, after the child's name: how the tool works,
+            whether the parent has the IEP as a PDF, and how to ask for one.
+            Not behind ConsentGate - a parent reaches them straight off the
+            consent form, and the gate's own profile read would race that
+            write. */}
+        <Route path="/how-to-use-the-tool" element={<HowToUseTool />} />
+        <Route path="/do-you-have-pdf" element={<HaveIepPdf />} />
+        <Route path="/how-to-ask-for-pdf" element={<HowToAskForPdf />} />
         <Route path="/about-the-app" element={<AboutApp />} />
         
         {/* Main app pages */}

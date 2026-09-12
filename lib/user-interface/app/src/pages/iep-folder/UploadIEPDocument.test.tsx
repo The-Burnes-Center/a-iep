@@ -375,3 +375,106 @@ describe("UploadIEPDocument: files larger than the pipeline can process", () => 
     }
   });
 });
+
+/**
+ * The child's name, in the gold chip the design puts above the heading.
+ *
+ * It comes from the profile, so the two things that can go wrong are showing
+ * an empty chip (no name on file, or the auto-created 'My Child' placeholder,
+ * or a profile that will not load) and showing the wrong thing. The screen has
+ * to keep working in all of them: the chip is a courtesy, the upload is not.
+ */
+describe("the child's name badge", () => {
+  const profileWith = (children: unknown[]) => ({
+    userId: "parent-1",
+    secondaryLanguage: "en",
+    consentGiven: true,
+    showOnboarding: false,
+    children,
+  });
+
+  /** Signs the profile call in and answers it with `profile`, or fails it. */
+  const renderWithProfile = (
+    profile: Record<string, unknown> | null,
+    { failRead = false } = {},
+  ) => {
+    Auth.fetchAuthSession.mockResolvedValue({
+      tokens: { idToken: { toString: () => "id-token", payload: {} } },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        failRead
+          ? { ok: false, status: 500, json: async () => ({}) }
+          : { ok: true, status: 200, json: async () => ({ profile }) },
+      ),
+    );
+    return renderUpload();
+  };
+
+  test("shows the name that is on the profile", async () => {
+    renderWithProfile(profileWith([{ childId: "child-1", name: "Alex Rivera", schoolCity: "Boston" }]));
+
+    const badge = await screen.findByTestId("upload-child-badge");
+    expect(badge).toHaveTextContent("Alex Rivera");
+    // Sits above the heading, per the design.
+    expect(
+      badge.compareDocumentPosition(screen.getByText("upload.title")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  test("says whose IEP it is, rather than leaving a bare name for a screen reader", async () => {
+    renderWithProfile(profileWith([{ childId: "child-1", name: "Alex Rivera", schoolCity: "Boston" }]));
+
+    const badge = await screen.findByTestId("upload-child-badge");
+    expect(badge).toHaveTextContent("upload.childBadge.label");
+  });
+
+  test("renders nothing at all when the child has no name", async () => {
+    renderWithProfile(profileWith([{ childId: "child-1", name: "", schoolCity: "Boston" }]));
+
+    // Waiting on the form proves the profile call has been and gone, so this
+    // is "no badge", not "not yet".
+    await screen.findByTestId("upload-submit-button");
+    await waitFor(() => expect(screen.queryByTestId("upload-child-badge")).toBeNull());
+  });
+
+  test("renders nothing for the auto-created 'My Child' placeholder", async () => {
+    // Consent creates that row before anyone has typed a name. Printing it
+    // back in a gold chip would tell a parent we think their child is called
+    // My Child.
+    renderWithProfile(profileWith([{ childId: "child-1", name: "My Child", schoolCity: "Boston" }]));
+
+    await screen.findByTestId("upload-submit-button");
+    await waitFor(() => expect(screen.queryByTestId("upload-child-badge")).toBeNull());
+  });
+
+  test("renders nothing when there is no child on the profile", async () => {
+    renderWithProfile(profileWith([]));
+
+    await screen.findByTestId("upload-submit-button");
+    await waitFor(() => expect(screen.queryByTestId("upload-child-badge")).toBeNull());
+  });
+
+  test("leaves the upload working when the profile cannot be read", async () => {
+    renderWithProfile(null, { failRead: true });
+
+    expect(await screen.findByTestId("upload-submit-button")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId("upload-child-badge")).toBeNull());
+  });
+
+  test("does not use the design's 100 MB line: the copy quotes the real limit", () => {
+    // The mock-up predates the drop to 50MB. The limit and the sentence that
+    // announces it are pinned together above; this only rules out the number
+    // the design asks for.
+    expect(MAX_FILE_SIZE_BYTES).toBeLessThan(100 * 1000 * 1000);
+    const en = JSON.parse(
+      fs.readFileSync(
+        path.join(path.dirname(fileURLToPath(import.meta.url)), "../../translations/en.json"),
+        "utf8",
+      ),
+    ) as Record<string, string>;
+    expect(en["upload.maxSize"]).not.toMatch(/100\s*MB/i);
+  });
+});

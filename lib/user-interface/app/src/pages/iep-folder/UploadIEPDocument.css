@@ -134,3 +134,16 @@
   border-color: #1E1E1E;
   background-color: var(--aiep-surface-tint-strong);
 }
+/* The child's name, as the designer's gold chip above the heading. */
+.upload-child-badge {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+  padding: 0.3rem 0.9rem;
+  border-radius: 20px;
+  background-color: var(--aiep-amber);
+  color: var(--aiep-ink);
+  font-family: akzidenz-grotesk-next-conden, sans-serif;
+  font-size: 0.9rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}

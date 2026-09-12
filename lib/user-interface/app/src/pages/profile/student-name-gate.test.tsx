@@ -128,7 +128,8 @@ const renderPage = (
               <Route path="/account-center/profile" element={<div>parent name step</div>} />
               <Route path="/iep-documents" element={<div>iep documents</div>} />
               <Route path="/summary-and-translations" element={<div>summary</div>} />
-              <Route path="/welcome-intro" element={<div>welcome intro</div>} />
+              <Route path="/how-to-use-the-tool" element={<div>how to use the tool</div>} />
+              <Route path="/do-you-have-pdf" element={<div>pdf question</div>} />
             </Routes>
           </AuthProvider>
         </LanguageContext.Provider>
@@ -214,9 +215,9 @@ describe("ConsentForm's continue button, when consent is already given", () => {
     );
   });
 
-  test("goes to the documents page once the student's name is on file", async () => {
+  test("goes on to how the tool works once the student's name is on file", async () => {
     // No parent-name step to fall through to any more: a parent whose child
-    // is named reaches the app from here.
+    // is named carries on into the rest of onboarding from here.
     stubFetch(profileWith({ parentName: undefined }));
     const user = renderPage("/consent-form", <ConsentForm />, ["studentNameGate"]);
 
@@ -224,7 +225,7 @@ describe("ConsentForm's continue button, when consent is already given", () => {
     await user.click(screen.getByRole("button", { name: "consent.button" }));
 
     await waitFor(() =>
-      expect(screen.getByTestId("landed-on")).toHaveTextContent("/iep-documents"),
+      expect(screen.getByTestId("landed-on")).toHaveTextContent("/how-to-use-the-tool"),
     );
   });
 });
@@ -241,7 +242,7 @@ describe("ViewAndAddChild, the gate's destination", () => {
     expect(screen.getByTestId("child-save-button")).toBeDisabled();
   });
 
-  test("goes on into the app when the parent-name gate is not owed", async () => {
+  test("goes on into the rest of onboarding when the parent-name gate is not owed", async () => {
     stubFetch(noStudentName({ parentName: "Jane Rivera" }));
     const user = renderPage("/view-update-add-child", <ViewAndAddChild />, []);
 
@@ -250,7 +251,7 @@ describe("ViewAndAddChild, the gate's destination", () => {
     await user.click(screen.getByTestId("child-save-button"));
 
     await waitFor(() =>
-      expect(screen.getByTestId("landed-on")).toHaveTextContent("/welcome-intro"),
+      expect(screen.getByTestId("landed-on")).toHaveTextContent("/how-to-use-the-tool"),
     );
   });
 });

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Container, Row, Col, Alert, Spinner, Button } from 'react-bootstrap';
+import { Container, Alert, Spinner, Button } from 'react-bootstrap';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { IconCheck } from '@tabler/icons-react';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { Language } from '../../common/types';
@@ -8,6 +9,8 @@ import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useFeatures } from '../../common/hooks/use-features';
 import { isStudentNameMissing } from '../../common/features';
+import MobileTopNavigation from '../../components/MobileTopNavigation';
+import OnboardingTopBar from '../../components/OnboardingChrome';
 import './ProfileForms.css';
 
 export default function PreferredLanguage() {
@@ -18,7 +21,9 @@ export default function PreferredLanguage() {
   const { setLanguage, enabledLanguages, t } = useLanguage();
   const { isFeatureEnabled } = useFeatures();
 
-  // Language options enabled for this environment
+  // Language options enabled for this environment. Arabic ships everywhere and
+  // is enabled outside production, so the list is read from config rather than
+  // written out: a hard-coded four would drop it where it is on.
   const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
   const [loading, setLoading] = useState(true);
@@ -48,7 +53,7 @@ export default function PreferredLanguage() {
 
       // Check if user needs onboarding based on profile showOnboarding field
       const needsOnboarding = data && data.showOnboarding === true;
-      
+
       if (needsOnboarding) {
         // console.log('User needs onboarding, starting onboarding flow');
         // Check if the user has already completed some required fields to determine where to start
@@ -98,23 +103,23 @@ export default function PreferredLanguage() {
 
     try {
       setSaving(true);
-      
+
       // Set the language in the context
       setLanguage(languageValue as SupportedLanguage);
-      
+
       // Create updated profile with the selected language
       const preferredLanguage = {
         secondaryLanguage: languageValue,
         primaryLanguage: 'en'
       };
-      
+
       setProfile(preferredLanguage);
-      
+
       // Only update if there are changes to save
       if (profile.secondaryLanguage !== languageValue) {
         await apiClient.profile.updateProfile(preferredLanguage);
       }
-      
+
       // Navigate back to appropriate page
       if (isUpdatingFromProfile) {
         navigate('/profile');
@@ -151,46 +156,53 @@ export default function PreferredLanguage() {
 
   // Show language preference UI
   return (
-    <Container 
-      fluid 
-      className="profile-form-container"
-    >
-      <Row style={{ width: '100%', justifyContent: 'center' }}>
-        <Col xs={12} md={8} lg={6}>
-          <div className="profile-form">
-            {isUpdatingFromProfile && (
-              <div className="text-center mb-4">
-                <h3>{t('preferredLanguage.update.title')}</h3>
-                <p className="text-muted">{t('preferredLanguage.update.description')}</p>
-                <Button
-                  variant="outline-secondary"
-                  size="sm"
-                  onClick={() => navigate('/profile')}
-                  className="mb-3"
-                >
-                  ← {t('common.back')}
-                </Button>
-              </div>
-            )}
-            <Row className="g-3">
-              {languageOptions.map(option => (
-                <Col xs={12} key={option.value}>
-                  <Button 
-                    variant={profile?.secondaryLanguage === option.value ? "primary" : "outline-primary"}
-                    className="w-100 py-3 language-button"
-                    onClick={() => handleLanguageSelect(option.value)}
-                    disabled={saving}
-                  >
-                    <div className="d-flex justify-content-between align-items-center w-100">
-                      <span>{option.translatedPreference}</span>
-                     </div>
-                  </Button>
-                </Col>
-              ))}
-            </Row>
-          </div>
-        </Col>
-      </Row>
-    </Container>
+    <>
+      <MobileTopNavigation />
+      <div className="onboarding-page">
+        {/* Carries its own Back control, so the edit-from-profile block below
+            no longer adds a second one of its own. */}
+        <OnboardingTopBar />
+
+        {isUpdatingFromProfile && (
+          <>
+            <h1 className="onboarding-heading">{t('preferredLanguage.update.title')}</h1>
+            <p className="onboarding-body">{t('preferredLanguage.update.description')}</p>
+          </>
+        )}
+
+        {/* No heading in the design: one line, then the choices, each written
+            in the language it offers. */}
+        <p className="onboarding-lede">{t('preferredLanguage.lede')}</p>
+
+        <div className="onboarding-actions">
+          {languageOptions.map(option => {
+            const isSelected = profile?.secondaryLanguage === option.value;
+            return (
+              <Button
+                key={option.value}
+                variant={isSelected ? 'primary' : 'outline-secondary'}
+                className="onboarding-choice"
+                // The fill is the only colour difference between chosen and
+                // not, so the state is also announced and also carries a tick.
+                aria-pressed={isSelected}
+                onClick={() => handleLanguageSelect(option.value)}
+                disabled={saving}
+              >
+                {isSelected && (
+                  <IconCheck
+                    size={20}
+                    stroke={2.5}
+                    className="onboarding-choice-icon"
+                    aria-hidden="true"
+                    data-testid={`language-selected-${option.value}`}
+                  />
+                )}
+                <span className="onboarding-choice-text">{option.translatedPreference}</span>
+              </Button>
+            );
+          })}
+        </div>
+      </div>
+    </>
   );
 }

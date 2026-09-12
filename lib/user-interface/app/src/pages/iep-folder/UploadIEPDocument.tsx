@@ -1,5 +1,5 @@
 // UploadIEPDocument.tsx
-import React, { useState, useContext, useRef } from 'react';
+import React, { useState, useContext, useRef, useEffect } from 'react';
 import {
   Form,
   Button,
@@ -10,7 +10,9 @@ import {
 } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
+import { ApiClient } from '../../common/api-client/api-client';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
+import { isPlaceholderChildName } from '../../common/features';
 import { FileUploader } from '../../common/file-uploader';
 import { Utils } from '../../common/utils';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -91,7 +93,14 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
   const appContext = useContext(AppContext);
   const apiClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
-  
+
+  // The name the design puts in a gold chip above the heading, so a parent
+  // uploading for one of several children can see which file they are about
+  // to attach to whom. Empty until the profile answers, and empty for good if
+  // it never does or if the child is still the auto-created placeholder: a
+  // chip with nothing in it would be worse than no chip.
+  const [childName, setChildName] = useState<string>('');
+
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
@@ -114,6 +123,22 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
   const passwordResolverRef = useRef<((password: string | null) => void) | null>(null);
 
   const { t } = useLanguage();
+
+  useEffect(() => {
+    let cancelled = false;
+    new ApiClient(appContext).profile
+      .getProfile()
+      .then((profile) => {
+        const name = profile?.children?.[0]?.name;
+        if (!cancelled && !isPlaceholderChildName(name)) setChildName(name as string);
+      })
+      .catch(() => {
+        // The badge is a courtesy, not a precondition for uploading: a profile
+        // that will not load leaves the chip off and the screen working. The
+        // failure is already reported wherever the profile actually matters.
+      });
+    return () => { cancelled = true; };
+  }, [appContext]);
 
   /**
    * Passed to pdf-decrypt.ts's resolveEncryptedPdf as its requestPassword
@@ -277,6 +302,13 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
 
   return (
     <Container className="p-0">
+          {childName && (
+            <p className="upload-child-badge" data-testid="upload-child-badge">
+              {/* The name alone says nothing to a screen reader. */}
+              <span className="visually-hidden">{t('upload.childBadge.label')}</span>
+              <span>{childName}</span>
+            </p>
+          )}
           <h2 className="upload-iep-title">{t('upload.title')}</h2>
           <p>
           {t('upload.maxSize')}

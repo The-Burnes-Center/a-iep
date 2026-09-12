@@ -150,3 +150,30 @@
     margin-bottom: 0.5rem;
   }
 }
+/* The consent screen's "I Agree" row: a full-width outlined pill holding the
+   checkbox and its label, per the designer's screen. Agreeing tints the edge
+   green AND adds a tick, so the state never rests on colour alone. */
+.consent-agree-group {
+  margin-bottom: 2rem;
+}
+
+.consent-agree-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--aiep-border);
+  border-radius: 20px;
+  background-color: var(--aiep-cream);
+}
+
+.consent-agree-row.is-agreed {
+  border-color: var(--aiep-green);
+}
+
+.consent-agree-tick {
+  flex: 0 0 auto;
+  color: var(--aiep-green);
+}

@@ -1,0 +1,204 @@
+/* The onboarding screens, built to the designer's mobile set: a back /
+   language row, a heavy left-aligned heading, and full-width pill buttons
+   stacked down a cream page.
+
+   Buttons here are the shared .aiep-button / .btn-primary /
+   .btn-outline-secondary, which styles/buttons.css and CustomLogin.css load
+   AFTER this file (main.tsx imports the app before the style sheets), so
+   every rule that adjusts one is written as a compound selector rather than
+   relying on source order. .btn-primary in particular sets uppercase, a
+   padding shorthand and a 20px pill, several of them !important. */
+
+.onboarding-page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 3rem;
+  text-align: start;
+}
+
+.onboarding-topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 2.5rem;
+}
+
+/* Sits right whether or not the Back button rendered. */
+.onboarding-language {
+  margin-inline-start: auto;
+}
+
+.onboarding-topbar .onboarding-back {
+  margin: 0;
+  min-width: 0;
+  gap: 0.4rem;
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+
+.onboarding-heading {
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-size: 2rem;
+  line-height: 1.2;
+  color: var(--aiep-ink);
+  margin-bottom: 2rem;
+}
+
+/* The one-line question above a set of choices, where the design has no
+   heading (the language picker). */
+.onboarding-lede {
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-weight: 400;
+  font-size: 1.1rem;
+  color: var(--aiep-ink);
+  margin-bottom: 1.5rem;
+}
+
+.onboarding-body {
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-weight: 400;
+  font-size: 1rem;
+  line-height: 1.8;
+  color: var(--aiep-ink);
+  margin-bottom: 2rem;
+}
+
+.onboarding-error {
+  margin-bottom: 1.5rem;
+}
+
+/* Stacked full-width buttons, primary first. */
+.onboarding-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.onboarding-page .btn.onboarding-action {
+  width: 100%;
+  margin: 0;
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* A choice rather than an action: the parent's own words ("I prefer English",
+   "Yes! And I have the file...") stay in their own casing, left aligned, and
+   wrap onto as many lines as they need. */
+.onboarding-page .btn.onboarding-choice {
+  width: 100%;
+  margin: 0;
+  padding: 1rem 1.25rem;
+  justify-content: flex-start;
+  text-align: start;
+  text-transform: none;
+  letter-spacing: normal;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 1.05rem;
+  line-height: 1.4;
+  white-space: normal;
+  gap: 0.75rem;
+  /* Spelled out rather than inherited from .aiep-button / .btn-primary: a
+     Bootstrap .btn is inline-block, and `gap` does nothing on one, so the
+     icon would sit flush against the label. */
+  display: flex;
+  align-items: center;
+}
+
+.onboarding-choice-icon {
+  flex: 0 0 auto;
+}
+
+.onboarding-choice-text {
+  flex: 1 1 auto;
+}
+
+.onboarding-choice-lead {
+  font-weight: 700;
+}
+
+/* Numbered steps, each circle joined to the next by a thin rule. */
+.onboarding-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 2.5rem;
+}
+
+.onboarding-step {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding-bottom: 2rem;
+}
+
+.onboarding-step:last-child {
+  padding-bottom: 0;
+}
+
+.onboarding-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 1.375rem;
+  top: 2.75rem;
+  bottom: 0.5rem;
+  width: 1px;
+  background-color: var(--aiep-green);
+}
+
+.onboarding-step-number {
+  flex: 0 0 auto;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  border: 2px solid var(--aiep-green);
+  color: var(--aiep-green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Fjalla One", sans-serif;
+  font-size: 1.25rem;
+}
+
+.onboarding-step-label {
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 1.15rem;
+  color: var(--aiep-ink);
+}
+
+/* The video thumbnail on "How to ask for a PDF IEP". Inert until a source is
+   configured; see HOW_TO_ASK_VIDEO in HowToAskForPdf.tsx. */
+.onboarding-video {
+  margin: 0 0 2.5rem;
+}
+
+.onboarding-video-frame {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border: 1px solid var(--aiep-border);
+  border-radius: 12px;
+  background-color: var(--aiep-surface-sunk);
+  color: var(--aiep-green);
+  overflow: hidden;
+}
+
+.onboarding-video iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.onboarding-video-caption {
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 0.95rem;
+  color: var(--aiep-muted);
+  margin-top: 0.75rem;
+}

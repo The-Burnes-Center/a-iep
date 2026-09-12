@@ -152,7 +152,7 @@ const renderPage = (
             <Route path="/account-center" element={<div>account center</div>} />
             <Route path="/account-center/profile" element={<div>parent name step</div>} />
             <Route path="/summary-and-translations" element={<div>summary</div>} />
-            <Route path="/welcome-intro" element={<div>welcome intro</div>} />
+            <Route path="/how-to-use-the-tool" element={<div>how to use the tool</div>} />
           </Routes>
         </LanguageContext.Provider>
       </AppContext.Provider>
@@ -336,7 +336,11 @@ describe("where saving sends a parent", () => {
     );
   });
 
-  test("to the welcome step when there is no document yet", async () => {
+  test("on into the rest of onboarding when there is no document yet", async () => {
+    // The name step is no longer the last one: how the tool works, then the
+    // question about a PDF, then the upload. (It used to end at
+    // /welcome-intro, which is now only reachable by an account left sitting
+    // on it by an earlier build.)
     stubFetch(profileWith({}));
     const user = renderPage();
     await waitForForm();
@@ -345,7 +349,7 @@ describe("where saving sends a parent", () => {
     await user.click(saveButton());
 
     await waitFor(() =>
-      expect(screen.getByTestId("landed-on")).toHaveTextContent("/welcome-intro"),
+      expect(screen.getByTestId("landed-on")).toHaveTextContent("/how-to-use-the-tool"),
     );
   });
 });

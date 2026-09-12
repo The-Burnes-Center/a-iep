@@ -97,6 +97,13 @@
      patterns-blue.jpg 2.49; this puts them at 3.99 and 5.55. */
   --aiep-image-scrim-soft: rgba(30, 30, 30, 0.45);
 
+  /* ---- Accents on the page --------------------------------------------- */
+  /* The gold chip that carries the child's name above the upload heading. Ink
+     on it is 7.84, so the 0.9rem label clears AA with room; against the cream
+     page the chip itself is 1.92, which is the point of a chip -- it reads as
+     a block of colour, and what has to be legible is the name inside it. */
+  --aiep-amber: #eca400;
+
   /* ---- Disabled -------------------------------------------------------- */
   /* WCAG 1.4.3 and 1.4.11 both exempt an inactive control, and looking
      inactive is the point, so these stay where they were. */
