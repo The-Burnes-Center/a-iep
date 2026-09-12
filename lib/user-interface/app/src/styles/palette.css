@@ -65,15 +65,26 @@
   --aiep-error: #c4140e;
 
   /* ---- Large-display accents ------------------------------------------ */
-  /* These two are only ever used on the landing hero (36px mobile / 48px
+  /* As TEXT these two appear only on the landing hero (36px mobile / 48px
      desktop) and the how-it-works heading (48px), so AA asks 3:1, not 4.5:1.
      Both were far under even that: orange #FF8724 was 2.17 and pink #F995A1
      was 1.92, which is why "AI for Impact" and "community-centered AI" were
      the hardest words on the page to read. Deepened to 3.66 and 4.03.
-     If either is ever used below 24px it needs a darker value; the contrast
-     test names the selectors and sizes that justify the 3:1 threshold. */
+     If either is ever used as text below 24px it needs a darker value; the
+     contrast test names the selectors and sizes that justify the 3:1
+     threshold.
+     They are also two of the five tones in the document-tone ramp below,
+     where they are block fills rather than text and 3:1 is the whole bar. */
   --aiep-accent-orange: #cc5e00;
   --aiep-accent-rose: #cc4a5c;
+
+  /* The fifth tone of the ramp the privacy screen draws its fanned document
+     edges and summary bars in: green, accent-blue, this, rose, orange. The
+     other four already existed; nothing in the palette was a violet, and five
+     tones that a parent can tell apart is what the design needs. 6.66 on
+     cream, 6.21 on #EEEBE5, 7.38 on white -- well past the 3:1 a graphical
+     object has to clear, with room if it is ever used as a label. */
+  --aiep-accent-violet: #6b3fa0;
 
   /* ---- On the greens --------------------------------------------------- */
   /* Nav labels. Was #7AAD8E, which is 2.71 on the #00682F bar: the four

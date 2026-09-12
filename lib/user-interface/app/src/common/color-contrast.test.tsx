@@ -204,12 +204,13 @@ const PAIRS: Pair[] = [
   { fg: "--aiep-muted", bg: "--aiep-cream", level: "text", where: "blockquotes, breadcrumbs, SMS consent, page-count label" },
   { fg: "--aiep-muted", bg: "--aiep-surface-sunk", level: "text", where: "carousel slide body copy" },
   { fg: "--aiep-muted", bg: "--aiep-surface-field", level: "text", where: "the 'no file chosen' line in the upload control" },
+  { fg: "--aiep-muted", bg: "--aiep-surface-white", level: "text", where: "the SSN / address labels and the bracketed placeholders on the sample IEP" },
 
   // -- links and the jargon terms -----------------------------------------
   { fg: "--aiep-link", bg: "--aiep-cream", level: "text", where: "links in the privacy policy and in summaries" },
   { fg: "--aiep-link", bg: "--aiep-surface-white", level: "text", where: "links inside a code or quote block" },
   { fg: "--aiep-accent-blue", bg: "--aiep-cream", level: "text", where: "jargon terms in a summary (also underlined)" },
-  { fg: "--aiep-accent-blue", bg: "--aiep-surface-sunk", level: "ui", where: "the icon on the document-failure card" },
+  { fg: "--aiep-accent-blue", bg: "--aiep-surface-sunk", level: "ui", where: "the icon on the document-failure card; a fanned document edge against the provider card" },
   { fg: "--aiep-accent-blue-hover", bg: "--aiep-cream", level: "text", where: "a jargon term under the pointer" },
   { fg: "--aiep-cream", bg: "--aiep-accent-blue", level: "text", where: "the jargon drawer title, and the resources banner heading" },
 
@@ -220,7 +221,7 @@ const PAIRS: Pair[] = [
 
   // -- the greens ----------------------------------------------------------
   { fg: "--aiep-green", bg: "--aiep-cream", level: "text", where: "the unselected login-method label; section headings" },
-  { fg: "--aiep-green", bg: "--aiep-surface-sunk", level: "ui", where: "the active carousel dot" },
+  { fg: "--aiep-green", bg: "--aiep-surface-sunk", level: "ui", where: "the active carousel dot; a fanned document edge against the provider card" },
   { fg: "--aiep-green-dark", bg: "--aiep-cream", level: "text", where: "dark-green headings" },
   { fg: "--aiep-cream", bg: "--aiep-green", level: "text", where: "nav bar, green banners, primary button label" },
   { fg: "--aiep-cream", bg: "--aiep-green-dark", level: "text", where: "footer, hero panel, processing card" },
@@ -236,9 +237,29 @@ const PAIRS: Pair[] = [
   { fg: "--aiep-accent-orange", bg: "--aiep-cream", level: "large", where: ".landing-hero-text-orange / .how-to-banner-title-orange, 36-48px" },
   { fg: "--aiep-accent-rose", bg: "--aiep-cream", level: "large", where: ".landing-hero-text-pink, 36-48px" },
 
-  // -- the gold name chip --------------------------------------------------
-  { fg: "--aiep-ink", bg: "--aiep-amber", level: "text", where: "the child's name in the chip above the upload heading" },
+  // -- the gold name chip, and the same gold on the privacy screen ----------
+  { fg: "--aiep-ink", bg: "--aiep-amber", level: "text", where: "the child's name in the chip above the upload heading; the SSN and address on the sample IEP" },
   { fg: "--aiep-amber", bg: "--aiep-cream", level: "surface", where: "the chip itself against the page; the name inside it is what has to be read" },
+  { fg: "--aiep-amber", bg: "--aiep-surface-white", level: "surface", where: "the highlight on the sample document, against the paper; the value inside it is what has to be read" },
+
+  // -- the privacy screen's document tones ---------------------------------
+  // The five tones the fanned document edges (over the #EEEBE5 card) and the
+  // summary bars (over the white document) are drawn in. They are decoration
+  // -- the five step sentences say what is happening, and the whole
+  // illustration is aria-hidden -- so SC 1.4.11 arguably exempts them
+  // entirely. Held to the 3:1 a meaningful graphical object would need
+  // anyway, because "decorative" is a judgement that gets revisited and a
+  // parent with low vision should be able to see that these are five
+  // different things.
+  { fg: "--aiep-green", bg: "--aiep-surface-white", level: "ui", where: "summary bar 1 on the sample document" },
+  { fg: "--aiep-accent-blue", bg: "--aiep-surface-white", level: "ui", where: "summary bar 2 on the sample document" },
+  { fg: "--aiep-accent-violet", bg: "--aiep-surface-white", level: "ui", where: "summary bar 3 on the sample document" },
+  { fg: "--aiep-accent-rose", bg: "--aiep-surface-white", level: "ui", where: "summary bar 4 on the sample document" },
+  { fg: "--aiep-accent-orange", bg: "--aiep-surface-white", level: "ui", where: "summary bar 5 on the sample document" },
+  { fg: "--aiep-accent-violet", bg: "--aiep-surface-sunk", level: "ui", where: "a fanned document edge against the provider card" },
+  { fg: "--aiep-accent-rose", bg: "--aiep-surface-sunk", level: "ui", where: "a fanned document edge against the provider card" },
+  { fg: "--aiep-accent-orange", bg: "--aiep-surface-sunk", level: "ui", where: "a fanned document edge against the provider card" },
+  { fg: "--aiep-surface-white", bg: "--aiep-surface-sunk", level: "surface", where: "the sample documents against the provider card; their 3:1 edge comes from --aiep-border" },
 
   // -- boundaries ----------------------------------------------------------
   { fg: "--aiep-border", bg: "--aiep-cream", level: "ui", where: "input, select, card, table and dropdown edges" },

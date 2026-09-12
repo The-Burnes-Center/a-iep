@@ -1,0 +1,400 @@
+/* "How we protect your privacy", the last screen of onboarding.
+
+   Everything shared with the rest of the flow -- the page box, the back /
+   language row, the heading, the circled step number, the full-width pill
+   buttons -- comes from components/OnboardingChrome.css and styles/buttons.css.
+   What is here is the illustration: stacks of paper, the amber highlight on a
+   value we are about to remove, the discarded original, and the coloured bars
+   that stand for a summary.
+
+   Drawn in CSS rather than exported as an image because the screen is almost
+   entirely labelled text: it ships in five languages and it has to mirror in
+   Arabic. Every offset below is therefore logical (inset-inline-start, not
+   left), so a stack of paper leans the same way as the sentence beside it.
+   `transform: translate()` would not: it is unaware of direction, and the
+   stacks would lean into the text in Arabic.
+
+   Colours are palette tokens only. The five tones on the fanned edges and the
+   summary bars are decorative, but each is measured at 3:1 against the surface
+   it renders on in common/color-contrast.test.tsx. */
+
+/* ---- Provider label ----------------------------------------------------- */
+
+.privacy-provider {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--aiep-green);
+}
+
+.privacy-provider-icon {
+  flex: 0 0 auto;
+  font-size: 0.85rem;
+}
+
+/* ---- The card each provider's steps sit in ------------------------------ */
+
+.privacy-card {
+  background-color: var(--aiep-surface-sunk);
+  border-radius: 16px;
+  padding: 1.25rem 1rem;
+}
+
+.privacy-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.privacy-step + .privacy-step {
+  margin-top: 2rem;
+}
+
+.privacy-figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+
+.privacy-caption {
+  margin: 0;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--aiep-muted);
+}
+
+.privacy-step-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+/* Smaller than on the other onboarding screens: these sentences sit inside a
+   card, so the line is ~235px wide at 375px and the shared 1.15rem wraps to
+   five or six lines. */
+.privacy-page .onboarding-step-number {
+  width: 2.25rem;
+  height: 2.25rem;
+  font-size: 1.05rem;
+}
+
+.privacy-page .onboarding-step-label {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+/* ---- A stack of paper --------------------------------------------------- */
+
+.privacy-stack {
+  position: relative;
+  width: 9.5rem;
+}
+
+.privacy-sheet {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--aiep-border);
+  border-radius: 6px;
+}
+
+/* Offsets run DOWN, not up: the sheets are all the sheet's size, they are
+   painted in document order, and the sheet on top of the paint stack wins. So
+   the first one in the markup has to be the one furthest out, or the last one
+   painted covers every band behind it and the stack reads as one wide block of
+   whatever colour came last. Each band is then the difference between two
+   neighbouring offsets, and they are evenly spaced on purpose. */
+.privacy-sheet--1 {
+  inset-block-start: 0.6rem;
+  inset-inline-start: 0.6rem;
+}
+
+.privacy-sheet--2 {
+  inset-block-start: 0.3rem;
+  inset-inline-start: 0.3rem;
+}
+
+.privacy-sheet--plain {
+  background-color: var(--aiep-surface-white);
+}
+
+/* The fanned copy on step 3: five sheets in five tones, each showing the same
+   0.25rem of itself. */
+.privacy-stack--fanned .privacy-sheet--1 {
+  inset-block-start: 1.25rem;
+  inset-inline-start: 1.25rem;
+}
+
+.privacy-stack--fanned .privacy-sheet--2 {
+  inset-block-start: 1rem;
+  inset-inline-start: 1rem;
+}
+
+.privacy-stack--fanned .privacy-sheet--3 {
+  inset-block-start: 0.75rem;
+  inset-inline-start: 0.75rem;
+}
+
+.privacy-stack--fanned .privacy-sheet--4 {
+  inset-block-start: 0.5rem;
+  inset-inline-start: 0.5rem;
+}
+
+.privacy-stack--fanned .privacy-sheet--5 {
+  inset-block-start: 0.25rem;
+  inset-inline-start: 0.25rem;
+}
+
+.privacy-sheet--green {
+  background-color: var(--aiep-green);
+  border-color: var(--aiep-green);
+}
+
+.privacy-sheet--blue {
+  background-color: var(--aiep-accent-blue);
+  border-color: var(--aiep-accent-blue);
+}
+
+.privacy-sheet--violet {
+  background-color: var(--aiep-accent-violet);
+  border-color: var(--aiep-accent-violet);
+}
+
+.privacy-sheet--rose {
+  background-color: var(--aiep-accent-rose);
+  border-color: var(--aiep-accent-rose);
+}
+
+.privacy-sheet--orange {
+  background-color: var(--aiep-accent-orange);
+  border-color: var(--aiep-accent-orange);
+}
+
+/* ---- The sheet on top --------------------------------------------------- */
+
+.privacy-doc {
+  position: relative;
+  border: 1px solid var(--aiep-border);
+  border-radius: 6px;
+  background-color: var(--aiep-surface-white);
+  padding: 0.6rem 0.7rem;
+  min-height: 6.75rem;
+}
+
+.privacy-doc-title {
+  margin: 0 0 0.5rem;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--aiep-ink);
+}
+
+.privacy-doc-field + .privacy-doc-field {
+  margin-top: 0.45rem;
+}
+
+.privacy-doc-label {
+  display: block;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--aiep-muted);
+}
+
+.privacy-doc-value {
+  display: inline-block;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 0.8rem;
+  color: var(--aiep-ink);
+}
+
+/* A <mark>, so Bootstrap's own highlight padding and fill have to be replaced
+   rather than merely added to. */
+.privacy-doc-value--highlight {
+  background-color: var(--aiep-amber);
+  padding: 0 0.25rem;
+  border-radius: 2px;
+}
+
+.privacy-doc-value--redacted {
+  font-style: italic;
+  color: var(--aiep-muted);
+}
+
+/* ---- The original, discarded -------------------------------------------- */
+
+.privacy-stack--discarded .privacy-sheet,
+.privacy-doc--discarded {
+  background-color: transparent;
+  border-style: dashed;
+}
+
+.privacy-doc--discarded {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.privacy-trash {
+  font-size: 1.6rem;
+  color: var(--aiep-muted);
+}
+
+/* ---- Two documents side by side ----------------------------------------- */
+
+/* The discarded original holds a trash icon and the copy holds two fields, so
+   left to themselves the two documents are different heights -- and by a
+   different amount in each language, once a longer word wraps a label. Stretch
+   instead of pinning a height: whichever document is taller sets the row. */
+.privacy-groups {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.privacy-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.privacy-groups .privacy-stack {
+  width: 7.5rem;
+  flex: 1 1 auto;
+}
+
+.privacy-groups .privacy-doc {
+  height: 100%;
+}
+
+/* ---- The summary -------------------------------------------------------- */
+
+.privacy-doc--summary {
+  width: 9.5rem;
+  min-height: 0;
+  padding: 0.8rem 0.7rem;
+}
+
+.privacy-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.privacy-bar {
+  display: block;
+  height: 0.45rem;
+  border-radius: 3px;
+}
+
+/* Ragged widths, so five bars read as lines of text rather than a chart. */
+.privacy-bar--green {
+  width: 100%;
+  background-color: var(--aiep-green);
+}
+
+.privacy-bar--blue {
+  width: 84%;
+  background-color: var(--aiep-accent-blue);
+}
+
+.privacy-bar--violet {
+  width: 94%;
+  background-color: var(--aiep-accent-violet);
+}
+
+.privacy-bar--rose {
+  width: 68%;
+  background-color: var(--aiep-accent-rose);
+}
+
+.privacy-bar--orange {
+  width: 88%;
+  background-color: var(--aiep-accent-orange);
+}
+
+/* ---- The summary in two languages --------------------------------------- */
+
+.privacy-panels {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+}
+
+.privacy-panel {
+  flex: 0 1 6.5rem;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.8rem 0.5rem;
+}
+
+.privacy-glyph {
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  color: var(--aiep-ink);
+}
+
+.privacy-bars--between {
+  flex: 0 0 auto;
+  width: 1.6rem;
+}
+
+/* ---- Between the two providers ------------------------------------------ */
+
+.privacy-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 1.25rem 0;
+  color: var(--aiep-green);
+}
+
+.privacy-arrow-line {
+  display: block;
+  height: 1.75rem;
+  border-inline-start: 2px dotted var(--aiep-green);
+}
+
+.privacy-arrow-head {
+  font-size: 1.1rem;
+  margin-block-start: -0.2rem;
+}
+
+/* ---- The closing line --------------------------------------------------- */
+
+.privacy-closing {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 1.75rem 0 2rem;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--aiep-green);
+}
+
+.privacy-closing-icon {
+  flex: 0 0 auto;
+  margin-block-start: 0.25rem;
+}

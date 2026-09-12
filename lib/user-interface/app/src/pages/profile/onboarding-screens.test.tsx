@@ -64,7 +64,7 @@ const renderChain = (start: string) => {
           ))}
           <Route path="/iep-documents" element={<div>upload</div>} />
           <Route path="/view-resources" element={<div>resources</div>} />
-          <Route path="/privacy-policy" element={<div>privacy policy</div>} />
+          <Route path="/how-we-protect-your-privacy" element={<div>how we protect your privacy</div>} />
         </Routes>
       </LanguageContext.Provider>
     </MemoryRouter>,
@@ -110,17 +110,14 @@ describe("How to use the tool", () => {
     expect(landedOn()).toBe("/do-you-have-pdf");
   });
 
-  test("the privacy button leads somewhere rather than dead-ending", async () => {
-    // The dedicated "How we protect your privacy" screen is not written yet
-    // (its copy names the vendors that see a document and is still with the
-    // product owner), so the button opens the published privacy policy. What
-    // this pins is that it is a real destination, not an inert button.
+  test("the privacy button opens the screen that explains what happens to the document", async () => {
+    // The dedicated screen, not the published privacy policy: see
+    // HowWeProtectYourPrivacy.test.tsx for what it says once it is open.
     const user = renderChain("/how-to-use-the-tool");
 
     await user.click(screen.getByTestId("how-to-use-privacy"));
 
-    expect(landedOn()).not.toBe("/how-to-use-the-tool");
-    expect(screen.getByText("privacy policy")).toBeInTheDocument();
+    expect(landedOn()).toBe("/how-we-protect-your-privacy");
   });
 });
 

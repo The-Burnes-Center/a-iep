@@ -6,13 +6,12 @@ import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
 
 /**
- * TODO(product): replace with the dedicated "How we protect your privacy"
- * screen once its copy is settled. The draft names the vendors that see the
- * document and is missing one of them, so it is not shipping yet; until it
- * does, this button opens the privacy policy already published in the app,
- * which is the closest true answer a parent can read today.
+ * The dedicated screen that walks a parent through what happens to their
+ * document, provider by provider. The published privacy policy
+ * (/privacy-policy) is still linked from the account area; this is the
+ * onboarding answer.
  */
-const PRIVACY_SCREEN_ROUTE = '/privacy-policy';
+const PRIVACY_SCREEN_ROUTE = '/how-we-protect-your-privacy';
 
 /** The three things the tool does, in the order a parent does them. */
 const STEP_KEYS = ['howToUse.step1', 'howToUse.step2', 'howToUse.step3'];
