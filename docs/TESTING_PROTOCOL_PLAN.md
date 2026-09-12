@@ -10,7 +10,7 @@
 - **CI gate:** `.github/workflows/ci.yml` on `pull_request` + push to `staging`, four parallel jobs (auth-lambda jest, python pytest on 3.12, frontend tsc + changed-file eslint, root tsc + both cdk synths).
 - **Post-deploy smoke:** `scripts/smoke-test.sh` (shared) appended as a `smoke-test` job to both deploy workflows; resolves client id/API/site URL from stack outputs by key pattern (verified against both live stacks 2026-07-27). Checks: unknown number gets NotAuthorizedException (the PR #51 regression), optional test-user handshake via SSM `/a-iep/<env>/smoke-test-phone` (SKIPs until the test user + parameter exist), CloudFront index + hashed bundle 200, API answers 401 on `/profile`.
 - **Found along the way:** frontend `npm run lint` had been crashing (blanket `ajv@^8` override vs eslint 8's ajv6 API). Fixed by carving `eslint`/`@eslint/eslintrc` back to ajv 6.12.6 in `lib/user-interface/app/package.json` overrides. That unmasked 158 pre-existing lint problems in 41 files. **Backlog cleared 2026-07-27 (wave 3):** all problems fixed with zero runtime behavior change (unused code removed, `any` replaced with real types, 17 documented exhaustive-deps disables preserving effect timing, one stable-setter dep added); verified via full lint, tsc, and a vite production build; ci.yml frontend job runs the full `npm run lint` again (changed-files carve-out removed).
-- **Smoke-test users live (2026-07-27):** permanent confirmed Cognito users with fictional, undeliverable numbers: +15555550101 (staging pool us-east-1_Lhz0SBaFU) and +15555550102 (prod pool us-east-1_xhit0fN1J), created via admin-create-user + permanent random password (never used; the flow is OTP-only), phone_number_verified=true, no SMS ever sent (round 1 is the no-SMS handshake and smoke abandons the session). Numbers stored at SSM `/a-iep/staging/smoke-test-phone` and `/a-iep/production/smoke-test-phone`. Check 2 verified PASSing live on both environments. Smoke runs create no profile rows and send no SMS.
+- **Smoke-test users live (2026-07-27):** permanent confirmed Cognito users with fictional, undeliverable numbers: +15555550101 (staging) and +15555550102 (production), created via admin-create-user + permanent random password (never used; the flow is OTP-only), phone_number_verified=true, no SMS ever sent (round 1 is the no-SMS handshake and smoke abandons the session). Numbers stored at SSM `/a-iep/staging/smoke-test-phone` and `/a-iep/production/smoke-test-phone`. Check 2 verified PASSing live on both environments. Smoke runs create no profile rows and send no SMS.
 - **Still open (needs DB):** alarm destination for Phase 5, and Phase 4 prod-gating style. Phase 5 not started. RESOLVED 2026-07-28: ~~branch protection + required checks on main~~ (done, see "Deploy gating"); ~~staging strictness~~ (DB: staging stays open for direct pushes, it is the dev instance); ~~Phase 3 signup strategy~~ (shipped CustomSMSSender, option (a)); ~~Phase 3 itself~~ (shipped, see Wave 7).
 
 ### Wave 2 (2026-07-27, same day): full backend API coverage
@@ -169,10 +169,10 @@ Keep prod deploying from `main` only, but wrap the deploy job in a GitHub **Envi
 | Thing | Value |
 |---|---|
 | Region | `us-east-1` |
-| Staging pool / client | `us-east-1_Lhz0SBaFU` / `23qgadptgv1p4n3tuggt0lec00` |
-| Prod pool / client | `us-east-1_xhit0fN1J` / `501q23l273pje6crh8nn376311` |
+| Staging pool / client | in the stack outputs |
+| Prod pool / client | in the stack outputs |
 | Stacks | `AIEPStagingStack` (staging branch), `AIEPStack` (main, `ENVIRONMENT=production`) |
-| Staging site | `https://d1tznne4kof6ph.cloudfront.net` (also in stack outputs) |
+| Staging site | the distribution hostname in the stack outputs |
 | Auth trigger log groups | `/aws/lambda/AIEPStagingStack-NewAuthorizationstaging{DefineAuth,CreateAuth,VerifyAuth,PreAuthent,CustomMess}-*` and the `AIEPStack-NewAuthorization*` prod equivalents |
 | Signup-heartbeat lambda | `AIEPStagingStack-ChatbotAPIstagingCognitoTriggerFu-*` / `AIEPStack-ChatbotAPICognitoTriggerFunctionBF558261-*` (PostConfirmation) |
 | Pool client behavior | `PreventUserExistenceErrors: ENABLED` on both clients; keep it (protects the email/password flow); the triggers now handle `userNotFound` explicitly |

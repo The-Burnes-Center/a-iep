@@ -534,7 +534,7 @@ incident, which is constraint 4.
 Facts from the account, checked rather than assumed: `a-iep.org` is verified
 and DKIM-signed, the account has production access with a 50,000 a day quota,
 and `EnforcementStatus` is `HEALTHY`. So there is no sandbox to escape. The
-account is shared with `grantwell.us` and `innovate-us.org`, and SES
+account is shared with other projects' verified identities, and SES
 reputation is per-account, so an abuse run against A-IEP's login can stop
 another project's mail and vice versa.
 

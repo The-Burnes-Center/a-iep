@@ -232,8 +232,7 @@ export class NewAuthorizationStack extends Construct {
       // DeleteUserPool API call, which never goes through CloudFormation at
       // all. deletionProtection is Cognito's server-side switch for exactly
       // that call (renders as DeletionProtection: 'ACTIVE'; verified
-      // 2026-09-10 that both pools -- us-east-1_Lhz0SBaFU staging/30 users,
-      // us-east-1_xhit0fN1J prod/296 users -- were sitting on 'INACTIVE').
+      // 2026-09-10 that both pools were sitting on 'INACTIVE').
       // Same consequence as losing RETAIN: credentials cannot be exported, so
       // a deleted pool locks every family out permanently. Pinned by
       // test/infra/gen-ai-mvp-stack.test.ts in both environments.

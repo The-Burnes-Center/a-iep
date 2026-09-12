@@ -22,7 +22,7 @@ Both come from the user; do not guess them.
 
 | Input | Example |
 |---|---|
-| **Environment** | production (`https://a-iep.org`) or staging (`https://d1tznne4kof6ph.cloudfront.net`) |
+| **Environment** | production (`https://a-iep.org`) or staging (the distribution hostname in the stack outputs) |
 | **Scope** | "full end to end", "just the upload pipeline", "the new referral flow", "translations only" |
 
 Everything else is derived. If the user names only a scope, ask which

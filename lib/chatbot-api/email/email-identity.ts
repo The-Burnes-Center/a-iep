@@ -37,11 +37,11 @@ import type { Severity } from '../monitoring/monitoring';
  *  1. `a-iep.org` is verified and can send today (production access granted,
  *     50,000/day, 14/second). Nothing in A-IEP uses SES yet, so the first
  *     email this service sends will be an OTP.
- *  2. **The account is shared.** `grantwell.us` and `innovate-us.org` are
- *     verified in the same account and region. SES reputation and
- *     enforcement are per-ACCOUNT, not per-identity. So an abuse run against
- *     A-IEP's login can stop Grantwell's mail, and a bad campaign on another
- *     project can stop A-IEP's login. Both directions are alarmed below.
+ *  2. **The account is shared.** Other projects have identities verified in
+ *     the same account and region, and SES reputation and enforcement are
+ *     per-ACCOUNT, not per-identity. So sending problems here can affect
+ *     their mail, and theirs can affect this service's login. Both
+ *     directions are alarmed below.
  *
  * ## What this construct owns
  *
