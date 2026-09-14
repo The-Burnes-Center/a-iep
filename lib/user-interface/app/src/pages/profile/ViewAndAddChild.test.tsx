@@ -338,9 +338,7 @@ describe("where saving sends a parent", () => {
 
   test("on into the rest of onboarding when there is no document yet", async () => {
     // The name step is no longer the last one: how the tool works, then the
-    // question about a PDF, then the upload. (It used to end at
-    // /welcome-intro, which is now only reachable by an account left sitting
-    // on it by an earlier build.)
+    // question about a PDF, then the upload.
     stubFetch(profileWith({}));
     const user = renderPage();
     await waitForForm();

@@ -15,10 +15,9 @@
  */
 import React from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import WelcomeIntro from "./WelcomeIntro";
 import PreferredLanguage from "./PreferredLanguage";
 import ConsentForm from "./ConsentForm";
 import ViewAndAddChild from "./ViewAndAddChild";
@@ -79,7 +78,6 @@ const renderPage = async (language: string, path: string, page: React.ReactEleme
               <Route path={path} element={page} />
               <Route path="/preferred-language" element={<div>language step</div>} />
               <Route path="/consent-form" element={<div>consent step</div>} />
-              <Route path="/welcome-intro" element={<div>welcome step</div>} />
               <Route path="/iep-documents" element={<div>iep documents</div>} />
               <Route path="/summary-and-translations" element={<div>summary</div>} />
               <Route path="/profile" element={<div>profile</div>} />
@@ -126,52 +124,6 @@ beforeEach(() => {
     tokens: { idToken: { toString: () => "id-token", payload: {} } },
   });
   stubFetch();
-});
-
-describe("the welcome step", () => {
-  test("is read in Spanish, headline, body and button alike", async () => {
-    await renderPage("es", "/welcome-intro", <WelcomeIntro />);
-
-    expect(await screen.findByText(es["welcomeIntro.title"])).toBeInTheDocument();
-    expect(screen.getByText(es["welcomeIntro.body1"])).toBeInTheDocument();
-    expect(screen.getByText(es["welcomeIntro.body2"])).toBeInTheDocument();
-    expect(screen.getByTestId("welcome-intro-continue")).toHaveTextContent(
-      es["welcomeIntro.button.continue"],
-    );
-  });
-
-  test("leaks neither the English wording nor a raw translation key", async () => {
-    // The page had zero t() calls, so every string on it was English. A
-    // half-done fix shows up as either the old English or, if a key never made
-    // it into es.json, as "welcomeIntro.title" printed at the parent.
-    await renderPage("es", "/welcome-intro", <WelcomeIntro />);
-    await screen.findByText(es["welcomeIntro.title"]);
-
-    expectNoEnglishLeak([
-      en["welcomeIntro.title"],
-      en["welcomeIntro.body1"],
-      en["welcomeIntro.body2"],
-      en["welcomeIntro.button.continue"],
-    ]);
-  });
-
-  test("is read right-to-left in Arabic, with the document direction to match", async () => {
-    await renderPage("ar", "/welcome-intro", <WelcomeIntro />);
-
-    expect(await screen.findByText(ar["welcomeIntro.title"])).toBeInTheDocument();
-    expect(screen.getByText(ar["welcomeIntro.body1"])).toBeInTheDocument();
-    expect(document.documentElement.dir).toBe("rtl");
-  });
-
-  test("continues into the app, and says so in Spanish while it waits", async () => {
-    // The button's disabled label was 'Loading...'; the navigation it guards
-    // is what must still happen.
-    const user = await renderPage("es", "/welcome-intro", <WelcomeIntro />);
-
-    await user.click(await screen.findByTestId("welcome-intro-continue"));
-
-    await waitFor(() => expect(screen.getByText("iep documents")).toBeInTheDocument());
-  });
 });
 
 describe("the language picker's own messages", () => {
@@ -246,6 +198,22 @@ describe("the child step's outcomes", () => {
     expect(await screen.findByText(es["child.error.updateFailed"])).toBeInTheDocument();
     expect(screen.queryByText(en["child.error.updateFailed"])).toBeNull();
   });
+
+  test("leaks neither the English wording nor a raw translation key", async () => {
+    // This screen was rebuilt to the design and its copy is the newest in the
+    // flow, so it is the likeliest place for a string to have been added in
+    // English and never translated. A half-done job shows up either as the
+    // English still on screen or, if a key never reached es.json, as the key
+    // itself printed at the parent.
+    await renderPage("es", "/view-update-add-child", <ViewAndAddChild />);
+    await screen.findByText(es["child.heading"]);
+
+    expectNoEnglishLeak([
+      en["child.heading"],
+      en["child.name.label"],
+      en["child.button.save"],
+    ]);
+  });
 });
 
 // The success confirmations that used to live here went with the toasts: the
@@ -254,10 +222,6 @@ describe("the child step's outcomes", () => {
 describe("the keys these screens depend on", () => {
   const locales = { en, es, ar } as Record<string, Record<string, string>>;
   const keys = [
-    "welcomeIntro.title",
-    "welcomeIntro.body1",
-    "welcomeIntro.body2",
-    "welcomeIntro.button.continue",
     "accountCenter.adminConsole",
     "common.loading",
     "common.saving",

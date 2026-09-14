@@ -41,7 +41,6 @@ export const EN = {
   wrongCodeInSession: 'An error occurred. Please try again.',
   sessionFailed: 'Invalid verification code. Please try again.',
   preferEnglish: 'I prefer English',
-  welcomeContinue: 'Continue',
   updateProfile: 'Update Profile',
   navigateToAccount: 'Navigate to Account',
   deleteYourAccount: 'Delete your account',
@@ -334,19 +333,6 @@ export async function completeOnboardingIfShown(page: Page): Promise<string> {
         if (await yes.isVisible()) {
           await yes.click();
           await page.waitForURL((url) => url.pathname !== '/do-you-have-pdf', { timeout: 30_000 });
-          continue;
-        }
-      } else if (path === '/welcome-intro') {
-        // Where the student-name step lands an account that owes no parent
-        // name and has no document yet, so it arrived with that step. Its
-        // Continue writes showOnboarding=false and routes to /iep-documents.
-        // exact: true because 'Continue' is a substring of two other
-        // onboarding buttons, and a case-insensitive substring match would
-        // make this locator claim them.
-        const welcomeContinue = page.getByRole('button', { name: EN.welcomeContinue, exact: true });
-        if (await welcomeContinue.isVisible()) {
-          await welcomeContinue.click();
-          await page.waitForURL((url) => url.pathname !== '/welcome-intro', { timeout: 30_000 });
           continue;
         }
       } else if (path === '/account-center/profile') {

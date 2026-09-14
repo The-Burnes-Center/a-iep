@@ -27,7 +27,6 @@ import UpdateProfileName from '../pages/profile/UpdateProfileName';
 import RevokeConsent from '../pages/profile/RevokeConsent';
 import RightsAndOnboarding from '../pages/RightsAndOnboarding';
 import ConsentForm from '../pages/profile/ConsentForm';
-import WelcomeIntro from '../pages/profile/WelcomeIntro';
 import HowToUseTool from '../pages/profile/HowToUseTool';
 import HaveIepPdf from '../pages/profile/HaveIepPdf';
 import HowToAskForPdf from '../pages/profile/HowToAskForPdf';
@@ -117,7 +116,6 @@ export default function AppRoutes() {
         {/* Onboarding flow */}
         <Route path="/onboarding-user" element={<OnboardingUser />} />
         <Route path="/consent-form" element={<ConsentForm />} />
-        <Route path="/welcome-intro" element={<WelcomeIntro />} />
         {/* The tail of onboarding, after the child's name: how the tool works,
             how we protect the document, whether the parent has the IEP as a
             PDF, and how to ask for one. Not behind ConsentGate - a parent
