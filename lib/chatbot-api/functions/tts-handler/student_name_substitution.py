@@ -74,5 +74,14 @@ def substitute_text(text, replacement):
     substituted = text.replace(STUDENT_TOKEN, replacement)
     # After the exact pass, because the exact token matches this pattern too
     # and would otherwise be counted twice.
-    substituted, mangled = _MANGLED_TOKEN.subn(replacement, substituted)
+    #
+    # A callable, not the string: re.sub expands backslash escapes in a
+    # replacement STRING, and the replacement here is a child's name. A name
+    # of '\1' raised re.error('invalid group reference'), which here means the
+    # read-aloud of that child's document fails every time, and a name holding
+    # '\g' or '\n' came out mangled in what the parent hears. The same defect
+    # and the same fix as user-profile-handler's copy of this module; the two
+    # cannot import each other, because each handler folder is zipped into its
+    # own lambda asset.
+    substituted, mangled = _MANGLED_TOKEN.subn(lambda _match: replacement, substituted)
     return substituted, count + mangled

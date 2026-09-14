@@ -434,3 +434,47 @@ def test_the_substitution_logs_counts_and_never_the_name_or_the_content(tts, cap
     assert 'Substituted the student token in 1 place(s)' in logged
     assert CHILD_NAME not in logged
     assert 'progresa' not in logged
+
+
+@pytest.fixture()
+def tts_substitution():
+    """The tts-handler's own copy of student_name_substitution.
+
+    Loaded directly rather than through the handler: this is a property of the
+    substitution itself, and the two lambdas ship separate copies of the module
+    that cannot import each other.
+    """
+    module = load_lambda_module('tts-handler', 'tts_student_name_substitution',
+                                module_name='student_name_substitution')
+    try:
+        yield module
+    finally:
+        unload('tts_student_name_substitution')
+
+
+@pytest.mark.parametrize('name, spoken', [
+    # re.sub expands backslash escapes in a replacement STRING. '\1' is a group
+    # reference to a group the pattern does not have, so this raised
+    # re.error('invalid group reference') and failed the read-aloud outright.
+    ('\\1', '\\1'),
+    # '\g<0>' expands to whatever the pattern matched -- the parent would have
+    # heard the mangled token read back at them instead of their child's name.
+    ('\\g<0>', '\\g<0>'),
+    # A backslash mid-name: 'bad escape \R' before the fix.
+    ('Alex\\Rivera', 'Alex\\Rivera'),
+    # '\n' became a real newline, splitting the name mid-utterance.
+    ('A\\nB', 'A\\nB'),
+])
+def test_a_name_holding_a_backslash_is_spoken_literally(tts_substitution, name, spoken):
+    """Nothing in a child's name may be read as a regex instruction.
+
+    Names are validated on the way in now (user-profile-handler's
+    validate_child_name rejects these), but names stored before that validation
+    existed still have to play, so the substitution itself must not process
+    escapes. The exact {{S}} token goes through str.replace and was never
+    affected; the mangled-token pattern below is the path that was.
+    """
+    substituted, count = tts_substitution.substitute_text('Ask {{ S }} about it', name)
+
+    assert count == 1
+    assert substituted == f'Ask {spoken} about it'

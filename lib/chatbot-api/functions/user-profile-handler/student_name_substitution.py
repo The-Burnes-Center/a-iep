@@ -81,7 +81,16 @@ def substitute_in_value(value, replacement):
         substituted = value.replace(STUDENT_TOKEN, replacement)
         # After the exact pass, because the exact token matches this pattern
         # too and would otherwise be counted twice.
-        substituted, mangled = _MANGLED_TOKEN.subn(replacement, substituted)
+        #
+        # A callable, not the string: re.sub expands backslash escapes in a
+        # replacement STRING, and the replacement here is a child's name. A
+        # name of '\1' raised re.error('invalid group reference') -- a 500 on
+        # every read of that child's document -- and one holding '\g' or '\n'
+        # came out silently mangled into the summary a parent reads. The name
+        # is now validated on the way in (user-profile-handler's
+        # validate_child_name), but names stored before that still have to
+        # print, so the substitution itself does no escape processing.
+        substituted, mangled = _MANGLED_TOKEN.subn(lambda _match: replacement, substituted)
         return substituted, count + mangled
     if isinstance(value, list):
         items, count = [], 0
