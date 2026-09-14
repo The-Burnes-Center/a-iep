@@ -104,3 +104,33 @@
         margin-top: 0;
     }
 }
+
+/* What the hero card holds for a parent who is already signed in, in place of
+   the sign-in form. Same padded cream box, so the page does not jump when the
+   session check resolves and swaps one for the other. */
+.hero-section-signed-in {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+.hero-signed-in-title {
+    font-family: "Fjalla One", sans-serif;
+    font-weight: 400;
+    font-size: 1.5rem;
+    margin: 0;
+    color: var(--aiep-ink);
+}
+
+.hero-signed-in-description {
+    font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+    font-size: 1rem;
+    margin: 0;
+    color: var(--aiep-muted);
+}
+
+.hero-signed-in-action {
+    width: 100%;
+    margin-top: 0.5rem;
+}

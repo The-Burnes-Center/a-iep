@@ -159,11 +159,18 @@ export default function PreferredLanguage() {
     <>
       <MobileTopNavigation />
       <div className="onboarding-page">
-        {/* Carries its own Back control, so the edit-from-profile block below
-            no longer adds a second one of its own. No language dropdown: this
-            screen IS the language picker, and the bar put a second copy of
-            the same choice in the corner of it. */}
-        <OnboardingTopBar showLanguagePicker={false} />
+        {/* No language dropdown: this screen IS the language picker, and the
+            bar put a second copy of the same choice in the corner of it.
+
+            Back only when a parent got here from their profile, where there is
+            a real screen to return to. In onboarding this is the FIRST step:
+            the entry behind it is the sign-in card, so Back handed a
+            signed-in parent a login form and a page scrolled to its middle. */}
+        <OnboardingTopBar
+          showLanguagePicker={false}
+          showBack={isUpdatingFromProfile}
+          backTo={isUpdatingFromProfile ? '/account-center' : undefined}
+        />
 
         {isUpdatingFromProfile && (
           <>

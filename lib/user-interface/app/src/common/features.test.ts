@@ -81,3 +81,46 @@ describe("the master feature list", () => {
     expect(resolveEnabledFeatures(["referrals"])).not.toContain("studentNameGate");
   });
 });
+
+describe("the placeholder name has one definition", () => {
+  /**
+   * Three call sites wrote the literal 'My Child' instead of importing this
+   * constant, while isPlaceholderChildName compared against the constant. The
+   * two agreeing was a coincidence maintained by hand: changing the constant
+   * would have left those three writing a name the gate no longer recognised,
+   * so a parent would have been asked for a name they had already given.
+   *
+   * Read off disk rather than by grepping imports, because the failure mode is
+   * a string literal, and a literal is invisible to the type system.
+   */
+  test("no source file writes the placeholder as a literal", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+
+    const srcDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+    const offenders: string[] = [];
+
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!/\.tsx?$/.test(entry.name)) continue;
+        // features.ts is where it is defined; tests may name it in fixtures.
+        if (entry.name === "features.ts" || /\.test\.tsx?$/.test(entry.name)) continue;
+        fs.readFileSync(full, "utf8").split("\n").forEach((line, i) => {
+          // A comment explaining the placeholder is fine; passing it is not.
+          if (/(['"])My Child\1/.test(line) && !/^\s*(\/\/|\*|\/\*)/.test(line)) {
+            offenders.push(`${path.relative(srcDir, full)}:${i + 1}`);
+          }
+        });
+      }
+    };
+    walk(srcDir);
+
+    expect(offenders).toEqual([]);
+  });
+});

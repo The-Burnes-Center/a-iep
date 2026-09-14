@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Container, Form, Button, Row, Col, OverlayTrigger, Tooltip, Spinner } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
+import { DEFAULT_CHILD_NAME } from '../../common/features';
 import { IconCheck } from '@tabler/icons-react';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -97,7 +98,7 @@ export default function ConsentForm() {
       // The user can update this later if needed
       if (!profile?.children || profile.children.length === 0) {
         try {
-          await apiClient.profile.addChild('My Child', profile?.city || 'Not specified');
+          await apiClient.profile.addChild(DEFAULT_CHILD_NAME, profile?.city || 'Not specified');
         } catch (childError) {
           // Don't fail the flow if child creation fails - user can add manually later
         }

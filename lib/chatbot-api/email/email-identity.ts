@@ -245,6 +245,22 @@ export class EmailIdentityStack extends Construct {
       partitionKey: { name: 'addressHash', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+      // RETAIN alone only survives the stack being deleted. These two are what
+      // survive the table being emptied or dropped in place, and every other
+      // durable table here carries both (the three data tables share
+      // USER_DATA_PROTECTION in tables.ts; AuthSessionTable sets them inline).
+      // This one was the exception, for no reason anybody recorded.
+      //
+      // Losing it is not recoverable by replaying anything: a suppression row
+      // records that a real address bounced or complained, evidence that only
+      // existed at the moment the provider reported it. Sending to those
+      // addresses again is what costs the domain its reputation, and every
+      // family who depends on email delivery pays for that.
+      //
+      // Both are "Update requires: No interruption" on AWS::DynamoDB::Table,
+      // so adding them to a live table replaces nothing.
+      pointInTimeRecovery: true,
+      deletionProtection: true,
       // Only ever set on an unsuppressed transient tally; a suppression row
       // carries no expiry and is removed by hand or not at all.
       timeToLiveAttribute: 'expiresAt',

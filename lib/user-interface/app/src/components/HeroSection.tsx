@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Button } from 'react-bootstrap';
+import { useAuth } from '../common/auth-provider';
 import { useLanguage, SupportedLanguage } from '../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import { SIGN_IN_CARD_ID, SIGN_IN_HASH } from '../common/sign-in-location';
@@ -13,6 +15,8 @@ const HeroSection: React.FC = () => {
     const { t, language, setLanguage, enabledLanguages } = useLanguage();
     const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
     const location = useLocation();
+    const navigate = useNavigate();
+    const { authenticated } = useAuth();
     const signInCard = useRef<HTMLDivElement>(null);
 
     // This card is the app's only sign-in form, so /login, ProtectedRoute and
@@ -74,7 +78,34 @@ const HeroSection: React.FC = () => {
                     tabIndex={-1}
                 >
                     <div className='hero-section-login-container-content'>
-                        <CustomLogin showLogo={false} />
+                        {/* A signed-in parent reaches '/' often: the footer's
+                            Home link is on every page, the FAQs and resources
+                            live here, and ProtectedRoute lands them here too.
+                            Showing them a sign-in form offered no way forward
+                            and read as having been signed out, which is the
+                            same complaint LandingTopNavigation's uploadRoute
+                            already answers for its own link.
+
+                            `authenticated` is false while the session check is
+                            still running, so the form is what renders first.
+                            That is the right way round: it is correct for every
+                            anonymous visitor, and a parent who is signed in
+                            sees it for as long as a cached token read takes. */}
+                        {authenticated ? (
+                            <div className='hero-section-signed-in' data-testid="hero-signed-in">
+                                <h4 className='hero-signed-in-title'>{t('hero.signedIn.title')}</h4>
+                                <p className='hero-signed-in-description'>{t('hero.signedIn.description')}</p>
+                                <Button
+                                    variant='primary'
+                                    className='aiep-button hero-signed-in-action'
+                                    onClick={() => navigate('/iep-documents')}
+                                >
+                                    {t('hero.signedIn.button')}
+                                </Button>
+                            </div>
+                        ) : (
+                            <CustomLogin showLogo={false} />
+                        )}
                     </div>
                 </div>
             </div>

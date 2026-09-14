@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Container, Form, Button, Row, Col, Alert, Spinner, Breadcrumb } from 'react-bootstrap';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { DEFAULT_CHILD_NAME } from '../../common/features';
 import { useQuery } from '@tanstack/react-query';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
@@ -57,7 +58,7 @@ export default function UpdateProfileName() {
         try {
           // Create a default child with generic information
           // The user can update this later if needed
-          await apiClient.profile.addChild('My Child', profile?.city || 'Not specified');
+          await apiClient.profile.addChild(DEFAULT_CHILD_NAME, profile?.city || 'Not specified');
           // console.log('Created default child for IEP document functionality');
         } catch (childError) {
           // console.error('Error creating default child:', childError);

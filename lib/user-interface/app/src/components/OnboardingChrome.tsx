@@ -18,6 +18,16 @@ interface OnboardingTopBarProps {
    */
   backTo?: string;
   /**
+   * Whether to offer Back at all.
+   *
+   * Off on a screen that is the START of the flow. Having somewhere to go is
+   * not the same as having somewhere worth going: a parent who pushed the
+   * sign-in card and then signed in has a history entry behind them, and it is
+   * the login form. Sending a signed-in parent there is the dead end the whole
+   * Back rule exists to avoid.
+   */
+  showBack?: boolean;
+  /**
    * Whether to offer the language selector. Off on the language step, which
    * is itself a full-page language picker: a parent was shown the same
    * choice twice on one screen, once as a dropdown and once as the list of
@@ -40,7 +50,7 @@ interface OnboardingTopBarProps {
  * `.onboarding-*` classes travels with it.
  */
 export default function OnboardingTopBar(
-  { backTo, showLanguagePicker = true }: OnboardingTopBarProps = {},
+  { backTo, showBack = true, showLanguagePicker = true }: OnboardingTopBarProps = {},
 ) {
   const navigate = useNavigate();
   const hasSomethingBehind = useCanGoBack();
@@ -52,7 +62,7 @@ export default function OnboardingTopBar(
   // it depends on there being something of ours behind this one: a parent who
   // opened the URL directly, or who landed here on the first navigation after
   // signing in, gets no Back button rather than one that leaves the app.
-  const canGoBack = Boolean(backTo) || hasSomethingBehind;
+  const canGoBack = showBack && (Boolean(backTo) || hasSomethingBehind);
 
   return (
     <div className="onboarding-topbar">

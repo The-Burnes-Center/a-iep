@@ -111,8 +111,15 @@ const APPROVED_RUNTIMES = ['python3.12', 'nodejs20.x'];
 // table, never replace it, because a replacement is an EMPTY table and an
 // empty table signs every currently-signed-in family out at once. It also
 // holds live Cognito refresh tokens, which is why it carries the CMK.
+// EmailSuppressionTable joined last, and was the one durable table carrying
+// RETAIN and nothing else: this list is what the protection test iterates, so
+// a table missing from it was never checked. Its rows are evidence that a real
+// address bounced or complained, which existed only at the moment the provider
+// said so and cannot be replayed from anywhere. Losing them means sending to
+// those addresses again, which is what costs the sending domain its reputation.
 const USER_DATA_TABLE_HINTS = [
   'UserProfilesTable', 'IepDocumentsTable', 'ReferralsTable', 'AuthSessionTable',
+  'EmailSuppressionTable',
 ];
 
 // The live bucket names, per environment. These are the names the production

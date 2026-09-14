@@ -80,11 +80,22 @@ const renderPage = (
   {
     enabledLanguages = ["en", "es", "zh", "vi", "ar"] as SupportedLanguage[],
     profile = ONBOARDING_PROFILE as Record<string, unknown>,
+    fromProfile = false,
   } = {},
 ) => {
   stubFetch(profile);
+  // A real previous entry, so "no Back" below is the rule deciding it rather
+  // than there being nothing to go back to.
+  const entries = [
+    { pathname: "/account-center" },
+    { pathname: PAGE, state: fromProfile ? { fromProfile: true } : null },
+  ];
+  // Say there IS an entry behind this screen. Without it the Back button is
+  // absent because nothing is behind the page, and the assertions below pass
+  // whatever the rule does -- which is a test that cannot fail.
+  window.history.replaceState({ idx: 1 }, "");
   render(
-    <MemoryRouter initialEntries={[PAGE]}>
+    <MemoryRouter initialEntries={entries} initialIndex={1}>
       <AppContext.Provider value={appConfig(enabledLanguages)}>
         <LanguageContext.Provider
           value={{
@@ -101,6 +112,7 @@ const renderPage = (
             <Route path="/consent-form" element={<div>consent step</div>} />
             <Route path="/iep-documents" element={<div>iep documents</div>} />
             <Route path="/summary-and-translations" element={<div>summary</div>} />
+            <Route path="/account-center" element={<div>account center</div>} />
           </Routes>
         </LanguageContext.Provider>
       </AppContext.Provider>
@@ -208,5 +220,28 @@ describe("choosing a language", () => {
     expect(setLanguage).toHaveBeenCalledWith("vi");
     const write = requests.find((r) => r.method === "PUT");
     expect(write?.body).toMatchObject({ secondaryLanguage: "vi", primaryLanguage: "en" });
+  });
+});
+
+describe("the Back control", () => {
+  test("is not offered during onboarding, where the screen before it is sign-in", async () => {
+    // This is the FIRST onboarding step. A parent who pushed the sign-in card
+    // and then signed in does have an entry behind them, and it is the login
+    // form: Back sent a signed-in parent to a form they had just used, on a
+    // page scrolled to its middle by the #sign-in hash. Having somewhere to go
+    // is not the same as having somewhere worth going.
+    renderPage();
+    await waitForChoices();
+
+    expect(screen.queryByRole("button", { name: "common.back" })).toBeNull();
+  });
+
+  test("is offered when a parent came from their profile to change the language", async () => {
+    const user = renderPage({ fromProfile: true });
+    await waitForChoices();
+
+    await user.click(screen.getByRole("button", { name: "common.back" }));
+
+    expect(screen.getByTestId("landed-on")).toHaveTextContent("/account-center");
   });
 });
