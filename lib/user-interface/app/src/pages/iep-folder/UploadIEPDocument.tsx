@@ -84,6 +84,47 @@ const mimeTypes = {
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 };
 
+/**
+ * What the OS file picker offers. Without it the picker offered every file on
+ * the device, so a parent could pick the photo they took of page one and only
+ * learn we cannot read it after the picker had closed.
+ *
+ * Both halves are listed because no single one covers every picker: macOS and
+ * Windows filter on the MIME types, Android's document providers frequently
+ * only understand the extensions, and some understand neither. Derived from
+ * fileExtensions and mimeTypes rather than written out a third time, so a
+ * format added to the gate cannot stay invisible in the picker.
+ *
+ * This is a HINT and nothing more. Every picker offers a way out of the filter,
+ * drag-and-drop ignores accept entirely, and a .jpg renamed to .pdf satisfies
+ * it. The extension check in handleFileChange is the actual gate and stays.
+ */
+const FILE_ACCEPT = [
+  ...fileExtensions,
+  ...Array.from(fileExtensions, (extension) => mimeTypes[extension]),
+].join(',');
+
+// Referenced twice each -- once on the element, once from the file input's
+// aria-describedby -- so they are named rather than repeated as literals.
+const FILE_ERROR_ID = 'fileUploadError';
+const FILE_FORMATS_ID = 'fileUploadFormats';
+const FILE_CHECKING_ID = 'fileUploadChecking';
+
+/**
+ * Which refusal is on screen, carried next to its message.
+ *
+ * The kind exists so the layout below can ask "is the format error showing?"
+ * without matching on the message text: that text is one of five translations
+ * and is meant to be rewritten freely, so a string comparison would be a gate
+ * that quietly stops holding the first time somebody improves the copy.
+ */
+type FileErrorKind = 'format' | 'size' | 'encrypted';
+
+interface FileError {
+  kind: FileErrorKind;
+  message: string;
+}
+
 export interface UploadIEPDocumentProps {
   onUploadComplete: () => void;
   hasExistingDocument: boolean;
@@ -102,7 +143,7 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
   const [childName, setChildName] = useState<string>('');
 
   const [file, setFile] = useState<File | null>(null);
-  const [fileError, setFileError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<FileError | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
   
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
@@ -174,11 +215,15 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
 
     const fileExtension = selectedFile.name.slice(selectedFile.name.lastIndexOf('.')).toLowerCase();
 
+    // Still checked here, and not left to the input's accept attribute: accept
+    // filters what the picker shows, it does not constrain what arrives. A
+    // parent who switched the picker to "All Files", dragged a file in, or
+    // renamed one lands in this branch.
     if (!fileExtensions.has(fileExtension)) {
-      setFileError(t('upload.fileError.format'));
+      setFileError({ kind: 'format', message: t('upload.fileError.format') });
       setFile(null);
     } else if (selectedFile.size > MAX_FILE_SIZE_BYTES) {
-      setFileError(t('upload.fileError.size'));
+      setFileError({ kind: 'size', message: t('upload.fileError.size') });
       setFile(null);
     // Only PDFs carry the /Encrypt trailer entry this checks for; a .doc/.docx
     // uses a different (OOXML/OLE) encryption mechanism this does not detect.
@@ -210,7 +255,7 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
           // all (corrupt, unsupported encryption). The one thing that has
           // always worked -- save an unprotected copy -- is still true.
           setFile(null);
-          setFileError(t('upload.fileError.encrypted'));
+          setFileError({ kind: 'encrypted', message: t('upload.fileError.encrypted') });
         }
       } catch {
         // resolveEncryptedPdf's own contract is to resolve 'failed' rather
@@ -220,7 +265,7 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
         // parent still gets an actionable message, the same one they would
         // have gotten before this feature existed.
         setFile(null);
-        setFileError(t('upload.fileError.encrypted'));
+        setFileError({ kind: 'encrypted', message: t('upload.fileError.encrypted') });
       } finally {
         setIsCheckingFile(false);
         setPasswordPrompt(CLOSED_PASSWORD_PROMPT);
@@ -300,6 +345,25 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
     }
   };
 
+  const isCheckingIndicatorShown = isCheckingFile && !passwordPrompt.isOpen;
+
+  // The format error already names the three formats we accept, so the hint
+  // line would be the same fact a second time, stacked underneath it. The size
+  // and encrypted messages say nothing about formats, so the hint stays useful
+  // next to those and keeps rendering.
+  const isSupportedFormatsHintShown = fileError?.kind !== 'format';
+
+  // Only ever names ids that are really in the DOM: which hints sit under this
+  // input changes with every file picked, and a dangling idref describes the
+  // input as nothing at all.
+  const fileInputDescribedBy = [
+    isCheckingIndicatorShown ? FILE_CHECKING_ID : '',
+    fileError ? FILE_ERROR_ID : '',
+    isSupportedFormatsHintShown ? FILE_FORMATS_ID : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
     <Container className="p-0">
           {childName && (
@@ -324,6 +388,8 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
                 <input
                   type="file"
                   id="fileUpload"
+                  accept={FILE_ACCEPT}
+                  aria-describedby={fileInputDescribedBy || undefined}
                   onChange={handleFileChange}
                   disabled={uploadStatus === 'uploading' || isCheckingFile || passwordPrompt.isOpen}
                 />
@@ -336,19 +402,40 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
                   </span>
                 </div>
               </div>
-              {isCheckingFile && !passwordPrompt.isOpen && (
-                <Form.Text className="text-muted" data-testid="checking-file-indicator">
+              {isCheckingIndicatorShown && (
+                <Form.Text
+                  id={FILE_CHECKING_ID}
+                  className="upload-file-hint text-muted"
+                  data-testid="checking-file-indicator"
+                >
                   {t('upload.checkingFile')}
                 </Form.Text>
               )}
+              {/* role="alert" rather than a standing aria-live region,
+                  because this element is built on demand: a live region
+                  inserted with its content already inside it is not announced
+                  by NVDA or JAWS, and only role="alert" gets that treatment
+                  (the same reasoning as CustomLogin's Turnstile region, which
+                  had to go the other way for the same reason). */}
               {fileError && (
-                <Form.Text className="text-danger">
-                  {fileError}
+                <Form.Text
+                  id={FILE_ERROR_ID}
+                  role="alert"
+                  className="upload-file-hint text-danger"
+                  data-testid="file-error"
+                >
+                  {fileError.message}
                 </Form.Text>
               )}
-              <Form.Text className="text-muted">
-              {t('upload.supportedFormats')} {Array.from(fileExtensions).join(', ')}
-              </Form.Text>
+              {isSupportedFormatsHintShown && (
+                <Form.Text
+                  id={FILE_FORMATS_ID}
+                  className="upload-file-hint text-muted"
+                  data-testid="supported-formats-hint"
+                >
+                  {t('upload.supportedFormats')} {Array.from(fileExtensions).join(', ')}
+                </Form.Text>
+              )}
             </Form.Group>
             
             {file && (

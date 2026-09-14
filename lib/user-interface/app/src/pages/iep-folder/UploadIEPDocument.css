@@ -119,6 +119,17 @@
   color: var(--aiep-muted);
 }
 
+/* The messages under the file input: the "checking" notice, a refusal, and the
+   supported-formats hint. Bootstrap's .form-text sets a top margin but no
+   display, and react-bootstrap renders Form.Text as a <small>, which is
+   inline -- so two of them ran together as one line a parent read as
+   "File format not supportedSupported formats: .doc, .docx, .pdf". Each one
+   gets its own line and its own space above it. */
+.upload-file-hint {
+  display: block;
+  margin-top: 0.5rem;
+}
+
 .form-control[type="file"] {
   border-radius: 1.5rem;
 }

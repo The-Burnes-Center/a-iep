@@ -89,6 +89,15 @@ const plainPdf = (name = "iep.pdf") =>
     { type: "application/pdf" },
   );
 
+// A File whose bytes are not actually allocated: jsdom reports whatever
+// `size` says, and materialising 50 MB per test to check one comparison would
+// be a slow way to learn nothing extra.
+const fileOfSize = (bytes: number, name = "iep-scan.pdf") => {
+  const file = plainPdf(name);
+  Object.defineProperty(file, "size", { value: bytes });
+  return file;
+};
+
 const selectFile = (file: File) => {
   // No <label> or data-testid on this input (pre-existing), so it is found
   // by id rather than through a testing-library query.
@@ -276,15 +285,6 @@ describe("UploadIEPDocument: password-protected PDFs", () => {
  * processing wait. The gate sat at 100MB, which invited exactly that.
  */
 describe("UploadIEPDocument: files larger than the pipeline can process", () => {
-  // A File whose bytes are not actually allocated: jsdom reports whatever
-  // `size` says, and materialising 50 MB per test to check one comparison
-  // would be a slow way to learn nothing extra.
-  const fileOfSize = (bytes: number, name = "iep-scan.pdf") => {
-    const file = plainPdf(name);
-    Object.defineProperty(file, "size", { value: bytes });
-    return file;
-  };
-
   test("a 60 MB file is refused at the picker, with the size message, and is never uploaded", async () => {
     // A literal size, deliberately: 60 MB sat in the band the old 100MB gate
     // waved through and Mistral then rejected, so this test fails against the
@@ -371,6 +371,188 @@ describe("UploadIEPDocument: files larger than the pipeline can process", () => 
           dictionary[key],
           `${language}.json's ${key} does not quote the ${megabytes}MB limit the code enforces: ${dictionary[key]}`,
         ).toMatch(quotesTheLimit);
+      }
+    }
+  });
+});
+
+/**
+ * What the picker offers, and what a parent is told when it is refused.
+ *
+ * Two defects in one place. The input carried no `accept`, so the OS picker
+ * offered every file on the device and a parent could pick a photo of page one
+ * and only learn we cannot read it after the picker had closed. And the
+ * refusal rendered as an inline <small> directly against the
+ * supported-formats hint, so they ran together as one line:
+ * "File format not supportedSupported formats: .doc, .docx, .pdf".
+ */
+describe("UploadIEPDocument: the file picker and its messages", () => {
+  const unsupportedFile = (name = "notes.txt", type = "text/plain") =>
+    new File(["not an IEP"], name, { type });
+
+  const acceptedBy = (input: HTMLInputElement) =>
+    (input.getAttribute("accept") ?? "").split(",").map((value) => value.trim());
+
+  test("the picker offers the three formats the pipeline can read, by extension AND by MIME type", () => {
+    // Both halves, because no one picker uses both: desktop pickers filter on
+    // the MIME types and Android's document providers routinely only
+    // understand the extensions. Exact tokens rather than substrings, so
+    // ".doc" cannot be satisfied by the ".docx" next to it.
+    renderUpload();
+
+    const offered = acceptedBy(document.getElementById("fileUpload") as HTMLInputElement);
+
+    for (const token of [
+      ".pdf",
+      ".doc",
+      ".docx",
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ]) {
+      expect(offered, `accept does not offer ${token}: ${offered.join(",")}`).toContain(token);
+    }
+    // The MIME types are looked up per extension, so an extension added to the
+    // gate without one produces a hole. Asserted as an empty token and not as
+    // the string "undefined": Array.prototype.join stringifies undefined to
+    // "", so accept would read ".doc,.docx,.pdf,.rtf,...,application/pdf,"
+    // and a check for "undefined" could never fire.
+    expect(offered).not.toContain("");
+  });
+
+  test("accept is only a hint: a file that gets past it is still refused, and never uploaded", async () => {
+    // Drag-and-drop ignores accept, every picker offers a way out of the
+    // filter, and this file claims a MIME type we do accept while carrying an
+    // extension we do not -- which is what a renamed photo looks like. The
+    // extension check is the gate, so it has to still be the thing that
+    // refuses.
+    renderUpload();
+
+    selectFile(unsupportedFile("page-one.jpg", "application/pdf"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("file-error")).toHaveTextContent("upload.fileError.format");
+    });
+    expect(screen.queryByText("page-one.jpg")).not.toBeInTheDocument();
+    expect(screen.getByTestId("upload-submit-button")).toBeDisabled();
+    expect(iepClient.getUploadURL).not.toHaveBeenCalled();
+  });
+
+  test("the format refusal replaces the supported-formats hint instead of stacking on top of it", async () => {
+    // The message names the three formats itself (pinned across all five
+    // dictionaries below), so the hint would be the same fact twice.
+    renderUpload();
+
+    selectFile(unsupportedFile());
+
+    await waitFor(() => {
+      expect(screen.getByTestId("file-error")).toHaveTextContent("upload.fileError.format");
+    });
+    expect(screen.queryByTestId("supported-formats-hint")).toBeNull();
+  });
+
+  test("the size refusal keeps the hint, because it says nothing about formats", async () => {
+    // The condition is "a format error is showing", not "an error is showing".
+    // A parent refused on size still has to be told what we can read.
+    renderUpload();
+
+    selectFile(fileOfSize(MAX_FILE_SIZE_BYTES + 1));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("file-error")).toHaveTextContent("upload.fileError.size");
+    });
+    expect(screen.getByTestId("supported-formats-hint")).toBeInTheDocument();
+  });
+
+  test("the password-protected refusal keeps the hint too", async () => {
+    pdfDecrypt.resolveEncryptedPdf.mockResolvedValue({ status: "failed" });
+    renderUpload();
+
+    selectFile(encryptedPdf());
+
+    await waitFor(() => {
+      expect(screen.getByTestId("file-error")).toHaveTextContent("upload.fileError.encrypted");
+    });
+    expect(screen.getByTestId("supported-formats-hint")).toBeInTheDocument();
+  });
+
+  test("the refusal is announced, and is attached to the input it is about", async () => {
+    // It was a bare <small> with no role and no association: a screen-reader
+    // user moved off the input, got nothing, and came back to a control that
+    // described itself exactly as it had before being refused.
+    renderUpload();
+
+    const input = document.getElementById("fileUpload") as HTMLInputElement;
+    // Before anything is picked, the input is described by the hint alone.
+    expect(input.getAttribute("aria-describedby")).toBe(
+      screen.getByTestId("supported-formats-hint").id,
+    );
+
+    selectFile(unsupportedFile());
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("upload.fileError.format");
+    expect(alert.id).toBeTruthy();
+
+    const describedBy = (input.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean);
+    expect(describedBy).toContain(alert.id);
+    // Every id it names resolves: an idref pointing at nothing describes the
+    // input as nothing, which is the state this test exists to rule out.
+    for (const id of describedBy) {
+      expect(document.getElementById(id), `aria-describedby names a missing id: ${id}`).not.toBeNull();
+    }
+  });
+
+  test("picking a supported file clears the refusal and brings the hint back", async () => {
+    renderUpload();
+
+    selectFile(unsupportedFile());
+    await waitFor(() => {
+      expect(screen.getByTestId("file-error")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("supported-formats-hint")).toBeNull();
+
+    selectFile(plainPdf());
+
+    await waitFor(() => {
+      expect(screen.getByText("iep.pdf")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("file-error")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByTestId("supported-formats-hint")).toBeInTheDocument();
+    expect(screen.getByTestId("upload-submit-button")).not.toBeDisabled();
+  });
+
+  test("every dictionary's format refusal names all three formats", () => {
+    // Dropping the hint is only safe while the message itself carries the
+    // formats. If the copy is ever shortened back to "File format not
+    // supported", a parent stops being told what we can read at all -- and in
+    // four of the five languages nobody here would notice. Dictionaries are
+    // read off disk, matching common/i18n.test.ts.
+    const translationsDir = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../translations",
+    );
+    const languages = fs
+      .readdirSync(translationsDir)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => name.replace(/\.json$/, ""));
+    expect(languages.length).toBeGreaterThanOrEqual(5);
+
+    for (const language of languages) {
+      const entries = JSON.parse(
+        fs.readFileSync(path.join(translationsDir, `${language}.json`), "utf8"),
+      ) as Record<string, string>;
+      const message = entries["upload.fileError.format"];
+
+      expect(message, `${language}.json is missing upload.fileError.format`).toBeTruthy();
+      // DOC is checked with a negative lookahead so the DOCX beside it cannot
+      // stand in for it.
+      for (const format of [/PDF/i, /DOCX/i, /DOC(?!X)/i]) {
+        expect(
+          message,
+          `${language}.json's format message does not name ${format}: ${message}`,
+        ).toMatch(format);
       }
     }
   });
