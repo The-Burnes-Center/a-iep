@@ -179,16 +179,22 @@ describe("passwordless flow: identifier screen (flag on)", () => {
     expect(onCodeScreen()).toBe(false);
   });
 
-  test("the browser's own required/type=email validation blocks an empty email submit, same as the legacy form", async () => {
-    // No custom JS blank-check in PasswordlessAuthForm for the email tab —
-    // EmailInput is required + type="email", so onSubmit never fires at all
-    // for an empty field. Asserted here so a future removal of `required`
-    // gets caught: without it, an empty destination would reach /auth/start.
+  test("an empty email is rejected locally, in our own words: no request is made at all", async () => {
+    // This used to pass because the form was NOT noValidate, so the browser's
+    // own required/type=email check refused to fire onSubmit. That check is
+    // gone: the bubble it drew was written in the BROWSER's language, so a
+    // parent reading the app in Spanish on an English-locale phone was told
+    // about their mistake in English, in a popup no dictionary of ours can
+    // reach. PasswordlessAuthForm refuses it now and says so in the app's
+    // language, which is what the assertion on the message pins -- without
+    // it this test would still pass if the refusal silently went back to
+    // being the browser's.
     const { user } = renderLogin();
 
     await user.click(screen.getByRole("button", { name: "auth.emailLogin" }));
     await user.click(screen.getByRole("button", { name: "auth.sendCode" }));
 
+    expect(await screen.findByText("auth.errorEmailRequired")).toBeInTheDocument();
     expect(authFetch.countOf("start")).toBe(0);
     expect(onCodeScreen()).toBe(false);
   });

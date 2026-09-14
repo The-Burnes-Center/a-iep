@@ -1,11 +1,17 @@
 /**
- * The code step of the passwordlessAuth screen: asking for another code, and
- * being told a code went out at all.
+ * The passwordlessAuth screen: the destination step's own validation and the
+ * line under its button, then the code step's resend and send notices.
  *
- * Both were missing when the flag went into PROD_FEATURES. A parent whose text
- * never arrived had no resend at all, and nothing on the screen ever changed
- * to say a code had been sent, so the one workaround that did work (go back,
- * retype the number) was invisible as well.
+ * The code step's two came first. Both were missing when the flag went into
+ * PROD_FEATURES: a parent whose text never arrived had no resend at all, and
+ * nothing on the screen ever changed to say a code had been sent, so the one
+ * workaround that did work (go back, retype the number) was invisible as well.
+ *
+ * The destination step's came after, from a pass over what the form says when
+ * a parent gets something wrong. The two tabs answered an empty field in two
+ * different ways — one of them the browser's own bubble, drawn in the
+ * browser's language rather than the app's — and the SMS consent line was
+ * shown to parents signing in by email.
  *
  * Driven through CustomLogin rather than PasswordlessAuthForm directly, on
  * purpose. The turnstile prop is the REAL useTurnstile hook in production, and
@@ -25,6 +31,7 @@ import { LanguageContext } from "../common/language-context";
 import { AppContext } from "../common/app-context";
 import type { SupportedLanguage } from "../common/languages";
 import en from "../translations/en.json";
+import es from "../translations/es.json";
 
 const Auth = vi.hoisted(() => ({
   signIn: vi.fn(),
@@ -43,7 +50,12 @@ const SITE_KEY = "test-site-key";
 const WITH_PASSWORDLESS = ["tts", "referrals", "passwordlessAuth"];
 const PHONE = "5551234567";
 const E164 = "+15551234567";
-const dictionary = en as Record<string, string>;
+/** Real wording, per language, for the blocks that opt into it. */
+const dictionaries: Record<string, Record<string, string>> = {
+  en: en as Record<string, string>,
+  es: es as Record<string, string>,
+};
+const dictionary = dictionaries.en;
 
 /**
  * PasswordlessAuthForm's own RESEND_COOLDOWN_SECONDS, restated rather than
@@ -134,8 +146,9 @@ const renderLogin = (
     setLanguage: vi.fn(),
     // Identity by default: assertions then read the KEY the component chose,
     // which is the contract. The blocks that care about the wording a parent
-    // reads opt into the real dictionary.
-    t: realTranslations ? (key: string) => dictionary[key] || key : (key: string) => key,
+    // reads opt into the real dictionary — for the language asked for, which
+    // is how a message can be shown to be the app's own and not the browser's.
+    t: realTranslations ? (key: string) => dictionaries[language]?.[key] || key : (key: string) => key,
     translationsLoaded: true,
     enabledLanguages: ["en", "es", "zh", "vi", "ar"] as SupportedLanguage[],
   };
@@ -173,6 +186,14 @@ const resendButton = () => screen.getByTestId("resend-code");
 const onCodeScreen = () => screen.queryByTestId("sms-code-input") !== null;
 const onIdentifierScreen = () => screen.queryByPlaceholderText("(xxx) xxx-xxxx") !== null;
 
+/** The two identifier fields, under the identity t() the default render uses. */
+const phoneField = () => screen.getByPlaceholderText("(xxx) xxx-xxxx") as HTMLInputElement;
+const emailField = () => screen.getByPlaceholderText("auth.enterEmail") as HTMLInputElement;
+const sendCode = (user: ReturnType<typeof userEvent.setup>) =>
+  user.click(screen.getByRole("button", { name: "auth.sendCode" }));
+const switchToTab = (user: ReturnType<typeof userEvent.setup>, tab: "auth.emailLogin" | "auth.mobileLogin") =>
+  user.click(screen.getByRole("button", { name: tab }));
+
 /** Phone identifier -> code screen, with the first code already sent. */
 const startPhoneFlow = async (
   user: ReturnType<typeof userEvent.setup>,
@@ -208,6 +229,249 @@ afterEach(() => {
   delete window.turnstile;
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe("a destination the form cannot use", () => {
+  test("a blank phone number is reported as blank, and nothing is sent", async () => {
+    const { user } = renderLogin();
+
+    await sendCode(user);
+
+    const message = await screen.findByText("auth.errorPhoneRequired");
+    // Under the field it is about, inside that field's own group — not the
+    // shared alert block at the foot of the form, which is a security check
+    // and two buttons further down the screen.
+    expect(phoneField().parentElement).toContainElement(message);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // And it never became a request. /auth/start spends one of five sends an
+    // hour for that destination, which an empty field must not cost a parent.
+    expect(authFetch.countOf("start")).toBe(0);
+    expect(onCodeScreen()).toBe(false);
+  });
+
+  test("a blank email is reported the same way, in the same place", async () => {
+    // Before this, the email tab had no check of its own: an empty field was
+    // refused by the browser, which said so in its own bubble and its own
+    // language, anchored nowhere the app controls.
+    const { user } = renderLogin();
+    await switchToTab(user, "auth.emailLogin");
+
+    await sendCode(user);
+
+    const message = await screen.findByText("auth.errorEmailRequired");
+    expect(emailField().parentElement).toContainElement(message);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(authFetch.countOf("start")).toBe(0);
+    expect(onCodeScreen()).toBe(false);
+  });
+
+  test("a half-typed phone number is a format problem, not a blank one", async () => {
+    const { user } = renderLogin();
+    fillPhone("55512");
+
+    await sendCode(user);
+
+    expect(await screen.findByText("auth.errorPhoneFormat")).toBeInTheDocument();
+    expect(screen.queryByText("auth.errorPhoneRequired")).not.toBeInTheDocument();
+    expect(authFetch.countOf("start")).toBe(0);
+  });
+
+  test.each([
+    ["parent.example.com", "no @ at all"],
+    ["parent@example", "nothing dotted after the @"],
+    ["parent @example.com", "a space in the middle"],
+    ["@example.com", "nobody to send it to"],
+  ])("%s (%s) is refused here and never reaches the endpoint", async (typed) => {
+    const { user } = renderLogin();
+    await switchToTab(user, "auth.emailLogin");
+    await user.type(emailField(), typed);
+
+    await sendCode(user);
+
+    const message = await screen.findByText("auth.errorEmailFormat");
+    expect(emailField().parentElement).toContainElement(message);
+    expect(screen.queryByText("auth.errorEmailRequired")).not.toBeInTheDocument();
+    expect(authFetch.countOf("start")).toBe(0);
+  });
+
+  test("an address with a typo in the domain still goes out: this check judges shape, not delivery", async () => {
+    authFetch.queue("start", started("email"));
+    const { user } = renderLogin();
+    await switchToTab(user, "auth.emailLogin");
+    await user.type(emailField(), "parent@exmaple.com");
+
+    await sendCode(user);
+
+    await screen.findByTestId("sms-code-input");
+    expect(authFetch.callsTo("start")[0]).toMatchObject({ destination: "parent@exmaple.com" });
+  });
+
+  test("the field is marked invalid and points at the message, and the parent is put in it", async () => {
+    const { user } = renderLogin();
+    expect(phoneField()).not.toHaveAttribute("aria-invalid");
+
+    await sendCode(user);
+
+    const input = phoneField();
+    const message = screen.getByText("auth.errorPhoneRequired");
+    expect(message.id).not.toBe("");
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input.getAttribute("aria-describedby")).toBe(message.id);
+    // Focus is what makes that description read out, and what puts a sighted
+    // parent's cursor where the fix is rather than at the bottom of the form.
+    expect(input).toHaveFocus();
+  });
+
+  test("the email field is wired up the same way", async () => {
+    const { user } = renderLogin();
+    await switchToTab(user, "auth.emailLogin");
+
+    await sendCode(user);
+
+    const input = emailField();
+    const message = screen.getByText("auth.errorEmailRequired");
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input.getAttribute("aria-describedby")).toBe(message.id);
+    expect(input).toHaveFocus();
+  });
+
+  test("it goes the moment the parent starts fixing the field", async () => {
+    const { user } = renderLogin();
+    await sendCode(user);
+    await screen.findByText("auth.errorPhoneRequired");
+
+    await user.type(phoneField(), "5");
+
+    expect(screen.queryByText("auth.errorPhoneRequired")).not.toBeInTheDocument();
+    expect(phoneField()).not.toHaveAttribute("aria-invalid");
+    expect(phoneField()).not.toHaveAttribute("aria-describedby");
+  });
+
+  test("it goes on the email field too", async () => {
+    const { user } = renderLogin();
+    await switchToTab(user, "auth.emailLogin");
+    await sendCode(user);
+    await screen.findByText("auth.errorEmailRequired");
+
+    await user.type(emailField(), "p");
+
+    expect(screen.queryByText("auth.errorEmailRequired")).not.toBeInTheDocument();
+    expect(emailField()).not.toHaveAttribute("aria-invalid");
+  });
+
+  test("switching tabs takes the message with the field it was about", async () => {
+    const { user } = renderLogin();
+    await sendCode(user);
+    await screen.findByText("auth.errorPhoneRequired");
+
+    await switchToTab(user, "auth.emailLogin");
+
+    // Not carried over to the field the parent has just moved to, and not
+    // waiting for them on the one they left either.
+    expect(screen.queryByText("auth.errorPhoneRequired")).not.toBeInTheDocument();
+    expect(emailField()).not.toHaveAttribute("aria-invalid");
+
+    await switchToTab(user, "auth.mobileLogin");
+
+    expect(screen.queryByText("auth.errorPhoneRequired")).not.toBeInTheDocument();
+    expect(phoneField()).not.toHaveAttribute("aria-invalid");
+  });
+
+  test("the message is in the app's language, whatever the browser's is", async () => {
+    // The point of the whole change. A native validation bubble is drawn by
+    // the browser in the BROWSER's locale, so a parent reading the app in
+    // Spanish on an English-locale phone was told about their mistake in
+    // English, in a popup no dictionary of ours can reach.
+    const { user } = renderLogin({ language: "es", realTranslations: true });
+    await user.click(screen.getByRole("button", { name: dictionaries.es["auth.emailLogin"] }));
+
+    await user.click(screen.getByRole("button", { name: dictionaries.es["auth.sendCode"] }));
+
+    expect(await screen.findByText(dictionaries.es["auth.errorEmailRequired"])).toBeInTheDocument();
+    expect(screen.queryByText(dictionary["auth.errorEmailRequired"])).not.toBeInTheDocument();
+  });
+
+  test("the endpoint's own refusals stay in the alert block, where they always were", async () => {
+    // Only client-side field validation moved inline. An answer from
+    // /auth/start is about the request, not about one field, and a parent may
+    // need it on screen while they retype.
+    authFetch.queue("start", { status: 400, body: { ok: false, code: "unsupported_destination", message: "x" } });
+    const { user } = renderLogin();
+    fillPhone();
+
+    await sendCode(user);
+
+    const message = await screen.findByText("auth.error.unsupportedDestination");
+    expect(message.closest("[role='alert']")).not.toBeNull();
+    expect(phoneField().parentElement).not.toContainElement(message);
+    expect(phoneField()).not.toHaveAttribute("aria-invalid");
+  });
+});
+
+describe("the security check across the two tabs", () => {
+  test("switching tabs tears the widget down and mounts a fresh one", async () => {
+    // The two sides of the tab ternary carry distinct React keys for this
+    // reason alone: same component types in the same positions, so without
+    // them React updates the block in place, the detach never happens, and
+    // the discard of a spent token silently stops firing. Both tabs need a
+    // widget — /auth/start wants a token whatever the destination is — so
+    // "there is still one on screen" is not evidence of anything.
+    //
+    // CustomLogin.turnstile-a11y.test.tsx says this behaviour is covered
+    // here. Until this test it was not.
+    installTurnstile();
+    const { user } = renderLogin({ withSiteKey: true });
+    expect(widgets.length).toBe(1);
+    solve("token-phone");
+
+    await switchToTab(user, "auth.emailLogin");
+
+    expect(removed).toContain("widget-0");
+    expect(widgets.length).toBe(2);
+
+    // And the token went with it: the email tab's send carries the new
+    // widget's token, never the one raised against the phone tab.
+    authFetch.queue("start", started("email"));
+    await user.type(emailField(), "parent@example.com");
+    solve("token-email");
+    await sendCode(user);
+
+    await waitFor(() => expect(authFetch.countOf("start")).toBe(1));
+    expect(authFetch.callsTo("start")[0]).toMatchObject({ turnstileToken: "token-email" });
+  });
+});
+
+describe("the line under the send button", () => {
+  test("the phone tab carries the SMS consent, and only that", () => {
+    renderLogin({ realTranslations: true });
+
+    expect(screen.getByText(dictionary["auth.smsConsentMobile"])).toBeInTheDocument();
+    expect(screen.queryByText(dictionary["auth.emailCodeNotice"])).not.toBeInTheDocument();
+  });
+
+  test("the email tab carries the email line, and never the SMS consent", async () => {
+    const { user } = renderLogin({ realTranslations: true });
+
+    await user.click(screen.getByRole("button", { name: dictionary["auth.emailLogin"] }));
+
+    expect(screen.getByText(dictionary["auth.emailCodeNotice"])).toBeInTheDocument();
+    // Express consent to be texted has no business on the tab where the
+    // parent gave us an email address and no phone number at all — and it is
+    // the record for the SMS channel, so it is not merged into one line
+    // covering both either.
+    expect(screen.queryByText(dictionary["auth.smsConsentMobile"])).not.toBeInTheDocument();
+  });
+
+  test("both lines quote the button that is actually on the screen", () => {
+    // The SMS line used to quote "Send SMS Code", a button that had been
+    // renamed. A parent looking for the button it named could not find it.
+    renderLogin({ realTranslations: true });
+    const label = screen.getByRole("button", { name: dictionary["auth.sendCode"] }).textContent ?? "";
+
+    expect(label).not.toBe("");
+    expect(dictionary["auth.smsConsentMobile"]).toContain(label);
+    expect(dictionary["auth.emailCodeNotice"]).toContain(label);
+  });
 });
 
 describe("asking for another code", () => {

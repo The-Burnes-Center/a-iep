@@ -1,10 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Form, Alert, Button } from 'react-bootstrap';
 import { AuthChannel } from '../common/auth/passwordless-auth';
 import { usePasswordlessAuth } from '../common/hooks/use-passwordless-auth';
 import { TurnstileStatus } from '../common/hooks/use-turnstile';
 import FormLabel from './FormLabel';
-import EmailInput from './EmailInput';
+/* The email field is spelled out below rather than rendered through
+ * EmailInput: it needs aria-invalid, aria-describedby and a ref of its own to
+ * carry the inline error, and that component takes none of the three. Its
+ * stylesheet still owns .email-input-control, so the class keeps coming from
+ * the same place it always did. */
+import './EmailInput.css';
 import VerificationCodeInput from './VerificationCodeInput';
 import AlertMessages from './AlertMessages';
 import SubmitButton from './SubmitButton';
@@ -80,6 +85,77 @@ const formatUsPhoneDisplay = (input: string): string => {
   if (digits.length <= 6) return `+1 (${digits.slice(0, 3)}) ${digits.slice(3)}`;
   return `+1 (${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
 };
+
+/** Which of the two identifier fields a validation message belongs under. */
+type IdentifierField = 'phone' | 'email';
+
+interface FieldError {
+  field: IdentifierField;
+  /** A translation key, never raw text: the message renders in the app's language. */
+  messageKey: string;
+}
+
+/** Either a destination worth sending to, or what to say and where to say it. */
+type StartTarget = { destination: string } | { error: FieldError };
+
+/** Ids the offending input points `aria-describedby` at. */
+const PHONE_ERROR_ID = 'phone-error';
+const EMAIL_ERROR_ID = 'email-error';
+
+/** A US national significant number, i.e. what is left after the +1. */
+const US_PHONE_DIGITS = 10;
+
+/**
+ * The digits a parent actually typed, with the fixed '+1 ' prefix the field is
+ * seeded with taken off first.
+ *
+ * Everything about an empty phone field turns on this. The value is never '',
+ * so the field's `required` never fires, and counting digits across the whole
+ * value reads the country code's own 1 as something the parent entered — which
+ * is how a blank field used to be reported as a badly formatted number.
+ */
+const typedPhoneDigits = (value: string): string =>
+  (value.startsWith('+1 ') ? value.slice(3) : value).replace(/\D/g, '');
+
+/**
+ * Deliberately loose: one @, something either side of it, a dot in the domain,
+ * no whitespace anywhere. It is here to catch the typo a parent can still fix
+ * on this screen (a missing @, a pasted trailing comma), not to judge
+ * deliverability — only sending to an address can do that, and a pattern
+ * strict enough to try starts refusing real addresses.
+ */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const readPhone = (value: string): StartTarget => {
+  const digits = typedPhoneDigits(value);
+  if (digits.length === 0) return { error: { field: 'phone', messageKey: 'auth.errorPhoneRequired' } };
+  if (digits.length < US_PHONE_DIGITS) return { error: { field: 'phone', messageKey: 'auth.errorPhoneFormat' } };
+  return { destination: `+1${digits.slice(-US_PHONE_DIGITS)}` };
+};
+
+const readEmail = (value: string): StartTarget => {
+  const address = value.trim().toLowerCase();
+  if (address.length === 0) return { error: { field: 'email', messageKey: 'auth.errorEmailRequired' } };
+  if (!EMAIL_PATTERN.test(address)) return { error: { field: 'email', messageKey: 'auth.errorEmailFormat' } };
+  return { destination: address };
+};
+
+/**
+ * A validation message, under the field it is about.
+ *
+ * One component for both fields on purpose: the defect this replaces was the
+ * two tabs reporting the same mistake in two different places, one of them a
+ * browser bubble drawn in the BROWSER's language rather than the app's.
+ *
+ * No role="alert" here. A failed submit moves focus into the field, and the
+ * `aria-describedby` that points at this element is read out as part of that,
+ * so a live region would only say the same sentence twice.
+ */
+const InlineFieldError: React.FC<{ id: string; message: string }> = ({ id, message }) => (
+  <div id={id} className="text-danger small mt-1">
+    {message}
+  </div>
+);
 
 interface TurnstileBlockProps {
   t: (key: string) => string;
@@ -163,11 +239,26 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<FieldError | null>(null);
   const [sendNotice, setSendNotice] = useState<SendNotice | null>(null);
   const [secondsUntilResend, setSecondsUntilResend] = useState(0);
+  const phoneInputRef = useRef<HTMLInputElement | null>(null);
+  const emailInputRef = useRef<HTMLInputElement | null>(null);
 
   const auth = usePasswordlessAuth({ httpEndpoint, language, onSignedIn });
   const turnstileStatusKey = TURNSTILE_STATUS_KEYS[turnstile.status];
+
+  // Only one of the two fields is on screen at a time, and the message is
+  // dropped whenever the parent edits or switches away — but read it per field
+  // anyway, so a message can never end up under the field it is not about.
+  const phoneError = fieldError?.field === 'phone' ? fieldError : null;
+  const emailError = fieldError?.field === 'email' ? fieldError : null;
+
+  /** The field being switched away from is unmounted, so its message goes too. */
+  const selectTab = (field: IdentifierField) => {
+    setShowMobileLogin(field === 'phone');
+    setFieldError(null);
+  };
 
   /**
    * Counts the cooldown down from the moment the last code was SENT, not from
@@ -197,24 +288,24 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
     setFormError(null);
     setSendNotice(null);
 
-    let destination: string;
-    if (showMobileLogin) {
-      const digits = phoneNumber.replace(/\D/g, '');
-      if (digits.length < 10) {
-        setFormError('auth.errorPhoneFormat');
-        return;
-      }
-      destination = `+1${digits.slice(-10)}`;
-    } else {
-      // No client-side blank/format check here: EmailInput's field is
-      // `required` and type="email", so the browser's own constraint
-      // validation already refuses to fire onSubmit for an empty or
-      // malformed address — the same thing the legacy email sign-in form
-      // relies on, with no redundant JS check of its own.
-      destination = email.trim().toLowerCase();
+    // Both fields are checked here rather than left to the browser. The form
+    // is noValidate, because the bubble the browser draws for `required` and
+    // type="email" is written in the BROWSER's language: a parent reading the
+    // app in Spanish on an English-locale phone got told about their mistake
+    // in English, in a popup no dictionary of ours can reach.
+    const target = showMobileLogin ? readPhone(phoneNumber) : readEmail(email);
+    if ('error' in target) {
+      setFieldError(target.error);
+      // A message a parent has to go looking for is a message they miss. Put
+      // them in the field it is about; that is also what makes a screen reader
+      // read out the description wired to it.
+      const input = target.error.field === 'phone' ? phoneInputRef.current : emailInputRef.current;
+      input?.focus();
+      return;
     }
+    setFieldError(null);
 
-    const started = await auth.start(destination, turnstile.token ?? undefined);
+    const started = await auth.start(target.destination, turnstile.token ?? undefined);
     if (!started) {
       // A spent token is refused if tried again; the parent cannot see or fix
       // that, so a failed attempt clears it same as the legacy flow does.
@@ -380,12 +471,16 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
   }
 
   return (
-    <Form onSubmit={handleStart}>
+    // noValidate, so the browser draws no bubble of its own and every message
+    // on this screen comes out of our own dictionaries. The `required`
+    // attributes below stay: they still carry aria-required to a screen
+    // reader, and handleStart does the refusing now.
+    <Form onSubmit={handleStart} noValidate>
       <div className="mobile-form-container">
         <LoginMethodToggle
           showMobileLogin={showMobileLogin}
-          onMobileLoginClick={() => setShowMobileLogin(true)}
-          onEmailLoginClick={() => setShowMobileLogin(false)}
+          onMobileLoginClick={() => selectTab('phone')}
+          onEmailLoginClick={() => selectTab('email')}
           mobileLoginText={t('auth.mobileLogin')}
           emailLoginText={t('auth.emailLogin')}
         />
@@ -412,13 +507,21 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
         */}
         {showMobileLogin ? (
           <>
-            <Form.Group className="mb-3">
+            {/* Keyed for the same reason the block below it is: both tabs now
+                render a Form.Group here, so without distinct keys React would
+                reconcile the two fields into one reused <input> and swap its
+                type from tel to email underneath the parent. */}
+            <Form.Group className="mb-3" key="phone-field">
               <FormLabel label={t('auth.phoneNumber')} />
               <Form.Control
+                ref={phoneInputRef}
                 type="tel"
                 placeholder="(xxx) xxx-xxxx"
                 value={phoneNumber}
-                onChange={(e) => setPhoneNumber(formatUsPhoneDisplay(e.target.value))}
+                onChange={(e) => {
+                  setPhoneNumber(formatUsPhoneDisplay(e.target.value));
+                  setFieldError(null);
+                }}
                 onKeyDown={(e) => {
                   const target = e.target as HTMLInputElement;
                   if ((e.key === 'ArrowLeft' || e.key === 'Home') && target.selectionStart !== null && target.selectionStart <= 3) {
@@ -427,19 +530,34 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
                   }
                 }}
                 required
+                aria-invalid={phoneError ? true : undefined}
+                aria-describedby={phoneError ? PHONE_ERROR_ID : undefined}
                 className="mobile-input"
               />
+              {phoneError && <InlineFieldError id={PHONE_ERROR_ID} message={t(phoneError.messageKey)} />}
             </Form.Group>
             <TurnstileBlock key="phone" t={t} turnstile={turnstile} />
           </>
         ) : (
           <>
-            <EmailInput
-              label={t('auth.email')}
-              placeholder={t('auth.enterEmail')}
-              value={email}
-              onChange={setEmail}
-            />
+            <Form.Group className="mb-3" key="email-field">
+              <FormLabel label={t('auth.email')} />
+              <Form.Control
+                ref={emailInputRef}
+                type="email"
+                placeholder={t('auth.enterEmail')}
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setFieldError(null);
+                }}
+                required
+                aria-invalid={emailError ? true : undefined}
+                aria-describedby={emailError ? EMAIL_ERROR_ID : undefined}
+                className="email-input-control"
+              />
+              {emailError && <InlineFieldError id={EMAIL_ERROR_ID} message={t(emailError.messageKey)} />}
+            </Form.Group>
             <TurnstileBlock key="email" t={t} turnstile={turnstile} />
           </>
         )}
@@ -451,8 +569,13 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
 
         <div className="d-grid gap-2">
           <SubmitButton loading={auth.loading} buttonText={t('auth.sendCode')} />
+          {/* Per channel, and not one sentence covering both. The SMS line is
+              the express-consent record for text messages (TCPA), so it has to
+              sit on the tab where a parent hands over a phone number and
+              nowhere else: on the email tab it was consent to a channel they
+              had not chosen, for a message we were not going to send. */}
           <p className="text-muted mt-3 mobile-consent-text">
-            {t('auth.smsConsentMobile')}
+            {t(showMobileLogin ? 'auth.smsConsentMobile' : 'auth.emailCodeNotice')}
           </p>
         </div>
       </div>
