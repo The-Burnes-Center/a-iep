@@ -5,13 +5,15 @@
  * durable value, the session handle, in localStorage. Before this file, the
  * mount check only ever asked Amplify whether there was a session — nothing
  * re-exchanged that handle on a fresh load, so a parent who signed in and hit
- * refresh was bounced back to /login even though their handle was still good.
+ * refresh was bounced back to the sign-in form even though their handle was
+ * still good.
  *
  * These tests drive the real AuthProvider and the real ProtectedRoute through
  * the DOM (MemoryRouter), mocking only the boundary — Amplify's `Auth` for the
  * legacy path, `fetch` for /auth/token — and assert what a parent actually
  * sees: which screen they land on, and (via a location log) that they get
- * there directly rather than bouncing between /login and the protected route.
+ * there directly rather than bouncing between the sign-in form and the
+ * protected route.
  */
 import React, { useEffect, useState } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -22,6 +24,7 @@ import { AuthProvider, useAuth } from "./auth-provider";
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import { AppContext } from "./app-context";
 import { LanguageContext } from "./language-context";
+import { SIGN_IN_ROUTE } from "./sign-in-location";
 import type { AppConfig } from "./types";
 import type { SupportedLanguage } from "./languages";
 import {
@@ -41,14 +44,22 @@ vi.mock("aws-amplify/auth", () => Auth);
 const HTTP_ENDPOINT = "https://api.example.test/";
 const PROTECTED_PATH = "/protected";
 
-/** Records every pathname the router actually lands on, in order. */
+/**
+ * Records every location the router actually lands on, in order.
+ *
+ * Path AND hash, because the sign-in form is now a card on the landing page
+ * rather than a page of its own: ProtectedRoute sends a signed-out parent to
+ * SIGN_IN_ROUTE, and the pathname alone ('/') cannot tell "landed on the
+ * sign-in form" apart from "landed at the top of the marketing page".
+ */
 const visitedPaths = (): { LocationLogger: React.FC; visited: string[] } => {
   const visited: string[] = [];
   const LocationLogger: React.FC = () => {
     const location = useLocation();
+    const here = location.pathname + location.hash;
     useEffect(() => {
-      visited.push(location.pathname);
-    }, [location.pathname]);
+      visited.push(here);
+    }, [here]);
     return null;
   };
   return { LocationLogger, visited };
@@ -116,7 +127,9 @@ const renderApp = (opts: { enabledFeatures?: string[] } = {}) => {
             <AuthStateProbe />
             <SessionProbe />
             <Routes>
-              <Route path="/login" element={<div>sign in form</div>} />
+              {/* The sign-in form lives on the landing page now; /login is
+                  only a redirect to it (LoginRedirect.tsx). */}
+              <Route path="/" element={<div>sign in form</div>} />
               <Route element={<ProtectedRoute />}>
                 <Route path={PROTECTED_PATH} element={<div>protected content</div>} />
               </Route>
@@ -212,7 +225,7 @@ beforeEach(() => {
 });
 
 describe("a reload with a valid persisted handle", () => {
-  test("signs the parent in directly, with no visit to /login and no /auth/start", async () => {
+  test("signs the parent in directly, with no visit to the sign-in form and no /auth/start", async () => {
     persistSessionHandle("sess-valid");
     Auth.getCurrentUser.mockRejectedValue(new Error("no amplify session"));
     const tokenFetch = stubTokenEndpoint("valid");
@@ -229,7 +242,7 @@ describe("a reload with a valid persisted handle", () => {
     expect(getCachedIdToken()).toBe("id-1");
     // ...and the handle itself is untouched (still the one durable value).
     expect(readPersistedSessionHandle()).toBe("sess-valid");
-    // Landed directly: never rendered /login on the way.
+    // Landed directly: never rendered the sign-in form on the way.
     expect(visited).toEqual([PROTECTED_PATH]);
   });
 });
@@ -272,7 +285,7 @@ describe("the loading state while the exchange is in flight", () => {
 });
 
 describe("a reload with an expired or revoked handle", () => {
-  test("clears the handle and lands cleanly on /login, exactly once", async () => {
+  test("clears the handle and lands cleanly on the sign-in form, exactly once", async () => {
     persistSessionHandle("sess-expired");
     Auth.getCurrentUser.mockRejectedValue(new Error("no amplify session"));
     const tokenFetch = stubTokenEndpoint("expired");
@@ -285,12 +298,12 @@ describe("a reload with an expired or revoked handle", () => {
     expect(tokenFetch).toHaveBeenCalledTimes(1);
     // Redirected exactly once — not bounced back and forth between the two
     // routes. A loop would show up here as a longer, repeating path list.
-    expect(visited).toEqual([PROTECTED_PATH, "/login"]);
+    expect(visited).toEqual([PROTECTED_PATH, SIGN_IN_ROUTE]);
   });
 });
 
 describe("a reload with the backend unreachable", () => {
-  test("does not destroy the handle, and still lands cleanly on /login rather than spinning forever", async () => {
+  test("does not destroy the handle, and still lands cleanly on the sign-in form rather than spinning forever", async () => {
     persistSessionHandle("sess-maybe-still-good");
     Auth.getCurrentUser.mockRejectedValue(new Error("no amplify session"));
     const tokenFetch = stubTokenEndpoint("unreachable");
@@ -303,7 +316,7 @@ describe("a reload with the backend unreachable", () => {
     // Not proven invalid (contract §4: only session_invalid is), so the
     // handle a parent might still be able to use survives for a retry.
     expect(readPersistedSessionHandle()).toBe("sess-maybe-still-good");
-    expect(visited).toEqual([PROTECTED_PATH, "/login"]);
+    expect(visited).toEqual([PROTECTED_PATH, SIGN_IN_ROUTE]);
   });
 });
 
@@ -318,8 +331,8 @@ describe("no redirect loop", () => {
     await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous"));
     // Give any stray effect one more tick to fire before declaring the route
     // settled — a loop would add a third entry (back to PROTECTED_PATH) here.
-    await waitFor(() => expect(visited).toEqual([PROTECTED_PATH, "/login"]));
-    expect(visited).toEqual([PROTECTED_PATH, "/login"]);
+    await waitFor(() => expect(visited).toEqual([PROTECTED_PATH, SIGN_IN_ROUTE]));
+    expect(visited).toEqual([PROTECTED_PATH, SIGN_IN_ROUTE]);
     // A loop would also mean checkAuth (and so /auth/token) ran more than once.
     expect(tokenFetch).toHaveBeenCalledTimes(1);
   });
@@ -337,7 +350,7 @@ describe("no redirect loop", () => {
  * family computer that is the next person reading a child's IEP.
  */
 describe("signing out, then loading the page again", () => {
-  test("does not sign the parent back in: the reload lands on /login, not in the account", async () => {
+  test("does not sign the parent back in: the reload lands on the sign-in form, not in the account", async () => {
     const { unmount, tokenCalls } = await signInThenSignOut();
 
     expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
@@ -350,7 +363,7 @@ describe("signing out, then loading the page again", () => {
     expect(await screen.findByText("sign in form")).toBeInTheDocument();
     expect(screen.queryByText("protected content")).not.toBeInTheDocument();
     expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
-    expect(visited).toEqual([PROTECTED_PATH, "/login"]);
+    expect(visited).toEqual([PROTECTED_PATH, SIGN_IN_ROUTE]);
     // Nothing left to exchange, so the resume never even reached the network.
     expect(tokenCalls()).toHaveLength(1);
   });
@@ -433,7 +446,7 @@ describe("the legacy Amplify path is unaffected", () => {
     expect(visited).toEqual([PROTECTED_PATH]);
   });
 
-  test("flag off: no Amplify session lands on /login, same as before this change", async () => {
+  test("flag off: no Amplify session lands on the sign-in form, same as before this change", async () => {
     Auth.getCurrentUser.mockRejectedValue(new Error("not authenticated"));
     const tokenFetch = vi.fn();
     vi.stubGlobal("fetch", tokenFetch);
@@ -442,7 +455,7 @@ describe("the legacy Amplify path is unaffected", () => {
 
     expect(await screen.findByText("sign in form")).toBeInTheDocument();
     expect(tokenFetch).not.toHaveBeenCalled();
-    expect(visited).toEqual([PROTECTED_PATH, "/login"]);
+    expect(visited).toEqual([PROTECTED_PATH, SIGN_IN_ROUTE]);
   });
 
   test("flag off with a handle persisted anyway: the resume is skipped entirely, not just failed", async () => {

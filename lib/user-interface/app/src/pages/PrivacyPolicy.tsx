@@ -5,11 +5,12 @@ import MobileTopNavigation from '../components/MobileTopNavigation';
 import LandingTopNavigation from '../components/LandingTopNavigation';
 import AIEPFooter from '../components/AIEPFooter';
 import { useLanguage } from '../common/language-context';
+import { SIGN_IN_ROUTE } from '../common/sign-in-location';
 import './PrivacyPolicy.css';
 
 const publicFooterLinks = [
   { route: '/', labelKey: 'footer.home' },
-  { route: '/login', labelKey: 'footer.uploadIEP' },
+  { route: SIGN_IN_ROUTE, labelKey: 'footer.uploadIEP' },
   { route: '/faqs', labelKey: 'footer.faqs' },
   { route: '/about-the-project', labelKey: 'footer.aboutUs' },
 ];

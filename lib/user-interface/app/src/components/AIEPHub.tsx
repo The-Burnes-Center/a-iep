@@ -6,11 +6,12 @@ import LandingHeroSection from './LandingHeroSection';
 import LandingCardSection from './LandingCardSection';
 import AIEPFooter from './AIEPFooter';
 import { useLanguage } from '../common/language-context';
+import { SIGN_IN_ROUTE } from '../common/sign-in-location';
 import { Container } from 'react-bootstrap';
 
 const publicFooterLinks = [
   { route: '/', labelKey: 'footer.home' },
-  { route: '/login', labelKey: 'footer.uploadIEP' },
+  { route: SIGN_IN_ROUTE, labelKey: 'footer.uploadIEP' },
   { route: '/faqs', labelKey: 'footer.faqs' },
   { route: '/about-the-project', labelKey: 'footer.aboutUs' },
 ];

@@ -64,8 +64,20 @@ const renderAccountCenter = () => {
         <LanguageContext.Provider value={languageValue}>
           <AuthProvider>
             <Routes>
-              <Route path="/" element={<div>public landing page</div>} />
-              <Route path="/login" element={<div>sign in form</div>} />
+              {/* One route, two strings, because they are now one place: the
+                  sign-in form is a card on the landing page and /login only
+                  redirects to it (LoginRedirect.tsx). "public landing page"
+                  is where a sign-out lands; "sign in form" is what
+                  ProtectedRoute sends a signed-out parent to. */}
+              <Route
+                path="/"
+                element={
+                  <>
+                    <div>public landing page</div>
+                    <div>sign in form</div>
+                  </>
+                }
+              />
               <Route element={<ProtectedRoute />}>
                 <Route path={ACCOUNT_PATH} element={<AccountCenter />} />
               </Route>

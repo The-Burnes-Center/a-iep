@@ -3,7 +3,7 @@ import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { trackPageView } from '../common/helpers/analytics-helper';
 
 // Auth components
-import CustomLoginWrapper from './CustomLoginWrapper';
+import LoginRedirect from './LoginRedirect';
 
 // Navigation components
 import LandingTopNavigation from './LandingTopNavigation';
@@ -77,8 +77,9 @@ export default function AppRoutes() {
       {/* Shared referral links: a-iep.org/r/<code> */}
       <Route path="/r/:code" element={<ReferralRedirect />} />
 
-      {/* Login page */}
-      <Route path="/login" element={<CustomLoginWrapper />} />
+      {/* The sign-in form is the landing page's hero card; this is the old
+          page's URL, kept alive as a redirect to it (LoginRedirect.tsx) */}
+      <Route path="/login" element={<LoginRedirect />} />
       
       {/* FAQs - public route */}
       <Route path="/faqs" element={

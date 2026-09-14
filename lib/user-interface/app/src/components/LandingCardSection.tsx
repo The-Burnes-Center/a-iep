@@ -2,6 +2,7 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import AIEPToolCard from "./AIEPToolCard";
 import { useLanguage } from "../common/language-context";
+import { SIGN_IN_ROUTE } from "../common/sign-in-location";
 import "./LandingCardSection.css";
 
 const LandingCardSection: React.FC = () => {
@@ -16,7 +17,7 @@ const LandingCardSection: React.FC = () => {
           middleText={t("landingCards.aiepTool.middle")}
           bottomText={t("landingCards.aiepTool.bottom")}
           backgroundImage="/images/patterns-red-h.jpg"
-          onClick={() => navigate("/login")}
+          onClick={() => navigate(SIGN_IN_ROUTE)}
         />
         <AIEPToolCard
           topText={t("landingCards.canvassing.top")}

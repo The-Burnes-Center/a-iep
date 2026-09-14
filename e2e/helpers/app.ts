@@ -72,6 +72,25 @@ export type LoginScreen = 'legacy' | 'passwordless';
 export const IN_APP_PATHS = ['/summary-and-translations', '/iep-documents'];
 
 /**
+ * The paths on which a parent is still signed out, looking at the sign-in
+ * card. Both of them, not just /login: the form is a card in the landing
+ * page's hero, and /login is only a redirect to it
+ * (src/components/LoginRedirect.tsx).
+ *
+ * That redirect is why this exists. Every "has the login finished?" wait used
+ * to read `!pathname.startsWith('/login')`, which the redirect satisfies
+ * before a single digit is typed -- the journey would have gone permanently
+ * green while testing nothing at all.
+ */
+const SIGNED_OUT_PATHS = ['/', '/login'];
+
+/** True while the parent is still in front of the sign-in card. */
+export function isSignedOutPath(pathname: string): boolean {
+  const path = pathname.replace(/\/+$/, '') || '/';
+  return SIGNED_OUT_PATHS.includes(path);
+}
+
+/**
  * Put the staging bypass token on every /auth/start or /auth/signup request
  * this page makes -- the legacy screen posts to the latter, PasswordlessAuthForm
  * to the former, and e2e-bypass.js (shared by both endpoints' lambdas, see
@@ -113,7 +132,13 @@ export async function gotoLogin(page: Page): Promise<LoginScreen> {
   // Before the first navigation, so the route is in place for any signup the
   // page makes. Harmless on flows that never sign up.
   await allowAuthPastTurnstile(page);
+  // Deliberately /login and not '/'. The sign-in form is a card on the landing
+  // page and /login only redirects to it, but /login is the URL in outreach
+  // material, in bookmarks and in parents' history -- entering through it here
+  // means every login journey in the suite exercises the redirect, rather than
+  // leaving a URL families actually type covered by nothing.
   await page.goto(appUrl('/login'));
+  await page.waitForURL((url) => url.pathname === '/', { timeout: 30_000 });
   await expect(phoneInput(page)).toBeVisible();
   return detectLoginScreen(page);
 }
@@ -235,12 +260,27 @@ async function waitForLegacyExistingUserAlert(page: Page): Promise<void> {
 }
 
 /**
- * The tail of every successful OTP submit: the app parks on /login for ~1s
- * (success flash), routes to /preferred-language, and that page decides
- * where the user belongs. Returns the in-app path finally reached.
+ * The tail of every successful OTP submit: the app parks on the sign-in card
+ * for ~1s (success flash), routes to /preferred-language, and that page
+ * decides where the user belongs. Returns the in-app path finally reached.
+ *
+ * The wait is "no longer on a signed-out path", NOT "no longer on /login".
+ * /login redirects to '/' the moment it is opened, so a wait for "left
+ * /login" is already true before the phone number is even typed: it would
+ * pass on a build where sign-in is completely broken, which is the one thing
+ * this journey exists to catch. '/' has to be in the set for the same reason
+ * -- it is where the form now lives, so staying on it is what failure looks
+ * like.
+ *
+ * The new condition cannot satisfy itself. At the moment this is called the
+ * page is on '/', so the predicate is false; and the only thing in this flow
+ * that navigates off '/' is CustomLogin's handleSuccessfulAuthentication,
+ * which runs after login() holds a session. A wrong code, a lockout, a dead
+ * backend or a silent reset back to the phone field all leave the parent on
+ * '/', so each still fails on the timeout exactly as before.
  */
 export async function finishLoginAfterOtp(page: Page): Promise<string> {
-  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 60_000 });
+  await page.waitForURL((url) => !isSignedOutPath(url.pathname), { timeout: 60_000 });
   return completeOnboardingIfShown(page);
 }
 

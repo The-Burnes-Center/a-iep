@@ -68,6 +68,7 @@ import {
   completeOnboardingIfShown,
   deleteAccountThroughUi,
   detectLoginScreen,
+  isSignedOutPath,
   loginWithOtp,
   phoneInput,
   startPhoneLogin,
@@ -92,14 +93,19 @@ const SINGLE_CODE_DEADLINE_MS = 90_000;
  * alert (the login OTP submitted to confirmSignUp is rejected as a mismatch),
  * or a silent bounce back to the phone form. Without this, both would surface
  * as an opaque wait-for-URL timeout.
+ *
+ * "Left the sign-in card", not "left /login": /login redirects to the landing
+ * page that holds the form, so a /login-only check returns on the redirect
+ * itself and this whole assertion passes without a session being issued. See
+ * isSignedOutPath in helpers/app.ts.
  */
 async function waitForTheNewAccountToBeLetIn(page: Page): Promise<void> {
   const deadline = Date.now() + SINGLE_CODE_DEADLINE_MS;
   const errorAlert = page.locator('.alert-danger');
 
   while (Date.now() < deadline) {
-    // The app leaves /login only once it holds a session.
-    if (!new URL(page.url()).pathname.startsWith('/login')) return;
+    // The app leaves the sign-in card only once it holds a session.
+    if (!isSignedOutPath(new URL(page.url()).pathname)) return;
 
     if (await errorAlert.isVisible().catch(() => false)) {
       const text = (await errorAlert.innerText().catch(() => '')).trim();
@@ -122,8 +128,8 @@ async function waitForTheNewAccountToBeLetIn(page: Page): Promise<void> {
   }
 
   throw new Error(
-    `The app never left /login within ${SINGLE_CODE_DEADLINE_MS / 1000}s of ` +
-    'submitting the only code a new parent is sent.'
+    `The app never left the sign-in card within ${SINGLE_CODE_DEADLINE_MS / 1000}s ` +
+    'of submitting the only code a new parent is sent.'
   );
 }
 
