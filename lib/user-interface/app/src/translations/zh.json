@@ -708,5 +708,7 @@
     "invite.joins.empty": "还没有人通过您的链接加入。快分享出去吧！",
     "invite.joins.item": "一位家长加入了",
     "invite.error": "无法加载您的邀请链接，请稍后再试。",
-    "invite.loading": "加载中..."
+    "invite.loading": "加载中...",
+    "errorBoundary.title": "出现了问题",
+    "errorBoundary.message": "我们无法显示此页面。您的文档是安全的。请重试。"
 }

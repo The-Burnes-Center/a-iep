@@ -9,6 +9,7 @@ import { AuthProvider } from "../common/auth-provider";
 import { Alert, Spinner } from "react-bootstrap";
 import { initAnalytics } from "../common/helpers/analytics-helper";
 import AppRoutes from "./AppRoutes";
+import AppErrorBoundary from "./ErrorBoundary";
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Amplify v6 expects Auth.Cognito.*, while the CDK still publishes the v5-flat
@@ -166,7 +167,11 @@ export default function AppConfigured() {
         <AuthProvider>
           <QueryClientProvider client={queryClient}>
             <BrowserRouter>
-              <AppRoutes />
+              {/* Inside the router so a route change clears the fallback,
+                  and inside LanguageProvider so it can be translated. */}
+              <AppErrorBoundary>
+                <AppRoutes />
+              </AppErrorBoundary>
             </BrowserRouter>
           </QueryClientProvider>
         </AuthProvider>

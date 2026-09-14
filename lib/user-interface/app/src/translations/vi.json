@@ -708,5 +708,7 @@
     "invite.joins.empty": "Chưa có ai tham gia bằng liên kết của bạn. Hãy chia sẻ để bắt đầu!",
     "invite.joins.item": "Một phụ huynh đã tham gia",
     "invite.error": "Không thể tải liên kết mời của bạn. Vui lòng thử lại sau.",
-    "invite.loading": "Đang tải..."
+    "invite.loading": "Đang tải...",
+    "errorBoundary.title": "Đã xảy ra lỗi",
+    "errorBoundary.message": "Chúng tôi không thể hiển thị trang này. Tài liệu của bạn vẫn an toàn. Vui lòng thử lại."
 }

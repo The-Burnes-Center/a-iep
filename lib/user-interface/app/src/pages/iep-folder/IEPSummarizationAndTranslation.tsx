@@ -44,6 +44,23 @@ import { TextHelper } from '../../common/helpers/text-helper';
 // this is a backstop against a request that vanished, not a real deadline.
 const TRANSLATION_TIMEOUT_MS = 10 * 60 * 1000;
 
+/**
+ * Whether a content field really is text this page can render.
+ *
+ * The API's summary/index fields are typed as strings, but the type is a
+ * claim about the happy path, not a guarantee about the payload. A document
+ * written in the oldest storage layout and later migrated to S3 came back as
+ * `{S: '<the summary>'}`: truthy, so every existence check passed, and then
+ * `.split` on it threw during render. With no ErrorBoundary above it that
+ * emptied the whole page, and the parent got a white screen while the network
+ * tab showed a healthy 200.
+ *
+ * Checking the type rather than truthiness is what turns that into the
+ * ordinary "no summary yet" state, which already tells a parent what to do.
+ */
+const isReadableText = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0;
+
 const IEPSummarizationAndTranslation: React.FC = () => {
   const { t, language, setLanguage, translationsLoaded, enabledLanguages } = useLanguage();
   const { isFeatureEnabled } = useFeatures();
@@ -504,8 +521,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
 
   // Safe check for content availability
   const hasContent = (lang: string) => {
-    const hasSummary = Boolean(document.summaries && document.summaries[lang]);
-    const hasDocumentIndex = Boolean(document.document_index && document.document_index[lang]);
+    const hasSummary = isReadableText(document.summaries?.[lang]);
+    const hasDocumentIndex = isReadableText(document.document_index?.[lang]);
     const hasSections = Boolean(
       document.sections && 
       document.sections[lang] && 
@@ -736,8 +753,11 @@ const IEPSummarizationAndTranslation: React.FC = () => {
 
   // Helper function to truncate content to the first paragraph
   const truncateContent = (content: string): { truncated: string; needsTruncation: boolean } => {
-    if (!content) {
-      return { truncated: content, needsTruncation: false };
+    // Not `!content`: the caller's guard is isReadableText now, but this
+    // function is the thing that actually threw, so it refuses a non-string
+    // on its own rather than trusting the call site to keep doing it.
+    if (!isReadableText(content)) {
+      return { truncated: '', needsTruncation: false };
     }
     
     // Split by double newline (paragraph separator)
@@ -763,7 +783,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
 
   // Render tab content for a specific language
   const renderTabContent = (lang: string) => {
-    const hasSummary = document.summaries && document.summaries[lang];
+    const hasSummary = isReadableText(document.summaries?.[lang]);
     const hasSections = (
       document.sections && 
       document.sections[lang] && 

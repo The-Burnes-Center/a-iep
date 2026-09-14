@@ -708,5 +708,7 @@
     "invite.joins.empty": "No one has joined with your link yet. Share it to get started!",
     "invite.joins.item": "A parent joined",
     "invite.error": "We could not load your invite link. Please try again later.",
-    "invite.loading": "Loading..."
+    "invite.loading": "Loading...",
+    "errorBoundary.title": "Something went wrong",
+    "errorBoundary.message": "We couldn't show this page. Your document is safe. Please try again."
 }

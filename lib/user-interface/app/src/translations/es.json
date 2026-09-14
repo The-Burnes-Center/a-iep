@@ -708,5 +708,7 @@
     "invite.joins.empty": "Nadie se ha unido con tu enlace todavía. ¡Compártelo para empezar!",
     "invite.joins.item": "Un padre se unió",
     "invite.error": "No pudimos cargar tu enlace de invitación. Inténtalo de nuevo más tarde.",
-    "invite.loading": "Cargando..."
+    "invite.loading": "Cargando...",
+    "errorBoundary.title": "Algo salió mal",
+    "errorBoundary.message": "No pudimos mostrar esta página. Su documento está seguro. Por favor, inténtelo de nuevo."
 }

@@ -708,5 +708,7 @@
     "invite.joins.empty": "لم ينضم أحد عبر رابطك بعد. شاركه للبدء!",
     "invite.joins.item": "انضم ولي أمر",
     "invite.error": "تعذّر تحميل رابط الدعوة. حاول مرة أخرى لاحقًا.",
-    "invite.loading": "جارٍ التحميل..."
+    "invite.loading": "جارٍ التحميل...",
+    "errorBoundary.title": "حدث خطأ ما",
+    "errorBoundary.message": "لم نتمكن من عرض هذه الصفحة. مستندك آمن. يرجى المحاولة مرة أخرى."
 }
