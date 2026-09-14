@@ -16,6 +16,15 @@ on:
         description: 'Post a result digest to Slack (needs the SLACK_WEBHOOK_URL secret)'
         type: boolean
         default: false
+      ref:
+        description: >
+          Git ref to take the suite from. Empty means the ref that triggered
+          the run, which is what the deploy wants. A scheduled caller has to
+          name one: GitHub runs every schedule on the default branch, so a
+          nightly would otherwise test the staging deployment using main's
+          copy of the suite, and those two only agree just after a promotion.
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -42,6 +51,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Empty is checkout's own default: the triggering ref.
+          ref: ${{ inputs.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
