@@ -1,5 +1,6 @@
 import React from 'react';
-import { Button, Spinner } from 'react-bootstrap';
+import { Button } from 'react-bootstrap';
+import AIEPSpinner from './AIEPSpinner';
 import './SubmitButton.css';
 
 interface SubmitButtonProps {
@@ -22,7 +23,7 @@ const SubmitButton = ({
       disabled={disabled} 
       className="submit-button-login"
     >
-      {loading ? <Spinner animation="border" size="sm" /> : buttonText}
+      {loading ? <AIEPSpinner size="sm" /> : buttonText}
     </Button>
   );
 };

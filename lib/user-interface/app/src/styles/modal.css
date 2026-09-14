@@ -32,6 +32,20 @@
   justify-content: space-between;
 }
 
+/* The breadcrumb trail shares this row with the Skip button. It carries its
+   own page gutter, and on a wide screen a centred half-width column; neither
+   belongs inside a flex row that .modal-container has already padded. */
+.modal-navigation .breadcrumb-container {
+  margin: 0;
+  padding: 0;
+  width: auto;
+}
+
+.modal-navigation .breadcrumb {
+  margin-bottom: 0;
+  align-items: center;
+}
+
 
 @media (min-width: 992px) and (min-height: 700px) {
 

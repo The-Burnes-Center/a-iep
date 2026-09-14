@@ -5,6 +5,7 @@ import { IconPlayerPlay } from '@tabler/icons-react';
 import { useLanguage } from '../../common/language-context';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
+import { STEP } from '../../common/breadcrumb-steps';
 
 /**
  * TODO(content): the embed URL for the "how to ask for a PDF IEP" video.
@@ -26,7 +27,7 @@ export default function HowToAskForPdf() {
     <>
       <MobileTopNavigation />
       <div className="onboarding-page">
-        <OnboardingTopBar />
+        <OnboardingTopBar trail={[STEP.yourIep, STEP.askForPdf]} />
 
         <h1 className="onboarding-heading">{t('howToAsk.heading')}</h1>
 

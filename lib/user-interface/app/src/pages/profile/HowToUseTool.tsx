@@ -3,6 +3,7 @@ import { Button } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../../common/language-context';
 import { useFeatures } from '../../common/hooks/use-features';
+import { STEP } from '../../common/breadcrumb-steps';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
 
@@ -36,7 +37,16 @@ export default function HowToUseTool() {
     <>
       <MobileTopNavigation />
       <div className="onboarding-page">
-        <OnboardingTopBar />
+        {/* What comes before this step depends on studentNameGate, the same
+            flag that decides whether the child's name is asked for at all:
+            with it on, consent leads here through that screen, and with it
+            off consent leads straight here. */}
+        <OnboardingTopBar
+          trail={[
+            isFeatureEnabled('studentNameGate') ? STEP.child : STEP.consent,
+            STEP.howItWorks,
+          ]}
+        />
 
         <h1 className="onboarding-heading">{t('howToUse.heading')}</h1>
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Container, Alert, Spinner, Button } from 'react-bootstrap';
+import { Container, Alert, Button } from 'react-bootstrap';
+import AIEPSpinner from '../../components/AIEPSpinner';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { IconCheck } from '@tabler/icons-react';
 import { AppContext } from '../../common/app-context';
@@ -11,6 +12,7 @@ import { useFeatures } from '../../common/hooks/use-features';
 import { isStudentNameMissing } from '../../common/features';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
+import { STEP } from '../../common/breadcrumb-steps';
 import './ProfileForms.css';
 
 export default function PreferredLanguage() {
@@ -139,9 +141,7 @@ export default function PreferredLanguage() {
   if (loading) {
     return (
       <Container className="text-center">
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">{t('common.loading')}</span>
-        </Spinner>
+        <AIEPSpinner label={t('common.loading')} />
       </Container>
     );
   }
@@ -162,14 +162,14 @@ export default function PreferredLanguage() {
         {/* No language dropdown: this screen IS the language picker, and the
             bar put a second copy of the same choice in the corner of it.
 
-            Back only when a parent got here from their profile, where there is
-            a real screen to return to. In onboarding this is the FIRST step:
-            the entry behind it is the sign-in card, so Back handed a
-            signed-in parent a login form and a page scrolled to its middle. */}
+            A way back only when a parent got here from their profile, where
+            there is a real screen to return to. In onboarding this is the
+            FIRST step: the entry behind it is the sign-in card, so the trail
+            is the one crumb saying where they are, with nothing to follow
+            out of the app. */}
         <OnboardingTopBar
           showLanguagePicker={false}
-          showBack={isUpdatingFromProfile}
-          backTo={isUpdatingFromProfile ? '/account-center' : undefined}
+          trail={isUpdatingFromProfile ? [STEP.account, STEP.language] : [STEP.language]}
         />
 
         {isUpdatingFromProfile && (

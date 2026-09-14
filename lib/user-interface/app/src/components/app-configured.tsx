@@ -6,11 +6,11 @@ import { AppConfig } from "../common/types";
 import { AppContext } from "../common/app-context";
 import { LanguageProvider } from "../common/language-context";
 import { AuthProvider } from "../common/auth-provider";
-import { Alert, Spinner } from "react-bootstrap";
+import { Alert } from "react-bootstrap";
 import { initAnalytics } from "../common/helpers/analytics-helper";
+import AIEPSpinner from "./AIEPSpinner";
 import AppRoutes from "./AppRoutes";
 import AppErrorBoundary from "./ErrorBoundary";
-import { AppHistoryDepthProvider } from "../common/app-history";
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Amplify v6 expects Auth.Cognito.*, while the CDK still publishes the v5-flat
@@ -114,21 +114,7 @@ export default function AppConfigured() {
   // label here has to stay English. It is the boot screen for a fetch of a
   // static file on the same origin, so a parent sees it for a moment at most.
   if (isLoading) {
-    return (
-      <div
-        style={{
-          width: "100%",
-          height: "100vh",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">Loading configuration...</span>
-        </Spinner>
-      </div>
-    );
+    return <AIEPSpinner size="lg" fullPage label="Loading configuration..." />;
   }
 
   // Error state
@@ -168,17 +154,11 @@ export default function AppConfigured() {
         <AuthProvider>
           <QueryClientProvider client={queryClient}>
             <BrowserRouter>
-              {/* Counts our own navigations, so an onboarding screen can tell
-                  whether Back has anywhere of ours to go. Inside the router
-                  because it reads the router's navigation type, and outside
-                  the routes because it has to survive every screen change. */}
-              <AppHistoryDepthProvider>
-                {/* Inside the router so a route change clears the fallback,
-                    and inside LanguageProvider so it can be translated. */}
-                <AppErrorBoundary>
-                  <AppRoutes />
-                </AppErrorBoundary>
-              </AppHistoryDepthProvider>
+              {/* Inside the router so a route change clears the fallback,
+                  and inside LanguageProvider so it can be translated. */}
+              <AppErrorBoundary>
+                <AppRoutes />
+              </AppErrorBoundary>
             </BrowserRouter>
           </QueryClientProvider>
         </AuthProvider>

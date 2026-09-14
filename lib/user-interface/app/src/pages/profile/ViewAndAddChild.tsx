@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
-import { Form, Button, Alert, Spinner, Container } from 'react-bootstrap';
+import { Form, Button, Alert, Container } from 'react-bootstrap';
+import AIEPSpinner from '../../components/AIEPSpinner';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -8,6 +9,7 @@ import { UserProfile } from '../../common/types';
 import { useLanguage } from '../../common/language-context';
 import { isPlaceholderChildName } from '../../common/features';
 import { ChildNameError, normalizeChildName, validateChildName } from '../../common/child-name';
+import { STEP } from '../../common/breadcrumb-steps';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
 import './ViewAndAddChild.css';
@@ -212,9 +214,7 @@ export default function ViewAndAddChild() {
   if (loading) {
     return (
       <Container className="text-center">
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">{t('common.loading')}</span>
-        </Spinner>
+        <AIEPSpinner label={t('common.loading')} />
       </Container>
     );
   }
@@ -231,7 +231,14 @@ export default function ViewAndAddChild() {
     <>
       <MobileTopNavigation />
       <div className="onboarding-page">
-        <OnboardingTopBar />
+        {/* The same fork Save takes below: onboarding arrived here from
+            consent, and a parent correcting a name that is already there
+            arrived from the Account Center. Read off `isOnboarding` rather
+            than off the history stack, so the trail says where the parent
+            actually came from instead of whatever they happened to visit. */}
+        <OnboardingTopBar
+          trail={[isOnboarding ? STEP.consent : STEP.account, STEP.child]}
+        />
 
         {/* One question and one field, per the design. What the name is used
             for is explained on the privacy screen further into onboarding, not

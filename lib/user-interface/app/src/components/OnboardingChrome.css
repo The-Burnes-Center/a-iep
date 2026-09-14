@@ -28,12 +28,24 @@
   margin-inline-start: auto;
 }
 
-.onboarding-topbar .onboarding-back {
+/* The trail sits in the bar, not on the page, so it drops the page gutter and
+   the centred half-width column Breadcrumbs.css gives it everywhere else:
+   .onboarding-page already supplies the padding, and the bar is a flex row
+   that the language selector shares. */
+.onboarding-topbar .breadcrumb-container {
   margin: 0;
+  padding: 0;
+  width: auto;
   min-width: 0;
-  gap: 0.4rem;
-  padding-top: 0.4rem;
-  padding-bottom: 0.4rem;
+}
+
+.onboarding-topbar .breadcrumb {
+  margin-bottom: 0;
+  flex-wrap: wrap;
+}
+
+.onboarding-topbar .breadcrumb-item {
+  padding-bottom: 0;
 }
 
 .onboarding-heading {

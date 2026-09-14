@@ -84,16 +84,12 @@ const renderPage = (
   } = {},
 ) => {
   stubFetch(profile);
-  // A real previous entry, so "no Back" below is the rule deciding it rather
-  // than there being nothing to go back to.
+  // A real previous entry, so "no way back" below is the trail's own rule
+  // deciding it rather than there being nothing behind the page at all.
   const entries = [
     { pathname: "/account-center" },
     { pathname: PAGE, state: fromProfile ? { fromProfile: true } : null },
   ];
-  // Say there IS an entry behind this screen. Without it the Back button is
-  // absent because nothing is behind the page, and the assertions below pass
-  // whatever the rule does -- which is a test that cannot fail.
-  window.history.replaceState({ idx: 1 }, "");
   render(
     <MemoryRouter initialEntries={entries} initialIndex={1}>
       <AppContext.Provider value={appConfig(enabledLanguages)}>
@@ -223,24 +219,29 @@ describe("choosing a language", () => {
   });
 });
 
-describe("the Back control", () => {
-  test("is not offered during onboarding, where the screen before it is sign-in", async () => {
+describe("the breadcrumb trail", () => {
+  test("offers no way back during onboarding, where the screen before it is sign-in", async () => {
     // This is the FIRST onboarding step. A parent who pushed the sign-in card
     // and then signed in does have an entry behind them, and it is the login
-    // form: Back sent a signed-in parent to a form they had just used, on a
-    // page scrolled to its middle by the #sign-in hash. Having somewhere to go
-    // is not the same as having somewhere worth going.
+    // form: a way back sent a signed-in parent to a form they had just used,
+    // on a page scrolled to its middle by the #sign-in hash. Having somewhere
+    // to go is not the same as having somewhere worth going. The trail still
+    // says where the parent is, it just has nothing to follow.
     renderPage();
     await waitForChoices();
 
-    expect(screen.queryByRole("button", { name: "common.back" })).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText("breadcrumb.language")).toHaveAttribute("aria-current", "page");
   });
 
-  test("is offered when a parent came from their profile to change the language", async () => {
+  test("leads to the Account Center when a parent came from their profile", async () => {
     const user = renderPage({ fromProfile: true });
     await waitForChoices();
 
-    await user.click(screen.getByRole("button", { name: "common.back" }));
+    const back = screen.getByRole("link", { name: "breadcrumb.account" });
+    expect(back).toHaveAttribute("href", "/account-center");
+
+    await user.click(back);
 
     expect(screen.getByTestId("landed-on")).toHaveTextContent("/account-center");
   });

@@ -4,6 +4,8 @@ import { Swiper, SwiperSlide } from 'swiper/react';
 import type { Swiper as SwiperClass } from 'swiper';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../../common/language-context';
+import { STEP } from '../../common/breadcrumb-steps';
+import Breadcrumbs from '../../components/Breadcrumbs';
 import 'swiper/css';
 import 'swiper/css/pagination';
 import { Pagination } from 'swiper/modules';
@@ -62,13 +64,6 @@ const OnboardingUser: React.FC = () => {
     }
   ];
 
-  // Back goes to the previous onboarding step, NOT to '/'. The landing page is
-  // the logged-out marketing site and its only door back into the app is the
-  // login form, so this used to look (and feel) like being signed out.
-  const handleBackClick = () => {
-    navigate('/preferred-language');
-  };
-  
   // Create a ref to access Swiper instance
   const swiperRef = React.useRef<SwiperClass | null>(null);
   
@@ -93,14 +88,11 @@ const OnboardingUser: React.FC = () => {
       <div className="modal-overlay"></div>
       <div className="modal-container">
         <div className="modal-navigation right">
-          <Button variant="outline-secondary" onClick={handleBackClick} className="aiep-button">
-            <img 
-                    src="/images/arrow-back.svg" 
-                    alt=""
-                    className="btn-icon"
-                  />
-              {t('common.back')}
-          </Button>
+          {/* The trail, not a Back button: the language step is what comes
+              before this one, and the landing page it used to offer is the
+              logged-out marketing site whose only door back in is the login
+              form. */}
+          <Breadcrumbs trail={[STEP.language, STEP.whatAiepDoes]} />
           <Button variant="outline-secondary" className="aiep-button" onClick={handleGetStarted}>
             {t('common.skip')}
           </Button>

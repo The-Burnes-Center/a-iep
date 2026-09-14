@@ -61,6 +61,18 @@ const STEP_KEYS = ["privacy.step1", "privacy.step2", "privacy.step3", "privacy.s
 const Here = () => <div data-testid="landed-on">{useLocation().pathname}</div>;
 
 /** The screen with a real dictionary behind it, plus stubs for its exits. */
+/**
+ * The lists belonging to the page itself. The breadcrumb trail is an <ol> too,
+ * so a bare getAllByRole("list") now picks it up alongside the numbered steps
+ * these tests are about.
+ */
+const contentLists = () =>
+  screen.getAllByRole("list").filter((list) => !list.closest("nav"));
+
+/** Every step across those lists, in reading order. */
+const contentListItems = () =>
+  contentLists().flatMap((list) => within(list).getAllByRole("listitem"));
+
 const renderScreen = (lang: SupportedLanguage = "en", start: string = ROUTE) => {
   const dictionary = DICTIONARIES[lang];
   render(
@@ -106,7 +118,7 @@ describe("How we protect your privacy", () => {
     expect(screen.getByRole("heading", { level: 2, name: "AWS COMPREHEND" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "OPEN AI" })).toBeInTheDocument();
 
-    const steps = screen.getAllByRole("listitem");
+    const steps = contentListItems();
     expect(steps.map((step) => step.textContent)).toEqual([
       expect.stringContaining(plain(enDict["privacy.step1"])),
       expect.stringContaining(plain(enDict["privacy.step2"])),
@@ -133,7 +145,7 @@ describe("How we protect your privacy", () => {
     // that true in Safari, where `list-style: none` strips list semantics.
     renderScreen();
 
-    const lists = screen.getAllByRole("list");
+    const lists = contentLists();
     expect(lists.map((list) => list.tagName)).toEqual(["OL", "OL"]);
     // Two lists because an <ol> may only contain <li>, so one cannot span the
     // two provider cards. The second continues the first rather than
@@ -253,7 +265,7 @@ describe("How we protect your privacy", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: arDict["privacy.heading"] }),
     ).toBeInTheDocument();
-    const steps = screen.getAllByRole("listitem");
+    const steps = contentListItems();
     expect(steps[0].textContent).toContain(plain(arDict["privacy.step1"]));
     // Two emphasised runs in step 2, one of them prefixed by a conjunction
     // that has to stay outside the bold.

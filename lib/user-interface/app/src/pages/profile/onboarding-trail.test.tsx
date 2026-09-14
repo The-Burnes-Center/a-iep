@@ -1,16 +1,19 @@
 /**
- * Regression tests for the two onboarding "Back" buttons.
+ * Where the two onboarding screens that carry a trail lead back to.
  *
- * Both used to call `navigate('/')`. Nothing signed the parent out, but '/' is
- * the logged-out marketing landing page and the only entry it offers is the
- * login form, so a signed-in parent who pressed Back was shown a sign-in
- * screen with no route back into the app. That is what was reported as "the
- * back button logs you out", and it is a dead end either way.
+ * Both screens once had a "Back" button that called `navigate('/')`. Nothing
+ * signed the parent out, but '/' is the logged-out marketing landing page and
+ * the only entry it offers is the login form, so a signed-in parent who
+ * pressed Back was shown a sign-in screen with no route back into the app.
+ * That is what was reported as "the back button logs you out", and it is a
+ * dead end either way. The buttons were replaced by the breadcrumb trail the
+ * rest of the app uses; the destination is what these tests are about, and it
+ * is unchanged, so they still pin the defect.
  *
  * These drive the real components through the DOM with the real router and the
  * real AuthProvider, mocking only the boundary (Amplify's `Auth` and `fetch`),
- * and assert three things per button: where the parent lands, that the session
- * survives, and the thing that must NOT happen — no sign-out, and no landing
+ * and assert three things per screen: where the parent lands, that the session
+ * survives, and the thing that must NOT happen: no sign-out, and no landing
  * on '/' or '/login'.
  */
 import React from "react";
@@ -103,6 +106,9 @@ const renderPage = (path: string, page: React.ReactElement) => {
   return userEvent.setup();
 };
 
+/** The one crumb that is a link: the step before this screen. */
+const wayBack = () => screen.getAllByRole("link")[0];
+
 /** The session survived and nothing signed the parent out on the way. */
 const expectStillSignedIn = () => {
   expect(screen.getByTestId("auth-state")).toHaveTextContent("signed-in");
@@ -126,27 +132,40 @@ beforeEach(() => {
   );
 });
 
-describe("the consent form's Back button", () => {
+describe("the consent form's trail", () => {
   test("returns to the previous onboarding step and keeps the parent signed in", async () => {
     const user = renderPage("/consent-form", <ConsentForm />);
 
     await screen.findByText("consent.title");
     await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("signed-in"));
 
-    await user.click(screen.getByRole("button", { name: "common.back" }));
+    await user.click(wayBack());
 
     expect(screen.getByTestId("landed-on")).toHaveTextContent("/preferred-language");
     expectStillSignedIn();
   });
+
+  test("names the step it leads to, and offers no other way out", async () => {
+    // "BACK" said nothing about where it went, which is how it went to the
+    // marketing page for months without anyone noticing what that page was.
+    renderPage("/consent-form", <ConsentForm />);
+
+    await screen.findByText("consent.title");
+
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveTextContent("breadcrumb.language");
+    expect(links[0]).toHaveAttribute("href", "/preferred-language");
+  });
 });
 
-describe("the onboarding carousel's Back button", () => {
+describe("the onboarding carousel's trail", () => {
   test("returns to the previous onboarding step and keeps the parent signed in", async () => {
     const user = renderPage("/onboarding-user", <OnboardingUser />);
 
     await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("signed-in"));
 
-    await user.click(screen.getByRole("button", { name: "common.back" }));
+    await user.click(wayBack());
 
     expect(screen.getByTestId("landed-on")).toHaveTextContent("/preferred-language");
     expectStillSignedIn();

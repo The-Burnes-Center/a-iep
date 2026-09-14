@@ -1,10 +1,11 @@
 import React from 'react';
-import { Container, Row, Col, Card, Spinner, Breadcrumb } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
+import { Container, Row, Col, Card } from 'react-bootstrap';
+import AIEPSpinner from '../components/AIEPSpinner';
 import MobileTopNavigation from '../components/MobileTopNavigation';
 import LandingTopNavigation from '../components/LandingTopNavigation';
 import AIEPFooter from '../components/AIEPFooter';
 import { useLanguage } from '../common/language-context';
+import Breadcrumbs from '../components/Breadcrumbs';
 import { SIGN_IN_ROUTE } from '../common/sign-in-location';
 import './PrivacyPolicy.css';
 
@@ -20,21 +21,14 @@ interface PrivacyPolicyProps {
 }
 
 const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ isPublic = false }) => {
-  const navigate = useNavigate();
   const { t, translationsLoaded } = useLanguage();
-
-  const handleBackClick = () => {
-    navigate(isPublic ? '/about-the-project' : '/about-the-app');
-  };
 
   // Return loading state if translations aren't ready
   if (!translationsLoaded) {
     return (
       <Container className="privacy-policy-container mt-4 mb-5">
         <div className="text-center my-5">
-          <Spinner animation="border" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </Spinner>
+          <AIEPSpinner label={t('common.loading')} />
         </div>
       </Container>
     );
@@ -46,12 +40,17 @@ const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ isPublic = false }) => {
     <div className="privacy-policy-page">
       <NavigationComponent />
       {/* Breadcrumbs */}
-      <div className="mt-3 text-start px-4 breadcrumb-container">
-        <Breadcrumb>
-          <Breadcrumb.Item onClick={handleBackClick}>{t("privacyPolicy.breadcrumb.about")}</Breadcrumb.Item>
-          <Breadcrumb.Item active>{t("privacyPolicy.breadcrumb.privacyPolicy")}</Breadcrumb.Item>
-        </Breadcrumb>
-      </div>
+      <Breadcrumbs
+        trail={[
+          {
+            labelKey: "privacyPolicy.breadcrumb.about",
+            // The public copy of this page sits under the public About, the
+            // signed-in copy under the in-app one.
+            to: isPublic ? "/about-the-project" : "/about-the-app",
+          },
+          { labelKey: "privacyPolicy.breadcrumb.privacyPolicy" },
+        ]}
+      />
 
       <Container className="privacy-policy-container">
         <Row className="mt-2">

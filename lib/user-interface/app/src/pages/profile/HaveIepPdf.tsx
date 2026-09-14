@@ -5,6 +5,7 @@ import { IconFileCheck, IconHelpCircle } from '@tabler/icons-react';
 import { useLanguage } from '../../common/language-context';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
+import { STEP } from '../../common/breadcrumb-steps';
 
 /**
  * The fork in onboarding: a parent who already has the file goes straight to
@@ -19,7 +20,7 @@ export default function HaveIepPdf() {
     <>
       <MobileTopNavigation />
       <div className="onboarding-page">
-        <OnboardingTopBar />
+        <OnboardingTopBar trail={[STEP.howItWorks, STEP.yourIep]} />
 
         <h1 className="onboarding-heading">{t('havePdf.heading')}</h1>
 

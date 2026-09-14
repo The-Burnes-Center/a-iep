@@ -1,4 +1,5 @@
-import { Button, Spinner } from 'react-bootstrap';
+import { Button } from 'react-bootstrap';
+import AIEPSpinner from './AIEPSpinner';
 import './DeleteButton.css';
 
 interface DeleteButtonProps {
@@ -21,7 +22,7 @@ const DeleteButton = ({
       disabled={disabled} 
       className="delete-button-login"
     >
-      {loading ? <Spinner animation="border" size="sm" /> : buttonText}
+      {loading ? <AIEPSpinner size="sm" /> : buttonText}
     </Button>
   );
 };

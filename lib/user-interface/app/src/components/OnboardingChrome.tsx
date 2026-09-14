@@ -1,32 +1,23 @@
 import React from 'react';
-import { Button } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
-import { IconArrowLeft } from '@tabler/icons-react';
 import { useLanguage } from '../common/language-context';
-import { useCanGoBack } from '../common/app-history';
 import { LANGUAGES, filterEnabledOptions } from '../common/languages';
+import Breadcrumbs, { Crumb } from './Breadcrumbs';
 import LanguageDropdown from './LanguageDropdown';
 import './OnboardingChrome.css';
 
 interface OnboardingTopBarProps {
   /**
-   * Where Back goes on a screen that knows its own previous step, whether or
-   * not one is in the history stack. The consent form is the case: it is
-   * reachable as a first navigation, and the step before it is always the
-   * language picker (never '/', which is the logged-out marketing page).
-   * Left out, the history rule below decides.
-   */
-  backTo?: string;
-  /**
-   * Whether to offer Back at all.
+   * Where this screen sits: the step before it, then itself. Two crumbs on
+   * every screen but the first, which has only itself because the entry
+   * behind it is the sign-in card.
    *
-   * Off on a screen that is the START of the flow. Having somewhere to go is
-   * not the same as having somewhere worth going: a parent who pushed the
-   * sign-in card and then signed in has a history entry behind them, and it is
-   * the login form. Sending a signed-in parent there is the dead end the whole
-   * Back rule exists to avoid.
+   * Named by the screen rather than read off the history stack, which is what
+   * the BACK pill this replaces had to do. A stack cannot say what the
+   * previous step is CALLED, and it was wrong whenever it disagreed with the
+   * flow: a parent who signed in and landed here on a replace had an entry
+   * behind them, and it was the login form.
    */
-  showBack?: boolean;
+  trail?: Crumb[];
   /**
    * Whether to offer the language selector. Off on the language step, which
    * is itself a full-page language picker: a parent was shown the same
@@ -37,45 +28,31 @@ interface OnboardingTopBarProps {
 }
 
 /**
- * The row every onboarding screen wears under the app's top navigation: a BACK
- * pill on the leading edge and the language selector on the trailing one.
+ * The row every onboarding screen wears under the app's top navigation: the
+ * breadcrumb trail on the leading edge and the language selector on the
+ * trailing one.
  *
- * Extracted from ViewAndAddChild, which had the only copy of it while it was
- * the only screen built to the designer's onboarding layout. Six screens now
- * carry the same row, and the Back rule below is the kind of thing that gets
- * copied slightly wrong the fourth time.
+ * The trail replaced a BACK pill. Onboarding was the only part of the app that
+ * navigated that way; the account and support screens have always used
+ * breadcrumbs, so a parent met one idiom or the other depending which half
+ * they were in. Breadcrumbs also say where the link goes, which "BACK" never
+ * did, and they answer "where am I in this flow" on screens that have no
+ * heading (the language step is a lede and a list of buttons).
  *
  * OnboardingChrome.css is imported here rather than by each screen: every one
  * of them renders this component, so the stylesheet that carries the
  * `.onboarding-*` classes travels with it.
  */
 export default function OnboardingTopBar(
-  { backTo, showBack = true, showLanguagePicker = true }: OnboardingTopBarProps = {},
+  { trail = [], showLanguagePicker = true }: OnboardingTopBarProps = {},
 ) {
-  const navigate = useNavigate();
-  const hasSomethingBehind = useCanGoBack();
-  const { t, language, setLanguage, enabledLanguages } = useLanguage();
+  const { language, setLanguage, enabledLanguages } = useLanguage();
 
   const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
-  // A screen that names its own previous step can always offer Back. Otherwise
-  // it depends on there being something of ours behind this one: a parent who
-  // opened the URL directly, or who landed here on the first navigation after
-  // signing in, gets no Back button rather than one that leaves the app.
-  const canGoBack = showBack && (Boolean(backTo) || hasSomethingBehind);
-
   return (
     <div className="onboarding-topbar">
-      {canGoBack && (
-        <Button
-          variant="outline-secondary"
-          className="aiep-button onboarding-back"
-          onClick={() => (backTo ? navigate(backTo) : navigate(-1))}
-        >
-          <IconArrowLeft size={18} stroke={2} className="arrow-icon" aria-hidden="true" />
-          {t('common.back')}
-        </Button>
-      )}
+      <Breadcrumbs trail={trail} />
       {showLanguagePicker && (
         <div className="onboarding-language">
           <LanguageDropdown

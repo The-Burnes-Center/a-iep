@@ -16,7 +16,6 @@ import {
   Form, 
   Button, 
   Alert, 
-  Spinner,
 } from 'react-bootstrap';
 // Bootstrap CSS is managed at runtime by common/direction.ts (LTR/RTL swap) —
 // do not import it statically anywhere or both builds load at once
@@ -29,6 +28,7 @@ import { cognitoErrorKey } from '../common/helpers/cognito-error-helper';
 import { useTurnstile, TurnstileStatus } from '../common/hooks/use-turnstile';
 import { useFeatures } from '../common/hooks/use-features';
 import { AppContext } from '../common/app-context';
+import AIEPSpinner from './AIEPSpinner';
 import AuthHeader from './AuthHeader';
 import PasswordlessAuthForm from './PasswordlessAuthForm';
 import PasswordInput from './PasswordInput';
@@ -1132,7 +1132,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                     disabled={loading}
                     className="button-text"
                   >
-                    {loading ? <Spinner animation="border" size="sm" /> : t('auth.resendSmsCode')}
+                    {loading ? <AIEPSpinner size="sm" /> : t('auth.resendSmsCode')}
                   </Button>
                   <LinkButton
                     onClick={() => {

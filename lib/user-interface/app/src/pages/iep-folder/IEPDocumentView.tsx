@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Container, Row, Col, Alert, Button } from 'react-bootstrap';
+import { Container, Row, Col, Alert } from 'react-bootstrap';
 import UploadIEPDocument from './UploadIEPDocument';
 import CurrentIEPDocument from './CurrentIEPDocument';
 import './IEPDocumentView.css';
 import { useLanguage } from '../../common/language-context';
+import { STEP } from '../../common/breadcrumb-steps';
+import Breadcrumbs from '../../components/Breadcrumbs';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
 
 const IEPDocumentView: React.FC = () => {
-  const navigate = useNavigate();
   
   const [refreshNeeded, setRefreshNeeded] = useState(false);
   const [documentExists, setDocumentExists] = useState(false);
@@ -26,21 +26,13 @@ const IEPDocumentView: React.FC = () => {
     setDocumentExists(exists);
   };
 
-  const handleBackClick = () => {
-    navigate('/summary-and-translations');
-  };
-
   const { t } = useLanguage();
 
   return (
     <>
     <MobileTopNavigation />
+    <Breadcrumbs trail={[STEP.summary, STEP.uploadIep]} />
     <Container className="document-container mt-4 mb-5">
-      <div className="mt-3 text-start">
-        <Button variant="outline-secondary" onClick={handleBackClick}>
-        {t('document.back')}
-        </Button>
-      </div>
       <Row>
         <Col>
           <h1 className="document-title"></h1>          

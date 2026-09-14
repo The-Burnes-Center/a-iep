@@ -14,14 +14,13 @@
  */
 import React from "react";
 import { describe, expect, test, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import HowToUseTool from "./HowToUseTool";
 import HaveIepPdf from "./HaveIepPdf";
 import HowToAskForPdf from "./HowToAskForPdf";
 import { LanguageContext } from "../../common/language-context";
-import { AppHistoryDepthProvider } from "../../common/app-history";
 import { AppContext } from "../../common/app-context";
 import type { AppConfig } from "../../common/types";
 import type { Feature } from "../../common/features";
@@ -65,7 +64,6 @@ const renderChain = (start: string, enabledFeatures: Feature[] = ["pdfHelpScreen
     <MemoryRouter initialEntries={[start]}>
       <AppContext.Provider value={appConfig(enabledFeatures)}>
       <LanguageContext.Provider value={languageValue}>
-        <AppHistoryDepthProvider>
         <Here />
         <Routes>
           {CHAIN.map((screen) => (
@@ -74,8 +72,11 @@ const renderChain = (start: string, enabledFeatures: Feature[] = ["pdfHelpScreen
           <Route path="/iep-documents" element={<div>upload</div>} />
           <Route path="/view-resources" element={<div>resources</div>} />
           <Route path="/how-we-protect-your-privacy" element={<div>how we protect your privacy</div>} />
+          {/* Where the trail on the first screen of the chain leads, under
+              each setting of studentNameGate. */}
+          <Route path="/consent-form" element={<div>consent step</div>} />
+          <Route path="/view-update-add-child" element={<div>child name step</div>} />
         </Routes>
-        </AppHistoryDepthProvider>
       </LanguageContext.Provider>
       </AppContext.Provider>
     </MemoryRouter>,
@@ -86,13 +87,25 @@ const renderChain = (start: string, enabledFeatures: Feature[] = ["pdfHelpScreen
 
 const landedOn = () => screen.getByTestId("landed-on").textContent;
 
+/**
+ * The lists belonging to the page itself. The breadcrumb trail is an <ol> too,
+ * so a bare getAllByRole("list") now picks it up alongside the numbered steps
+ * these tests are about.
+ */
+const contentLists = () =>
+  screen.getAllByRole("list").filter((list) => !list.closest("nav"));
+
+/** Every step across those lists, in reading order. */
+const contentListItems = () =>
+  contentLists().flatMap((list) => within(list).getAllByRole("listitem"));
+
 describe("How to use the tool", () => {
   test("shows the heading, the three steps in order, and both buttons", () => {
     renderChain("/how-to-use-the-tool");
 
     expect(screen.getByRole("heading", { name: "howToUse.heading" })).toBeInTheDocument();
 
-    const steps = screen.getAllByRole("listitem");
+    const steps = contentListItems();
     expect(steps.map((step) => step.textContent)).toEqual([
       "1howToUse.step1",
       "2howToUse.step2",
@@ -110,7 +123,7 @@ describe("How to use the tool", () => {
     // screen reader announce "1 of 3".
     renderChain("/how-to-use-the-tool");
 
-    expect(screen.getByRole("list").tagName).toBe("OL");
+    expect(contentLists().map((list) => list.tagName)).toEqual(["OL"]);
   });
 
   test("Continue goes to the PDF question", async () => {
@@ -246,26 +259,74 @@ describe("the chain, walked end to end", () => {
     expect(landedOn()).toBe("/iep-documents");
   });
 
-  test("every screen offers a way back to the one before it", async () => {
+  test("every screen's trail leads back to the one before it", async () => {
+    // The trail is walked backwards here, which is the half of the chain the
+    // forward test above cannot reach. Each crumb is followed by its LABEL,
+    // so a screen that named the wrong previous step fails on the name before
+    // it fails on the route.
     const user = renderChain("/how-to-use-the-tool");
 
     await user.click(screen.getByTestId("how-to-use-continue"));
     await user.click(screen.getByTestId("have-pdf-no"));
     expect(landedOn()).toBe("/how-to-ask-for-pdf");
 
-    await user.click(screen.getByRole("button", { name: /common\.back/ }));
+    await user.click(screen.getByRole("link", { name: "breadcrumb.yourIep" }));
     expect(landedOn()).toBe("/do-you-have-pdf");
 
-    await user.click(screen.getByRole("button", { name: /common\.back/ }));
+    await user.click(screen.getByRole("link", { name: "breadcrumb.howItWorks" }));
     expect(landedOn()).toBe("/how-to-use-the-tool");
   });
 
-  test("no Back button on the first screen a parent could land on directly", () => {
-    // Same rule the student-name step uses: with nothing of ours behind this
-    // page, Back would leave the app.
-    renderChain("/how-to-use-the-tool");
+  test("each screen says which step it is, and offers exactly one way back", async () => {
+    const user = renderChain("/how-to-use-the-tool");
+    expect(screen.getByText("breadcrumb.howItWorks")).toHaveAttribute("aria-current", "page");
+    expect(screen.getAllByRole("link")).toHaveLength(1);
 
-    expect(screen.queryByRole("button", { name: /common\.back/ })).toBeNull();
+    await user.click(screen.getByTestId("how-to-use-continue"));
+    expect(screen.getByText("breadcrumb.yourIep")).toHaveAttribute("aria-current", "page");
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+
+    await user.click(screen.getByTestId("have-pdf-no"));
+    expect(screen.getByText("breadcrumb.askForPdf")).toHaveAttribute("aria-current", "page");
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+  });
+
+  // These two replace a test that pinned "no Back button here", which was the
+  // old bar's answer to not knowing what came before. studentNameGate is what
+  // decides it: with the gate on, consent reaches this screen through the
+  // child's name; with it off, consent reaches it directly.
+  test("the first screen of the chain points at the child step where that gate is on", async () => {
+    const user = renderChain("/how-to-use-the-tool", ["studentNameGate"]);
+
+    await user.click(screen.getByRole("link", { name: "breadcrumb.child" }));
+
+    expect(landedOn()).toBe("/view-update-add-child");
+  });
+
+  test("and at consent where it is off, which is production today", async () => {
+    const user = renderChain("/how-to-use-the-tool", []);
+
+    await user.click(screen.getByRole("link", { name: "breadcrumb.consent" }));
+
+    expect(landedOn()).toBe("/consent-form");
+  });
+
+  test("no crumb anywhere in the chain leaves the app", async () => {
+    // The defect the old Back button had: '/' is the logged-out marketing
+    // page and its only door back in is the login form.
+    const user = renderChain("/how-to-use-the-tool");
+    const hrefs: string[] = [];
+
+    const collect = () =>
+      screen.getAllByRole("link").forEach((link) => hrefs.push(link.getAttribute("href") ?? ""));
+
+    collect();
+    await user.click(screen.getByTestId("how-to-use-continue"));
+    collect();
+    await user.click(screen.getByTestId("have-pdf-no"));
+    collect();
+
+    expect(hrefs).toEqual(["/consent-form", "/how-to-use-the-tool", "/do-you-have-pdf"]);
   });
 });
 
@@ -292,7 +353,12 @@ describe("the copy these screens depend on", () => {
     "howToAsk.button.upload",
     "howToAsk.button.resources",
     "common.continue",
-    "common.back",
+    "breadcrumb.label",
+    "breadcrumb.consent",
+    "breadcrumb.child",
+    "breadcrumb.howItWorks",
+    "breadcrumb.yourIep",
+    "breadcrumb.askForPdf",
   ];
 
   test("is in all five dictionaries, non-empty", () => {

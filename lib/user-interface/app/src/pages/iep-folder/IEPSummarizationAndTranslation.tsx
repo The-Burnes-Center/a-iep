@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useContext } from 'react';
-import { Container, Row, Col, Card, Spinner, Alert, Button, Accordion, Tabs, Tab, Offcanvas, Dropdown} from 'react-bootstrap';
+import { Container, Row, Col, Card, Alert, Button, Accordion, Tabs, Tab, Offcanvas, Dropdown} from 'react-bootstrap';
 import LinearProgress from '@mui/material/LinearProgress';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useNavigate } from 'react-router-dom';
@@ -25,6 +25,7 @@ import {
 } from '../utils/translation-flow.mjs';
 import type { TranslationRequestState } from '../utils/translation-flow.mjs';
 import { canRetryFailedDocument } from './document-failure';
+import AIEPSpinner from '../../components/AIEPSpinner';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import TTSPlayButton from '../../components/TTSPlayButton';
 import { SlideData } from '../../components/ParentRightsCarousel';
@@ -1003,14 +1004,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     return (
       <Container className="summary-container mt-4 mb-5">
         <div className="text-center my-5">
-          <Spinner animation="border" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </Spinner>
-          <p className="mt-3">
-            {!translationsLoaded && profileLoading ? 'Loading translations and profile...' :
-             !translationsLoaded ? 'Loading translations...' : 
-             'Loading profile...'}
-          </p>
+          <AIEPSpinner label={t('common.loading')} />
+          <p className="mt-3">{t('common.loading')}</p>
         </div>
       </Container>
     );
@@ -1024,9 +1019,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
           <Row className="mt-2">
             <Col>
               <div className="text-center my-5">
-                <Spinner animation="border" role="status">
-                  <span className="visually-hidden">{t('summary.loading')}</span>
-                </Spinner>
+                <AIEPSpinner label={t('summary.loading')} />
                 <p className="mt-3">{t('summary.loading')}</p>
               </div>
             </Col>
@@ -1107,7 +1100,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               >
                 {isGeneratingPDF ? (
                   <>
-                    <Spinner animation="border" size="sm" className="me-2" />
+                    <AIEPSpinner size="sm" className="me-2" />
                     {t('common.generatingPdf')}
                   </>
                 ) : (

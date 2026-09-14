@@ -3,7 +3,8 @@ import { useAuth } from '../../common/auth-provider';
 import { useNavigate } from 'react-router-dom';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
-import { Container, Row, Col, Card, Accordion, Spinner} from 'react-bootstrap';
+import { Container, Row, Col, Card, Accordion } from 'react-bootstrap';
+import AIEPSpinner from '../../components/AIEPSpinner';
 import { useLanguage } from '../../common/language-context';
 import { useAdminIdentity } from '../../common/helpers/use-admin-identity';
 import { useFeatures } from '../../common/hooks/use-features';
@@ -23,9 +24,7 @@ const AccountCenter: React.FC = () => {
     return (
       <Container className="account-center-container mt-4 mb-5">
         <div className="text-center my-5">
-          <Spinner animation="border" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </Spinner>        
+          <AIEPSpinner label={t('common.loading')} />
         </div>
       </Container>
     );

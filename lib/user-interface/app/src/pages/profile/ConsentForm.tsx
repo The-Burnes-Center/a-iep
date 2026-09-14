@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Container, Form, Button, Row, Col, OverlayTrigger, Tooltip, Spinner } from 'react-bootstrap';
+import { Container, Form, Button, Row, Col, OverlayTrigger, Tooltip } from 'react-bootstrap';
+import AIEPSpinner from '../../components/AIEPSpinner';
 import { useNavigate } from 'react-router-dom';
 import { DEFAULT_CHILD_NAME } from '../../common/features';
 import { IconCheck } from '@tabler/icons-react';
@@ -9,6 +10,7 @@ import { UserProfile } from '../../common/types';
 import { useLanguage } from '../../common/language-context';
 import { useFeatures } from '../../common/hooks/use-features';
 import { isStudentNameMissing } from '../../common/features';
+import { STEP } from '../../common/breadcrumb-steps';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
 import './ProfileForms.css';
@@ -128,9 +130,7 @@ export default function ConsentForm() {
   if (loading) {
     return (
       <Container className="text-center profile-form-container">
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">{t('common.loading')}</span>
-        </Spinner>
+        <AIEPSpinner label={t('common.loading')} />
       </Container>
     );
   }
@@ -152,13 +152,12 @@ export default function ConsentForm() {
     <>
       <MobileTopNavigation />
       <div className="onboarding-page">
-        {/* Back goes to the previous onboarding step, NOT to '/'. The landing
-            page is the logged-out marketing site: its only way into the app is
-            the login form, so sending a signed-in parent there was
+        {/* The trail points at the previous onboarding step, NOT at '/'. The
+            landing page is the logged-out marketing site: its only way into
+            the app is the login form, so sending a signed-in parent there was
             indistinguishable from being logged out and left them
-            re-authenticating to get back. Named rather than left to history,
-            because consent can be the first navigation of a session. */}
-        <OnboardingTopBar backTo="/preferred-language" />
+            re-authenticating to get back. */}
+        <OnboardingTopBar trail={[STEP.language, STEP.consent]} />
 
         <h1 className="onboarding-heading">{t('consent.title')}</h1>
 
@@ -199,7 +198,7 @@ export default function ConsentForm() {
           >
             {saving ? (
               <>
-                <Spinner as="span" animation="border" size="sm" role="status" aria-hidden="true" className="me-2" />
+                <AIEPSpinner size="sm" className="me-2" />
                 {t('common.saving')}
               </>
             ) : (

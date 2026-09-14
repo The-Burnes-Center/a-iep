@@ -1,5 +1,6 @@
 import React, { useState, useContext } from 'react';
 import { Modal, Button, Alert } from 'react-bootstrap';
+import AIEPSpinner from '../../components/AIEPSpinner';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { useAuth } from '../../common/auth-provider';
@@ -93,7 +94,7 @@ const DeleteProfileModal: React.FC<DeleteProfileModalProps> = ({ show, onHide })
         >
           {processing ? (
             <>
-              <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+              <AIEPSpinner size="sm" className="me-2" />
               {t('delete.button.processing')}
             </>
           ) : (

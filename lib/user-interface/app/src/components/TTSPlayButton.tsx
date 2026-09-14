@@ -1,10 +1,11 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
-import { Button, Spinner } from 'react-bootstrap';
+import { Button } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faVolumeHigh, faPause, faRotateRight } from '@fortawesome/free-solid-svg-icons';
 import { AppContext } from '../common/app-context';
 import { IEPDocumentClient } from '../common/api-client/iep-document-client';
 import { useLanguage } from '../common/language-context';
+import AIEPSpinner from './AIEPSpinner';
 import './TTSPlayButton.css';
 
 interface TTSPlayButtonProps {
@@ -150,7 +151,7 @@ const TTSPlayButton: React.FC<TTSPlayButtonProps> = ({
       data-tts-state={state}
     >
       {state === 'loading' ? (
-        <Spinner animation="border" size="sm" role="status" aria-hidden="true" />
+        <AIEPSpinner size="sm" />
       ) : state === 'playing' ? (
         <FontAwesomeIcon icon={faPause} />
       ) : state === 'error' ? (

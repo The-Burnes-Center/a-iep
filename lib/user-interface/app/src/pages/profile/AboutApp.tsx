@@ -1,12 +1,14 @@
 import { useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Container, Breadcrumb, Spinner } from 'react-bootstrap';
+import { Container } from 'react-bootstrap';
+import AIEPSpinner from '../../components/AIEPSpinner';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { useLanguage } from '../../common/language-context';
 import { SIGN_IN_ROUTE } from '../../common/sign-in-location';
 import GoToWebsiteButton from '../../components/GoToWebsiteButton';
+import Breadcrumbs from '../../components/Breadcrumbs';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
 import LandingHeroSection from '../../components/LandingHeroSection';
@@ -61,18 +63,12 @@ export default function AboutApp({
     {id: '6', first_name: 'Noelia', last_name: 'Solval', title: 'Innovate Parent Navigators - Bay Area', headshot: '/images/navigators/Noelia_Solval.png'},
     {id: '7', first_name: 'Carmen', last_name: 'Rodriguez', title: 'Innovate Parent Navigators - Bay Area', headshot: '/images/navigators/Carmen_Rodriguez.png'}];
 
-  const handleBackClick = () => {
-    navigate('/support-center');
-  };
-
   // Return loading state if translations aren't ready
   if (!translationsLoaded) {
     return (
       <Container className="mt-4 mb-5">
         <div className="text-center my-5">
-          <Spinner animation="border" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </Spinner>
+          <AIEPSpinner label={t('common.loading')} />
         </div>
       </Container>
     );
@@ -84,12 +80,12 @@ export default function AboutApp({
       <div>
       {/* Breadcrumbs - only show when enabled */}
       {showBreadcrumbs && (
-        <div className="mt-3 text-start px-4 breadcrumb-container">
-          <Breadcrumb>
-            <Breadcrumb.Item onClick={handleBackClick}>{t("about.breadcrumb.supportCenter")}</Breadcrumb.Item>
-            <Breadcrumb.Item active>{t("about.breadcrumb.about")}</Breadcrumb.Item>
-          </Breadcrumb>
-        </div>
+        <Breadcrumbs
+          trail={[
+            { labelKey: "about.breadcrumb.supportCenter", to: "/support-center" },
+            { labelKey: "about.breadcrumb.about" },
+          ]}
+        />
       )}
       
       <LandingHeroSection />

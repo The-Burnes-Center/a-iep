@@ -1,24 +1,32 @@
 /**
- * The onboarding top bar: when Back is offered, and where the language
- * selector belongs.
+ * The onboarding top bar: what the trail says, and where the language selector
+ * belongs.
  *
- * Two defects, both reported from the language step:
+ * This file used to pin when a BACK pill was offered, because the pill had to
+ * guess whether `navigate(-1)` had anywhere of ours to go and got it wrong in
+ * both directions. It was replaced by the breadcrumb trail the rest of the app
+ * already used, which each screen names outright, so the question the old
+ * tests asked no longer exists. What survives from them is the defect they
+ * were written for and the rule it produced:
  *
- *  - Back left the app. Covered in depth by common/app-history.test.tsx; what
- *    is pinned here is that the bar actually asks that question rather than
- *    re-deriving its own answer.
- *  - The bar drew a language dropdown on the screen whose entire purpose is
+ *  - a way back must never leave a signed-in parent on '/' or '/login'. Every
+ *    crumb here is a named in-app route, and the first onboarding step offers
+ *    no link at all rather than one out of the app. Pinned per screen in
+ *    pages/profile/onboarding-trail.test.tsx.
+ *  - the bar drew a language dropdown on the screen whose entire purpose is
  *    picking a language, so a parent was offered the same choice twice on one
  *    screen, once as a dropdown and once as the list of buttons the design
  *    asks for.
+ *
+ * What the trail EMITS (nav landmark, real links, aria-current) is pinned once
+ * in Breadcrumbs.test.tsx; this file is about the bar that carries it.
  */
 import React from "react";
 import { describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import OnboardingTopBar from "./OnboardingChrome";
-import { AppHistoryDepthProvider } from "../common/app-history";
+import { STEP } from "../common/breadcrumb-steps";
 import { LanguageContext } from "../common/language-context";
 import type { SupportedLanguage } from "../common/languages";
 
@@ -31,103 +39,72 @@ const languageValue = {
   enabledLanguages: ["en", "es"] as SupportedLanguage[],
 };
 
-const Here = () => <div data-testid="landed-on">{useLocation().pathname}</div>;
-
-/** Pushes a real entry, so the bar sees history the way a parent creates it. */
-const GoDeeper = () => {
-  const navigate = useNavigate();
-  return <button onClick={() => navigate("/view-update-add-child")}>go deeper</button>;
-};
-
 const renderBar = (element: React.ReactElement) => {
   render(
-    <MemoryRouter initialEntries={["/consent-form"]}>
-      <LanguageContext.Provider value={languageValue}>
-        <AppHistoryDepthProvider>
-          <Here />
-          <Routes>
-            <Route path="/consent-form" element={<GoDeeper />} />
-            <Route path="/view-update-add-child" element={element} />
-            <Route path="/preferred-language" element={<div>language step</div>} />
-          </Routes>
-        </AppHistoryDepthProvider>
-      </LanguageContext.Provider>
-    </MemoryRouter>,
-  );
-  return userEvent.setup();
-};
-
-/** Mounts the bar directly, with nothing of ours behind it. */
-const renderBarAtEntry = (element: React.ReactElement) => {
-  render(
     <MemoryRouter initialEntries={["/view-update-add-child"]}>
-      <LanguageContext.Provider value={languageValue}>
-        <AppHistoryDepthProvider>
-          <Here />
-          <Routes>
-            <Route path="/view-update-add-child" element={element} />
-            <Route path="/preferred-language" element={<div>language step</div>} />
-          </Routes>
-        </AppHistoryDepthProvider>
-      </LanguageContext.Provider>
+      <LanguageContext.Provider value={languageValue}>{element}</LanguageContext.Provider>
     </MemoryRouter>,
   );
-  return userEvent.setup();
 };
 
-const backButton = () => screen.queryByRole("button", { name: "common.back" });
+const crumbs = () => screen.queryAllByRole("listitem").map((item) => item.textContent);
 
 /** What LanguageDropdown's toggle renders for the selected option. */
 const languageToggle = () => screen.queryByRole("button", { name: "English" });
 
-describe("the onboarding Back button", () => {
-  test("is not offered when nothing of ours is behind the screen", () => {
-    // The state a parent is in immediately after signing in. The old guard
-    // drew a Back button here, and pressing it left the app.
-    renderBarAtEntry(<OnboardingTopBar />);
+describe("the onboarding trail", () => {
+  test("shows the step before this one and this one, in that order", () => {
+    renderBar(<OnboardingTopBar trail={[STEP.consent, STEP.child]} />);
 
-    expect(backButton()).toBeNull();
+    expect(crumbs()).toEqual(["breadcrumb.consent", "breadcrumb.child"]);
   });
 
-  test("is offered once a screen of ours is behind it", async () => {
-    const user = renderBar(<OnboardingTopBar />);
+  test("links the previous step and marks this one as where the parent is", () => {
+    renderBar(<OnboardingTopBar trail={[STEP.consent, STEP.child]} />);
 
-    await user.click(screen.getByRole("button", { name: "go deeper" }));
-
-    expect(backButton()).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "breadcrumb.consent" })).toHaveAttribute(
+      "href",
+      "/consent-form",
+    );
+    expect(screen.getByText("breadcrumb.child")).toHaveAttribute("aria-current", "page");
   });
 
-  test("is always offered by a screen that names its own previous step", async () => {
-    // backTo does not consult the stack: the consent form is reachable as a
-    // first navigation and still knows what comes before it.
-    const user = renderBarAtEntry(<OnboardingTopBar backTo="/preferred-language" />);
+  test("offers no link at all on a screen that is the start of the flow", () => {
+    // The language step. A parent who pushed the sign-in card and then signed
+    // in has an entry behind them and it is the login form: having somewhere
+    // to go is not the same as having somewhere worth going.
+    renderBar(<OnboardingTopBar trail={[STEP.language]} />);
 
-    expect(backButton()).toBeInTheDocument();
-    await user.click(backButton() as HTMLElement);
+    expect(crumbs()).toEqual(["breadcrumb.language"]);
+    expect(screen.queryByRole("link")).toBeNull();
+  });
 
-    expect(screen.getByTestId("landed-on")).toHaveTextContent("/preferred-language");
+  test("is absent entirely when a screen names no trail", () => {
+    renderBar(<OnboardingTopBar />);
+
+    expect(screen.queryByRole("navigation")).toBeNull();
   });
 });
 
 describe("the onboarding language selector", () => {
   test("is shown by default, so every other step keeps it", () => {
-    renderBarAtEntry(<OnboardingTopBar />);
+    renderBar(<OnboardingTopBar trail={[STEP.consent, STEP.child]} />);
 
     expect(languageToggle()).toBeInTheDocument();
   });
 
   test("is withheld on the step that is itself a language picker", () => {
-    renderBarAtEntry(<OnboardingTopBar showLanguagePicker={false} />);
+    renderBar(<OnboardingTopBar trail={[STEP.language]} showLanguagePicker={false} />);
 
     expect(languageToggle()).toBeNull();
   });
 
-  test("withholding it does not take the Back button with it", () => {
-    renderBarAtEntry(
-      <OnboardingTopBar backTo="/preferred-language" showLanguagePicker={false} />,
+  test("withholding it does not take the trail with it", () => {
+    renderBar(
+      <OnboardingTopBar trail={[STEP.account, STEP.language]} showLanguagePicker={false} />,
     );
 
-    expect(backButton()).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "breadcrumb.account" })).toBeInTheDocument();
     expect(languageToggle()).toBeNull();
   });
 });

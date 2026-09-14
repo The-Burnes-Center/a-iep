@@ -198,11 +198,6 @@ input[type="tel"]:focus {
   transform: translateY(-1px);
 }
 
-/* Loading spinner in buttons */
-.spinner-border-sm {
-  width: 1rem;
-  height: 1rem;
-}
 
 
 /* Mobile responsive styling */

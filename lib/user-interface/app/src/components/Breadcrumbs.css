@@ -1,0 +1,55 @@
+/* The app's one navigation trail. Lifted out of UpdateProfileName.css, where
+   these rules were global selectors that every other breadcrumb in the app
+   silently depended on being bundled: a screen that rendered a trail without
+   importing that page's stylesheet still got styled, because Vite concatenates
+   every imported stylesheet into one. Here they travel with the component that
+   needs them. */
+
+.breadcrumb-container {
+  margin-top: 1rem;
+  padding: 0 1.5rem;
+  text-align: start;
+}
+
+.breadcrumb-item {
+  font-size: 1rem;
+  font-family: 'akzidenz-grotesk-next-conden', sans-serif;
+  font-weight: 500;
+  font-style: normal;
+  letter-spacing: 0.05em;
+  padding-bottom: 0.5rem;
+}
+
+/* ">" rather than Bootstrap's "/": the app shipped this separator on every
+   screen that had a trail. */
+.breadcrumb-item + .breadcrumb-item::before {
+  content: ">";
+  color: var(--aiep-muted);
+}
+
+/* Was ink at 70% opacity, which lands on roughly #5E5D5C and was never
+   measured. --aiep-muted is the token the contrast suite already names for
+   breadcrumbs: 5.78 on the cream page. */
+.breadcrumb-item a {
+  color: var(--aiep-muted);
+  text-decoration: none;
+}
+
+.breadcrumb-item a:hover,
+.breadcrumb-item a:focus-visible {
+  color: var(--aiep-ink);
+  text-decoration: underline;
+}
+
+/* Where the parent is, so the current page is not the same weight as the way
+   back out of it. 15.03 on cream. */
+.breadcrumb-item.active {
+  color: var(--aiep-ink);
+}
+
+@media (min-width: 992px) and (min-height: 700px) {
+  .breadcrumb-container {
+    width: 50%;
+    margin-inline: auto;
+  }
+}

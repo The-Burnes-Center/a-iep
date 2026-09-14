@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, Alert } from 'react-bootstrap';
 import LinearProgress from '@mui/material/LinearProgress';
-import { ClipLoader } from 'react-spinners';
+import AIEPSpinner from './AIEPSpinner';
 import ParentRightsCarousel, { SlideData } from './ParentRightsCarousel';
 import './ProcessingModal.css';
 
@@ -63,7 +63,10 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
             <Card.Body className="processing-summary-card-body pt-0 pb-0">
               <div className='loading-final-screen'>
                 <div className="desktop-only-spinner">
-                  <ClipLoader color="#F5F3EE" size={50} cssOverride={{ borderWidth: '5px' }} />
+                  {/* The heading below says what the wait is, so the mark
+                      here is decoration. Cream, because this card is dark
+                      green. */}
+                  <AIEPSpinner size="lg" className="aiep-spinner-inverse" />
                 </div>
                 <h3>
                   {t('summary.processing.hangTight')}

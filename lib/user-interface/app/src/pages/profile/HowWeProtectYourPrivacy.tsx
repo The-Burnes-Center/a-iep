@@ -6,6 +6,7 @@ import { faLock, faTrashCan, faArrowDownLong } from '@fortawesome/free-solid-svg
 import { useLanguage } from '../../common/language-context';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
+import { STEP } from '../../common/breadcrumb-steps';
 import './HowWeProtectYourPrivacy.css';
 
 /**
@@ -193,7 +194,7 @@ export default function HowWeProtectYourPrivacy() {
     <>
       <MobileTopNavigation />
       <div className="onboarding-page privacy-page">
-        <OnboardingTopBar />
+        <OnboardingTopBar trail={[STEP.howItWorks, STEP.privacy]} />
 
         <h1 className="onboarding-heading">{t('privacy.heading')}</h1>
 

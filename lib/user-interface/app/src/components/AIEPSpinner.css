@@ -1,0 +1,111 @@
+/* The shared loading indicator. See AIEPSpinner.tsx for what it draws and why.
+
+   Every colour here is a palette token: src/common/color-contrast.test.tsx
+   scans this file and fails on any literal that is not declared in
+   styles/palette.css. */
+
+.aiep-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 0;
+  vertical-align: middle;
+  color: var(--aiep-green);
+}
+
+.aiep-spinner-mark {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* The accessible name is a sibling of this svg. It is positioned out of
+     flow by .visually-hidden, but if that ever stops arriving the svg must
+     not be the thing that gives way. */
+  flex-shrink: 0;
+}
+
+/* 1rem matches the inline spinner these replaced, 2rem the in-card one.
+
+   sm is the in-button size, so it takes the colour of the label beside it
+   rather than the brand green: on the primary button that green is the button
+   fill, and a green mark on a green button is an invisible one. Bootstrap's
+   spinner inherited the same way, through currentColor. */
+.aiep-spinner-sm {
+  width: 1rem;
+  height: 1rem;
+  color: inherit;
+}
+
+.aiep-spinner-md {
+  width: 2rem;
+  height: 2rem;
+}
+
+.aiep-spinner-lg {
+  width: 3.5rem;
+  height: 3.5rem;
+}
+
+/* Cream, for the one place a standalone spinner sits on a dark-green card.
+   After the sizes, so it wins over them. */
+.aiep-spinner-inverse {
+  color: var(--aiep-cream);
+}
+
+/* The highlight travels round the four modules. One of them is always at full
+   opacity, so the indicator never drops below the 3:1 a graphic needs even
+   though the other three fade back. */
+.aiep-spinner-cell {
+  fill: currentColor;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: aiep-spinner-cycle 1.2s ease-in-out infinite;
+}
+
+.aiep-spinner-cell:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.aiep-spinner-cell:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.aiep-spinner-cell:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.aiep-spinner-cell:nth-child(4) {
+  animation-delay: 0.45s;
+}
+
+@keyframes aiep-spinner-cycle {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* The boot screen and the route guards, which have nothing else on the page. */
+.aiep-spinner-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* A parent who asked their OS for less motion gets the mark standing still,
+   not a slower version of the same movement. The wait is still announced:
+   role="status" and the label are in the markup, not in the animation. */
+@media (prefers-reduced-motion: reduce) {
+  .aiep-spinner-cell {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -8,6 +8,7 @@ import AIEPFooter from './AIEPFooter';
 import { useLanguage } from '../common/language-context';
 import { SIGN_IN_ROUTE } from '../common/sign-in-location';
 import { Container } from 'react-bootstrap';
+import AIEPSpinner from './AIEPSpinner';
 
 const publicFooterLinks = [
   { route: '/', labelKey: 'footer.home' },
@@ -21,16 +22,14 @@ interface AIEPHubProps {
 }
 
 export default function AIEPHub({ NavigationComponent }: AIEPHubProps) {
-  const { translationsLoaded } = useLanguage();
+  const { t, translationsLoaded } = useLanguage();
 
   if (!translationsLoaded) {
     return (
       <Container className="mt-4 mb-5">
         <div className="text-center my-5">
-          <div className="spinner-border text-primary" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </div>
-          <p className="mt-3">Loading...</p>
+          <AIEPSpinner label={t('common.loading')} />
+          <p className="mt-3">{t('common.loading')}</p>
         </div>
       </Container>
     );

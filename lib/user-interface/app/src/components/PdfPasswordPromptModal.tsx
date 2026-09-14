@@ -9,6 +9,7 @@
 // mounted-but-hidden copy of a previous attempt lingers between files.
 import React, { useEffect, useState } from 'react';
 import { Modal, Button, Alert, Form } from 'react-bootstrap';
+import AIEPSpinner from './AIEPSpinner';
 import PasswordInput from './PasswordInput';
 import { useLanguage } from '../common/language-context';
 
@@ -89,7 +90,7 @@ const PdfPasswordPromptModal: React.FC<PdfPasswordPromptModalProps> = ({
           <Button variant="primary" type="submit" disabled={!password || checking}>
             {checking ? (
               <>
-                <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                <AIEPSpinner size="sm" className="me-2" />
                 {t('upload.passwordProtected.unlocking')}
               </>
             ) : (

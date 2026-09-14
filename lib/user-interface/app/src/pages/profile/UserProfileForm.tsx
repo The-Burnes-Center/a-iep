@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Container, Form, Button, Row, Col, Alert, Spinner } from 'react-bootstrap';
+import { Container, Form, Button, Row, Col, Alert } from 'react-bootstrap';
+import AIEPSpinner from '../../components/AIEPSpinner';
 import { AppContext } from '../../common/app-context';
 import { useAuth } from '../../common/auth-provider';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -7,6 +8,8 @@ import { UserProfile } from '../../common/types';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useNavigate } from 'react-router-dom';
+import { STEP } from '../../common/breadcrumb-steps';
+import Breadcrumbs from '../../components/Breadcrumbs';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
 import DeleteProfileModal from './DeleteProfileModal';
@@ -105,9 +108,7 @@ export default function UserProfileForm() {
   if (loading) {
     return (
       <Container className="mt-4 text-center">
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">{t('profile.loading')}</span>
-        </Spinner>
+        <AIEPSpinner label={t('profile.loading')} />
       </Container>
     );
   }
@@ -120,19 +121,11 @@ export default function UserProfileForm() {
     );
   }
 
-  const handleBackClick = () => {
-    navigate('/summary-and-translations');
-  };
-
   return (
     <>
     <MobileTopNavigation />
+    <Breadcrumbs trail={[STEP.summary, STEP.profile]} />
     <Container className="mt-4">
-      <div className="mt-3 text-start">
-        <Button variant="outline-secondary" onClick={handleBackClick}>
-          {t('common.back')}
-        </Button>
-      </div>
       <Form onSubmit={handleSubmit} className="mt-4">
         <h3 className="mb-3">{t('profile.title')}</h3>
         

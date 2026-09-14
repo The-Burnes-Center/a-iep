@@ -22,7 +22,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import ViewAndAddChild from "./ViewAndAddChild";
-import { AppHistoryDepthProvider } from "../../common/app-history";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
 import { DEFAULT_CHILD_NAME } from "../../common/features";
@@ -132,8 +131,10 @@ const Here = () => <div data-testid="landed-on">{useLocation().pathname}</div>;
 
 /**
  * Mounts the screen with stub routes for everywhere it can send a parent.
- * `from` puts an earlier entry behind it in the history stack, which is what
- * decides whether the Back control renders at all.
+ * `from` puts an earlier entry behind it in the history stack. It no longer
+ * decides where the trail leads -- `onboarding` does -- but it is kept so the
+ * fixture still models a parent who arrived by navigating rather than by
+ * opening the URL.
  */
 const renderPage = (
   {
@@ -145,10 +146,6 @@ const renderPage = (
   } = {},
 ) => {
   const here = { pathname: PAGE, state: onboarding ? { onboardingContinue: true } : null };
-  // MemoryRouter's seeded stack is invisible to window.history, and "is there
-  // an entry behind this one" is answered from both. Without this the fixture
-  // claims a previous screen that nothing can see.
-  window.history.replaceState({ idx: from ? 1 : 0 }, "");
   render(
     <MemoryRouter
       initialEntries={from ? [from, here] : [here]}
@@ -156,7 +153,6 @@ const renderPage = (
     >
       <AppContext.Provider value={appConfig(enabledFeatures)}>
         <LanguageContext.Provider value={languageValue}>
-          <AppHistoryDepthProvider>
           <Here />
           <Routes>
             <Route path={PAGE} element={<ViewAndAddChild />} />
@@ -164,8 +160,8 @@ const renderPage = (
             <Route path="/account-center/profile" element={<div>parent name step</div>} />
             <Route path="/summary-and-translations" element={<div>summary</div>} />
             <Route path="/how-to-use-the-tool" element={<div>how to use the tool</div>} />
+            <Route path="/consent-form" element={<div>consent step</div>} />
           </Routes>
-          </AppHistoryDepthProvider>
         </LanguageContext.Provider>
       </AppContext.Provider>
     </MemoryRouter>,
@@ -560,26 +556,45 @@ describe("a child already on file", () => {
   });
 });
 
-describe("the Back control", () => {
-  test("is not rendered when there is nowhere in the app to go back to", async () => {
-    // A parent who opened this URL directly, or who was routed here by the
-    // gate on the first navigation after signing in: going "back" would
-    // leave the app, so there is no button to press.
+describe("the breadcrumb trail", () => {
+  test("leads back to consent during onboarding, which is the step before this one", async () => {
+    // Read off `onboardingContinue`, the same signal Save reads below, rather
+    // than off the history stack: a parent routed here by the gate on the
+    // first navigation after signing in has no useful entry behind them, and
+    // the old Back button rendered nothing at all for them.
+    stubFetch(profileWith({}));
+    const user = renderPage();
+    await waitForForm();
+
+    expect(screen.getByRole("link", { name: "breadcrumb.consent" })).toHaveAttribute(
+      "href",
+      "/consent-form",
+    );
+
+    await user.click(screen.getByRole("link", { name: "breadcrumb.consent" }));
+
+    expect(screen.getByTestId("landed-on")).toHaveTextContent("/consent-form");
+  });
+
+  test("leads back to the Account Center for a parent correcting a name", async () => {
+    // Where Save sends them too. A parent who came to fix a typo does not
+    // belong at the consent step of a flow they finished long ago.
+    stubFetch(profileWith({}));
+    const user = renderPage({ onboarding: false, from: "/account-center" });
+    await waitForForm();
+
+    await user.click(screen.getByRole("link", { name: "breadcrumb.account" }));
+
+    expect(screen.getByTestId("landed-on")).toHaveTextContent("/account-center");
+  });
+
+  test("marks this screen as where the parent is, and offers no second link", async () => {
     stubFetch(profileWith({}));
     renderPage();
     await waitForForm();
 
-    expect(screen.queryByRole("button", { name: /common\.back/ })).toBeNull();
-  });
-
-  test("returns to the previous screen when one is behind it", async () => {
-    stubFetch(profileWith({}));
-    const user = renderPage({ from: "/account-center" });
-    await waitForForm();
-
-    await user.click(screen.getByRole("button", { name: /common\.back/ }));
-
-    expect(screen.getByTestId("landed-on")).toHaveTextContent("/account-center");
+    expect(screen.getByText("breadcrumb.child")).toHaveAttribute("aria-current", "page");
+    expect(screen.getAllByRole("link")).toHaveLength(1);
   });
 });
 
@@ -632,7 +647,10 @@ describe("the copy this screen depends on", () => {
     "child.button.saving",
     "child.error.updateFailed",
     "child.error.addFailed",
-    "common.back",
+    "breadcrumb.consent",
+    "breadcrumb.account",
+    "breadcrumb.child",
+    "breadcrumb.label",
     "common.loading",
     "profile.error.serviceUnavailable",
   ];

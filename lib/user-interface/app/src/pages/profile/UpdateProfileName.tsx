@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Container, Form, Button, Row, Col, Alert, Spinner, Breadcrumb } from 'react-bootstrap';
+import { Container, Form, Button, Row, Col, Alert } from 'react-bootstrap';
 import { useNavigate, useLocation } from 'react-router-dom';
+import AIEPSpinner from '../../components/AIEPSpinner';
 import { DEFAULT_CHILD_NAME } from '../../common/features';
 import { useQuery } from '@tanstack/react-query';
+import Breadcrumbs from '../../components/Breadcrumbs';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
 import { AppContext } from '../../common/app-context';
@@ -88,16 +90,10 @@ export default function UpdateProfileName() {
     return parentName.trim() !== '';
   };
 
-  const handleBackClick = () => {
-    navigate('/account-center');
-  };
-
   if (isLoading) {
     return (
       <Container className="text-center">
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">{t('updateProfile.loading')}</span>
-        </Spinner>
+        <AIEPSpinner label={t('updateProfile.loading')} />
       </Container>
     );
   }
@@ -114,15 +110,15 @@ export default function UpdateProfileName() {
     <>
     <MobileTopNavigation />
     <div>
-      {/* Breadcrumbs (hidden mid-flow: they lead back to the Account
-          Center, which makes no sense while finishing sign-in) */}
+      {/* Hidden mid-flow: the trail leads back to the Account Center, which
+          makes no sense while a parent is still finishing sign-in. */}
       {!onboardingContinue && (
-        <div className="mt-3 text-center px-4 breadcrumb-container">
-          <Breadcrumb>
-            <Breadcrumb.Item onClick={handleBackClick}>{t('updateProfile.breadcrumb.account')}</Breadcrumb.Item>
-            <Breadcrumb.Item active>{t('updateProfile.breadcrumb.updateProfile')}</Breadcrumb.Item>
-          </Breadcrumb>
-        </div>
+        <Breadcrumbs
+          trail={[
+            { labelKey: 'updateProfile.breadcrumb.account', to: '/account-center' },
+            { labelKey: 'updateProfile.breadcrumb.updateProfile' },
+          ]}
+        />
       )}
       
       <Container 

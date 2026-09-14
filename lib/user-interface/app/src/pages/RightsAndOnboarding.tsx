@@ -1,13 +1,13 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Container, Row, Col, Button } from 'react-bootstrap';
+import { Container, Row, Col } from 'react-bootstrap';
 import { useLanguage } from '../common/language-context';
+import { STEP } from '../common/breadcrumb-steps';
+import Breadcrumbs from '../components/Breadcrumbs';
 import MobileTopNavigation from '../components/MobileTopNavigation';
 import AIEPFooter from '../components/AIEPFooter';
 import './RightsAndOnboarding.css';
 
 const RightsAndOnboarding: React.FC = () => {
-  const navigate = useNavigate();
   const { t } = useLanguage();
 
   // Create an array of bullet point keys
@@ -20,20 +20,12 @@ const RightsAndOnboarding: React.FC = () => {
     'rights.bulletPoints.6'
   ];
 
-  const handleBackClick = () => {
-    // The legacy /welcome-page card hub is retired; Summary is the app home
-    navigate('/summary-and-translations');
-  };
-
   return (
     <>
     <MobileTopNavigation />
+    {/* The legacy /welcome-page card hub is retired; Summary is the app home */}
+    <Breadcrumbs trail={[STEP.summary, STEP.rights]} />
     <Container className="mt-4 mb-5">
-      <div className="mt-3 text-start">
-        <Button variant="outline-secondary" onClick={handleBackClick}>
-          {t('common.back')}
-        </Button>
-      </div>
       <Row>
         <Col>
           <div className="content-section rights-tab-content">

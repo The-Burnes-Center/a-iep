@@ -1,5 +1,5 @@
 import React, { useState, useContext } from 'react';
-import { Container, Form, Row, Col, Breadcrumb, Alert } from 'react-bootstrap';
+import { Container, Form, Row, Col, Alert } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -8,6 +8,7 @@ import { useLanguage } from '../../common/language-context';
 import './UpdateProfileName.css';
 import './ProfileForms.css';
 import DeleteButton from '../../components/DeleteButton';
+import Breadcrumbs from '../../components/Breadcrumbs';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import AIEPFooter from '../../components/AIEPFooter';
 
@@ -55,21 +56,17 @@ export default function DeleteAccount() {
     navigate('/', { replace: true });
   };
 
-  const handleBackClick = () => {
-    navigate('/account-center');
-  };
-
   return (
     <>
     <MobileTopNavigation />
     <div>
       {/* Breadcrumbs */}
-      <div className="mt-3 text-start px-4 breadcrumb-container">
-        <Breadcrumb>
-          <Breadcrumb.Item onClick={handleBackClick}>{t('deleteAccount.breadcrumb.account')}</Breadcrumb.Item>
-          <Breadcrumb.Item active>{t('deleteAccount.breadcrumb.deleteAccount')}</Breadcrumb.Item>
-        </Breadcrumb>
-      </div>
+      <Breadcrumbs
+        trail={[
+          { labelKey: 'deleteAccount.breadcrumb.account', to: '/account-center' },
+          { labelKey: 'deleteAccount.breadcrumb.deleteAccount' },
+        ]}
+      />
       
       <Container 
         fluid 

@@ -43,14 +43,6 @@
   background-repeat: no-repeat;
 }
 
-.processing-summary-loader-card .spinner-border {
-  display: none;
-}
-
-.processing-summary-loader-card .desktop-processing-spinner-text {
-  display: none;
-}
-
 .processing-summary-card-body {
   padding: 0;
   border: none;
@@ -532,14 +524,6 @@ display: none !important;
   }
 
   
-.processing-summary-loader-card .spinner-border {
-  display: inline-block;
-}
-
-.processing-summary-loader-card .desktop-processing-spinner-text {
-  display: inline-block;
-}
-
 /* .processing-summary-parent-rights-card {
   background-image: none !important;
   background-color: #F5F3EE;
