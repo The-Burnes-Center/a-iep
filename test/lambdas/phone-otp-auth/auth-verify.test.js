@@ -177,8 +177,8 @@ describe('auth verify', () => {
     });
 
     test('an email sign-in records that the address was proved, phone does not', async () => {
-        // 8 of the 75 production email accounts are email_verified: false, and
-        // a code that ARRIVED at an address is exactly what verification means.
+        // A code that ARRIVED at an address is exactly what verification
+        // means, and nothing else in the flow ever sets the attribute.
         store({ row: challengeRow({ channel: 'email', destination: EMAIL }) });
         await load()(request());
 

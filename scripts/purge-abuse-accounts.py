@@ -8,9 +8,9 @@ calling Cognito's public SignUp API directly. None of them were ever usable:
 the PostConfirmation trigger rotates a phone-only account's client-chosen
 password away (cognito_trigger.py::_neutralize_client_chosen_password), so the
 only way in was an OTP texted to a handset the caller did not own. What they
-are is clutter: they are 78% of the production pool, so every user count, every
-"how many families do we serve" answer and every future audit is wrong until
-they are gone.
+are is clutter: they dominate the pool, so every user count, every "how many
+families do we serve" answer and every future audit is wrong until they are
+gone.
 
 ## Nothing here may ever delete a real family's account
 

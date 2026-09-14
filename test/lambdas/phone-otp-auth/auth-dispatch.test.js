@@ -186,9 +186,9 @@ describe('auth dispatch', () => {
     });
 
     test('an UNCONFIRMED account is made usable instead of being a dead end', async () => {
-        // 34 accounts in the production pool are UNCONFIRMED and CANNOT
-        // complete custom auth, so today they are a silent dead end. An
-        // UNCONFIRMED account cannot sign in by any route, so replacing its
+        // An UNCONFIRMED account CANNOT complete custom auth, so without
+        // this it is a silent dead end. Such an account cannot sign in by
+        // any route at all, so replacing its
         // password takes nothing from anyone, and possession is still proved
         // by the code a moment later.
         mockCognitoSend.mockImplementation((cmd) => {
