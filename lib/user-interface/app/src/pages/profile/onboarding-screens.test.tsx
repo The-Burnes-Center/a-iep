@@ -21,6 +21,9 @@ import HowToUseTool from "./HowToUseTool";
 import HaveIepPdf from "./HaveIepPdf";
 import HowToAskForPdf from "./HowToAskForPdf";
 import { LanguageContext } from "../../common/language-context";
+import { AppContext } from "../../common/app-context";
+import type { AppConfig } from "../../common/types";
+import type { Feature } from "../../common/features";
 import { ALL_LANGUAGES } from "../../common/languages";
 import type { SupportedLanguage } from "../../common/languages";
 
@@ -53,9 +56,13 @@ const CHAIN = [
  * button can reach, so a wrong destination shows up as a wrong `landed-on`
  * rather than as a blank page.
  */
-const renderChain = (start: string) => {
+const appConfig = (enabledFeatures: Feature[]): AppConfig =>
+  ({ enabledFeatures, enabledLanguages: ["en", "es"] }) as unknown as AppConfig;
+
+const renderChain = (start: string, enabledFeatures: Feature[] = ["pdfHelpScreens"]) => {
   render(
     <MemoryRouter initialEntries={[start]}>
+      <AppContext.Provider value={appConfig(enabledFeatures)}>
       <LanguageContext.Provider value={languageValue}>
         <Here />
         <Routes>
@@ -67,6 +74,7 @@ const renderChain = (start: string) => {
           <Route path="/how-we-protect-your-privacy" element={<div>how we protect your privacy</div>} />
         </Routes>
       </LanguageContext.Provider>
+      </AppContext.Provider>
     </MemoryRouter>,
   );
 
@@ -114,6 +122,36 @@ describe("How to use the tool", () => {
     // The dedicated screen, not the published privacy policy: see
     // HowWeProtectYourPrivacy.test.tsx for what it says once it is open.
     const user = renderChain("/how-to-use-the-tool");
+
+    await user.click(screen.getByTestId("how-to-use-privacy"));
+
+    expect(landedOn()).toBe("/how-we-protect-your-privacy");
+  });
+});
+
+describe("where the printed-IEP screens are held back", () => {
+  test("Continue goes straight to the upload, skipping the question", async () => {
+    // Production, where pdfHelpScreens is dark. The question only exists to
+    // lead to the guide, so with the guide held back there is nothing to ask.
+    const user = renderChain("/how-to-use-the-tool", []);
+
+    await user.click(screen.getByTestId("how-to-use-continue"));
+
+    expect(landedOn()).toBe("/iep-documents");
+  });
+
+  test("Continue asks the question wherever they are enabled", async () => {
+    const user = renderChain("/how-to-use-the-tool", ["pdfHelpScreens"]);
+
+    await user.click(screen.getByTestId("how-to-use-continue"));
+
+    expect(landedOn()).toBe("/do-you-have-pdf");
+  });
+
+  test("the privacy screen stays reachable either way", async () => {
+    // It is not part of the pair, and a parent should be able to read what
+    // happens to their document whatever else is held back.
+    const user = renderChain("/how-to-use-the-tool", []);
 
     await user.click(screen.getByTestId("how-to-use-privacy"));
 

@@ -28,7 +28,7 @@ function resolveEnabledLanguages(): string[] {
 // Kept in sync with the deploy-time logic in lib/user-interface/index.ts
 // (asserted by test/infra/enabled-features.test.ts), and with
 // src/common/features.ts.
-const ALL_FEATURES = ["tts", "referrals", "studentNameGate", "passwordlessAuth"];
+const ALL_FEATURES = ["tts", "referrals", "studentNameGate", "passwordlessAuth", "pdfHelpScreens"];
 const PROD_FEATURES: string[] = ["referrals", "studentNameGate", "passwordlessAuth"];
 // Dark in every environment by default, staging included, until a feature's
 // rollout needs that. Empty for now: passwordlessAuth was the one entry here,

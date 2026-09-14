@@ -32,11 +32,19 @@ export type Feature =
   // once (the old Amplify custom-auth path keeps working either way), so this
   // flag is what makes the rollout reversible: flipping it back puts every
   // parent on today's path with no backend deploy at all.
-  | 'passwordlessAuth';
+  | 'passwordlessAuth'
+  // The pair of screens for a parent who only has the IEP on paper: the
+  // question asking whether they have a PDF, and the guide to asking the
+  // school for one. Gated together, because the question exists only to
+  // branch to the guide, and a question whose answers both lead to the same
+  // place reads as the app ignoring the answer. Dark until the guide's video
+  // is ready; onboarding then goes straight from how-the-tool-works to the
+  // upload.
+  | 'pdfHelpScreens';
 
 // Master list, in a stable order. Add a feature here (plus the two build
 // configs) to make it gateable app-wide.
-export const ALL_FEATURES: Feature[] = ['tts', 'referrals', 'studentNameGate', 'passwordlessAuth'];
+export const ALL_FEATURES: Feature[] = ['tts', 'referrals', 'studentNameGate', 'passwordlessAuth', 'pdfHelpScreens'];
 
 export const isFeature = (feature: unknown): feature is Feature =>
   typeof feature === 'string' && (ALL_FEATURES as string[]).includes(feature);

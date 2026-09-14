@@ -43,7 +43,7 @@ function resolveEnabledLanguages(): string[] {
 // default. Kept in sync with the dev-build logic in
 // lib/user-interface/app/vite.config.ts, and with the feature list in
 // lib/user-interface/app/src/common/features.ts.
-export const ALL_FEATURES = ["tts", "referrals", "studentNameGate", "passwordlessAuth"];
+export const ALL_FEATURES = ["tts", "referrals", "studentNameGate", "passwordlessAuth", "pdfHelpScreens"];
 // Referrals went live on prod 2026-08-04. The student-name gate, the parent-
 // name gate and passwordlessAuth go live with the promotion that carries this
 // line; TTS stays dark.

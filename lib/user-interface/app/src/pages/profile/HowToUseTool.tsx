@@ -2,6 +2,7 @@ import React from 'react';
 import { Button } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../../common/language-context';
+import { useFeatures } from '../../common/hooks/use-features';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
 
@@ -13,11 +14,22 @@ import OnboardingTopBar from '../../components/OnboardingChrome';
  */
 const PRIVACY_SCREEN_ROUTE = '/how-we-protect-your-privacy';
 
+/**
+ * Where Continue goes. The pair of screens for a parent who only has paper
+ * sits behind pdfHelpScreens; where that is dark there is nothing to ask, so
+ * this step leads straight to the upload. The routes stay registered either
+ * way, the same as the referral entry point: it is the way in that is gated,
+ * not the page.
+ */
+const NEXT_WITH_PDF_HELP = '/do-you-have-pdf';
+const NEXT_WITHOUT_PDF_HELP = '/iep-documents';
+
 /** The three things the tool does, in the order a parent does them. */
 const STEP_KEYS = ['howToUse.step1', 'howToUse.step2', 'howToUse.step3'];
 
 export default function HowToUseTool() {
   const navigate = useNavigate();
+  const { isFeatureEnabled } = useFeatures();
   const { t } = useLanguage();
 
   return (
@@ -44,7 +56,8 @@ export default function HowToUseTool() {
           <Button
             variant="primary"
             className="aiep-button onboarding-action"
-            onClick={() => navigate('/do-you-have-pdf')}
+            onClick={() => navigate(
+              isFeatureEnabled('pdfHelpScreens') ? NEXT_WITH_PDF_HELP : NEXT_WITHOUT_PDF_HELP)}
             // Stable E2E hook: the label is localized
             data-testid="how-to-use-continue"
           >

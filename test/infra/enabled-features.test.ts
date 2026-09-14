@@ -64,6 +64,15 @@ describe('enabled features per environment', () => {
     expect(CDK_PROD_FEATURES).not.toContain('tts');
   });
 
+  it('holds the printed-IEP help screens back from production', () => {
+    // They ship together or not at all: the question about having a PDF only
+    // exists to lead to the guide, and the guide is waiting on its video.
+    // Asserted as absent rather than by the exact list above alone, so that
+    // adding them to production has to be written here deliberately.
+    expect(CDK_PROD_FEATURES).not.toContain('pdfHelpScreens');
+    expect(CDK_ALL_FEATURES).toContain('pdfHelpScreens');
+  });
+
   it('keeps the student-name gate on wherever the redaction runs', () => {
     // The pipeline's redaction is not behind this flag: redact_ocr's
     // ALLOWED_PII_ENTITY_TYPES runs in every environment. So a build that
