@@ -11,7 +11,7 @@
     "child.name.label": "姓名",
     "child.name.placeholder": "拥有IEP的孩子的姓名",
     "child.name.error.required": "请输入孩子的姓名以继续。",
-    "child.name.error.invalid": "请使用文字输入孩子的姓名。可以使用空格、连字符和撇号，但不能使用数字或符号。",
+    "child.name.error.invalid": "请使用文字输入孩子的姓名。可以使用数字、空格、连字符和撇号，但不能使用其他符号。",
     "child.name.error.tooLong": "该姓名过长，请使用 64 个字符以内。",
     "child.school.label": "学区",
     "child.school.placeholder": "输入学校所在城市",

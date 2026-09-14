@@ -11,7 +11,7 @@
     "child.name.label": "Name",
     "child.name.placeholder": "Name of your child with an IEP",
     "child.name.error.required": "Enter your child's name to continue.",
-    "child.name.error.invalid": "Use letters for your child's name. Spaces, hyphens and apostrophes are fine, but numbers and symbols are not.",
+    "child.name.error.invalid": "Please use letters for your child's name. Numbers, spaces, hyphens and apostrophes are fine, but other symbols are not.",
     "child.name.error.tooLong": "That name is too long. Please use 64 characters or fewer.",
     "child.school.label": "School District",
     "child.school.placeholder": "Enter school city",

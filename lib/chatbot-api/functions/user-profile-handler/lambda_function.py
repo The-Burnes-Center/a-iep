@@ -239,8 +239,9 @@ CHILD_NAME_REJECTIONS = {
         f'Child name must be {CHILD_NAME_MAX_LENGTH} characters or fewer',
     ),
     'invalid': (
-        'child name holds characters that are neither letters nor name punctuation',
-        'Child name can only contain letters, spaces, hyphens, apostrophes and periods',
+        'child name holds no letter, or a character that is not name punctuation',
+        'Child name must contain a letter, and can only use letters, numbers, '
+        'spaces, hyphens, apostrophes and periods',
     ),
 }
 
@@ -265,9 +266,12 @@ def validate_child_name(name) -> Optional[str]:
         category = unicodedata.category(character)
         if category.startswith('L'):
             has_letter = True
-        elif not category.startswith('M') and character not in _CHILD_NAME_PUNCTUATION:
+        # Nd alongside M: a digit is allowed in a name that also has letters,
+        # so a parent telling two children apart as "Anna 2" is not refused.
+        elif (not category.startswith('M') and category != 'Nd'
+                and character not in _CHILD_NAME_PUNCTUATION):
             return 'invalid'
-    # "." and "-" are punctuation, not a name.
+    # "123", "." and "-" are not names: something has to be a letter.
     return None if has_letter else 'invalid'
 
 

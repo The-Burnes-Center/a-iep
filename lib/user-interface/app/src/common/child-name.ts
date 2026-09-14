@@ -13,9 +13,13 @@
  * and Arabic write tone and vowels as separate code points, so a decomposed
  * "Nguyễn" is letters interleaved with marks rather than precomposed ones.
  *
- * What it does reject is a name that is not a name: digits, symbols, emoji and
- * control characters. `\1` is in that set, and that is not cosmetic -- it used
- * to reach a regex replacement server-side.
+ * What it rejects is a name with no letter in it at all -- "123", "!!!", "."
+ * -- which is what a parent could save before this existed. Digits alongside
+ * letters are allowed: a parent distinguishing two children as "Anna 2" is
+ * naming their child, not making a mistake, and refusing it leaves them with
+ * no way forward. Symbols, emoji and control characters are still refused.
+ * `\1` is in that set, and that is not cosmetic -- it used to reach a regex
+ * replacement server-side.
  */
 
 /** Long enough for any real name; short enough to keep a paste out of the field. */
@@ -24,15 +28,16 @@ export const CHILD_NAME_MAX_LENGTH = 64;
 export type ChildNameError = 'required' | 'tooLong' | 'invalid';
 
 /**
- * Letters, combining marks, and the punctuation a name can carry: a space,
- * both hyphens and both apostrophes (a phone keyboard autocorrects to the
- * curly ones, and a parent who got one that way is not making a mistake), and
- * the period that ends an initial. Escaped rather than written literally: the
- * two hyphens and the two apostrophes are indistinguishable on screen.
+ * Letters, combining marks, decimal digits, and the punctuation a name can
+ * carry: a space, both hyphens and both apostrophes (a phone keyboard
+ * autocorrects to the curly ones, and a parent who got one that way is not
+ * making a mistake), and the period that ends an initial. Escaped rather than
+ * written literally: the two hyphens and the two apostrophes are
+ * indistinguishable on screen.
  */
-const ALLOWED_CHARACTERS = /^[\p{L}\p{M} \-\u2010'\u2019.]+$/u;
+const ALLOWED_CHARACTERS = /^[\p{L}\p{M}\p{Nd} \-\u2010'\u2019.]+$/u;
 
-/** "." and "-" are punctuation, not a name: something in there must be a letter. */
+/** "123" and "." are not names: something in there has to be a letter. */
 const HAS_LETTER = /\p{L}/u;
 
 /** Trim, then collapse every internal run of whitespace to a single space. */

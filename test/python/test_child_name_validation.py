@@ -57,6 +57,12 @@ ACCEPTED = [
     ('van der Berg', 'lower case particles'),
     ('Ana María de la Cruz', 'four words'),
     ('Mary\u00a0Jane', 'a non-breaking space is a space'),
+    # A digit ALONGSIDE letters is a name a parent meant to type. Refusing it
+    # left a parent distinguishing two children with no way forward but
+    # renaming one of them. A digit on its own is still refused, below.
+    ('Alex 3', 'a digit alongside letters'),
+    ('Anna 2', 'the second Anna'),
+    ('E2E Test Child', 'a digit inside a word'),
 ]
 
 REJECTED = [
@@ -64,7 +70,6 @@ REJECTED = [
     ('   ', 'required'),
     ('\t\n ', 'required'),
     ('123', 'invalid'),
-    ('Alex 3', 'invalid'),
     ('!!!', 'invalid'),
     ('.', 'invalid'),
     ('-', 'invalid'),
@@ -219,8 +224,8 @@ def test_an_over_long_name_is_too_long_even_when_it_is_also_invalid(api):
 
 @pytest.mark.parametrize('name,reason,message', [
     ('   ', 'required', 'Child name cannot be blank'),
-    ('123', 'invalid', 'Child name can only contain letters, spaces, hyphens, apostrophes and periods'),
-    ('!!!', 'invalid', 'Child name can only contain letters, spaces, hyphens, apostrophes and periods'),
+    ('123', 'invalid', 'Child name must contain a letter, and can only use letters, numbers, spaces, hyphens, apostrophes and periods'),
+    ('!!!', 'invalid', 'Child name must contain a letter, and can only use letters, numbers, spaces, hyphens, apostrophes and periods'),
     ('a' * 65, 'tooLong', 'Child name must be 64 characters or fewer'),
 ])
 def test_update_profile_refuses_the_name_and_writes_nothing(api, capsys, name, reason, message):
@@ -236,8 +241,8 @@ def test_update_profile_refuses_the_name_and_writes_nothing(api, capsys, name, r
 
 @pytest.mark.parametrize('name,message', [
     ('   ', 'Child name cannot be blank'),
-    ('123', 'Child name can only contain letters, spaces, hyphens, apostrophes and periods'),
-    ('!!!', 'Child name can only contain letters, spaces, hyphens, apostrophes and periods'),
+    ('123', 'Child name must contain a letter, and can only use letters, numbers, spaces, hyphens, apostrophes and periods'),
+    ('!!!', 'Child name must contain a letter, and can only use letters, numbers, spaces, hyphens, apostrophes and periods'),
     ('a' * 65, 'Child name must be 64 characters or fewer'),
 ])
 def test_add_child_refuses_the_name_and_appends_nothing(api, capsys, name, message):
@@ -281,7 +286,7 @@ def test_the_rejection_reaches_cloudwatch_without_the_name(api, capsys, route):
 
     assert status == 400
     logged = capsys.readouterr().out
-    assert 'child name holds characters' in logged  # why it was refused
+    assert 'child name holds no letter' in logged  # why it was refused
     assert USER in logged                           # and whose request it was
     for fragment in [typed, 'Dhruv']:
         assert fragment not in logged

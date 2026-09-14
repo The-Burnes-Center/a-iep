@@ -11,7 +11,7 @@
     "child.name.label": "Tên",
     "child.name.placeholder": "Tên con của bạn có IEP",
     "child.name.error.required": "Vui lòng nhập tên con bạn để tiếp tục.",
-    "child.name.error.invalid": "Hãy dùng chữ cái cho tên con bạn. Khoảng trắng, dấu gạch nối và dấu nháy đơn đều được, nhưng không dùng số hoặc ký hiệu.",
+    "child.name.error.invalid": "Hãy dùng chữ cái cho tên con bạn. Số, khoảng trắng, dấu gạch nối và dấu nháy đơn đều được, nhưng không dùng ký hiệu khác.",
     "child.name.error.tooLong": "Tên này quá dài. Vui lòng dùng tối đa 64 ký tự.",
     "child.school.label": "Học Khu",
     "child.school.placeholder": "Nhập thành phố của trường",

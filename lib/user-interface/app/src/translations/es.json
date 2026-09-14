@@ -11,7 +11,7 @@
     "child.name.label": "Nombre",
     "child.name.placeholder": "Nombre de su hijo/a con un IEP",
     "child.name.error.required": "Escriba el nombre de su hijo o hija para continuar.",
-    "child.name.error.invalid": "Use letras para el nombre de su hijo o hija. Se permiten espacios, guiones y apóstrofos, pero no números ni símbolos.",
+    "child.name.error.invalid": "Use letras para el nombre de su hijo o hija. Se permiten números, espacios, guiones y apóstrofos, pero no otros símbolos.",
     "child.name.error.tooLong": "Ese nombre es demasiado largo. Use 64 caracteres o menos.",
     "child.school.label": "Distrito escolar",
     "child.school.placeholder": "Ingrese la ciudad de la escuela",

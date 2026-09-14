@@ -40,6 +40,14 @@ describe("names that must be accepted", () => {
     ["李", "one Chinese character is a name"],
     ["van der Berg", "lower case particles"],
     ["Ana María de la Cruz", "four words"],
+    // A digit ALONGSIDE letters is a name a parent meant to type: telling two
+    // children apart this way is common, and refusing it left them with no way
+    // forward but renaming their child. A digit on its own is still refused,
+    // below. This also unblocked three E2E journeys whose fixtures are named
+    // "E2E Test Child", which carries a digit in the middle of a word.
+    ["Alex 3", "a digit alongside letters"],
+    ["E2E Test Child", "a digit inside a word"],
+    ["Anna 2", "the second Anna"],
   ])("accepts %j (%s)", (name) => {
     expect(validateChildName(name)).toBeNull();
   });
@@ -51,7 +59,6 @@ describe("names that must be rejected", () => {
     ["   ", "required"],
     ["\t\n ", "required"],
     ["123", "invalid"],
-    ["Alex 3", "invalid"],
     ["!!!", "invalid"],
     [".", "invalid"],
     ["-", "invalid"],
