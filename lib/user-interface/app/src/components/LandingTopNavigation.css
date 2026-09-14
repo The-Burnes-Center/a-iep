@@ -73,8 +73,6 @@
   min-width: 60px;
   text-decoration: none;
   position: relative;
-  /* Reserved so switching tabs does not move the row. See .nav-item.active. */
-  border-bottom: 3px solid transparent;
 }
 
 .landing-top-navigation .nav-item:hover {
@@ -96,7 +94,6 @@
 .landing-top-navigation .nav-item.active {
   color: var(--aiep-cream);
   background-color: var(--aiep-green-dark);
-  border-bottom-color: var(--aiep-cream);
 }
 
 .landing-top-navigation .nav-item.active .nav-label {

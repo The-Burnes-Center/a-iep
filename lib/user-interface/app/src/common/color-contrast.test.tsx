@@ -481,9 +481,9 @@ describe("SC 1.4.1 use of colour", () => {
       "components/LandingTopNavigation.css",
     ]) {
       const css = read(file);
-      expect(css, `${file} should underline the active tab`).toMatch(
-        /\.nav-item\.active\s*{[^}]*border-bottom-color:/,
-      );
+      // The heavier label is the whole signal now: an underline was tried and
+      // removed on the product owner's call, so if this weight ever goes the
+      // tab is back to being told apart by colour alone.
       expect(css, `${file} should embolden the active tab's label`).toMatch(
         /\.nav-item\.active\s+\.nav-label\s*{[^}]*font-weight:\s*700/,
       );

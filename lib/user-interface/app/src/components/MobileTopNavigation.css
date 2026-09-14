@@ -58,8 +58,6 @@
   min-width: 60px;
   text-decoration: none;
   position: relative;
-  /* Reserved so switching tabs does not move the row. See .nav-item.active. */
-  border-bottom: 3px solid transparent;
 }
 
 .nav-item:hover {
@@ -77,13 +75,13 @@
 }
 
 /* Which tab you are on used to be carried by colour alone: the active item's
-   background is the same #00682F as the bar behind it, so all that was left
-   was cream text against the muted label colour. The underline and the heavier
-   label give it two signals that do not depend on seeing colour (SC 1.4.1). */
+   background is the same green as the bar behind it, so all that was left was
+   cream text against the muted label colour. The heavier label is the signal
+   that does not depend on seeing colour (SC 1.4.1). An underline was tried
+   here and taken out again on the product owner's call. */
 .nav-item.active {
   color: var(--aiep-cream);
   background-color: var(--aiep-green);
-  border-bottom-color: var(--aiep-cream);
 }
 
 .nav-item.active .nav-label {
