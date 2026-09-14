@@ -97,6 +97,16 @@
   justify-content: center;
   width: 100%;
   min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* The boot screen renders above AppShell and still wants the whole viewport.
+   The route guards render INSIDE it, where the shell already guarantees a
+   viewport-tall page and a footer follows: a second viewport-height box there
+   is the phantom scroll the shell exists to remove. */
+.app-shell .aiep-spinner-page {
+  min-height: 55vh;
+  min-height: 55dvh;
 }
 
 /* A parent who asked their OS for less motion gets the mark standing still,

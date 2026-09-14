@@ -1,17 +1,8 @@
 import React from 'react';
 import MobileTopNavigation from './MobileTopNavigation';
-import AIEPFooter from './AIEPFooter';
 import { Container, Row, Col, Card, Accordion} from 'react-bootstrap';
 import './FrequentlyAskedQuestions.css';
 import { useLanguage } from '../common/language-context';
-import { SIGN_IN_ROUTE } from '../common/sign-in-location';
-
-const publicFooterLinks = [
-  { route: '/', labelKey: 'footer.home' },
-  { route: SIGN_IN_ROUTE, labelKey: 'footer.uploadIEP' },
-  { route: '/faqs', labelKey: 'footer.faqs' },
-  { route: '/about-the-project', labelKey: 'footer.aboutUs' },
-]; 
 
 interface FrequentlyAskedQuestionsProps {
   NavigationComponent?: React.ComponentType;
@@ -446,7 +437,6 @@ const FrequentlyAskedQuestions: React.FC<FrequentlyAskedQuestionsProps> = ({
           </Col>
         </Row>
       </Container>
-      <AIEPFooter footerLinks={publicFooterLinks} />
     </>
   );
 };

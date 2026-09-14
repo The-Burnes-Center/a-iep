@@ -5,7 +5,6 @@ import { useAuth } from '../common/auth-provider';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../common/language-context'; 
 import MobileTopNavigation from '../components/MobileTopNavigation';
-import AIEPFooter from '../components/AIEPFooter';
 import './WelcomePage.css';
 
 /**
@@ -139,7 +138,6 @@ export default function WelcomePage() {
         </Col>
       </Row>
     </Container>
-    <AIEPFooter />
     </>
   );
 }

@@ -3,18 +3,9 @@ import { Container, Row, Col, Card } from 'react-bootstrap';
 import AIEPSpinner from '../components/AIEPSpinner';
 import MobileTopNavigation from '../components/MobileTopNavigation';
 import LandingTopNavigation from '../components/LandingTopNavigation';
-import AIEPFooter from '../components/AIEPFooter';
 import { useLanguage } from '../common/language-context';
 import Breadcrumbs from '../components/Breadcrumbs';
-import { SIGN_IN_ROUTE } from '../common/sign-in-location';
 import './PrivacyPolicy.css';
-
-const publicFooterLinks = [
-  { route: '/', labelKey: 'footer.home' },
-  { route: SIGN_IN_ROUTE, labelKey: 'footer.uploadIEP' },
-  { route: '/faqs', labelKey: 'footer.faqs' },
-  { route: '/about-the-project', labelKey: 'footer.aboutUs' },
-];
 
 interface PrivacyPolicyProps {
   isPublic?: boolean;
@@ -200,7 +191,6 @@ const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ isPublic = false }) => {
           </Col>
         </Row>
       </Container>
-      <AIEPFooter footerLinks={isPublic ? publicFooterLinks : undefined} />
     </div>
   );
 };

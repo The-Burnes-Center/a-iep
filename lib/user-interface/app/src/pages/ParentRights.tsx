@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 import MobileTopNavigation from '../components/MobileTopNavigation';
-import AIEPFooter from '../components/AIEPFooter';
 import { Container, Row, Col, Card, Accordion } from 'react-bootstrap';
 import AIEPSpinner from '../components/AIEPSpinner';
 import '../components/FrequentlyAskedQuestions.css';
@@ -91,7 +90,6 @@ const ParentRights: React.FC = () => {
           </Col>
         </Row>
       </Container>
-      <AIEPFooter />
     </>
   );
 };

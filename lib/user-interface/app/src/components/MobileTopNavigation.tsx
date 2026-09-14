@@ -45,7 +45,9 @@ const MobileTopNavigation: React.FC<MobileTopNavigationProps> = ({
   };
 
   return (
-    <div className="mobile-top-navigation">
+    // A landmark, not a div: it is the same bar on every in-app screen, so it
+    // is what a screen reader jumps over and what AppShell's skip link skips.
+    <nav className="mobile-top-navigation" aria-label={t('a11y.mainNavigation')}>
       {tutorialPhaseEnabled ?
       (
 
@@ -93,7 +95,7 @@ const MobileTopNavigation: React.FC<MobileTopNavigationProps> = ({
           })}
         </div>
       )}
-    </div>
+    </nav>
   );
 };
 

@@ -7,7 +7,6 @@ import { useLanguage } from '../../common/language-context';
 import { STEP } from '../../common/breadcrumb-steps';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
 
 const IEPDocumentView: React.FC = () => {
   
@@ -60,7 +59,6 @@ const IEPDocumentView: React.FC = () => {
         </Col>
       </Row>
     </Container>
-    <AIEPFooter />
     </>
   );
 };

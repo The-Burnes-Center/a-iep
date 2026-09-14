@@ -6,11 +6,9 @@ import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { useLanguage } from '../../common/language-context';
-import { SIGN_IN_ROUTE } from '../../common/sign-in-location';
 import GoToWebsiteButton from '../../components/GoToWebsiteButton';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
 import LandingHeroSection from '../../components/LandingHeroSection';
 import GreenSection from '../../components/GreenSection';
 import LandingContainer from '../../components/LandingContainer';
@@ -20,13 +18,6 @@ import './ProfileForms.css';
 import './UpdateProfileName.css';
 import './ProfileForms.css';
 import './AboutApp.css';
-
-const publicFooterLinks = [
-  { route: '/', labelKey: 'footer.home' },
-  { route: SIGN_IN_ROUTE, labelKey: 'footer.uploadIEP' },
-  { route: '/faqs', labelKey: 'footer.faqs' },
-  { route: '/about-the-project', labelKey: 'footer.aboutUs' },
-];
 
 interface AboutAppProps {
   NavigationComponent?: React.ComponentType;
@@ -184,7 +175,6 @@ export default function AboutApp({
       </div>
       
       </div>
-      <AIEPFooter {...(!showBreadcrumbs && { footerLinks: publicFooterLinks })} />
     </>
   );
 }

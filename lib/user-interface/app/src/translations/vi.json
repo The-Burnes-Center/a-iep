@@ -404,6 +404,8 @@
     "appTutorial.slide6.content": "Chúng tôi đang tạo một bảng thuật ngữ để giúp bạn hiểu tài liệu. Bạn có thể nhấp vào các từ được tô sáng và đọc định nghĩa của chúng trên bảng sẽ xuất hiện.",
     "tutorial.exampleVideo": "Video Ví Dụ :",
     "glossary.header": "Bảng chú giải",
+    "a11y.skipToContent": "Chuyển đến nội dung chính",
+    "a11y.mainNavigation": "Điều hướng chính",
     "navigation.home": "Trang chủ",
     "navigation.summary": "Tóm tắt",
     "navigation.support": "Hỗ trợ",

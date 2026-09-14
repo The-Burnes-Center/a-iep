@@ -20,7 +20,10 @@ const PartnerBanner: React.FC<PartnerBannerProps> = ({ position = 'top' }) => {
   const { t } = useLanguage();
 
   return (
-    <div className="partner-banner">
+    // A landmark, not a div: these six links repeat on every public screen and
+    // in the footer, so they are a block a screen reader (and AppShell's skip
+    // link) should be able to pass over in one move.
+    <nav className="partner-banner" aria-label={t('partnerBanner.label')}>
       {/* Desktop view */}
       <div className="partner-banner__desktop">
         <span className="partner-banner__label">{t('partnerBanner.label')}</span>
@@ -78,7 +81,7 @@ const PartnerBanner: React.FC<PartnerBannerProps> = ({ position = 'top' }) => {
           </div>
         )}
       </div>
-    </div>
+    </nav>
   );
 };
 

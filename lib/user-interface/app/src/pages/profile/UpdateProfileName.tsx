@@ -6,7 +6,6 @@ import { DEFAULT_CHILD_NAME } from '../../common/features';
 import { useQuery } from '@tanstack/react-query';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { useLanguage } from '../../common/language-context'; 
@@ -165,7 +164,6 @@ export default function UpdateProfileName() {
         </Row>
       </Container>
     </div>
-    <AIEPFooter />
     </>
   );
 }

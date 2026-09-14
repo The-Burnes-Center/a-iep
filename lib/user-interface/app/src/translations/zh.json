@@ -399,6 +399,8 @@
     "appTutorial.slide6.content": "我们正在创建一个词汇表来帮助您理解文档。您可以点击突出显示的词语，在弹出的面板中阅读它们的定义。",
     "tutorial.exampleVideo": "示例视频 :",
     "glossary.header": "词汇表",
+    "a11y.skipToContent": "跳到主要内容",
+    "a11y.mainNavigation": "主导航",
     "navigation.home": "首页",
     "navigation.summary": "摘要",
     "navigation.support": "支持",

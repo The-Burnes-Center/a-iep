@@ -44,6 +44,8 @@ import PrivacyPolicy from '../pages/PrivacyPolicy';
 
 // Navigation behaviour shared by every route
 import ScrollToTop from './ScrollToTop';
+// The frame every route renders inside: skip link, <main>, and the footer
+import AppShell from './AppShell';
 
 // Referral system
 import ReferralRedirect from './ReferralRedirect';
@@ -69,6 +71,7 @@ export default function AppRoutes() {
     <ScrollToTop />
     {/* Referral capture (?ref=) + post-login signup attribution */}
     <ReferralTracker />
+    <AppShell>
     <Routes>
       {/* ===== PUBLIC ROUTES ===== */}
       {/* Home/Landing page at root */}
@@ -173,6 +176,7 @@ export default function AppRoutes() {
           of rendering a blank screen */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </AppShell>
     </>
   );
 }

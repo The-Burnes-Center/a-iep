@@ -22,7 +22,6 @@ import { useAdminIdentity } from '../../common/helpers/use-admin-identity';
 import AIEPSpinner from '../../components/AIEPSpinner';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
 import './AdminReferrals.css';
 
 const CHANNELS = ['social', 'conference', 'event', 'print', 'partner', 'other'];
@@ -426,7 +425,6 @@ export default function AdminReferrals() {
           </Card.Body>
         </Card>
       </Container>
-      <AIEPFooter />
 
       <Modal show={showCreateModal} onHide={closeCreateModal} centered className="admin-referrals-modal">
         <Form onSubmit={handleCreate}>

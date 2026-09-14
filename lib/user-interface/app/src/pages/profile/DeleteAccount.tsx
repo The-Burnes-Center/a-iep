@@ -10,7 +10,6 @@ import './ProfileForms.css';
 import DeleteButton from '../../components/DeleteButton';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
 
 export default function DeleteAccount() {
   const [processing, setProcessing] = useState(false);
@@ -93,7 +92,6 @@ export default function DeleteAccount() {
         </Row>
       </Container>
     </div>
-    <AIEPFooter />
     </>
   );
 }

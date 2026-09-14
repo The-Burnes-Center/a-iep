@@ -3,7 +3,6 @@ import AIEPSpinner from '../../components/AIEPSpinner';
 import { useLanguage } from '../../common/language-context';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
 import ViewResourcesButton from '../../components/ViewResourcesButton';
 import './ChangeLanguage.css';
 import './ProfileForms.css';
@@ -85,7 +84,6 @@ export default function ViewResources() {
         ))}
       </div>
     </div>
-    <AIEPFooter />
   </>
   );
 }

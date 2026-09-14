@@ -4,7 +4,6 @@ import { useLanguage } from '../common/language-context';
 import { STEP } from '../common/breadcrumb-steps';
 import Breadcrumbs from '../components/Breadcrumbs';
 import MobileTopNavigation from '../components/MobileTopNavigation';
-import AIEPFooter from '../components/AIEPFooter';
 import './RightsAndOnboarding.css';
 
 const RightsAndOnboarding: React.FC = () => {
@@ -40,7 +39,6 @@ const RightsAndOnboarding: React.FC = () => {
         </Col>
       </Row>
     </Container>
-    <AIEPFooter />
     </>
   );
 };

@@ -5,17 +5,8 @@ import MultiFaceGreenBanner from '../components/MultiFaceGreenBanner';
 import HowToBanner from '../components/HowToBanner';
 import SummarizeTranslateAdvocateBanner from '../components/SummarizeTranslateAdvocateBanner';
 import HeroSection from '../components/HeroSection';
-import AIEPFooter from '../components/AIEPFooter';
 import ParentRightsBanner from '../components/ParentRightsBanner';
 import ResourcesBanner from '../components/ResourcesBanner';
-import { SIGN_IN_ROUTE } from '../common/sign-in-location';
-
-const publicFooterLinks = [
-    { route: '/', labelKey: 'footer.home' },
-    { route: SIGN_IN_ROUTE, labelKey: 'footer.uploadIEP' },
-    { route: '/faqs', labelKey: 'footer.faqs' },
-    { route: '/about-the-project', labelKey: 'footer.aboutUs' },
-];
 
 const LandingPage: React.FC = () => { 
     return (
@@ -28,7 +19,6 @@ const LandingPage: React.FC = () => {
             <HowToBanner />
             <ParentRightsBanner />
             <ResourcesBanner />
-            <AIEPFooter footerLinks={publicFooterLinks} />
         </div>
         </>
 

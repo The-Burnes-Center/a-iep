@@ -15,7 +15,6 @@ import { useLanguage } from '../../common/language-context';
 import AIEPSpinner from '../../components/AIEPSpinner';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
 import {
   ClipboardIcon,
   EnvelopeIcon,
@@ -196,7 +195,6 @@ export default function InvitePage() {
           </Row>
         </Container>
       </div>
-      <AIEPFooter />
       {/* `inviteUrl` is the same value every other share control sends, so the
           code can never encode a different link. Empty until the referral
           loads, and a QR of an empty string is meaningless, hence the guard. */}

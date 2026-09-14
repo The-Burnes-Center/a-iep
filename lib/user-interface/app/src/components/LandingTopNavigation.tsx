@@ -65,7 +65,9 @@ const LandingTopNavigation: React.FC = () => {
   return (
     <>
     <PartnerBanner />
-    <div className="landing-top-navigation">
+    {/* A landmark, not a div: it is the same bar on every public screen, so it
+        is what a screen reader jumps over and what AppShell's skip link skips. */}
+    <nav className="landing-top-navigation" aria-label={t('a11y.mainNavigation')}>
       <div className="navigation-container">
         {/* Left logo - desktop only */}
         <div className="nav-logo nav-logo-left" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
@@ -99,7 +101,7 @@ const LandingTopNavigation: React.FC = () => {
           />
         </div>
       </div>
-    </div>
+    </nav>
     </>
   );
 };

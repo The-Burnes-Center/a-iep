@@ -5,7 +5,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppContext } from '../../common/app-context';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
 import { ApiClient } from '../../common/api-client/api-client';
 import { UserProfile } from '../../common/types';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
@@ -178,7 +177,6 @@ export default function ChangeLanguage() {
         </Row>
       </Container>
     </div>
-    <AIEPFooter />
   </>
   );
 }

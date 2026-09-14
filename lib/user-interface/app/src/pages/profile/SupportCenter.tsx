@@ -1,7 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
 import { Container, Row, Col, Card, Accordion } from 'react-bootstrap';
 import AIEPSpinner from '../../components/AIEPSpinner';
 import { useLanguage } from '../../common/language-context';
@@ -99,7 +98,6 @@ const SupportCenter: React.FC<SupportCenterProps> = ({
           </Col>
         </Row>
       </Container>
-      <AIEPFooter />
     </>
   );
 };

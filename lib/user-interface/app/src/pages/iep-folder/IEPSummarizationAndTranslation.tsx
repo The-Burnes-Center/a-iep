@@ -30,7 +30,6 @@ import MobileTopNavigation from '../../components/MobileTopNavigation';
 import TTSPlayButton from '../../components/TTSPlayButton';
 import { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
-import AIEPFooter from '../../components/AIEPFooter';
 import DocumentFailureState from './DocumentFailureState';
 import { ApiClient } from '../../common/api-client/api-client';
 import {
@@ -1320,7 +1319,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
           </Offcanvas.Body>
         </Offcanvas>
       </Container>
-      <AIEPFooter />
     </>
   );
 };

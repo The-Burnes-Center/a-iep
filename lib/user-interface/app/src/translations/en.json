@@ -408,6 +408,8 @@
     "appTutorial.slide6.content": "We're creating a glossary to help you understand the document. You can click over the highlighted words and read their definitions on the panel that will emerge.",
     "tutorial.exampleVideo": "Example Video :",
     "glossary.header": "Glossary",
+    "a11y.skipToContent": "Skip to content",
+    "a11y.mainNavigation": "Main navigation",
     "navigation.home": "Home",
     "navigation.summary": "Summary",
     "navigation.support": "Support",

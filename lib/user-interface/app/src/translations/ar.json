@@ -408,6 +408,8 @@
     "appTutorial.slide6.content": "نقوم بإنشاء مسرد مصطلحات لمساعدتك على فهم المستند. يمكنك النقر على الكلمات المميزة وقراءة تعريفاتها في اللوحة التي ستظهر.",
     "tutorial.exampleVideo": "فيديو توضيحي:",
     "glossary.header": "مسرد المصطلحات",
+    "a11y.skipToContent": "تخطي إلى المحتوى",
+    "a11y.mainNavigation": "التنقل الرئيسي",
     "navigation.home": "الرئيسية",
     "navigation.summary": "الملخص",
     "navigation.support": "الدعم",
