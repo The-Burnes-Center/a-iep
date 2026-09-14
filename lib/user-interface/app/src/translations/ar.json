@@ -277,6 +277,7 @@
     "auth.enterSmsCode": "أدخل الرمز المكوّن من 6 أرقام",
     "auth.verifySmsCode": "التحقق من الرمز",
     "auth.resendSmsCode": "إعادة إرسال الرمز",
+    "auth.resendCooldown": "يمكنك طلب رمز جديد بعد {seconds} ثانية.",
     "auth.changePhoneNumber": "تغيير رقم الهاتف",
     "auth.smsCodeSentTo": "أدخل الرمز المكوّن من 6 أرقام المرسل إلى",
     "auth.smsConsentMobile": "بالنقر على \"إرسال رمز SMS\"، فإنك توافق صراحةً على استلام رموز لمرة واحدة عبر الرسائل النصية القصيرة من The GovLab.",

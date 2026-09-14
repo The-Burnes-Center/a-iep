@@ -181,6 +181,17 @@ export interface PersistedChallenge {
   channel: AuthChannel;
   /** Wall-clock deadline (ms since epoch), computed from expiresIn at start time. */
   expiresAt: number;
+  /**
+   * When the code behind this handle was sent (ms since epoch). Persisted so
+   * the resend cooldown outlives an unmount: the bottom nav is a route change,
+   * and a cooldown held only in component state would be back at zero the
+   * moment a parent left the page and returned.
+   *
+   * Optional because a record written by an earlier build has none. A missing
+   * value reads as "no code sent yet", so the first resend after this ships is
+   * offered immediately rather than being blocked on a time nobody recorded.
+   */
+  sentAt?: number;
 }
 
 export const persistChallenge = (value: PersistedChallenge): void => {

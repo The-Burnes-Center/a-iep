@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Form, Alert, Button } from 'react-bootstrap';
+import { AuthChannel } from '../common/auth/passwordless-auth';
 import { usePasswordlessAuth } from '../common/hooks/use-passwordless-auth';
 import { TurnstileStatus } from '../common/hooks/use-turnstile';
 import FormLabel from './FormLabel';
@@ -18,6 +19,35 @@ const TURNSTILE_STATUS_KEYS: Partial<Record<TurnstileStatus, string>> = {
   solved: 'auth.securityCheckDone',
   expired: 'auth.securityCheckExpired',
   reset: 'auth.securityCheckReset',
+};
+
+/**
+ * How long a parent waits between code requests.
+ *
+ * Sixty seconds, for two reasons that both cost the parent something. A code
+ * they have not got yet is usually a slow carrier rather than a lost message,
+ * and asking again mints a NEW code that kills the one still in flight — so a
+ * resend at ten seconds can take away the text that was about to arrive. And
+ * the send path allows five codes per destination per hour (contract §13):
+ * at this interval a parent cannot spend that hour's worth in under five
+ * minutes of tapping and lock themselves out of their own account.
+ */
+const RESEND_COOLDOWN_SECONDS = 60;
+
+/** Whether the code on its way is the first one or a replacement. */
+type SendNotice = 'sent' | 'resent';
+
+/**
+ * What a parent is told once a code is on its way, by channel and by which of
+ * the two it was.
+ *
+ * Split by channel deliberately: "resent to your phone" in front of somebody
+ * who typed an email address reads as the app having sent it to the wrong
+ * place. All five dictionaries already carry both halves.
+ */
+const SEND_NOTICE_KEYS: Record<AuthChannel, Record<SendNotice, string>> = {
+  sms: { sent: 'auth.smsCodeSent', resent: 'auth.smsCodeResent' },
+  email: { sent: 'auth.verificationCodeSent', resent: 'auth.successCodeResent' },
 };
 
 /** The slice of useTurnstile's return value this form actually needs. */
@@ -133,13 +163,39 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+  const [sendNotice, setSendNotice] = useState<SendNotice | null>(null);
+  const [secondsUntilResend, setSecondsUntilResend] = useState(0);
 
   const auth = usePasswordlessAuth({ httpEndpoint, language, onSignedIn });
   const turnstileStatusKey = TURNSTILE_STATUS_KEYS[turnstile.status];
 
+  /**
+   * Counts the cooldown down from the moment the last code was SENT, not from
+   * the moment this effect ran: the deadline is wall-clock, so a backgrounded
+   * tab (or a parent who left the page and came back, which unmounts this
+   * component entirely) resumes with the right number rather than a fresh
+   * minute.
+   */
+  useEffect(() => {
+    if (!auth.lastCodeSentAt) {
+      setSecondsUntilResend(0);
+      return;
+    }
+    const deadline = auth.lastCodeSentAt + RESEND_COOLDOWN_SECONDS * 1000;
+    const secondsLeft = () => Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    setSecondsUntilResend(secondsLeft());
+    const ticker = setInterval(() => {
+      const left = secondsLeft();
+      setSecondsUntilResend(left);
+      if (left === 0) clearInterval(ticker);
+    }, 1000);
+    return () => clearInterval(ticker);
+  }, [auth.lastCodeSentAt]);
+
   const handleStart = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
+    setSendNotice(null);
 
     let destination: string;
     if (showMobileLogin) {
@@ -163,7 +219,63 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
       // A spent token is refused if tried again; the parent cannot see or fix
       // that, so a failed attempt clears it same as the legacy flow does.
       turnstile.reset();
+      return;
     }
+    setSendNotice('sent');
+  };
+
+  /**
+   * Ask for another code for the destination the parent already gave us.
+   *
+   * This is the only way off the code screen that does not lose their place:
+   * before it existed a parent whose text never arrived had to go back, retype
+   * their number and work out for themselves that doing so sends a new code.
+   *
+   * It goes through the same `start` the first send does, so every answer the
+   * endpoint can give — a lockout, a refused bot check, a service that is down
+   * — is handled once, in the hook, and looks the same wherever it was reached.
+   */
+  const handleResend = async () => {
+    if (secondsUntilResend > 0 || auth.loading) return;
+    setFormError(null);
+    setSendNotice(null);
+
+    // /auth/start requires a token on every call (contract §2) and a token is
+    // single-use, so the one the first send spent is no use here. The widget
+    // above this button is a fresh one — it mounted with this step — and the
+    // spent token went with the widget that raised it. With none in hand,
+    // say so instead of posting a request that can only come back 403: that
+    // would spend one of the parent's own hourly starts to tell them nothing.
+    if (turnstile.isEnabled && !turnstile.token) {
+      const checkIsBroken = turnstile.hasFailed || turnstile.status === 'timedOut';
+      setFormError(checkIsBroken ? 'auth.resendFailed' : 'auth.securityCheckInteractive');
+      return;
+    }
+
+    const sent = await auth.start(auth.destination, turnstile.token ?? undefined);
+    // Spent either way now: accepted by the endpoint, or refused and dead.
+    turnstile.reset();
+    if (!sent) {
+      // auth.error already carries the endpoint's own reason, which is more
+      // use to a parent than "resend failed" would be, and a lockout has
+      // replaced this screen outright. Nothing to add here; what matters is
+      // that no success notice is shown for a send that did not happen.
+      return;
+    }
+
+    // The new code invalidates the old one, so digits left in the box are
+    // guaranteed dead and submitting them would burn one of three attempts.
+    // This is the opposite call from handleVerify below, and deliberately:
+    // there, what the parent had retyped was still a code worth sending.
+    setCode('');
+    setSendNotice('resent');
+  };
+
+  const handleBackToStart = () => {
+    setFormError(null);
+    setSendNotice(null);
+    setCode('');
+    auth.backToStart();
   };
 
   const handleVerify = async (e: React.FormEvent) => {
@@ -177,6 +289,12 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
     // connection that window is seconds wide. E2E found it by typing fast.
     const submitted = code;
     setCode('');
+    // Both stop being true the moment they answer. The notice ("your code is
+    // on its way") has done its job, and a message left over from a resend
+    // must not sit in front of whatever this attempt is about to say, since
+    // it is the same alert slot.
+    setSendNotice(null);
+    setFormError(null);
     await auth.submitCode(submitted);
   };
 
@@ -208,7 +326,24 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
             autoFocus
           />
 
-          <AlertMessages error={auth.error} successMessage={null} />
+          {/*
+            Where Resend's token comes from. Rendered with the step rather
+            than mounted when the button is tapped, because a challenge takes
+            time to solve and an interactive one needs the parent: arming it
+            on the tap would leave them looking at a button that had done
+            nothing. Keyed separately from the two on the identifier step so
+            React cannot reconcile it with one of those and skip the remount
+            that discards the token the first send already spent.
+          */}
+          <TurnstileBlock key="code" t={t} turnstile={turnstile} />
+
+          {/* The notice is cleared wherever it stops being true (a submit, a
+              new attempt, going back), rather than filtered here, so there is
+              one rule about its lifetime instead of two. */}
+          <AlertMessages
+            error={formError ?? auth.error}
+            successMessage={sendNotice ? SEND_NOTICE_KEYS[auth.channel][sendNotice] : null}
+          />
 
           <div className="d-grid gap-2">
             <SubmitButton
@@ -216,8 +351,25 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
               buttonText={t('auth.verify')}
               disabled={auth.loading || code.length < 4}
             />
+            <Button
+              type="button"
+              variant="outline-secondary"
+              className="submit-button-login"
+              onClick={handleResend}
+              disabled={auth.loading || secondsUntilResend > 0}
+              aria-describedby={secondsUntilResend > 0 ? 'resend-cooldown' : undefined}
+              data-testid="resend-code"
+            >
+              {t('auth.resendSmsCode')}
+            </Button>
+            {secondsUntilResend > 0 && (
+              // A disabled button with no explanation reads as a broken one.
+              <p id="resend-cooldown" className="text-muted small mb-0 text-center">
+                {t('auth.resendCooldown').replace('{seconds}', String(secondsUntilResend))}
+              </p>
+            )}
             <LinkButton
-              onClick={auth.backToStart}
+              onClick={handleBackToStart}
               disabled={auth.loading}
               buttonText={t('auth.backToLogin')}
             />
@@ -292,6 +444,9 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
           </>
         )}
 
+        {/* No success channel on this step: a send that works moves the
+            parent to the code step in the same commit, so the confirmation
+            is rendered there, where they can actually read it. */}
         <AlertMessages error={formError ?? auth.error} successMessage={null} />
 
         <div className="d-grid gap-2">

@@ -277,6 +277,7 @@
     "auth.enterSmsCode": "Enter 6-digit code",
     "auth.verifySmsCode": "Verify Code",
     "auth.resendSmsCode": "Resend Code",
+    "auth.resendCooldown": "You can ask for a new code in {seconds} seconds.",
     "auth.changePhoneNumber": "Change Phone Number",
     "auth.smsCodeSentTo": "Enter the 6-digit code sent to",
     "auth.smsConsentMobile": "By tapping \"Send SMS Code\", you expressly consent to receive one-time codes via SMS from The GovLab.",

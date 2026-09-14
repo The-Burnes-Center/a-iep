@@ -279,6 +279,7 @@
     "auth.enterSmsCode": "Nhập mã từ SMS",
     "auth.verifySmsCode": "Xác minh mã SMS",
     "auth.resendSmsCode": "Gửi lại mã SMS",
+    "auth.resendCooldown": "Bạn có thể yêu cầu mã mới sau {seconds} giây.",
     "auth.changePhoneNumber": "Thay đổi số điện thoại",
     "auth.smsCodeSentTo": "Nhập mã 6 chữ số đã gửi đến",
     "auth.smsConsentMobile": "Bằng cách nhấn \"Gửi mã SMS\", bạn đồng ý nhận mã xác thực một lần qua SMS từ The GovLab.",

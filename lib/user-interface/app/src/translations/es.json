@@ -275,6 +275,7 @@
     "auth.enterSmsCode": "Ingrese código de 6 dígitos",
     "auth.verifySmsCode": "Verificar Código",
     "auth.resendSmsCode": "Reenviar Código",
+    "auth.resendCooldown": "Puede solicitar un código nuevo en {seconds} segundos.",
     "auth.changePhoneNumber": "Cambiar Número de Teléfono",
     "auth.smsCodeSentTo": "Ingrese el código de 6 dígitos enviado a",
     "auth.smsConsentMobile": "Al tocar \"Enviar código SMS\", da su consentimiento expreso para recibir códigos de un solo uso vía SMS de The GovLab.",

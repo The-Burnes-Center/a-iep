@@ -275,6 +275,7 @@
     "auth.enterSmsCode": "输入6位验证码",
     "auth.verifySmsCode": "验证短信验证码",
     "auth.resendSmsCode": "重新发送验证码",
+    "auth.resendCooldown": "您可以在 {seconds} 秒后申请新验证码。",
     "auth.changePhoneNumber": "更改电话号码",
     "auth.smsCodeSentTo": "请输入发送至以下号码的6位验证码：",
     "auth.smsConsentMobile": "点击'发送短信验证码'即表示您明确同意接收来自The GovLab的一次性验证码短信。",

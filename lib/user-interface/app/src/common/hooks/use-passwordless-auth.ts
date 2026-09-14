@@ -26,6 +26,9 @@ export type PasswordlessStep = 'idle' | 'awaiting_code' | 'locked_out';
  */
 const MAX_CODE_ATTEMPTS = 3;
 
+/** What a 429 without a `retryAfterSeconds` of its own is treated as. */
+const DEFAULT_LOCKOUT_SECONDS = 60;
+
 interface UsePasswordlessAuthArgs {
   httpEndpoint: string;
   language?: string;
@@ -42,6 +45,13 @@ interface UsePasswordlessAuthState {
   loading: boolean;
   /** Minutes until a locked_out parent can try again. Only meaningful in that step. */
   lockedMinutes: number;
+  /**
+   * When the code the parent is waiting on was sent (ms since epoch), 0 when
+   * none has been. Survives an unmount, because it is read back off the
+   * persisted challenge, which is what makes a resend cooldown built on it
+   * survive one too.
+   */
+  lastCodeSentAt: number;
   start: (destination: string, turnstileToken?: string) => Promise<boolean>;
   submitCode: (code: string) => Promise<void>;
   /** Abandon the current challenge (or lockout) and go back to the identifier screen. */
@@ -70,11 +80,35 @@ export const usePasswordlessAuth = ({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lockedMinutes, setLockedMinutes] = useState(0);
+  const [lastCodeSentAt, setLastCodeSentAt] = useState(resumed?.sentAt ?? 0);
   const attemptsRef = useRef(0);
   const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => {
     if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+  }, []);
+
+  /**
+   * The destination may not be sent another code for a while: park the parent
+   * on the lockout screen with the wait, and drop them back at the start once
+   * it is over. Shared by both endpoints that can say so, so a lockout looks
+   * the same however it was reached.
+   *
+   * The handle goes with it. Its own life is 300 s (contract §13) and every
+   * lockout window is longer than that, so there is never a code still worth
+   * holding on to by the time the screen comes back.
+   */
+  const enterLockout = useCallback((retryAfterSeconds?: number) => {
+    clearPersistedChallenge();
+    const seconds = retryAfterSeconds ?? DEFAULT_LOCKOUT_SECONDS;
+    setLockedMinutes(Math.ceil(seconds / 60));
+    setStep('locked_out');
+    if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+    lockTimerRef.current = setTimeout(() => {
+      setChallenge(null);
+      setError(null);
+      setStep('idle');
+    }, seconds * 1000);
   }, []);
 
   const start = useCallback(async (dest: string, turnstileToken?: string): Promise<boolean> => {
@@ -87,23 +121,35 @@ export const usePasswordlessAuth = ({
     // passwordless-auth.ts on why a boolean-literal discriminant does not
     // narrow under this app's tsconfig (strict: false).
     if ('code' in result) {
+      // Route into the same lockout the code screen uses rather than the
+      // plain error channel. `auth.error.tooManyCodes` carries a {minutes}
+      // placeholder, and only the lockout screen has a number to put in it:
+      // shown as an ordinary error it reaches a parent with the braces still
+      // in the sentence.
+      if (result.code === 'too_many_codes') {
+        enterLockout(result.retryAfterSeconds);
+        return false;
+      }
       setError(authErrorKey(result.code));
       return false;
     }
 
+    const sentAt = Date.now();
     attemptsRef.current = 0;
     setDestination(dest);
     setChannel(result.channel);
     setChallenge(result.challenge);
+    setLastCodeSentAt(sentAt);
     persistChallenge({
       challenge: result.challenge,
       destination: dest,
       channel: result.channel,
-      expiresAt: Date.now() + result.expiresIn * 1000,
+      expiresAt: sentAt + result.expiresIn * 1000,
+      sentAt,
     });
     setStep('awaiting_code');
     return true;
-  }, [httpEndpoint, language]);
+  }, [httpEndpoint, language, enterLockout]);
 
   const backToStart = useCallback(() => {
     if (lockTimerRef.current) {
@@ -171,16 +217,7 @@ export const usePasswordlessAuth = ({
     }
 
     if (result.code === 'too_many_codes') {
-      clearPersistedChallenge();
-      const seconds = result.retryAfterSeconds ?? 60;
-      setLockedMinutes(Math.ceil(seconds / 60));
-      setStep('locked_out');
-      if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
-      lockTimerRef.current = setTimeout(() => {
-        setChallenge(null);
-        setError(null);
-        setStep('idle');
-      }, seconds * 1000);
+      enterLockout(result.retryAfterSeconds);
       return;
     }
 
@@ -196,7 +233,10 @@ export const usePasswordlessAuth = ({
     // unavailable, including a not_ready retry budget that ran out: the
     // handle is still good, so keep the parent on the code screen.
     setError(authErrorKey(result.code));
-  }, [challenge, httpEndpoint, onSignedIn]);
+  }, [challenge, httpEndpoint, onSignedIn, enterLockout]);
 
-  return { step, destination, channel, error, loading, lockedMinutes, start, submitCode, backToStart };
+  return {
+    step, destination, channel, error, loading, lockedMinutes, lastCodeSentAt,
+    start, submitCode, backToStart,
+  };
 };
