@@ -160,8 +160,10 @@ export default function PreferredLanguage() {
       <MobileTopNavigation />
       <div className="onboarding-page">
         {/* Carries its own Back control, so the edit-from-profile block below
-            no longer adds a second one of its own. */}
-        <OnboardingTopBar />
+            no longer adds a second one of its own. No language dropdown: this
+            screen IS the language picker, and the bar put a second copy of
+            the same choice in the corner of it. */}
+        <OnboardingTopBar showLanguagePicker={false} />
 
         {isUpdatingFromProfile && (
           <>

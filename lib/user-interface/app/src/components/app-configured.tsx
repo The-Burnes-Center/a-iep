@@ -10,6 +10,7 @@ import { Alert, Spinner } from "react-bootstrap";
 import { initAnalytics } from "../common/helpers/analytics-helper";
 import AppRoutes from "./AppRoutes";
 import AppErrorBoundary from "./ErrorBoundary";
+import { AppHistoryDepthProvider } from "../common/app-history";
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Amplify v6 expects Auth.Cognito.*, while the CDK still publishes the v5-flat
@@ -167,11 +168,17 @@ export default function AppConfigured() {
         <AuthProvider>
           <QueryClientProvider client={queryClient}>
             <BrowserRouter>
-              {/* Inside the router so a route change clears the fallback,
-                  and inside LanguageProvider so it can be translated. */}
-              <AppErrorBoundary>
-                <AppRoutes />
-              </AppErrorBoundary>
+              {/* Counts our own navigations, so an onboarding screen can tell
+                  whether Back has anywhere of ours to go. Inside the router
+                  because it reads the router's navigation type, and outside
+                  the routes because it has to survive every screen change. */}
+              <AppHistoryDepthProvider>
+                {/* Inside the router so a route change clears the fallback,
+                    and inside LanguageProvider so it can be translated. */}
+                <AppErrorBoundary>
+                  <AppRoutes />
+                </AppErrorBoundary>
+              </AppHistoryDepthProvider>
             </BrowserRouter>
           </QueryClientProvider>
         </AuthProvider>

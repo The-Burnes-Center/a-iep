@@ -1,8 +1,9 @@
 import React from 'react';
 import { Button } from 'react-bootstrap';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { IconArrowLeft } from '@tabler/icons-react';
 import { useLanguage } from '../common/language-context';
+import { useCanGoBack } from '../common/app-history';
 import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import LanguageDropdown from './LanguageDropdown';
 import './OnboardingChrome.css';
@@ -16,6 +17,13 @@ interface OnboardingTopBarProps {
    * Left out, the history rule below decides.
    */
   backTo?: string;
+  /**
+   * Whether to offer the language selector. Off on the language step, which
+   * is itself a full-page language picker: a parent was shown the same
+   * choice twice on one screen, once as a dropdown and once as the list of
+   * buttons the design asks for.
+   */
+  showLanguagePicker?: boolean;
 }
 
 /**
@@ -31,20 +39,20 @@ interface OnboardingTopBarProps {
  * of them renders this component, so the stylesheet that carries the
  * `.onboarding-*` classes travels with it.
  */
-export default function OnboardingTopBar({ backTo }: OnboardingTopBarProps = {}) {
+export default function OnboardingTopBar(
+  { backTo, showLanguagePicker = true }: OnboardingTopBarProps = {},
+) {
   const navigate = useNavigate();
-  const location = useLocation();
+  const hasSomethingBehind = useCanGoBack();
   const { t, language, setLanguage, enabledLanguages } = useLanguage();
 
   const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
-  // Only the first entry in a history stack keeps the key 'default', so this
-  // asks "is one of our screens behind this one?" rather than
-  // window.history.length, which counts other sites and never goes down. A
-  // parent who opened this URL directly, or who landed here on the first
-  // navigation after signing in, gets no Back button instead of one that
-  // leaves the app.
-  const canGoBack = Boolean(backTo) || location.key !== 'default';
+  // A screen that names its own previous step can always offer Back. Otherwise
+  // it depends on there being something of ours behind this one: a parent who
+  // opened the URL directly, or who landed here on the first navigation after
+  // signing in, gets no Back button rather than one that leaves the app.
+  const canGoBack = Boolean(backTo) || hasSomethingBehind;
 
   return (
     <div className="onboarding-topbar">
@@ -58,14 +66,16 @@ export default function OnboardingTopBar({ backTo }: OnboardingTopBarProps = {})
           {t('common.back')}
         </Button>
       )}
-      <div className="onboarding-language">
-        <LanguageDropdown
-          language={language}
-          languageOptions={languageOptions}
-          onLanguageChange={setLanguage}
-          variant="secondary"
-        />
-      </div>
+      {showLanguagePicker && (
+        <div className="onboarding-language">
+          <LanguageDropdown
+            language={language}
+            languageOptions={languageOptions}
+            onLanguageChange={setLanguage}
+            variant="secondary"
+          />
+        </div>
+      )}
     </div>
   );
 }

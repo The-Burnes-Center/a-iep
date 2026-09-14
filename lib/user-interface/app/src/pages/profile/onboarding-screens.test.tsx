@@ -21,6 +21,7 @@ import HowToUseTool from "./HowToUseTool";
 import HaveIepPdf from "./HaveIepPdf";
 import HowToAskForPdf from "./HowToAskForPdf";
 import { LanguageContext } from "../../common/language-context";
+import { AppHistoryDepthProvider } from "../../common/app-history";
 import { AppContext } from "../../common/app-context";
 import type { AppConfig } from "../../common/types";
 import type { Feature } from "../../common/features";
@@ -64,6 +65,7 @@ const renderChain = (start: string, enabledFeatures: Feature[] = ["pdfHelpScreen
     <MemoryRouter initialEntries={[start]}>
       <AppContext.Provider value={appConfig(enabledFeatures)}>
       <LanguageContext.Provider value={languageValue}>
+        <AppHistoryDepthProvider>
         <Here />
         <Routes>
           {CHAIN.map((screen) => (
@@ -73,6 +75,7 @@ const renderChain = (start: string, enabledFeatures: Feature[] = ["pdfHelpScreen
           <Route path="/view-resources" element={<div>resources</div>} />
           <Route path="/how-we-protect-your-privacy" element={<div>how we protect your privacy</div>} />
         </Routes>
+        </AppHistoryDepthProvider>
       </LanguageContext.Provider>
       </AppContext.Provider>
     </MemoryRouter>,

@@ -22,6 +22,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import ViewAndAddChild from "./ViewAndAddChild";
+import { AppHistoryDepthProvider } from "../../common/app-history";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
 import { DEFAULT_CHILD_NAME } from "../../common/features";
@@ -144,6 +145,10 @@ const renderPage = (
   } = {},
 ) => {
   const here = { pathname: PAGE, state: onboarding ? { onboardingContinue: true } : null };
+  // MemoryRouter's seeded stack is invisible to window.history, and "is there
+  // an entry behind this one" is answered from both. Without this the fixture
+  // claims a previous screen that nothing can see.
+  window.history.replaceState({ idx: from ? 1 : 0 }, "");
   render(
     <MemoryRouter
       initialEntries={from ? [from, here] : [here]}
@@ -151,6 +156,7 @@ const renderPage = (
     >
       <AppContext.Provider value={appConfig(enabledFeatures)}>
         <LanguageContext.Provider value={languageValue}>
+          <AppHistoryDepthProvider>
           <Here />
           <Routes>
             <Route path={PAGE} element={<ViewAndAddChild />} />
@@ -159,6 +165,7 @@ const renderPage = (
             <Route path="/summary-and-translations" element={<div>summary</div>} />
             <Route path="/how-to-use-the-tool" element={<div>how to use the tool</div>} />
           </Routes>
+          </AppHistoryDepthProvider>
         </LanguageContext.Provider>
       </AppContext.Provider>
     </MemoryRouter>,
