@@ -10,6 +10,7 @@ from student_name_substitution import substitute_content, usable_student_name
 import base64
 import copy
 import re
+import unicodedata
 from botocore.exceptions import ClientError
 
 dynamodb = boto3.resource('dynamodb')
@@ -207,6 +208,80 @@ def kms_encrypt_string(plaintext: str) -> str:
         raise FieldEncryptionError(
             f"Field encryption failed: {type(e).__name__}"
         ) from e
+
+# --- What counts as a child's name ------------------------------------------
+# The same rule the screen applies in
+# lib/user-interface/app/src/common/child-name.ts, and the two have to stay
+# identical: a name the screen accepts and this rejects reaches the parent as a
+# generic "could not save", with nothing on the page telling them what to fix.
+#
+# Nothing validated this before. '123', '!!!' and '.' all stored fine, and the
+# stored value is what goes into the heading of every summary, every
+# translation, and the audio a parent listens to.
+CHILD_NAME_MAX_LENGTH = 64
+
+# What a name may hold besides letters (Unicode category L*) and combining
+# marks (M*, which is what makes Vietnamese and Arabic work at all): a space,
+# both hyphens, both apostrophes, and the period that ends an initial.
+_CHILD_NAME_PUNCTUATION = frozenset(" -\u2010'\u2019.")
+
+# (log reason, response message) per refusal. Only the code's log reason
+# reaches CloudWatch and only the message reaches the caller: the name itself
+# is a FERPA-protected record of a child with a disability, so it is in neither,
+# nor in any exception raised along the way.
+CHILD_NAME_REJECTIONS = {
+    'required': (
+        'blank or whitespace-only child name',
+        'Child name cannot be blank',
+    ),
+    'tooLong': (
+        f'child name longer than {CHILD_NAME_MAX_LENGTH} characters',
+        f'Child name must be {CHILD_NAME_MAX_LENGTH} characters or fewer',
+    ),
+    'invalid': (
+        'child name holds characters that are neither letters nor name punctuation',
+        'Child name can only contain letters, spaces, hyphens, apostrophes and periods',
+    ),
+}
+
+
+def validate_child_name(name) -> Optional[str]:
+    """Which rule the name breaks, or None when it breaks none.
+
+    Checked in the order the messages are written, so an over-long run of
+    digits is reported as too long here and on the screen both.
+
+    Deliberately not a regex over an ASCII range: four of the five languages
+    this ships in are Spanish, Chinese, Vietnamese and Arabic, and a name is
+    whatever a family's script writes one with.
+    """
+    collapsed = ' '.join(name.split()) if isinstance(name, str) else ''
+    if not collapsed:
+        return 'required'
+    if len(collapsed) > CHILD_NAME_MAX_LENGTH:
+        return 'tooLong'
+    has_letter = False
+    for character in collapsed:
+        category = unicodedata.category(character)
+        if category.startswith('L'):
+            has_letter = True
+        elif not category.startswith('M') and character not in _CHILD_NAME_PUNCTUATION:
+            return 'invalid'
+    # "." and "-" are punctuation, not a name.
+    return None if has_letter else 'invalid'
+
+
+def reject_child_name(event: Dict, operation: str, user_id: str, reason: str) -> Dict:
+    """400 for a name we will not store, with the reason code in CloudWatch.
+
+    The reason, never the value: a silent 4xx made one real failure in this
+    file undiagnosable, and a logged child's name would be a FERPA disclosure
+    to anyone with log-read access.
+    """
+    log_reason, message = CHILD_NAME_REJECTIONS[reason]
+    print(f"Rejecting {operation} for userId {user_id}: {log_reason}")
+    return create_response(event, 400, {'message': message})
+
 
 # Word starts, for capitalising a name: the beginning of the string, or the
 # character after a space, a hyphen, or either apostrophe. So "mary-jane" and
@@ -485,13 +560,14 @@ def update_user_profile(event: Dict) -> Dict:
                 if 'name' not in child or 'schoolCity' not in child:
                     return create_response(event, 400, {'message': 'Each child must have name and schoolCity'})
                 # A present-but-blank name used to pass -- 'name' in child was
-                # the whole check -- which is exactly the value the
-                # redaction pipeline has nothing to restore from. Reject it
+                # the whole check -- which is exactly the value the redaction
+                # pipeline has nothing to restore from. So did '123' and '!!!',
+                # which is what validate_child_name now also catches. Reject
                 # and log why: an unlogged validation rejection already made
                 # one real failure in this file undiagnosable.
-                if not isinstance(child['name'], str) or not child['name'].strip():
-                    print(f"Rejecting update_user_profile for userId {user_id}: blank or whitespace-only child name")
-                    return create_response(event, 400, {'message': 'Child name cannot be blank'})
+                reason = validate_child_name(child['name'])
+                if reason:
+                    return reject_child_name(event, 'update_user_profile', user_id, reason)
                 if 'childId' not in child:
                     child['childId'] = str(uuid.uuid4())
 
@@ -573,12 +649,12 @@ def add_child(event: Dict) -> Dict:
         if 'name' not in body or 'schoolCity' not in body:
             return create_response(event, 400, {'message': 'Missing required fields: name and schoolCity required'})
 
-        # A present-but-blank name would otherwise pass: reject it and log
-        # why, same rule and same reason as the children branch of
-        # update_user_profile.
-        if not isinstance(body['name'], str) or not body['name'].strip():
-            print(f"Rejecting add_child for userId {user_id}: blank or whitespace-only child name")
-            return create_response(event, 400, {'message': 'Child name cannot be blank'})
+        # Blank, over-long, or not a name at all: same rule, same reason and
+        # the same reason codes as the children branch of update_user_profile.
+        # Two write paths, one definition of what we will store.
+        reason = validate_child_name(body['name'])
+        if reason:
+            return reject_child_name(event, 'add_child', user_id, reason)
 
         # Generate new childId
         child_id = str(uuid.uuid4())

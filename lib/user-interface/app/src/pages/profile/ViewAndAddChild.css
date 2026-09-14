@@ -6,3 +6,14 @@
 .child-name-field {
   margin-bottom: 2rem;
 }
+
+/* The one refusal this screen can give, directly under the field it is about.
+   A parent who typed something we cannot save reads this instead of pressing
+   a button that does nothing. */
+.child-name-error {
+  margin-top: 0.5rem;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--aiep-error);
+}

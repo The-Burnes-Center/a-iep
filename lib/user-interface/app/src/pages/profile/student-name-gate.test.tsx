@@ -107,6 +107,10 @@ const stubFetch = (profile: Record<string, unknown>, { failWrites = false } = {}
   );
 };
 
+/** Every call the screen made that was not a read. */
+const writeRequests = () =>
+  vi.mocked(fetch).mock.calls.filter(([, init]) => (init?.method ?? "GET") !== "GET");
+
 const renderPage = (
   path: string,
   page: React.ReactElement,
@@ -233,13 +237,22 @@ describe("ConsentForm's continue button, when consent is already given", () => {
 describe("ViewAndAddChild, the gate's destination", () => {
   test("does not prefill the placeholder name as if it were a real answer", async () => {
     stubFetch(placeholderStudentName());
-    renderPage("/view-update-add-child", <ViewAndAddChild />, ["studentNameGate"]);
+    const user = renderPage("/view-update-add-child", <ViewAndAddChild />, ["studentNameGate"]);
 
     const nameField = (await screen.findByPlaceholderText(
       "child.name.placeholder",
     )) as HTMLInputElement;
     expect(nameField.value).toBe("");
-    expect(screen.getByTestId("child-save-button")).toBeDisabled();
+
+    // And an empty field still cannot get a parent past this screen. That used
+    // to be pinned as a disabled button; the button is live now, because a
+    // disabled one with no message beside it is a dead end a parent cannot
+    // read their way out of. Pressing it is what says what is missing.
+    await user.click(screen.getByTestId("child-save-button"));
+
+    expect(await screen.findByText("child.name.error.required")).toBeInTheDocument();
+    expect(writeRequests()).toEqual([]);
+    expect(screen.getByTestId("landed-on")).toHaveTextContent("/view-update-add-child");
   });
 
   test("goes on into the rest of onboarding when the parent-name gate is not owed", async () => {

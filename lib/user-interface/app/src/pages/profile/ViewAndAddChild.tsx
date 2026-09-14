@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import { Form, Button, Alert, Spinner, Container } from 'react-bootstrap';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
@@ -7,6 +7,7 @@ import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { UserProfile } from '../../common/types';
 import { useLanguage } from '../../common/language-context';
 import { isPlaceholderChildName } from '../../common/features';
+import { ChildNameError, normalizeChildName, validateChildName } from '../../common/child-name';
 import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
 import './ViewAndAddChild.css';
@@ -17,6 +18,10 @@ import './ViewAndAddChild.css';
 // required fields"), so an existing value is kept and a new child gets the
 // same default the other three addChild call sites send.
 const SCHOOL_CITY_DEFAULT = 'Not specified';
+
+// Named once: the message element carries it, the input points at it through
+// aria-describedby, so a screen reader reads the reason with the field.
+const CHILD_NAME_ERROR_ID = 'childNameError';
 
 export default function ViewAndAddChild() {
   const appContext = useContext(AppContext);
@@ -34,6 +39,10 @@ export default function ViewAndAddChild() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [childName, setChildName] = useState<string>('');
+  // Which rule the typed name breaks, or null. Set on blur and on submit,
+  // cleared the moment the parent starts changing the value it was about.
+  const [nameError, setNameError] = useState<ChildNameError | null>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
   const [schoolCity, setSchoolCity] = useState<string>('');
   const [hasExistingChild, setHasExistingChild] = useState<boolean>(false);
   const [firstChildId, setFirstChildId] = useState<string | null>(null);
@@ -104,9 +113,20 @@ export default function ViewAndAddChild() {
   };
 
   const handleSaveAndContinue = async () => {
-    if (!isFormValid()) {
-      return; // Button should be disabled in this case
+    // The button is no longer disabled on a name that will not do: a disabled
+    // button with nothing next to it is a dead end, and the parent who hit one
+    // had no way to find out what this screen wanted. Pressing it says what is
+    // wrong and puts the cursor back in the field.
+    const nameProblem = validateChildName(childName);
+    if (nameProblem) {
+      setNameError(nameProblem);
+      nameInput.current?.focus();
+      return;
     }
+    // What gets saved is the tidied name, not the keystrokes: the API applies
+    // the same rule, and a double space between two halves of a name would
+    // otherwise reach the heading of every summary.
+    const name = normalizeChildName(childName);
 
     try {
       setSaving(true);
@@ -123,7 +143,7 @@ export default function ViewAndAddChild() {
           await apiClient.profile.updateProfile({
             children: [{
               ...existingChild,
-              name: childName,
+              name,
               schoolCity: childSchoolCity,
               // Keep the existing childId
               childId: firstChildId
@@ -132,7 +152,7 @@ export default function ViewAndAddChild() {
         }
       } else {
         // Add new child
-        await apiClient.profile.addChild(childName, childSchoolCity);
+        await apiClient.profile.addChild(name, childSchoolCity);
 
         // After adding a new child, check for documents again
         await checkForExistingDocument();
@@ -181,8 +201,12 @@ export default function ViewAndAddChild() {
     void handleSaveAndContinue();
   };
 
-  const isFormValid = () => {
-    return childName.trim() !== '';
+  const handleNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setChildName(event.target.value);
+    // Nagging somebody mid-word is worse than saying nothing: the message goes
+    // as soon as they start fixing it, and comes back on blur or on submit if
+    // the new value still breaks the rule.
+    setNameError(null);
   };
 
   if (loading) {
@@ -222,17 +246,29 @@ export default function ViewAndAddChild() {
             <Form.Label className="visually-hidden">{t('child.name.label')}</Form.Label>
             <Form.Control
               type="text"
+              ref={nameInput}
               placeholder={t('child.name.placeholder')}
               value={childName}
-              onChange={(e) => setChildName(e.target.value)}
+              onChange={handleNameChange}
+              onBlur={() => setNameError(validateChildName(childName))}
+              aria-invalid={Boolean(nameError)}
+              aria-describedby={nameError ? CHILD_NAME_ERROR_ID : undefined}
             />
+            {nameError && (
+              <div id={CHILD_NAME_ERROR_ID} className="child-name-error" role="alert">
+                {t(`child.name.error.${nameError}`)}
+              </div>
+            )}
           </Form.Group>
 
           <div className="d-grid">
             <Button
               type="submit"
               variant="primary"
-              disabled={!isFormValid() || saving}
+              // Only the in-flight save disables it. Whether the name is
+              // acceptable is answered by pressing it, not by a button that
+              // will not react.
+              disabled={saving}
               className="onboarding-action"
               // Stable E2E hook: the label is localized
               data-testid="child-save-button"

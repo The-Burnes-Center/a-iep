@@ -89,7 +89,7 @@ let requests: Recorded[] = [];
  */
 const stubFetch = (
   profile: Record<string, unknown>,
-  { failWrites = false, document = {} as Record<string, unknown> } = {},
+  { failWrites = false, blockWrites = false, document = {} as Record<string, unknown> } = {},
 ) => {
   vi.stubGlobal(
     "fetch",
@@ -106,6 +106,11 @@ const stubFetch = (
       }
       if (method === "GET") {
         return { ok: true, status: 200, json: async () => ({ profile }) };
+      }
+      // A write that never answers: the screen as the parent sees it between
+      // the tap and the result.
+      if (blockWrites) {
+        return new Promise<never>(() => {});
       }
       if (failWrites) {
         return { ok: false, status: 500, json: async () => ({}) };
@@ -167,6 +172,9 @@ const saveButton = () => screen.getByTestId("child-save-button");
 /** The form is on screen once the mount-time profile load has resolved. */
 const waitForForm = () => screen.findByPlaceholderText("child.name.placeholder");
 
+/** Everything the screen sent that was not a read. */
+const writes = () => requests.filter((r) => r.method !== "GET");
+
 /** The write this screen makes, whichever of the two paths it took. */
 const childWrite = () =>
   requests.find((r) => r.method === "POST" && r.url.endsWith("/profile/children")
@@ -227,22 +235,40 @@ describe("the screen", () => {
 });
 
 describe("the save button", () => {
-  test("is disabled until a name is typed", async () => {
+  // The two cases below pinned the opposite until this change: the button was
+  // disabled until the field held something, and disabled again the moment
+  // what it held was not acceptable. That pin was the defect. A parent who
+  // typed a name this screen would not take was left pressing a control that
+  // did not react, with nothing on screen saying why, and no way to find out.
+  // The button stays live and the refusal is spoken instead ("the name rule").
+  test("can be pressed with the field empty, rather than sitting dead", async () => {
     stubFetch(profileWith({}));
     renderPage();
     await waitForForm();
 
-    expect(saveButton()).toBeDisabled();
+    expect(saveButton()).toBeEnabled();
   });
 
-  test("stays disabled for whitespace", async () => {
+  test("can be pressed when the field holds only whitespace", async () => {
     stubFetch(profileWith({}));
     const user = renderPage();
     await waitForForm();
 
     await user.type(nameField(), "   ");
 
-    expect(saveButton()).toBeDisabled();
+    expect(saveButton()).toBeEnabled();
+  });
+
+  test("is disabled while a save is in flight, so a double tap cannot double-submit", async () => {
+    stubFetch(profileWith({}), { blockWrites: true });
+    const user = renderPage();
+    await waitForForm();
+
+    await user.type(nameField(), "Alex Rivera");
+    await user.click(saveButton());
+
+    await waitFor(() => expect(saveButton()).toBeDisabled());
+    expect(saveButton()).toHaveTextContent("child.button.saving");
   });
 
   test("enables on the name alone, for a child with no school district on file", async () => {
@@ -257,6 +283,161 @@ describe("the save button", () => {
     await user.type(nameField(), "Alex Rivera");
 
     expect(saveButton()).toBeEnabled();
+  });
+});
+
+/**
+ * The rule itself is covered character by character in
+ * common/child-name.test.ts and, server-side, in
+ * test/python/test_child_name_validation.py. What is pinned here is what a
+ * parent gets: a message they can act on, a field they are put back into, and
+ * nothing sent to the API until the name is one we can store.
+ */
+describe("the name rule", () => {
+  /** Faster than typing, and it is how a long name actually arrives. */
+  const enter = async (user: ReturnType<typeof renderPage>, value: string) => {
+    await user.click(nameField());
+    await user.paste(value);
+  };
+
+  test("says what is wrong on blur, before the parent presses anything", async () => {
+    stubFetch(profileWith({}));
+    const user = renderPage();
+    await waitForForm();
+
+    await enter(user, "123");
+    await user.tab();
+
+    expect(await screen.findByText("child.name.error.invalid")).toBeInTheDocument();
+  });
+
+  test("pressing Continue with a name we cannot store explains it and sends nothing", async () => {
+    stubFetch(profileWith({}));
+    const user = renderPage();
+    await waitForForm();
+
+    await enter(user, "!!!");
+    await user.click(saveButton());
+
+    expect(await screen.findByText("child.name.error.invalid")).toBeInTheDocument();
+    expect(writes()).toEqual([]);
+    expect(screen.getByTestId("landed-on")).toHaveTextContent(PAGE);
+  });
+
+  test("pressing Continue on the empty field asks for a name", async () => {
+    // The state every parent arrives in: the placeholder is not prefilled, so
+    // this is the first thing a hurried tap produces.
+    stubFetch(profileWith({}));
+    const user = renderPage();
+    await waitForForm();
+
+    await user.click(saveButton());
+
+    expect(await screen.findByText("child.name.error.required")).toBeInTheDocument();
+    expect(writes()).toEqual([]);
+  });
+
+  test("reports a name past the length limit as too long", async () => {
+    stubFetch(profileWith({}));
+    const user = renderPage();
+    await waitForForm();
+
+    await enter(user, "a".repeat(65));
+    await user.click(saveButton());
+
+    expect(await screen.findByText("child.name.error.tooLong")).toBeInTheDocument();
+    expect(writes()).toEqual([]);
+  });
+
+  test("puts the cursor back in the field, so the fix is one keystroke away", async () => {
+    stubFetch(profileWith({}));
+    const user = renderPage();
+    await waitForForm();
+
+    await enter(user, "123");
+    await user.click(saveButton());  // focus is on the button at this point
+
+    await waitFor(() => expect(nameField()).toHaveFocus());
+  });
+
+  test("names the message to the field, for a parent using a screen reader", async () => {
+    stubFetch(profileWith({}));
+    const user = renderPage();
+    await waitForForm();
+
+    expect(nameField()).toHaveAttribute("aria-invalid", "false");
+
+    await enter(user, "123");
+    await user.click(saveButton());
+
+    const message = await screen.findByText("child.name.error.invalid");
+    expect(nameField()).toHaveAttribute("aria-invalid", "true");
+    expect(nameField()).toHaveAttribute("aria-describedby", message.id);
+    expect(message.id).toBeTruthy();
+  });
+
+  test("drops the message as soon as the parent starts fixing it", async () => {
+    stubFetch(profileWith({}));
+    const user = renderPage();
+    await waitForForm();
+
+    await enter(user, "123");
+    await user.click(saveButton());
+    await screen.findByText("child.name.error.invalid");
+
+    await user.type(nameField(), "A");
+
+    expect(screen.queryByText("child.name.error.invalid")).toBeNull();
+    expect(nameField()).toHaveAttribute("aria-invalid", "false");
+  });
+
+  test("a name it took the first time saves and carries the parent on", async () => {
+    // Vietnamese, because the rule is Unicode and a Latin-only one would stop
+    // most of the families this is built for at the first screen.
+    stubFetch(profileWith({}));
+    const user = renderPage();
+    await waitForForm();
+
+    await enter(user, "Nguyễn Minh Anh");
+    await user.click(saveButton());
+
+    await waitFor(() => expect(childWrite()).toBeDefined());
+    const child = (childWrite()?.body?.children as Record<string, unknown>[])[0];
+    expect(child.name).toBe("Nguyễn Minh Anh");
+    expect(screen.queryByText("child.name.error.invalid")).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByTestId("landed-on")).toHaveTextContent("/how-to-use-the-tool"),
+    );
+  });
+
+  test("sends the tidied name, not the keystrokes", async () => {
+    // The stored value reaches the heading of every summary and every
+    // translation, and is read aloud by TTS: "Alex   Rivera" would be read
+    // that way. The API applies the same rule; this is the two agreeing.
+    stubFetch(profileWith({}));
+    const user = renderPage();
+    await waitForForm();
+
+    await enter(user, "  Alex   Rivera  ");
+    await user.click(saveButton());
+
+    await waitFor(() => expect(childWrite()).toBeDefined());
+    const child = (childWrite()?.body?.children as Record<string, unknown>[])[0];
+    expect(child.name).toBe("Alex Rivera");
+  });
+
+  test("sends the tidied name on the add path too", async () => {
+    // Two write paths, one rule: a new child must not be stored differently
+    // from an edited one.
+    stubFetch(profileWith({ children: [] }));
+    const user = renderPage();
+    await waitForForm();
+
+    await enter(user, "  Alex   Rivera  ");
+    await user.click(saveButton());
+
+    await waitFor(() => expect(childWrite()).toBeDefined());
+    expect(childWrite()?.body?.name).toBe("Alex Rivera");
   });
 });
 
@@ -437,6 +618,9 @@ describe("the copy this screen depends on", () => {
     "child.heading",
     "child.name.label",
     "child.name.placeholder",
+    "child.name.error.required",
+    "child.name.error.invalid",
+    "child.name.error.tooLong",
     "child.button.save",
     "child.button.saving",
     "child.error.updateFailed",
