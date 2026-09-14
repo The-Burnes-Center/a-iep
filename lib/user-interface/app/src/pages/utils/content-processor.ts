@@ -18,6 +18,13 @@ const jargonDictionaries = {
   zh: zhGlossary
 };
 
+const escapeForAttribute = (value: string): string => value
+  .replace(/&/g, '&amp;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;');
+
 export const processContentWithJargon = (content: string, languageCode: string): string => {
     if (!content) return '';
     
@@ -49,13 +56,13 @@ export const processContentWithJargon = (content: string, languageCode: string):
       const matches = processedContent.match(regex);
       if (matches) {
         // Properly escape the definition for HTML attribute
-        const escapedDefinition = jargonDict[term]
-          .replace(/&/g, '&amp;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#39;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-        
+        const escapedDefinition = escapeForAttribute(jargonDict[term]);
+        // The match below is case-insensitive, so the wrapped text is however
+        // the document happened to write the word. Carry the dictionary key
+        // too: the drawer titles itself off this, and reading the visible text
+        // instead is what gave a parent a lowercase heading.
+        const escapedCanonicalTerm = escapeForAttribute(term);
+
         // Replace only if the term is not already inside a data-tooltip attribute or jargon span
         processedContent = processedContent.replace(regex, (match, offset, string) => {
           // Get the text before this match
@@ -76,7 +83,9 @@ export const processContentWithJargon = (content: string, languageCode: string):
             return match; // We're inside an unclosed tooltip attribute
           }
           
-          return `<span class="jargon-term" data-tooltip="${escapedDefinition}">${match}</span>`;
+          // class stays first: the guard above recognises an existing span by
+          // the literal prefix `<span class="jargon-term"`.
+          return `<span class="jargon-term" data-term="${escapedCanonicalTerm}" data-tooltip="${escapedDefinition}">${match}</span>`;
         });
       }
     });

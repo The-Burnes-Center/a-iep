@@ -349,7 +349,11 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     const target = e.target as HTMLElement;
     if (target.classList.contains('jargon-term')) {
       e.preventDefault();
-      const term = target.textContent || '';
+      // data-term is the glossary's own spelling of the word; the span's text
+      // is however the document wrote it, which is lowercase often enough that
+      // the drawer used to be titled "accommodations". Content highlighted
+      // before data-term existed has no attribute, so fall back to the text.
+      const term = target.getAttribute('data-term') || target.textContent || '';
       const definition = target.getAttribute('data-tooltip') || '';
       setSelectedJargon({ term, definition });
       setShowJargonDrawer(true);
