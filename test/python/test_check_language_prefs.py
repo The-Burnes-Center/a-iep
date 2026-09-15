@@ -115,9 +115,9 @@ def test_event_passthrough_keeps_progress_tracking(step):
     # Unlike redact_ocr, this step intentionally preserves progress and
     # current_step (the state machine reads them back after the branch).
     step.profiles.put_item(Item={'userId': USER, 'primaryLanguage': 'vi'})
-    result = run(step, progress=65, current_step='analysis_complete',
+    result = run(step, progress=75, current_step='analysis_complete',
                  s3_bucket='iep-uploads', iep_id='iep-1')
-    assert result['progress'] == 65
+    assert result['progress'] == 75
     assert result['current_step'] == 'analysis_complete'
     assert result['s3_bucket'] == 'iep-uploads'
     assert result['iep_id'] == 'iep-1'

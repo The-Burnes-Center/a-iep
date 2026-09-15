@@ -389,7 +389,7 @@
           "user_id.$": "$.user_id",
           "status": "PROCESSING",
           "current_step": "analysis_complete",
-          "progress": 65
+          "progress": 75
         }
       },
       "ResultPath": null,
@@ -430,7 +430,7 @@
         "user_id.$": "$.user_id",
         "s3_bucket.$": "$.s3_bucket",
         "s3_key.$": "$.s3_key",
-        "progress": 65,
+        "progress": 75,
         "current_step": "analysis_complete",
         "status": "PROCESSING"
       },
@@ -566,7 +566,7 @@
           "user_id.$": "$.user_id",
           "status": "PROCESSING",
           "current_step": "translation_complete",
-          "progress": 85
+          "progress": 97
         }
       },
       "ResultPath": null,
@@ -607,7 +607,7 @@
         "user_id.$": "$.user_id",
         "s3_bucket.$": "$.s3_bucket",
         "s3_key.$": "$.s3_key",
-        "progress": 85,
+        "progress": 97,
         "current_step": "translation_complete",
         "status": "PROCESSING",
         "target_languages.$": "$.target_languages",

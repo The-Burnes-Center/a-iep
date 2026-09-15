@@ -82,10 +82,50 @@ describe('the milestone table', () => {
   });
 
   test('carries the two milestones the state machine does not write', () => {
-    // 70 is translation-request-handler's IN_FLIGHT_PROGRESS, for a
+    // 80 is translation-request-handler's IN_FLIGHT_PROGRESS, for a
     // translation a parent asked for; 100 is finalize_results.
-    expect(PIPELINE_MILESTONES.translation_requested).toBe(70);
+    expect(PIPELINE_MILESTONES.translation_requested).toBe(80);
     expect(PIPELINE_MILESTONES.completed).toBe(100);
+  });
+
+  /**
+   * The spacing rules, as assertions rather than as a comment nobody reads
+   * when they next move a number.
+   *
+   * Both of these have already been violated once. The milestones are spaced
+   * by measured wall clock (see the table in the module), and the two that
+   * carry real waiting are `cleanup_complete` -> `analysis_complete`
+   * (summarizing, 29s at p50) and `analysis_complete` ->
+   * `translation_complete` (translating, 24s). If either gap is narrow, the
+   * bar has nowhere to ease through the longest steps in the pipeline, which
+   * is what "it looks stuck" means.
+   */
+  test('the gaps around the two slow steps are wide enough to ease through', () => {
+    const gap = (from, to) => PIPELINE_MILESTONES[to] - PIPELINE_MILESTONES[from];
+
+    expect(gap('cleanup_complete', 'analysis_complete')).toBeGreaterThanOrEqual(15);
+    expect(gap('analysis_complete', 'translation_complete')).toBeGreaterThanOrEqual(15);
+  });
+
+  test('the on-demand entry point sits strictly inside the translate gap', () => {
+    // translation-request-handler's IN_FLIGHT_PROGRESS. A parent who asks for
+    // one extra language starts here, and the ease runs from here to
+    // `translation_complete`. Put it just under the analysis milestone and
+    // that ease has a couple of points to cover the whole translate step;
+    // put it at or above translation_complete and the bar cannot move at all.
+    expect(PIPELINE_MILESTONES.translation_requested)
+      .toBeGreaterThan(PIPELINE_MILESTONES.analysis_complete);
+    expect(PIPELINE_MILESTONES.translation_requested)
+      .toBeLessThan(PIPELINE_MILESTONES.translation_complete);
+    expect(
+      PIPELINE_MILESTONES.translation_complete - PIPELINE_MILESTONES.translation_requested,
+    ).toBeGreaterThanOrEqual(15);
+  });
+
+  test('the tail is narrow, because the step it covers is a second and a half', () => {
+    // finalize_results is 1.5s at p50. This gap was 15 points, which drew a
+    // bar that rested and then leapt; the whole re-spacing was for this.
+    expect(100 - PIPELINE_MILESTONES.translation_complete).toBeLessThanOrEqual(5);
   });
 
   test('never goes backwards through the run', () => {
@@ -123,9 +163,9 @@ describe('progressPercent', () => {
   test('falls back to the step when there is no usable number', () => {
     expect(progressPercent({ status: 'PROCESSING', current_step: 'ocr_complete' })).toBe(15);
     expect(progressPercent({ status: 'PROCESSING', progress: null, current_step: 'analysis_complete' }))
-      .toBe(65);
+      .toBe(75);
     expect(progressPercent({ status: 'PROCESSING', progress: 0, current_step: 'translation_complete' }))
-      .toBe(85);
+      .toBe(97);
   });
 
   test('never draws an empty bar', () => {
@@ -337,7 +377,9 @@ describe('easing between milestones', () => {
     // next milestone must be an increase.
     const easedToTheLimit = after(SUMMARIZING, 86_400);
     const confirmed = progressPercent({
-      status: 'PROCESSING', progress: 65, current_step: 'analysis_complete',
+      status: 'PROCESSING',
+      progress: PIPELINE_MILESTONES.analysis_complete,
+      current_step: 'analysis_complete',
     });
 
     expect(confirmed).toBeGreaterThan(easedToTheLimit);
@@ -354,7 +396,8 @@ describe('easing between milestones', () => {
     test('a browser clock far ahead is bounded by the ceiling, not by the clock', () => {
       // Unbounded input, bounded output: this is why the ceiling is a hard
       // cap rather than a target the ease is scaled to hit.
-      expect(after(SUMMARIZING, 86_400 * 3650)).toBeLessThan(65);
+      expect(after(SUMMARIZING, 86_400 * 3650))
+        .toBeLessThan(PIPELINE_MILESTONES.analysis_complete);
     });
 
     test('a document with no timestamp does not ease at all', () => {
@@ -427,7 +470,8 @@ describe('easing between milestones', () => {
     // 30% confirmed: the next milestone above it is analysis_complete.
     expect(nextMilestonePercent(unknown)).toBe(PIPELINE_MILESTONES.analysis_complete);
     expect(after(unknown, 60)).toBeGreaterThan(30);
-    expect(after(unknown, 86_400)).toBeLessThan(65);
+    expect(after(unknown, 86_400))
+      .toBeLessThan(PIPELINE_MILESTONES.analysis_complete);
   });
 });
 
@@ -440,16 +484,20 @@ describe('nextMilestonePercent', () => {
   });
 
   test('is read off the percentage, so an unknown step still gets a ceiling', () => {
+    // Deliberately a percentage that matches no milestone: the ceiling is the
+    // next one ABOVE it, whatever the step is called.
     expect(nextMilestonePercent({ status: 'PROCESSING', progress: 66, current_step: 'mystery' }))
+      .toBe(PIPELINE_MILESTONES.analysis_complete);
+    expect(nextMilestonePercent({ status: 'PROCESSING', progress: 90, current_step: 'mystery' }))
       .toBe(PIPELINE_MILESTONES.translation_complete);
   });
 
   test('skips translation_requested, which no run passes THROUGH', () => {
-    // Caught by reading the curve, not by a test, so here is the test. 70 is
+    // Caught by reading the curve, not by a test, so here is the test. 80 is
     // where the on-demand add-a-language path starts; treating it as a
-    // waypoint capped the translate step at 70 and the bar eased 65 -> 69
-    // across 43 seconds of real work.
-    expect(PIPELINE_MILESTONES.translation_requested).toBe(70);
+    // waypoint capped the translate step at 80 and the bar eased 75 -> 79
+    // across 24 seconds of real work.
+    expect(PIPELINE_MILESTONES.translation_requested).toBe(80);
     expect(nextMilestonePercent({ status: 'PROCESSING', current_step: 'analysis_complete' }))
       .toBe(PIPELINE_MILESTONES.translation_complete);
     // And from inside the on-demand path itself, the next one is the same.

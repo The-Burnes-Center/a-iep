@@ -192,3 +192,111 @@ def test_a_partial_translation_success_is_not_caught_by_this_narrow_guard(states
     gate = states['VerifyLanguageProduced']
     assert gate['Choices'][0]['Variable'] == '$.translation_result.languages_processed[0]'
     assert 'target_languages' not in json.dumps(gate['Choices'])
+
+
+# ---------------------------------------------------------------------------
+# The progress milestones
+#
+# What a parent's bar is drawn at. Spaced by MEASURED wall clock between
+# consecutive writes (Step Functions execution history, prod + staging pooled,
+# n=100): the two steps that carry real waiting are summarizing, 29s at p50,
+# and translating, 24s. The tail after translating is 1.5s and used to own 15
+# points of the bar, so the bar rested and then leapt.
+#
+# Each value is written TWICE in this machine -- once in the ddb-service Task
+# that persists it and once in the Pass that mirrors it back into the
+# execution's own state -- and the two disagreeing is a silent defect: the
+# document row says one thing and everything downstream in the machine reads
+# the other.
+#
+# The frontend keeps a copy of this table (PIPELINE_MILESTONES in
+# lib/user-interface/app/src/pages/utils/processing-progress.mjs) and
+# test/lambdas/summary-page/processing-progress.test.mjs asserts the copy
+# matches this file by walking it, so the two cannot drift.
+
+#: The pipeline's own order, and the value each milestone writes.
+EXPECTED_MILESTONES = [
+    ('start', 5),
+    ('ocr_complete', 15),
+    ('pii_redaction_complete', 20),
+    ('cleanup_complete', 22),
+    ('analysis_complete', 75),
+    ('translation_complete', 97),
+]
+
+
+def _progress_writes(node, found=None):
+    """Every {current_step, progress} pair anywhere in the definition."""
+    if found is None:
+        found = {}
+    if isinstance(node, dict):
+        step, progress = node.get('current_step'), node.get('progress')
+        if isinstance(step, str) and isinstance(progress, int):
+            found.setdefault(step, set()).add(progress)
+        for value in node.values():
+            _progress_writes(value, found)
+    elif isinstance(node, list):
+        for value in node:
+            _progress_writes(value, found)
+    return found
+
+
+@pytest.fixture()
+def milestones(states):
+    return _progress_writes(states)
+
+
+def test_every_milestone_writes_one_value_in_both_places(milestones):
+    for step, expected in EXPECTED_MILESTONES:
+        assert step in milestones, f'{step} writes no progress at all'
+        assert milestones[step] == {expected}, (
+            f'{step} writes {sorted(milestones[step])}, expected {expected}. '
+            'The Task and the Pass beside it must agree.'
+        )
+
+
+def test_the_milestones_only_ever_increase(milestones):
+    values = [milestones[step].copy().pop() for step, _ in EXPECTED_MILESTONES]
+    assert values == sorted(values), values
+    assert len(set(values)) == len(values), f'a repeated value: {values}'
+    assert values[-1] < 100, 'finalize_results is what writes 100'
+
+
+def test_the_two_slow_steps_get_room_on_the_bar(milestones):
+    """Summarizing (29s) and translating (24s) are where the waiting is.
+
+    The frontend eases the bar from the confirmed milestone toward the next
+    one, so a narrow gap here means it has nowhere to move through the longest
+    steps in the pipeline. Both of these gaps have been too narrow once.
+    """
+    at = {step: milestones[step].copy().pop() for step, _ in EXPECTED_MILESTONES}
+
+    assert at['analysis_complete'] - at['cleanup_complete'] >= 15
+    assert at['translation_complete'] - at['analysis_complete'] >= 15
+
+
+def test_the_tail_is_narrow_because_the_step_it_covers_is_fast(milestones):
+    """finalize_results is 1.5s at p50. It had 15 points of the bar."""
+    translation_complete = milestones['translation_complete'].copy().pop()
+
+    assert 100 - translation_complete <= 5
+
+
+def test_the_no_translation_branch_still_reaches_the_end(states):
+    """The English-only path, which is 32 of 40 prod runs.
+
+    TranslationChoice's Default skips the translate step entirely, so nothing
+    writes translation_complete on this path: the document goes from
+    analysis_complete straight to finalize_results, which writes 100. Pinned
+    because the tempting fix for the tail was to insert a milestone here, and
+    measuring said it buys nothing -- the gap the English-only parent actually
+    waits in is the one BEFORE analysis_complete.
+    """
+    choice = states['TranslationChoice']
+    assert choice['Type'] == 'Choice'
+    assert choice['Default'] == 'FinalizeResults'
+
+    translating = [c for c in choice['Choices'] if c['Variable'] == '$.translation_needed']
+    assert len(translating) == 1
+    assert translating[0]['BooleanEquals'] is True
+    assert translating[0]['Next'] == 'TranslateParsingResult'

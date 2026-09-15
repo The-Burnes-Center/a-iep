@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import IEPSummarizationAndTranslation from "./IEPSummarizationAndTranslation";
+import { PIPELINE_MILESTONES } from "../utils/processing-progress.mjs";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
 import type { AppConfig } from "../../common/types";
@@ -418,10 +419,10 @@ describe("the progress bar", () => {
 
     expect(progressValue()).toBe(15);
 
-    documentPayload = processingDocument({ progress: 65, current_step: "analysis_complete" });
+    documentPayload = processingDocument({ progress: 75, current_step: "analysis_complete" });
     await settle(POLL_INTERVAL_MS);
 
-    expect(progressValue()).toBe(65);
+    expect(progressValue()).toBe(75);
   });
 
   test("names the step in flight, and renames it as the run moves on", async () => {
@@ -444,20 +445,20 @@ describe("the progress bar", () => {
     // percentage is derived from the payload rather than held in state
     // precisely so that it survives that.
     documentPayload = processingDocument({
-      progress: 65,
+      progress: 75,
       current_step: "analysis_complete",
       updatedAt: nowSeconds(),
     });
     const { unmount } = renderPage();
     await settle();
 
-    expect(confirmedValue()).toBe(65);
+    expect(confirmedValue()).toBe(75);
 
-    // Long enough that the bar has eased well clear of 65, so "same place"
+    // Long enough that the bar has eased well clear of 75, so "same place"
     // is a real assertion and not just "both happened to be at the milestone".
     await settle(40_000);
     const beforeLeaving = progressValue();
-    expect(beforeLeaving).toBeGreaterThan(65);
+    expect(beforeLeaving).toBeGreaterThan(75);
 
     unmount();
     renderPage();
@@ -466,7 +467,7 @@ describe("the progress bar", () => {
     // Rebuilt from the payload's own timestamp, which is why it survives:
     // nothing about where the bar had got to lived in this component.
     expect(progressValue()).toBe(beforeLeaving);
-    expect(confirmedValue()).toBe(65);
+    expect(confirmedValue()).toBe(75);
     expect(stepLine()).toBe("summary.processing.step.translating");
   });
 
@@ -523,10 +524,10 @@ describe("the bar between milestones", () => {
     renderPage();
     await settle();
 
-    // Nine minutes: six times the measured p90 of this step.
+    // Nine minutes: eleven times the measured p90 of this step.
     await settle(9 * 60_000);
 
-    expect(progressValue()).toBeLessThan(65);
+    expect(progressValue()).toBeLessThan(PIPELINE_MILESTONES.analysis_complete);
     expect(confirmedValue()).toBe(22);
   });
 
@@ -540,17 +541,17 @@ describe("the bar between milestones", () => {
     expect(eased).toBeGreaterThan(22);
 
     documentPayload = processingDocument({
-      progress: 65,
+      progress: 75,
       current_step: "analysis_complete",
       updatedAt: nowSeconds(),
     });
     await settle(POLL_INTERVAL_MS);
 
     // The confirmed value is the exact one; the drawn value is already easing
-    // past it toward 85, so pinning it to 65 would be asserting that the
+    // past it toward 97, so pinning it to 75 would be asserting that the
     // easing had stopped.
-    expect(confirmedValue()).toBe(65);
-    expect(progressValue()).toBeGreaterThanOrEqual(65);
+    expect(confirmedValue()).toBe(75);
+    expect(progressValue()).toBeGreaterThanOrEqual(75);
     expect(progressValue()).toBeGreaterThan(eased);
   });
 
@@ -586,7 +587,7 @@ describe("the bar between milestones", () => {
     await settle(60_000);
 
     expect(progressValue()).toBeGreaterThan(22);
-    expect(progressValue()).toBeLessThan(65);
+    expect(progressValue()).toBeLessThan(PIPELINE_MILESTONES.analysis_complete);
   });
 
   test("stops at 100 when the document is done", async () => {
