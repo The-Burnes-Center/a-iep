@@ -1,9 +1,13 @@
 
+/* Arrows and dots on one line, under the deck. The arrows used to sit
+   between the illustration and the words it belongs to, which both split the
+   slide in half and left a band of empty cream nobody could use. */
 .parent-rights-carousel-buttons {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  width: 95%;
-  padding: 20px 0px;
+  gap: 0.5rem;
+  width: 100%;
 }
 
 .carousel-nav-button {
@@ -16,6 +20,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Never squeezed by the dots: 15 of them on a 360px phone would otherwise
+     shrink the two controls a parent actually aims at. */
+  flex: 0 0 auto;
 }
 
 .carousel-nav-button:hover:not(:disabled) {
@@ -50,17 +57,28 @@
   transform: rotate(90deg);
 }
 
+/* Centred in whatever height it is given, not parked at the top. On a phone
+   the card is 100dvh, so top-aligning it left a screen's worth of empty cream
+   under the dots. `gap` owns every vertical space in here: the pieces used to
+   carry their own margins and padding, which is how 20px of arrow padding and
+   a 24px slide margin ended up stacked on top of each other. */
 .parent-rights-container {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+  gap: 1rem;
   height: 100%;
   padding: 1rem;
 }
 
-/* Base class with all shared styles */
+/* Base class with all shared styles.
+
+   Full width of the container's content box, which is also the deck's width
+   below it, so the illustration and the words line up on one edge. At 95% it
+   sat inside a 90% deck: two different insets, neither aligned to anything. */
 .parent-rights-card {
-  width: 95%;
+  width: 100%;
   display: flex;
   flex-direction: row;
   background-size: cover;
@@ -69,7 +87,6 @@
   height: 200px;
   border-radius: 12px;
   border: 1px solid #1E1E1E;
-  margin-top: 20px;
 }
 
 /* Modifier classes for different background images */
@@ -114,7 +131,7 @@
 }
 
 .tutorial-card {
-  width: 95%;
+  width: 100%;
   display: flex;
   flex-direction: row;
   background-image: var(--tutorial-bg);
@@ -128,7 +145,6 @@
   height: 200px;
   border-radius: 12px;
   border: 1px solid #1E1E1E;
-  margin-top: 20px;
   animation: fadeIn 0.3s ease-in-out;
 }
 
@@ -143,7 +159,6 @@
 
 .parent-rights-carousel-wrapper {
   width: 100%;
-  max-width: 90%;
   border-radius: 12px;
   overflow: hidden;
   background: #EEEBE5;
@@ -155,8 +170,15 @@
 }
 
 
-/* Slide styling */
+/* Slide styling.
+
+   width: 100% is load-bearing. .carousel-item.active is a flex container (see
+   the rule near the bottom of this file), so without it the slide was sized
+   shrink-to-fit and every slide came out a different width -- measured at
+   244px to 320px across the English deck and 195px to 320px across the Arabic
+   one. Centred, that moved the heading's start edge on every swipe. */
 .carousel-slide {
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -189,13 +211,28 @@
   background: #EEEBE5;
 }
 
+/* One reserved height for every slide, so nothing below the deck moves as a
+   parent swipes, and the text is centred inside it so a short slide's spare
+   room is split above and below instead of all dumped underneath.
+
+   min-height rather than height: the value below is the tallest slide there
+   is, measured across all five dictionaries with padding included (Spanish
+   and Vietnamese tie at 175px on a 1280px window and 136px on a 390px phone;
+   Arabic and Chinese wrap shortest at 144px and 112px), plus a little slack.
+   A locale that one day needs more gets a taller block rather than clipped
+   words. It was a flat 228px with 24px of margin under it, which left 53px of
+   dead cream on the tallest slide there is and 204px on a section divider. */
 .slide-rights-content {
   position: relative;
   z-index: 2;
+  width: 100%;
+  min-height: 184px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   text-align: start;
   color: var(--aiep-ink);
-  height: 228px;
-  margin-bottom: 1.5rem;
+  padding: 1.25rem;
 }
 
 .slide-rights-content h2 {
@@ -213,43 +250,63 @@
   color: var(--aiep-muted);
 }
 
-/* A divider's text block stays EXACTLY as tall as every other slide's, even
-   though it is empty. It used to collapse to 3rem, which shortened the whole
-   slide by ~180px and made the indicator dots jump up and down as a parent
-   swiped past each of the three dividers. A carousel whose controls move under
-   the thumb is hard to use, and that costs more than the empty space this
-   leaves. The class is kept as a hook: the suite asserts a divider renders no
-   body copy through it. */
-.slide-rights-content--section {
-  height: 228px;
+/* A divider's text block stays exactly as tall as every other slide's, even
+   though it only carries the hint. Anything shorter and the whole slide
+   shrinks, which moves the controls under the parent's thumb as they swipe
+   past each of the three dividers. It inherits the min-height above, so this
+   class is now only a hook: the suite asserts a divider renders no body copy
+   through it. */
+
+
+/* Indicators styling.
+
+   Ours, not react-bootstrap's: see the `indicators={false}` comment in the
+   component. Wrapping rather than clipping is the deliberate failure mode --
+   fifteen dots plus two arrows do not fit on the narrowest phones, and a
+   second row of dots is better than dots a parent cannot see or reach. */
+.parent-rights-dots {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
 }
 
-
-/* Indicators styling */
-.parent-rights-carousel .carousel-indicators {
-  z-index: 3;
-  margin-bottom: 0;
+/* The button is the 24px target WCAG 2.2 asks for; the 8px dot inside it is
+   what the parent sees. These were 8px buttons, so the whole hit area was the
+   dot. */
+.parent-rights-dot {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.parent-rights-carousel .carousel-indicators [data-bs-target] {
+.parent-rights-dot::before {
+  content: '';
   width: 8px;
   height: 8px;
   border-radius: 50%;
   border: 0.5px solid #1E1E1E;
   background-color: var(--aiep-surface-field);
-  margin: 0 4px;
-  transition: all 0.3s ease;
+  transition: background-color 0.3s ease, transform 0.3s ease;
 }
 
-.parent-rights-carousel .carousel-indicators .active {
+.parent-rights-dot.active::before {
   background-color: #00682F;
-  border-color: none;
+  transform: scale(1.25);
 }
 
-/* Focus states for accessibility */
-.parent-rights-carousel .carousel-indicators [data-bs-target]:focus {
-  outline: none !important;  /* Remove the focus outline */
-  outline-offset: 2px;
+.parent-rights-dot:focus-visible {
+  outline: 2px solid #0040BA;
+  outline-offset: -2px;
+  border-radius: 50%;
 }
 
 /* Ensure controls are hidden (double check) */
@@ -277,14 +334,32 @@
 @media (max-width: 576px) {
   .parent-rights-container {
     padding: 0.5rem;
-  }
-  
-  .parent-rights-carousel-wrapper {
-    max-width: 95%;
+    gap: 0.75rem;
   }
 
+  /* Arabic and Chinese wrap short, so their tallest slide needs less room
+     than the 176px above; English, Spanish and Vietnamese all need it. */
   .slide-rights-content {
-    max-width: 90%;
+    padding: 1rem;
+  }
+
+  /* Fifteen 24px targets plus two arrows do not fit across a phone: the
+     arrows and the dots each give up a little so that they do. A 16px dot is
+     still four times the area of the 8px one this replaced, where the dot WAS
+     the whole button, and the arrows stay the biggest thing in the row
+     because they are what a parent aims at. Measured at 360px: 240px of dots
+     in 256px of room. The wrap above is what happens below ~330px. */
+  .carousel-nav-button {
+    padding: 0.625rem;
+  }
+
+  .parent-rights-dots {
+    gap: 0;
+  }
+
+  .parent-rights-dot {
+    width: 16px;
+    height: 16px;
   }
 
   .slide-rights-content h2 {

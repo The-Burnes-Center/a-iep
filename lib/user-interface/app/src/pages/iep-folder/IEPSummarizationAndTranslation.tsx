@@ -24,6 +24,7 @@ import {
   shouldSuppressProcessingTakeover,
 } from '../utils/translation-flow.mjs';
 import type { TranslationRequestState } from '../utils/translation-flow.mjs';
+import { progressPercent, processingStepKey } from '../utils/processing-progress.mjs';
 import { canRetryFailedDocument } from './document-failure';
 import AIEPSpinner from '../../components/AIEPSpinner';
 import PageLoading from '../../components/PageLoading';
@@ -1061,6 +1062,11 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         headerGreenTitle={t('rights.header.title.green')}
         rightsIndicatorTemplate={t('carousel.rights.indicator')}
         sectionHint={t('carousel.section.hint')}
+        // Both derived from the document itself rather than kept in state, so
+        // a parent who taps Account mid-run and comes back lands on the same
+        // percentage instead of watching the bar restart.
+        progressPercent={progressPercent(document)}
+        progressStepLabel={t(processingStepKey(document))}
       />
     );
   }

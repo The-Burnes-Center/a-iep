@@ -8,6 +8,55 @@
   display: none;
 }
 
+/* The status block: what we are doing, and how far along it is.
+
+   One dark-green band owns the whole answer to "is this working?" — the
+   headline, the step in flight, and the bar pinned to the band's lower edge.
+   The bar used to float on the cream below the band, unlabelled, which is
+   where an indeterminate barber-pole can sit without anyone asking what it
+   means. */
+.processing-status-headline {
+  margin: 0;
+  text-align: center;
+}
+
+.processing-status-step {
+  margin: 0;
+  text-align: center;
+  font-size: 0.9375rem;
+  color: var(--aiep-on-green-muted);
+}
+
+/* A light track carrying a green fill, on the dark-green band.
+
+   Both halves have to be legible for a bar to mean anything: the track shows
+   how far there is to go (9.1 against the band) and the fill shows how far
+   along the run is (5.7 against the track). Tried the other way round first —
+   a green track reads as part of the band, so the fill floated on its own and
+   the bar lost its scale. MUI's own success palette is a mid green that
+   disappears against either. */
+.processing-status-bar.MuiLinearProgress-root {
+  width: 100%;
+  height: 8px;
+  background-color: var(--aiep-surface-field);
+  border-radius: 999px;
+}
+
+.processing-status-bar .MuiLinearProgress-bar {
+  background-color: var(--aiep-green);
+  /* Slow enough to read as the bar advancing rather than teleporting: the
+     poll interval is 5s and the jump from redaction (22%) to a written
+     summary (65%) is the biggest one there is. MUI's determinate default is
+     0.4s linear. */
+  transition: transform 900ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .processing-status-bar .MuiLinearProgress-bar {
+    transition: none;
+  }
+}
+
 /* Desktop mode: Modal dialog effect (ONLY on desktop) */
 @media (min-width: 992px) and (min-height: 700px) {
   .processing-modal-wrapper {
@@ -32,20 +81,26 @@
   .processing-modal-container {
     background-color: #F5F3EE;
     height: unset;
-    min-height: 50vh;
     max-width: 95vw;
-    max-width: 800px;
     margin-left: auto;
     margin-right: auto;
     border: solid 1px var(--aiep-ink);
-    border-radius: 10px;
+    border-radius: 16px;
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+    /* The corners were the container's alone: the card inside it is
+       border-radius 0, so the dark-green band's square top corners sat
+       outside the rounded frame and the whole modal read as a mistake.
+       Clipping is what makes the radius apply to everything in here. */
+    overflow: hidden;
   }
 
   .processing-modal-container .processing-summary-parent-rights-card,
   .processing-modal-container .processing-summary-loader-card {
-    height: 100%;
-    min-height: 60vh;
+    /* No min-height. It was 60vh here and 50vh on the container, so on a tall
+       window the modal was forced taller than its contents and the deck sat
+       against the top edge with the slack underneath — the same wasted space
+       the carousel had, one level up. */
+    height: unset;
     width: 600px;
   }
 
@@ -58,9 +113,4 @@
     display: block;
     margin-bottom: 1rem;
   }
-
-  .loading-final-screen h3 {
-    padding: 1rem;
-  }
 }
-

@@ -50,32 +50,39 @@
   background-color: transparent;
 }
 
-.loading-while-parent-rights {
-  color: #F5F3EE;
-  background-color: #014620;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 85.5px;
-}
-
-.loading-while-parent-rights p {
-  margin: 0px;
-  padding: 0.75rem;
-}
-
+/* Headline, step and bar, stacked. Was a fixed 85.5px single-line row; the
+   band sizes itself to what is in it. */
+.loading-while-parent-rights,
 .loading-final-screen {
   color: #F5F3EE;
   background-color: #014620;
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
-  height: 120px;
-  padding: 0 1rem;
+  gap: 0.5rem;
+  padding: 1rem;
 }
 
 .loading-final-screen h3 {
   margin: 0px;
+}
+
+/* The deck takes whatever the status band leaves.
+
+   Without this the card is 100dvh on a phone, the body inside it is a plain
+   block sized to its contents, and .parent-rights-container's `height: 100%`
+   resolves against an auto height — so it stopped at its content and left a
+   screen's worth of empty cream under the dots. The column below is what
+   turns that leftover into height the container can centre inside. */
+.processing-summary-parent-rights-card .processing-summary-card-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.carousel-with-button {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .summary-container {
   width: 100%;
@@ -517,6 +524,7 @@ display: none !important;
   
   .processing-summary-loader-card .processing-summary-card-body {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     width: 100%;

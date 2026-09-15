@@ -82,9 +82,10 @@ const jsonResponse = (status: number, body: unknown) => ({
   json: async () => body,
 });
 
-const processingDocument = () => ({
+const processingDocument = (overrides: Record<string, unknown> = {}) => ({
   documentId: IEP_ID,
   status: "PROCESSING",
+  ...overrides,
 });
 
 const processedDocument = () => ({
@@ -125,7 +126,9 @@ const renderPage = (language: SupportedLanguage = "en") => {
     enabledLanguages: ["en"] as SupportedLanguage[],
   };
 
-  render(
+  // Returned so a test can unmount the screen and mount it again, which is
+  // what the bottom nav does to this page.
+  return render(
     <MemoryRouter initialEntries={["/summary-and-translations"]}>
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
@@ -158,6 +161,17 @@ const clickNext = (times = 1) => {
   for (let i = 0; i < times; i += 1) {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
   }
+};
+
+/** What the bar is actually drawn at, read off the ARIA value MUI publishes. */
+const progressValue = () =>
+  Number(screen.getByTestId("processing-progress-bar").getAttribute("aria-valuenow"));
+
+/** The step line, which is also the bar's accessible name. */
+const stepLine = () => {
+  const bar = screen.getByTestId("processing-progress-bar");
+  const labelId = bar.getAttribute("aria-labelledby") as string;
+  return document.getElementById(labelId)?.textContent;
 };
 
 beforeEach(() => {
@@ -355,5 +369,88 @@ describe("when the parent's profile is not finished yet", () => {
     expect(screen.getByTestId("summary-text-en")).toBeInTheDocument();
     expect(screen.queryByText(ONBOARDING_LANDING)).not.toBeInTheDocument();
     expect(screen.queryByText(PUBLIC_LANDING)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The bar and the line above it, which is the only thing on this screen that
+ * answers "is this working, and how much longer".
+ *
+ * It was MUI's indeterminate LinearProgress: the same barber-pole for the ten
+ * seconds of OCR and the four minutes of summarizing, on a screen a parent
+ * sits in front of for both. The pipeline records where it is at every
+ * milestone and the documents endpoint returns it; nothing read either field.
+ */
+describe("the progress bar", () => {
+  test("is drawn at the percentage the pipeline recorded", async () => {
+    documentPayload = processingDocument({ progress: 22, current_step: "cleanup_complete" });
+    renderPage();
+    await settle();
+
+    expect(progressValue()).toBe(22);
+    // Determinate, not indeterminate: an indeterminate MUI bar publishes no
+    // aria-valuenow at all, so the assertion above is also the assertion that
+    // the variant changed.
+    expect(screen.getByTestId("processing-progress-bar")).toHaveAttribute("aria-valuenow");
+  });
+
+  test("advances when a poll brings a new milestone", async () => {
+    // The bug this fixes: useDocumentFetch only kept a fetched payload when
+    // the status or createdAt had changed, and neither moves between 5% and
+    // 85%, so every milestone of a run was discarded and the bar sat still
+    // from upload to finish.
+    documentPayload = processingDocument({ progress: 15, current_step: "ocr_complete" });
+    renderPage();
+    await settle();
+
+    expect(progressValue()).toBe(15);
+
+    documentPayload = processingDocument({ progress: 65, current_step: "analysis_complete" });
+    await settle(POLL_INTERVAL_MS);
+
+    expect(progressValue()).toBe(65);
+  });
+
+  test("names the step in flight, and renames it as the run moves on", async () => {
+    documentPayload = processingDocument({ progress: 15, current_step: "ocr_complete" });
+    renderPage();
+    await settle();
+
+    // t() is the identity here, so these are the keys. The real wording is
+    // asserted against the dictionaries in the module's own suite.
+    expect(stepLine()).toBe("summary.processing.step.protecting");
+
+    documentPayload = processingDocument({ progress: 22, current_step: "cleanup_complete" });
+    await settle(POLL_INTERVAL_MS);
+
+    expect(stepLine()).toBe("summary.processing.step.summarizing");
+  });
+
+  test("comes back at the same place after the parent leaves the page", async () => {
+    // The bottom nav is a route change, so leaving unmounts this screen. The
+    // percentage is derived from the payload rather than held in state
+    // precisely so that it survives that.
+    documentPayload = processingDocument({ progress: 65, current_step: "analysis_complete" });
+    const { unmount } = renderPage();
+    await settle();
+
+    expect(progressValue()).toBe(65);
+
+    unmount();
+    renderPage();
+    await settle();
+
+    expect(progressValue()).toBe(65);
+    expect(stepLine()).toBe("summary.processing.step.translating");
+  });
+
+  test("is never empty, even before the pipeline has picked the document up", async () => {
+    // What the upload handler's own row looks like: written, not started.
+    documentPayload = processingDocument({ progress: 0, current_step: "initializing" });
+    renderPage();
+    await settle();
+
+    expect(progressValue()).toBe(5);
+    expect(stepLine()).toBe("summary.processing.step.reading");
   });
 });

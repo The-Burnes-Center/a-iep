@@ -2,6 +2,7 @@ import { useEffect, useRef, useContext, useState } from 'react';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { IEPDocument } from '../../common/types';
 import { usePollingManager } from './polling-utility';
+import { hasProgressChanged } from './processing-progress.mjs';
 import { AppContext } from '../../common/app-context';
 
 
@@ -114,9 +115,15 @@ export const useDocumentFetch = ({
           }
           
           setDocument(prev => {         
+            // Progress counts as news. Every milestone the pipeline records
+            // between 5% and 85% arrives while the status is still PROCESSING
+            // and createdAt never moves, so status-or-createdAt alone threw
+            // the whole of a run's progress away and the bar sat still from
+            // upload to finish.
             if (!prev || 
                 prev.status !== retrievedDocument.status || 
-                prev.createdAt !== retrievedDocument.createdAt) {
+                prev.createdAt !== retrievedDocument.createdAt ||
+                hasProgressChanged(prev, retrievedDocument)) {
                   
               // console.log("if (prev) is true");
               // Log timing when status changes

@@ -222,6 +222,7 @@ const PAIRS: Pair[] = [
   // -- the greens ----------------------------------------------------------
   { fg: "--aiep-green", bg: "--aiep-cream", level: "text", where: "the unselected login-method label; section headings" },
   { fg: "--aiep-green", bg: "--aiep-surface-sunk", level: "ui", where: "the active carousel dot; a fanned document edge against the provider card" },
+  { fg: "--aiep-green", bg: "--aiep-surface-field", level: "ui", where: "the processing bar's fill against its own track; the inactive carousel dots sit on the same fill" },
   { fg: "--aiep-green-dark", bg: "--aiep-cream", level: "text", where: "dark-green headings" },
   { fg: "--aiep-cream", bg: "--aiep-green", level: "text", where: "nav bar, green banners, primary button label" },
   { fg: "--aiep-cream", bg: "--aiep-green-dark", level: "text", where: "footer, hero panel, processing card" },
@@ -280,6 +281,7 @@ const PAIRS: Pair[] = [
   // -- surfaces, measured only to keep them apart from the page ------------
   { fg: "--aiep-surface-sunk", bg: "--aiep-cream", level: "surface", where: "sunk card behind the page" },
   { fg: "--aiep-surface-field", bg: "--aiep-cream", level: "surface", where: "field fill; its 3:1 edge comes from --aiep-border" },
+  { fg: "--aiep-surface-field", bg: "--aiep-green-dark", level: "surface", where: "the processing bar's track on the dark-green status band" },
   { fg: "--aiep-surface-tint", bg: "--aiep-cream", level: "surface", where: "file-picker button fill" },
   { fg: "--aiep-surface-tint-strong", bg: "--aiep-cream", level: "surface", where: "pressed/inert fill" },
   { fg: "--aiep-cream-veil", bg: "--aiep-green-dark", level: "surface", where: "1px grid texture on the modal scrim" },
