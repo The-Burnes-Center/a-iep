@@ -465,7 +465,7 @@ describe("the processing screen's own slides", () => {
         headerGreenTitle={t("rights.header.title.green")}
         rightsIndicatorTemplate={t("carousel.rights.indicator")}
         sectionHint={t("carousel.section.hint")}
-        progressPercent={22}
+        progressDocument={{ status: "PROCESSING", progress: 22, current_step: "cleanup_complete" }}
         progressStepLabel={t("summary.processing.step.summarizing")}
       />,
     );

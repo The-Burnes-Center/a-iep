@@ -9,6 +9,8 @@ export interface ProcessingProgressInput {
   status?: string | null;
   progress?: number | null;
   current_step?: string | null;
+  /** Epoch SECONDS, as the documents endpoint normalizes it. */
+  updatedAt?: number | string | null;
 }
 
 export declare const PIPELINE_MILESTONES: Readonly<Record<string, number>>;
@@ -24,6 +26,32 @@ export declare const progressPercent: (
 export declare const processingStepKey: (
   document: ProcessingProgressInput | null | undefined,
 ) => string;
+
+/** The milestone the run is heading for. */
+export declare const nextMilestonePercent: (
+  document: ProcessingProgressInput | null | undefined,
+) => number;
+
+export interface ProcessingProgressState {
+  /** What the server has confirmed. */
+  confirmedPercent: number;
+  /** The next milestone; easing approaches this without reaching it. */
+  ceilingPercent: number;
+  /** When the confirmed milestone was recorded, ms since epoch; null to disable easing. */
+  anchorMs: number | null;
+  /** Measured p90 of the step in flight, ms. */
+  timeConstantMs: number;
+}
+
+export declare const processingProgressState: (
+  document: ProcessingProgressInput | null | undefined,
+) => ProcessingProgressState;
+
+/** What to draw at `nowMs`. Always < ceilingPercent while the gap is open. */
+export declare const displayPercent: (
+  state: ProcessingProgressState | null | undefined,
+  nowMs: number,
+) => number;
 
 export declare const hasProgressChanged: (
   previous: ProcessingProgressInput | null | undefined,

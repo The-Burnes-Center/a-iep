@@ -25,7 +25,10 @@ import path from 'node:path';
 import {
   FLOOR_PERCENT,
   PIPELINE_MILESTONES,
+  displayPercent,
   hasProgressChanged,
+  nextMilestonePercent,
+  processingProgressState,
   processingStepKey,
   progressPercent,
 } from '../../../lib/user-interface/app/src/pages/utils/processing-progress.mjs';
@@ -248,5 +251,223 @@ describe('hasProgressChanged', () => {
     expect(hasProgressChanged(null, { status: 'PROCESSING', progress: 15, current_step: 'ocr_complete' }))
       .toBe(true);
     expect(hasProgressChanged(undefined, undefined)).toBe(false);
+  });
+});
+
+/**
+ * The easing between milestones.
+ *
+ * `progressPercent` above is the honest number and the bar's floor. This is
+ * the motion laid over it, so the bar is never still through the ninety
+ * seconds of summarizing. The hard rule, and the first two tests, is that it
+ * approaches the next milestone and never reaches it: only the server saying
+ * `analysis_complete` may draw a bar at 65.
+ */
+describe('easing between milestones', () => {
+  const SUMMARIZING = { status: 'PROCESSING', progress: 22, current_step: 'cleanup_complete' };
+  /** Epoch seconds, as the documents endpoint normalizes updatedAt. */
+  const ANCHOR_SECONDS = 1789504200;
+  const ANCHOR_MS = ANCHOR_SECONDS * 1000;
+
+  const after = (document, seconds) =>
+    displayPercent(
+      processingProgressState({ ...document, updatedAt: ANCHOR_SECONDS }),
+      ANCHOR_MS + seconds * 1000,
+    );
+
+  test('never reaches the next milestone, however long the step runs', () => {
+    // The constraint the whole mechanism rests on. An hour is already 75x the
+    // measured p90 of this step; a day is a document nothing is coming back
+    // for.
+    for (const seconds of [0, 1, 10, 50, 91, 300, 3600, 86_400, 86_400 * 365]) {
+      const drawn = after(SUMMARIZING, seconds);
+      expect(drawn).toBeLessThan(PIPELINE_MILESTONES.analysis_complete);
+      expect(drawn).toBeGreaterThanOrEqual(PIPELINE_MILESTONES.cleanup_complete);
+    }
+  });
+
+  test('never reaches the next milestone from ANY milestone', () => {
+    // Including the short steps, where the gap is 2 points and rounding up
+    // by one would put the bar on a milestone the server has not confirmed.
+    const steps = [
+      'initializing', 'start', 'ocr_complete', 'pii_redaction_complete',
+      'cleanup_complete', 'analysis_complete', 'translation_requested',
+      'translation_complete', 'a_step_nobody_wrote',
+    ];
+
+    for (const current_step of steps) {
+      const document = { status: 'PROCESSING', current_step };
+      const ceiling = nextMilestonePercent(document);
+      for (const seconds of [0, 1, 5, 60, 600, 86_400]) {
+        expect(after(document, seconds)).toBeLessThan(ceiling);
+      }
+    }
+  });
+
+  test('moves, and keeps moving, through the longest step there is', () => {
+    // The complaint this answers: half a minute at 22% reads as stuck.
+    const atTenSeconds = after(SUMMARIZING, 10);
+    const atTheMedian = after(SUMMARIZING, 29);
+    const atP90 = after(SUMMARIZING, 47);
+
+    expect(atTenSeconds).toBeGreaterThan(22);
+    expect(atTheMedian).toBeGreaterThan(atTenSeconds);
+    expect(atP90).toBeGreaterThan(atTheMedian);
+  });
+
+  test('decelerates, so the remaining distance always looks like there is some', () => {
+    const firstTenSeconds = after(SUMMARIZING, 10) - after(SUMMARIZING, 0);
+    const laterTenSeconds = after(SUMMARIZING, 110) - after(SUMMARIZING, 100);
+
+    expect(laterTenSeconds).toBeLessThan(firstTenSeconds);
+  });
+
+  test('is monotonic in elapsed time', () => {
+    // A bar that goes backwards is worse than a bar that sits still.
+    let previous = -1;
+    for (let seconds = 0; seconds <= 600; seconds += 1) {
+      const drawn = after(SUMMARIZING, seconds);
+      expect(drawn).toBeGreaterThanOrEqual(previous);
+      previous = drawn;
+    }
+  });
+
+  test('the real milestone landing is a jump FORWARD, never back', () => {
+    // Where the two halves meet: whatever easing had reached, confirming the
+    // next milestone must be an increase.
+    const easedToTheLimit = after(SUMMARIZING, 86_400);
+    const confirmed = progressPercent({
+      status: 'PROCESSING', progress: 65, current_step: 'analysis_complete',
+    });
+
+    expect(confirmed).toBeGreaterThan(easedToTheLimit);
+  });
+
+  describe('the clock', () => {
+    test('a browser clock behind the server draws the confirmed value, not less', () => {
+      // Negative elapsed time. Clamps rather than easing backwards out of the
+      // milestone the server has already confirmed.
+      expect(after(SUMMARIZING, -30)).toBe(22);
+      expect(after(SUMMARIZING, -86_400)).toBe(22);
+    });
+
+    test('a browser clock far ahead is bounded by the ceiling, not by the clock', () => {
+      // Unbounded input, bounded output: this is why the ceiling is a hard
+      // cap rather than a target the ease is scaled to hit.
+      expect(after(SUMMARIZING, 86_400 * 3650)).toBeLessThan(65);
+    });
+
+    test('a document with no timestamp does not ease at all', () => {
+      // Rather than inventing a start time inside a pure function. The
+      // component supplies one from when the parent first saw the milestone.
+      const state = processingProgressState(SUMMARIZING);
+
+      expect(state.anchorMs).toBeNull();
+      expect(displayPercent(state, ANCHOR_MS + 600_000)).toBe(22);
+    });
+
+    test('a nonsense timestamp does not ease either', () => {
+      for (const updatedAt of ['', '2026-09-15T20:30:00', 0, -1, NaN, null, undefined]) {
+        expect(processingProgressState({ ...SUMMARIZING, updatedAt }).anchorMs).toBeNull();
+      }
+    });
+  });
+
+  test('a finished document is 100 and stays there', () => {
+    const done = { status: 'PROCESSED', progress: 100, current_step: 'completed', updatedAt: ANCHOR_SECONDS };
+    const state = processingProgressState(done);
+
+    expect(state.confirmedPercent).toBe(100);
+    expect(state.ceilingPercent).toBe(100);
+    expect(displayPercent(state, ANCHOR_MS + 600_000)).toBe(100);
+  });
+
+  test('the pacing comes from the step in flight, not from one constant', () => {
+    // Redaction is two seconds and summarizing is half a minute. One shared
+    // constant would make the bar crawl through the short steps and stall in
+    // the long ones, which is what the measured table is for.
+    const redacting = processingProgressState({ status: 'PROCESSING', current_step: 'ocr_complete' });
+    const summarizing = processingProgressState(SUMMARIZING);
+
+    expect(redacting.timeConstantMs).toBeLessThan(summarizing.timeConstantMs);
+  });
+
+  test('the two long steps are paced as the long steps', () => {
+    // Summarizing (p50 29s) and translating (p50 24s) are where all the
+    // waiting is; everything else is under 5s. A constant that drifted short
+    // on either would put the bar back at its ceiling, doing nothing, which
+    // is the exact failure this file exists to prevent.
+    const constantFor = (step) =>
+      processingProgressState({ status: 'PROCESSING', current_step: step }).timeConstantMs;
+
+    for (const slow of ['cleanup_complete', 'analysis_complete', 'translation_requested']) {
+      expect(constantFor(slow)).toBeGreaterThanOrEqual(30_000);
+    }
+    for (const quick of ['ocr_complete', 'pii_redaction_complete', 'translation_complete']) {
+      expect(constantFor(quick)).toBeLessThan(10_000);
+    }
+  });
+
+  test('at the typical duration the bar has moved a lot, and is still moving', () => {
+    // The acceptance test for the pacing, stated the way a parent would:
+    // by the time a normal document finishes summarizing, has the bar done
+    // something visible, and does it still have somewhere to go?
+    // Pooled p50 of the summarizing step across prod and staging.
+    const P50_SECONDS = 29;
+    const atTypical = after(SUMMARIZING, P50_SECONDS);
+
+    expect(atTypical - 22).toBeGreaterThan(10);
+    expect(after(SUMMARIZING, P50_SECONDS * 2)).toBeGreaterThan(atTypical);
+    expect(atTypical).toBeLessThan(65);
+  });
+
+  test('a step this file has never heard of still eases, and still stops short', () => {
+    const unknown = { status: 'PROCESSING', progress: 30, current_step: 'some_future_step' };
+
+    // 30% confirmed: the next milestone above it is analysis_complete.
+    expect(nextMilestonePercent(unknown)).toBe(PIPELINE_MILESTONES.analysis_complete);
+    expect(after(unknown, 60)).toBeGreaterThan(30);
+    expect(after(unknown, 86_400)).toBeLessThan(65);
+  });
+});
+
+describe('nextMilestonePercent', () => {
+  test('is the next milestone above where the document already is', () => {
+    expect(nextMilestonePercent({ status: 'PROCESSING', current_step: 'start' }))
+      .toBe(PIPELINE_MILESTONES.ocr_complete);
+    expect(nextMilestonePercent({ status: 'PROCESSING', current_step: 'cleanup_complete' }))
+      .toBe(PIPELINE_MILESTONES.analysis_complete);
+  });
+
+  test('is read off the percentage, so an unknown step still gets a ceiling', () => {
+    expect(nextMilestonePercent({ status: 'PROCESSING', progress: 66, current_step: 'mystery' }))
+      .toBe(PIPELINE_MILESTONES.translation_complete);
+  });
+
+  test('skips translation_requested, which no run passes THROUGH', () => {
+    // Caught by reading the curve, not by a test, so here is the test. 70 is
+    // where the on-demand add-a-language path starts; treating it as a
+    // waypoint capped the translate step at 70 and the bar eased 65 -> 69
+    // across 43 seconds of real work.
+    expect(PIPELINE_MILESTONES.translation_requested).toBe(70);
+    expect(nextMilestonePercent({ status: 'PROCESSING', current_step: 'analysis_complete' }))
+      .toBe(PIPELINE_MILESTONES.translation_complete);
+    // And from inside the on-demand path itself, the next one is the same.
+    expect(nextMilestonePercent({ status: 'PROCESSING_TRANSLATIONS', current_step: 'translation_requested' }))
+      .toBe(PIPELINE_MILESTONES.translation_complete);
+  });
+
+  test('leaves the translate step room to actually move', () => {
+    // The regression this guards: a ceiling only 5 points above the milestone
+    // is indistinguishable from no easing at all.
+    const translating = { status: 'PROCESSING', current_step: 'analysis_complete' };
+    const gap = nextMilestonePercent(translating) - progressPercent(translating);
+
+    expect(gap).toBeGreaterThanOrEqual(15);
+  });
+
+  test('is 100 once there is nothing above', () => {
+    expect(nextMilestonePercent({ status: 'PROCESSED' })).toBe(100);
+    expect(nextMilestonePercent({ status: 'PROCESSING', progress: 99 })).toBe(100);
   });
 });

@@ -1,8 +1,8 @@
-import React, { useId } from 'react';
+import React from 'react';
 import { Card, Alert } from 'react-bootstrap';
-import LinearProgress from '@mui/material/LinearProgress';
 import AIEPSpinner from './AIEPSpinner';
 import ParentRightsCarousel, { SlideData } from './ParentRightsCarousel';
+import ProcessingStatusBar from './ProcessingStatusBar';
 import './ProcessingModal.css';
 
 interface ProcessingModalProps {
@@ -16,12 +16,16 @@ interface ProcessingModalProps {
   rightsIndicatorTemplate: string;
   sectionHint: string;
   /**
-   * How full the bar is, 5-100, straight off the document payload. See
-   * pages/utils/processing-progress.mjs: the page reads it there so the value
-   * survives an unmount, because the document is what knows it and this
-   * component holds no state of its own.
+   * The document's progress fields, passed through to ProcessingStatusBar,
+   * which derives everything it draws from them. See
+   * pages/utils/processing-progress.mjs.
    */
-  progressPercent: number;
+  progressDocument: {
+    status?: string;
+    progress?: number;
+    current_step?: string;
+    updatedAt?: number;
+  };
   /** Already-translated name of the step in flight, e.g. "Reading your document". */
   progressStepLabel: string;
 }
@@ -35,40 +39,18 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
   headerGreenTitle,
   rightsIndicatorTemplate,
   sectionHint,
-  progressPercent,
+  progressDocument,
   progressStepLabel,
 }) => {
-  // The bar's accessible name is the step line beside it, so a screen reader
-  // reads "Reading your document, 15 percent" rather than an unnamed
-  // progressbar. Generated because the two elements have to agree on an id
-  // and nothing else on the page needs to know it.
-  const stepLabelId = useId();
-
   /**
-   * "We are processing the document", the step in flight, and the bar, as one
-   * block.
+   * The step in flight and the bar, as one block.
    *
    * Rendered for both phases: the wait is the same wait, and a parent who
    * reaches the final screen should not lose the only thing on screen that
    * says how far along they are.
    */
   const statusBlock = (
-    <>
-      <p className="processing-status-step" id={stepLabelId}>
-        {progressStepLabel}
-      </p>
-      {/* Determinate on purpose. The indeterminate barber-pole this replaced
-          ran at the same speed for the ten seconds of OCR and the four
-          minutes of summarizing, which is the single thing parents ask about
-          on this screen. */}
-      <LinearProgress
-        variant="determinate"
-        value={progressPercent}
-        aria-labelledby={stepLabelId}
-        className="processing-status-bar"
-        data-testid="processing-progress-bar"
-      />
-    </>
+    <ProcessingStatusBar document={progressDocument} stepLabel={progressStepLabel} />
   );
 
   return (

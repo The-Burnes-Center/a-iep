@@ -163,9 +163,22 @@ const clickNext = (times = 1) => {
   }
 };
 
-/** What the bar is actually drawn at, read off the ARIA value MUI publishes. */
+/** What the bar is actually DRAWN at: the eased value, off MUI's ARIA value. */
 const progressValue = () =>
   Number(screen.getByTestId("processing-progress-bar").getAttribute("aria-valuenow"));
+
+/**
+ * What the server has CONFIRMED, which is a different number while the bar is
+ * easing between milestones. Asserting on the drawn value alone cannot tell
+ * the two apart, and the distance between them is the whole design.
+ */
+const confirmedValue = () =>
+  Number(
+    screen.getByTestId("processing-progress-bar").getAttribute("data-confirmed-percent"),
+  );
+
+/** Epoch SECONDS, as the documents endpoint normalizes updatedAt. */
+const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 /** The step line, which is also the bar's accessible name. */
 const stepLine = () => {
@@ -430,17 +443,30 @@ describe("the progress bar", () => {
     // The bottom nav is a route change, so leaving unmounts this screen. The
     // percentage is derived from the payload rather than held in state
     // precisely so that it survives that.
-    documentPayload = processingDocument({ progress: 65, current_step: "analysis_complete" });
+    documentPayload = processingDocument({
+      progress: 65,
+      current_step: "analysis_complete",
+      updatedAt: nowSeconds(),
+    });
     const { unmount } = renderPage();
     await settle();
 
-    expect(progressValue()).toBe(65);
+    expect(confirmedValue()).toBe(65);
+
+    // Long enough that the bar has eased well clear of 65, so "same place"
+    // is a real assertion and not just "both happened to be at the milestone".
+    await settle(40_000);
+    const beforeLeaving = progressValue();
+    expect(beforeLeaving).toBeGreaterThan(65);
 
     unmount();
     renderPage();
     await settle();
 
-    expect(progressValue()).toBe(65);
+    // Rebuilt from the payload's own timestamp, which is why it survives:
+    // nothing about where the bar had got to lived in this component.
+    expect(progressValue()).toBe(beforeLeaving);
+    expect(confirmedValue()).toBe(65);
     expect(stepLine()).toBe("summary.processing.step.translating");
   });
 
@@ -452,5 +478,129 @@ describe("the progress bar", () => {
 
     expect(progressValue()).toBe(5);
     expect(stepLine()).toBe("summary.processing.step.reading");
+  });
+});
+
+/**
+ * The easing laid over the confirmed milestones.
+ *
+ * Summarizing takes 50s on average and 91s at p90 in prod, and the document
+ * is polled every 5s, so a bar pinned to confirmed milestones alone shows 22%
+ * for a minute and a half and reads as stuck. These pin the two halves of the
+ * answer: it always moves, and it never claims a milestone the server has not
+ * confirmed.
+ *
+ * The arithmetic is unit-tested in test/lambdas/summary-page. What is tested
+ * here is the wiring: that the bar re-renders between polls at all, and that
+ * a poll cannot knock it backwards.
+ */
+describe("the bar between milestones", () => {
+  const summarizing = (overrides: Record<string, unknown> = {}) =>
+    processingDocument({
+      progress: 22,
+      current_step: "cleanup_complete",
+      updatedAt: nowSeconds(),
+      ...overrides,
+    });
+
+  test("advances while nothing new arrives from the server", async () => {
+    documentPayload = summarizing();
+    renderPage();
+    await settle();
+
+    expect(progressValue()).toBe(22);
+
+    // No new payload in this window; the poller is returning the same 22%.
+    await settle(30_000);
+
+    expect(progressValue()).toBeGreaterThan(22);
+    // And the confirmed value has not budged, which is the point.
+    expect(confirmedValue()).toBe(22);
+  });
+
+  test("never draws the next milestone, however long the step runs", async () => {
+    documentPayload = summarizing();
+    renderPage();
+    await settle();
+
+    // Nine minutes: six times the measured p90 of this step.
+    await settle(9 * 60_000);
+
+    expect(progressValue()).toBeLessThan(65);
+    expect(confirmedValue()).toBe(22);
+  });
+
+  test("the milestone landing moves it forward", async () => {
+    documentPayload = summarizing();
+    renderPage();
+    await settle();
+    await settle(60_000);
+
+    const eased = progressValue();
+    expect(eased).toBeGreaterThan(22);
+
+    documentPayload = processingDocument({
+      progress: 65,
+      current_step: "analysis_complete",
+      updatedAt: nowSeconds(),
+    });
+    await settle(POLL_INTERVAL_MS);
+
+    // The confirmed value is the exact one; the drawn value is already easing
+    // past it toward 85, so pinning it to 65 would be asserting that the
+    // easing had stopped.
+    expect(confirmedValue()).toBe(65);
+    expect(progressValue()).toBeGreaterThanOrEqual(65);
+    expect(progressValue()).toBeGreaterThan(eased);
+  });
+
+  test("a poll that only refreshes the timestamp cannot knock it backwards", async () => {
+    // Writers exist that touch `updated_at` without moving `progress`
+    // (record_failure, the S3 content migration). Re-anchoring the ease on
+    // the newer timestamp would restart it and slide the bar back toward 22,
+    // and a bar that goes backwards is worse than one that sits still.
+    documentPayload = summarizing();
+    renderPage();
+    await settle();
+    await settle(60_000);
+
+    const eased = progressValue();
+    expect(eased).toBeGreaterThan(22);
+
+    documentPayload = summarizing({ updatedAt: nowSeconds() });
+    await settle(POLL_INTERVAL_MS);
+
+    expect(progressValue()).toBeGreaterThanOrEqual(eased);
+  });
+
+  test("a document with no timestamp still moves, from when the parent arrived", async () => {
+    // PENDING_UPLOAD rows and anything written before updatedAt was
+    // normalized. The pure function refuses to guess a start time; the
+    // component supplies one.
+    documentPayload = processingDocument({ progress: 22, current_step: "cleanup_complete" });
+    renderPage();
+    await settle();
+
+    expect(progressValue()).toBe(22);
+
+    await settle(60_000);
+
+    expect(progressValue()).toBeGreaterThan(22);
+    expect(progressValue()).toBeLessThan(65);
+  });
+
+  test("stops at 100 when the document is done", async () => {
+    documentPayload = {
+      ...processedDocument(),
+      progress: 100,
+      current_step: "completed",
+      updatedAt: nowSeconds(),
+    };
+    renderPage();
+    await settle();
+
+    // The takeover is gone: this is the summary, not the processing screen.
+    expect(screen.queryByTestId("processing-progress-bar")).toBeNull();
+    expect(screen.getByTestId("summary-text-en")).toBeInTheDocument();
   });
 });
