@@ -3,11 +3,15 @@ import { signOut, getCurrentUser } from 'aws-amplify/auth';
 import { AppContext } from './app-context';
 import { useFeatures } from './hooks/use-features';
 import {
+  SESSION_INVALID_EVENT,
   clearCachedTokens,
   clearPersistedSessionHandle,
+  configureSessionRefresh,
   exchangeSession,
   logoutSession,
+  needsRenewal,
   readPersistedSessionHandle,
+  renewIdToken,
   setCachedTokens,
 } from './auth/passwordless-auth';
 
@@ -125,6 +129,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
+
+  // Tell the token layer where /auth/token is. It renews the in-memory tokens
+  // from the persisted handle when an api client asks for a bearer and the
+  // cache has gone cold, and it is a static with no access to this context.
+  useEffect(() => {
+    configureSessionRefresh(appConfig?.httpEndpoint ?? null);
+    return () => configureSessionRefresh(null);
+  }, [appConfig]);
+
+  /**
+   * The handle turned out to be dead, so this parent really does have to sign
+   * in again.
+   *
+   * Dropping `authenticated` is the whole action: ProtectedRoute redirects to
+   * the sign-in card on it, carrying the page they were on. renewIdToken has
+   * already cleared the handle and the token cache by the time this fires, so
+   * there is nothing left here to clean up and nothing to revoke server-side
+   * — a 401 session_invalid IS the server saying it is already gone.
+   */
+  useEffect(() => {
+    const onSessionInvalid = () => {
+      setUser(null);
+      setAuthenticated(false);
+    };
+
+    window.addEventListener(SESSION_INVALID_EVENT, onSessionInvalid);
+    return () => window.removeEventListener(SESSION_INVALID_EVENT, onSessionInvalid);
+  }, []);
+
+  /**
+   * Renew on the way back to the tab, before the parent touches anything.
+   *
+   * The reported case: the name step left open, come back later, and the
+   * first thing they did failed. Renewing here means the tokens are already
+   * fresh by the time they tap, and a dead handle sends them to sign in
+   * rather than into an error they cannot clear.
+   *
+   * Deliberately NOT checkAuth(): that sets `loading`, which puts the
+   * full-page spinner up, so every tab switch would flash it. `needsRenewal`
+   * keeps the common case free — a cache with life left in it makes this a
+   * no-op with no network call, so ordinary tab switching costs nothing.
+   */
+  useEffect(() => {
+    if (!authenticated) return undefined;
+
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!needsRenewal()) return;
+      void renewIdToken();
+    };
+
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [authenticated]);
 
   /**
    * Sign out of BOTH routes, local state first.

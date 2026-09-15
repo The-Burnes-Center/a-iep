@@ -32,6 +32,7 @@ import {
   getCachedIdToken,
   persistSessionHandle,
   readPersistedSessionHandle,
+  setCachedTokens,
 } from "./auth/passwordless-auth";
 
 const Auth = vi.hoisted(() => ({
@@ -486,5 +487,134 @@ describe("the legacy Amplify path is unaffected", () => {
     // its own — the Amplify check alone did the work, unmodified.
     expect(tokenFetch).not.toHaveBeenCalled();
     expect(visited).toEqual([PROTECTED_PATH]);
+  });
+});
+
+/**
+ * A tab left open until the in-memory tokens go cold.
+ *
+ * This is the reported defect, from a tester on staging: the child-name step
+ * left unattended, come back, and the first thing they touched showed
+ * "Service unavailable" with a Try Again that could never work. The tokens
+ * last an hour and live in memory; the durable handle beside them lasts far
+ * longer, so that parent was still signed in the whole time. A RELOAD
+ * recovered (the describe blocks above cover that) because checkAuth
+ * re-exchanges on mount. A tab that stayed open did not, because nothing
+ * re-exchanged without one.
+ *
+ * Renewing on the way back to the tab is what closes it, and the two cases
+ * below are the whole contract: a handle that is still good must not cost the
+ * parent a sign-in, and one that is dead must not leave them stuck.
+ *
+ * `visibilitychange` is dispatched directly rather than through userEvent:
+ * jsdom has no real tab, and document.visibilityState is 'visible'
+ * throughout, which is what the listener checks.
+ */
+describe("coming back to a tab whose tokens went cold", () => {
+  const goneCold = () => {
+    // What an hour looks like: the handle is untouched in storage, and the
+    // token cache no longer has anything it is willing to serve.
+    clearCachedTokens();
+    expect(getCachedIdToken()).toBeNull();
+    expect(readPersistedSessionHandle()).not.toBeNull();
+  };
+
+  const returnToTab = async () => {
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => {});
+  };
+
+  test("renews in the background and the parent never leaves the page", async () => {
+    persistSessionHandle("session-1");
+    const fetchMock = stubTokenEndpoint("valid");
+    const { visited } = renderApp();
+
+    await screen.findByText("protected content");
+    const exchangesOnLoad = fetchMock.mock.calls.length;
+
+    goneCold();
+    await returnToTab();
+
+    // Renewed from the handle, so the next api call has a bearer again.
+    await waitFor(() => expect(getCachedIdToken()).toBe("id-1"));
+    expect(fetchMock.mock.calls.length).toBe(exchangesOnLoad + 1);
+
+    // And they were never sent anywhere: no sign-in card, no spinner flash.
+    expect(screen.getByText("protected content")).toBeInTheDocument();
+    expect(screen.queryByText("sign in form")).toBeNull();
+    expect(visited).toEqual([PROTECTED_PATH]);
+  });
+
+  test("costs nothing when the token still has life in it", async () => {
+    // Ordinary tab switching, which happens constantly. Renewing on every one
+    // of them would be a request per switch for no reason.
+    persistSessionHandle("session-1");
+    const fetchMock = stubTokenEndpoint("valid");
+    renderApp();
+
+    await screen.findByText("protected content");
+    await waitFor(() => expect(getCachedIdToken()).toBe("id-1"));
+    const before = fetchMock.mock.calls.length;
+
+    await returnToTab();
+    await returnToTab();
+
+    expect(fetchMock.mock.calls.length).toBe(before);
+  });
+
+  test("a dead handle sends them to sign in rather than leaving them stuck", async () => {
+    // The answer to "are we redirecting them?". Not the same as the reload
+    // case above: here the app is already rendered and authenticated, so the
+    // redirect has to come from state changing under it.
+    persistSessionHandle("session-1");
+    stubTokenEndpoint("valid");
+    renderApp();
+
+    await screen.findByText("protected content");
+
+    goneCold();
+    stubTokenEndpoint("expired");
+    await returnToTab();
+
+    expect(await screen.findByText("sign in form")).toBeInTheDocument();
+    expect(screen.queryByText("protected content")).toBeNull();
+    // Cleared, so a reload cannot resume it either.
+    await waitFor(() => expect(readPersistedSessionHandle()).toBeNull());
+  });
+
+  test("a backend that cannot be reached does not sign them out", async () => {
+    // The handle may still be perfectly good. Throwing it away on a blip
+    // would cost a parent their session for a dropped request.
+    persistSessionHandle("session-1");
+    stubTokenEndpoint("valid");
+    renderApp();
+
+    await screen.findByText("protected content");
+
+    goneCold();
+    stubTokenEndpoint("unreachable");
+    await returnToTab();
+
+    expect(screen.getByText("protected content")).toBeInTheDocument();
+    expect(readPersistedSessionHandle()).toBe("session-1");
+  });
+
+  test("a parent on the legacy Amplify path is left alone", async () => {
+    // No handle, so nothing to renew: the tab-focus check must not touch
+    // Amplify's own session handling, which refreshes on its own.
+    Auth.getCurrentUser.mockResolvedValue({ username: "legacy" });
+    Auth.fetchAuthSession.mockResolvedValue({
+      tokens: { idToken: { toString: () => "amplify-token" } },
+    });
+    const fetchMock = stubTokenEndpoint("valid");
+    renderApp({ enabledFeatures: [] });
+
+    await screen.findByText("protected content");
+
+    setCachedTokens({ accessToken: "a", idToken: "i", expiresIn: 0 });
+    await returnToTab();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText("protected content")).toBeInTheDocument();
   });
 });

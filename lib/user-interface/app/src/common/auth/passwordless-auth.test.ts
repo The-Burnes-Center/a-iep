@@ -19,6 +19,11 @@ import {
   persistSessionHandle,
   readPersistedChallenge,
   readPersistedSessionHandle,
+  SESSION_INVALID_EVENT,
+  configureSessionRefresh,
+  needsRenewal,
+  persistSessionHandle as persistHandle,
+  renewIdToken,
   setCachedTokens,
   startAuth,
   verifyAuth,
@@ -35,6 +40,7 @@ const jsonResponse = (status: number, body: unknown) => ({
 beforeEach(() => {
   localStorage.clear();
   clearCachedTokens();
+  configureSessionRefresh(null);
 });
 
 describe('startAuth', () => {
@@ -258,5 +264,166 @@ describe('authErrorKey: branch on code, never on message', () => {
   // caller could even start branching on message text.
   test('the mapper has no parameter through which a message string could be consulted', () => {
     expect(authErrorKey.length).toBeLessThanOrEqual(2);
+  });
+});
+
+/**
+ * Renewing the in-memory tokens from the durable session handle.
+ *
+ * The defect this closes, reported by a tester on staging: the name step left
+ * open, come back later, and the first thing they touched showed "Service
+ * unavailable" with a Try Again that could never work. The tokens last an
+ * hour and live in memory; the handle beside them lasts far longer, so that
+ * parent was still signed in. A page RELOAD already recovered (see
+ * auth-provider's resumePasswordlessSession) -- a tab that stayed open did
+ * not, because nothing re-exchanged without a mount, and Utils.authenticate
+ * fell through to an Amplify session this flow deliberately never creates.
+ *
+ * The rule that keeps it safe is the contract's (§4): a 401 session_invalid
+ * is the only answer that proves the handle is dead. Anything else leaves it
+ * alone, because throwing away a good handle signs a parent out for a blip.
+ */
+describe('renewIdToken', () => {
+  const HANDLE = 'sess-handle-1';
+  const FRESH = { ok: true, accessToken: 'access-2', idToken: 'id-2', expiresIn: 3600 };
+
+  const ready = () => {
+    persistHandle(HANDLE);
+    configureSessionRefresh(HTTP_ENDPOINT);
+  };
+
+  test('exchanges the persisted handle and returns the new ID token', async () => {
+    ready();
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, FRESH));
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await renewIdToken()).toBe('id-2');
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe('https://api.example.test/auth/token');
+    expect(JSON.parse(init.body)).toEqual({ session: HANDLE });
+  });
+
+  test('caches what it got, so the next call costs no request', async () => {
+    ready();
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, FRESH));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await renewIdToken();
+
+    expect(getCachedIdToken()).toBe('id-2');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('one exchange for several concurrent callers, not one each', async () => {
+    // The summary page fires several requests at once and every one of them
+    // calls authenticate(). Without the single-flight they would race to
+    // overwrite each other's tokens.
+    ready();
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, FRESH));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const results = await Promise.all([renewIdToken(), renewIdToken(), renewIdToken()]);
+
+    expect(results).toEqual(['id-2', 'id-2', 'id-2']);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('a dead handle is cleared and announced', async () => {
+    ready();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      jsonResponse(401, { ok: false, code: 'session_invalid', message: 'gone' }),
+    ));
+    const heard = vi.fn();
+    window.addEventListener(SESSION_INVALID_EVENT, heard);
+
+    expect(await renewIdToken()).toBeNull();
+
+    // Cleared, so a reload cannot resume it either, and announced, so
+    // AuthProvider drops `authenticated` and ProtectedRoute redirects.
+    expect(readPersistedSessionHandle()).toBeNull();
+    expect(getCachedIdToken()).toBeNull();
+    expect(heard).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener(SESSION_INVALID_EVENT, heard);
+  });
+
+  test.each([
+    ['a 503', 503, { ok: false, code: 'unavailable', message: 'later' }],
+    ['a code this client has never seen', 400, { ok: false, code: 'something_new', message: '?' }],
+  ])('keeps the handle through %s, which proves nothing', async (_label, status, body) => {
+    ready();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(status, body)));
+    const heard = vi.fn();
+    window.addEventListener(SESSION_INVALID_EVENT, heard);
+
+    expect(await renewIdToken()).toBeNull();
+
+    // The parent stays signed in and the next attempt can still work.
+    expect(readPersistedSessionHandle()).toBe(HANDLE);
+    expect(heard).not.toHaveBeenCalled();
+
+    window.removeEventListener(SESSION_INVALID_EVENT, heard);
+  });
+
+  test('keeps the handle through a network failure', async () => {
+    ready();
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+
+    expect(await renewIdToken()).toBeNull();
+    expect(readPersistedSessionHandle()).toBe(HANDLE);
+  });
+
+  test('is a no-op with nothing to renew from', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    configureSessionRefresh(HTTP_ENDPOINT);
+    expect(await renewIdToken()).toBeNull();
+
+    persistHandle(HANDLE);
+    configureSessionRefresh(null);
+    expect(await renewIdToken()).toBeNull();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('never throws, whatever the endpoint does', async () => {
+    // Every caller treats null as "no token" and falls through. A throw here
+    // would surface as an unhandled rejection inside an api client instead.
+    ready();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => { throw new Error('not json'); },
+    }));
+
+    await expect(renewIdToken()).resolves.toBeNull();
+  });
+});
+
+describe('needsRenewal', () => {
+  test('is false with no handle, whatever the cache says', () => {
+    expect(needsRenewal()).toBe(false);
+  });
+
+  test('is true once the cache is cold and a handle is there', () => {
+    persistSessionHandle('sess-1');
+
+    expect(needsRenewal()).toBe(true);
+  });
+
+  test('is false while the cached token still has life in it', () => {
+    // What keeps the tab-focus check free: an ordinary tab switch makes no
+    // network call at all.
+    persistSessionHandle('sess-1');
+    setCachedTokens({ accessToken: 'a', idToken: 'i', expiresIn: 3600 });
+
+    expect(needsRenewal()).toBe(false);
+  });
+
+  test('is true again once the cached token is inside the refresh threshold', () => {
+    persistSessionHandle('sess-1');
+    setCachedTokens({ accessToken: 'a', idToken: 'i', expiresIn: 60 });
+
+    expect(needsRenewal()).toBe(true);
   });
 });

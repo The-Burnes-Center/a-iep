@@ -261,6 +261,104 @@ export const clearCachedTokens = (): void => {
   cachedTokens = null;
 };
 
+// ---- Renewing the tokens from the persisted handle ----
+//
+// The tokens above live in memory and last an hour, and getCachedIdToken
+// stops serving them five minutes before that. The session handle beside them
+// is durable and lasts far longer, so a parent whose tokens went cold is
+// almost always still signed in -- which is why a page RELOAD recovers today
+// (auth-provider's resumePasswordlessSession runs on mount and re-exchanges).
+//
+// A tab left open did not recover, because nothing re-exchanged without a
+// mount. Utils.authenticate() fell through to Amplify, which a parent who
+// signed in this way has no session with at all, and threw. Every screen's
+// blanket catch then reported it as its own generic failure: a tester who
+// left the name step and came back was told "Service unavailable" and given
+// a Try Again that re-ran the identical failing path forever.
+
+/**
+ * Where /auth/token lives.
+ *
+ * Registered by AuthProvider, which owns appConfig. Module-level rather than
+ * a parameter because Utils.authenticate() is a static with 41 call sites
+ * across eight api-clients, none of which should have to know about token
+ * renewal.
+ */
+let refreshEndpoint: string | null = null;
+
+export const configureSessionRefresh = (httpEndpoint: string | null): void => {
+  refreshEndpoint = httpEndpoint;
+};
+
+/**
+ * The exchange in flight, if any.
+ *
+ * The summary page fires several requests at once, and every one of them
+ * calls authenticate(). Without this, a cold cache means one /auth/token per
+ * request, each racing to overwrite the others' tokens.
+ */
+let inFlightRenewal: Promise<string | null> | null = null;
+
+/**
+ * Fired when the handle is proven dead, so the parent has to sign in again.
+ *
+ * An event rather than a callback because this can happen inside any api
+ * client, and the decision to navigate belongs to React (AuthProvider listens
+ * and drops `authenticated`, which is what ProtectedRoute redirects on).
+ */
+export const SESSION_INVALID_EVENT = 'aiep:session-invalid';
+
+const renew = async (): Promise<string | null> => {
+  const session = readPersistedSessionHandle();
+  if (!refreshEndpoint || !session) return null;
+
+  let tokens: TokenExchangeResult;
+  try {
+    tokens = await exchangeSession({ httpEndpoint: refreshEndpoint, session });
+  } catch {
+    // postJson already collapses a network failure into `unavailable`, so
+    // reaching here at all means something unexpected. Not proof the handle
+    // is dead, so it survives to the next attempt.
+    return null;
+  }
+
+  if ('accessToken' in tokens) {
+    setCachedTokens(tokens);
+    return tokens.idToken;
+  }
+
+  // contract §4: 401 session_invalid is the ONE answer that proves the handle
+  // is dead (expired, revoked, or the account is gone). Everything else --
+  // 503, a collapsed network failure, a code this client has never seen -- is
+  // not proof of anything, and a handle that might still be good must not be
+  // thrown away on it. Same rule as resumePasswordlessSession.
+  if (tokens.code === 'session_invalid') {
+    clearPersistedSessionHandle();
+    clearCachedTokens();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(SESSION_INVALID_EVENT));
+    }
+  }
+  return null;
+};
+
+/**
+ * A fresh ID token from the persisted handle, or null if there is none to be
+ * had. Never throws: callers treat null as "no token" and fall through.
+ */
+export const renewIdToken = async (): Promise<string | null> => {
+  if (!inFlightRenewal) {
+    inFlightRenewal = renew().finally(() => {
+      inFlightRenewal = null;
+    });
+  }
+  return inFlightRenewal;
+};
+
+/** Whether a renewal is worth attempting: the cache is cold and a handle exists. */
+export const needsRenewal = (): boolean =>
+  getCachedIdToken() === null && Boolean(readPersistedSessionHandle());
+
 // ---- Copy: map the contract's `code` (never `message`, per §9 and the
 // contract's repeated instruction) to a translation key. Unrecognised codes
 // fall back to the app's existing generic error key rather than showing

@@ -1,5 +1,5 @@
 import { fetchAuthSession } from 'aws-amplify/auth'
-import { getCachedIdToken } from './auth/passwordless-auth';
+import { getCachedIdToken, renewIdToken } from './auth/passwordless-auth';
 export class Utils {
   // static isDevelopment() {
   //   return import.meta.env.MODE === "development";
@@ -140,6 +140,21 @@ export class Utils {
     // same page load.
     const passwordlessToken = getCachedIdToken();
     if (passwordlessToken) return passwordlessToken;
+
+    // Cold cache, but the durable session handle may still be good: renew
+    // from it before giving up. This is the whole of the idle-tab fix. The
+    // tokens above last an hour and live in memory only, so before this a tab
+    // left open past that threw here -- the Amplify fall-through below cannot
+    // help a parent who signed in this way, because that flow deliberately
+    // keeps the real Cognito tokens server-side and leaves Amplify with no
+    // session at all.
+    //
+    // Null covers both "nothing to renew from" and "the handle is dead". In
+    // the second case renewIdToken has already cleared it and announced
+    // SESSION_INVALID_EVENT, which AuthProvider turns into a redirect to the
+    // sign-in card, so falling through to the throw is right either way.
+    const renewedToken = await renewIdToken();
+    if (renewedToken) return renewedToken;
 
     try {
       // v6: the ID token comes from fetchAuthSession(); v5's
