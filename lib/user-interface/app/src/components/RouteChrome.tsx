@@ -50,7 +50,7 @@ export function PublicChrome() {
  */
 export function InAppChrome() {
   return (
-    <AppShell nav={<MobileTopNavigation />}>
+    <AppShell nav={<MobileTopNavigation />} footerVariant="compact">
       <Outlet />
     </AppShell>
   );

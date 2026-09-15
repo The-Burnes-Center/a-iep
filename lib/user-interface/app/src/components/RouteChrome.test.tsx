@@ -159,6 +159,36 @@ describe("which bar a block gets", () => {
 
     expect(screen.getByRole("main")).not.toContainElement(mainNav());
   });
+
+  /**
+   * Which footer, decided by the block, same as the bar.
+   *
+   * The full footer is 635px on a 375x812 phone. With the 63px in-app bar
+   * that is 698px of chrome out of 812, and every one of the 31 in-app
+   * screens scrolled on mobile as a result -- /support-center put its footer
+   * 45% of the way down the first screen, under three list items, and its
+   * four links duplicated the bar already at the top.
+   *
+   * Asserted here rather than only in AppShell.test.tsx because the wiring is
+   * the part that regresses: AppShell defaults to 'full', so the compact
+   * footer is exactly one prop on one line of RouteChrome, and losing it
+   * looks like nothing.
+   */
+  test("the in-app block gets the compact footer, not the marketing one", () => {
+    renderInApp(true);
+
+    expect(document.querySelector(".aiep-footer--compact")).not.toBeNull();
+    expect(document.querySelector(".footer-project-partners-logo")).toBeNull();
+    expect(document.querySelector(".footer-logo")).toBeNull();
+  });
+
+  test("the public block keeps the full footer", () => {
+    renderPublic(true);
+
+    expect(document.querySelector(".aiep-footer--compact")).toBeNull();
+    expect(document.querySelector(".footer-project-partners-logo")).not.toBeNull();
+    expect(document.querySelector(".footer-logo")).not.toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

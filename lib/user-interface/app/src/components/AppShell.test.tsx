@@ -80,7 +80,11 @@ const Nav = () => (
   </nav>
 );
 
-const renderShell = (authenticated: boolean, loading = false) => {
+const renderShell = (
+  authenticated: boolean,
+  loading = false,
+  footerVariant: "full" | "compact" = "full",
+) => {
   authState.current = { authenticated, loading };
   render(
     <MemoryRouter initialEntries={["/start"]}>
@@ -89,7 +93,7 @@ const renderShell = (authenticated: boolean, loading = false) => {
             front of the screen's own content and make the skip-link assertion
             below pass for the wrong reason. */}
         <Here />
-        <AppShell nav={<Nav />}>
+        <AppShell nav={<Nav />} footerVariant={footerVariant}>
           <Routes>
             <Route path="/start" element={<Screen />} />
             <Route path="*" element={<div>somewhere else</div>} />
@@ -262,5 +266,69 @@ describe("the footer lives in one place", () => {
       "AppShell renders the footer for every screen; these render a second one:\n  " +
         offenders.join("\n  "),
     ).toEqual([]);
+  });
+});
+
+describe("how much footer a block gets", () => {
+  /**
+   * Measured on deployed staging before this split existed: the full footer
+   * is 635px on a 375x812 phone, and with the 63px in-app bar that left
+   * 114px for the screen. The sparsest screen needs 272px, so all 31 in-app
+   * screens scrolled on mobile and the sticky footer never rested once.
+   *
+   * These assert the parts that carry that height, because that is what the
+   * fix removes -- and the four links, because that is what it must not.
+   */
+  const FULL_ONLY = [
+    ["the rainbow stripe", () => document.querySelectorAll("img[class*='footer-stripe']")],
+    ["the AIEP mark and tagline", () => document.querySelectorAll(".footer-logo")],
+    ["the three funder marks", () => document.querySelectorAll(".footer-project-partners-logo")],
+  ] as const;
+
+  test.each(FULL_ONLY)("the public site keeps %s", (_label, find) => {
+    renderShell(false);
+    expect(find().length).toBeGreaterThan(0);
+  });
+
+  test.each(FULL_ONLY)("the signed-in app drops %s", (_label, find) => {
+    renderShell(true, false, "compact");
+    expect(find().length).toBe(0);
+  });
+
+  test("the compact footer keeps all four destinations", async () => {
+    renderShell(true, false, "compact");
+
+    // Same four as the full footer's signed-in set: nothing is dropped, only
+    // the 570px of logo, tagline, stripe and funder marks around them.
+    for (const labelKey of ["footer.home", "footer.uploadIEP", "footer.supportCenter", "footer.aboutUs"]) {
+      expect(screen.getByRole("button", { name: labelKey })).toBeInTheDocument();
+    }
+  });
+
+  test("the compact footer still navigates", async () => {
+    const user = renderShell(true, false, "compact");
+
+    await user.click(screen.getByRole("button", { name: "footer.supportCenter" }));
+
+    expect(screen.getByTestId("landed-on").textContent).toBe("/support-center");
+  });
+
+  test("there is still exactly one footer, outside <main>", () => {
+    renderShell(true, false, "compact");
+
+    const footers = document.querySelectorAll("footer");
+    expect(footers).toHaveLength(1);
+    expect(document.querySelector("main")?.contains(footers[0])).toBe(false);
+  });
+
+  test("the compact footer never carries the sign-up strips", () => {
+    // Belt and braces: `variant` and `authenticated` are separate inputs, and
+    // a signed-out parent should never reach a compact footer in the first
+    // place. If one does, the partner strip and SMS line are still wrong --
+    // they exist for someone about to sign up, who is by definition not here.
+    renderShell(false, false, "compact");
+
+    expect(screen.queryByText("auth.smsFrequencyDisclaimer")).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "partnerBanner.label" })).toBeNull();
   });
 });

@@ -36,6 +36,28 @@ const SIGNED_IN_LINKS: FooterLink[] = [
 ];
 
 /**
+ * How much footer a block of the app gets. RouteChrome decides.
+ *
+ * 'full' is the marketing footer: logo, tagline, links, three funder marks.
+ * It belongs where someone is still deciding whether to trust us with their
+ * child's IEP, which is the public site.
+ *
+ * 'compact' is the same four destinations and nothing else, for the signed-in
+ * app. Measured on deployed staging, the full footer is 635px on a 375x812
+ * phone: with the 63px nav bar that is 698px of chrome out of 812, leaving
+ * 114px for the screen itself. The sparsest screen in the app needs 272px, so
+ * EVERY in-app screen scrolled on mobile and the sticky footer never once
+ * rested on the viewport bottom — /support-center put its footer 45% of the
+ * way down the first screen, under three list items.
+ *
+ * The links are identical to the in-app nav bar's own four, so on those
+ * screens the full footer was also a 635px duplicate of the bar already on
+ * screen. Nothing is dropped here: same four routes, one row instead of a
+ * page.
+ */
+export type FooterVariant = 'full' | 'compact';
+
+/**
  * The one footer, rendered once by AppShell for every screen.
  *
  * Which set of links it carries is read from the session rather than passed in
@@ -47,12 +69,42 @@ const SIGNED_IN_LINKS: FooterLink[] = [
  * appear exactly where they are for, instead of wherever a caller remembered
  * to pass `footerLinks`.
  */
-const AIEPFooter: React.FC = () => {
+const AIEPFooter: React.FC<{ variant?: FooterVariant }> = ({ variant = 'full' }) => {
   const { t } = useLanguage();
   const { authenticated, loading } = useAuth();
   const navigate = useNavigate();
 
   const links = authenticated ? SIGNED_IN_LINKS : PUBLIC_LINKS;
+
+  const linkList = (
+    <ul>
+      {/* Buttons, not bare <li onClick>: these four were not in the
+          tab order and could not be triggered from a keyboard, and
+          the footer is now on every screen in the app. */}
+      {links.map((link) => (
+        <li key={link.route}>
+          <button
+            type="button"
+            className="footer-link"
+            onClick={() => navigate(link.route)}
+          >
+            {t(link.labelKey)}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+
+  if (variant === 'compact') {
+    // No rainbow stripe (63px of the budget), no logo, no funder marks, and
+    // never the sign-up strips: a parent who is already inside the app has
+    // signed up. What is left is the four links, in a row.
+    return (
+      <footer className="aiep-footer aiep-footer--compact">
+        <div className="footer-links">{linkList}</div>
+      </footer>
+    );
+  }
   // `!loading` as well, not just `!authenticated`: on a page load the session
   // check has not answered yet, and rendering these two strips on the strength
   // of the not-yet-resolved default would pop 73px of footer in and back out
@@ -80,24 +132,7 @@ const AIEPFooter: React.FC = () => {
             <img src="/images/aiep-logo-vertical-white.svg" alt="AIEP Logo" />
             <p className="footer-tagline">{t('footer.tagline')}</p>
         </div>
-        <div className="footer-links">
-            <ul>
-                {/* Buttons, not bare <li onClick>: these four were not in the
-                    tab order and could not be triggered from a keyboard, and
-                    the footer is now on every screen in the app. */}
-                {links.map((link) => (
-                  <li key={link.route}>
-                    <button
-                      type="button"
-                      className="footer-link"
-                      onClick={() => navigate(link.route)}
-                    >
-                      {t(link.labelKey)}
-                    </button>
-                  </li>
-                ))}
-            </ul>
-        </div>
+        <div className="footer-links">{linkList}</div>
         <div className="footer-project-partners">
           <div className="footer-project-partners-logo">
             <a href="https://thegovlab.org/" target="_blank" rel="noopener noreferrer">

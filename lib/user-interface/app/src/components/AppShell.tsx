@@ -1,6 +1,7 @@
 import React from 'react';
 import { useLanguage } from '../common/language-context';
 import AIEPFooter from './AIEPFooter';
+import type { FooterVariant } from './AIEPFooter';
 import './AppShell.css';
 
 /** The skip link's target, and the app's one `<main>` landmark. */
@@ -60,9 +61,12 @@ function skipToContent(event: React.MouseEvent<HTMLAnchorElement>): void {
 export default function AppShell({
   children,
   nav,
+  footerVariant = 'full',
 }: {
   children: React.ReactNode;
   nav?: React.ReactNode;
+  /** See AIEPFooter's FooterVariant: 'compact' for the signed-in app. */
+  footerVariant?: FooterVariant;
 }) {
   const { t } = useLanguage();
 
@@ -77,7 +81,7 @@ export default function AppShell({
       <main id={MAIN_CONTENT_ID} className="app-shell__main" tabIndex={-1}>
         {children}
       </main>
-      <AIEPFooter />
+      <AIEPFooter variant={footerVariant} />
     </div>
   );
 }
