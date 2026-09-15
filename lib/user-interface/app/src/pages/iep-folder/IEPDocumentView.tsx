@@ -6,7 +6,6 @@ import './IEPDocumentView.css';
 import { useLanguage } from '../../common/language-context';
 import { STEP } from '../../common/breadcrumb-steps';
 import Breadcrumbs from '../../components/Breadcrumbs';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 
 const IEPDocumentView: React.FC = () => {
   
@@ -29,7 +28,6 @@ const IEPDocumentView: React.FC = () => {
 
   return (
     <>
-    <MobileTopNavigation />
     <Breadcrumbs trail={[STEP.summary, STEP.uploadIep]} />
     <Container className="document-container mt-4 mb-5">
       <Row>

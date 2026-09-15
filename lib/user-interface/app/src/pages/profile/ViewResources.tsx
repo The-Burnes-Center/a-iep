@@ -2,7 +2,6 @@ import { Container, Row, Col } from 'react-bootstrap';
 import AIEPSpinner from '../../components/AIEPSpinner';
 import { useLanguage } from '../../common/language-context';
 import Breadcrumbs from '../../components/Breadcrumbs';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 import ViewResourcesButton from '../../components/ViewResourcesButton';
 import './ChangeLanguage.css';
 import './ProfileForms.css';
@@ -51,7 +50,6 @@ export default function ViewResources() {
 
   return (
   <>
-      <MobileTopNavigation />
       <div>
       {/* Breadcrumbs */}
       <Breadcrumbs

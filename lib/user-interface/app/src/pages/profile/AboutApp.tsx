@@ -8,7 +8,6 @@ import { ApiClient } from '../../common/api-client/api-client';
 import { useLanguage } from '../../common/language-context';
 import GoToWebsiteButton from '../../components/GoToWebsiteButton';
 import Breadcrumbs from '../../components/Breadcrumbs';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 import LandingHeroSection from '../../components/LandingHeroSection';
 import GreenSection from '../../components/GreenSection';
 import LandingContainer from '../../components/LandingContainer';
@@ -20,12 +19,16 @@ import './ProfileForms.css';
 import './AboutApp.css';
 
 interface AboutAppProps {
-  NavigationComponent?: React.ComponentType;
+  /**
+   * Off on the public copy of this page (/about-the-project), whose trail
+   * would lead into the app. It also picks which privacy policy the link at
+   * the bottom opens. Which header the page gets is NOT decided here: the
+   * layout route it sits under answers that (components/RouteChrome.tsx).
+   */
   showBreadcrumbs?: boolean;
 }
 
 export default function AboutApp({ 
-  NavigationComponent = MobileTopNavigation,
   showBreadcrumbs = true 
 }: AboutAppProps = {}) {
   const navigate = useNavigate();
@@ -67,7 +70,6 @@ export default function AboutApp({
 
   return (
     <>
-      <NavigationComponent />
       <div>
       {/* Breadcrumbs - only show when enabled */}
       {showBreadcrumbs && (

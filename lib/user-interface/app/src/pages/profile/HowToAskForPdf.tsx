@@ -3,7 +3,6 @@ import { Button } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { IconPlayerPlay } from '@tabler/icons-react';
 import { useLanguage } from '../../common/language-context';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
 import { STEP } from '../../common/breadcrumb-steps';
 
@@ -25,7 +24,6 @@ export default function HowToAskForPdf() {
 
   return (
     <>
-      <MobileTopNavigation />
       <div className="onboarding-page">
         <OnboardingTopBar trail={[STEP.yourIep, STEP.askForPdf]} />
 

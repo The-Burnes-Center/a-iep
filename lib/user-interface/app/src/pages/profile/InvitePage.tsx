@@ -14,7 +14,6 @@ import { ApiClient } from '../../common/api-client/api-client';
 import { useLanguage } from '../../common/language-context';
 import AIEPSpinner from '../../components/AIEPSpinner';
 import Breadcrumbs from '../../components/Breadcrumbs';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 import {
   ClipboardIcon,
   EnvelopeIcon,
@@ -77,7 +76,6 @@ export default function InvitePage() {
 
   return (
     <>
-      <MobileTopNavigation />
       <div className="invite-page">
         <Breadcrumbs
           trail={[

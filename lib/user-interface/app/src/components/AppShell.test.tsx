@@ -1,7 +1,7 @@
 /**
  * The frame every screen renders inside.
  *
- * Three defects this replaces, all of them "the footer is per-screen":
+ * Four defects this replaces. Three of them were "the footer is per-screen":
  *
  *  - 20 components rendered `<AIEPFooter>` themselves and 8 screens rendered
  *    none, so whether a parent got a footer depended on which screen they were
@@ -13,6 +13,12 @@
  *    LandingTopNavigation already resolves its own Upload item.
  *  - nothing in the app established a full-height layout and there was no
  *    `<main>` landmark or skip link anywhere.
+ *
+ * The fourth was the same shape one layer up: 23 screens rendered their own
+ * nav bar, and the 15 with a loading state returned the spinner instead of
+ * the whole tree, bar included — so the navigation disappeared while a parent
+ * waited. The bar is now `nav`, rendered here, outside `<main>`; which bar a
+ * route gets is RouteChrome's answer and RouteChrome.test.tsx's subject.
  *
  * The skip link is asserted by driving the keyboard, not by checking the
  * element exists: a skip link that lands on the nav bar it was supposed to
@@ -58,19 +64,20 @@ const Here = () => {
 };
 
 /**
- * A stand-in for a real screen, shaped like the ones the app has: its own nav
- * bar first, then its content. That order is why the skip link cannot simply
- * focus `<main>`.
+ * A stand-in for a real screen: content only. Screens do not render their own
+ * nav bar any more, which is what makes `<main>` the right skip target.
  */
 const Screen = () => (
-  <>
-    <nav aria-label="Main navigation">
-      <button type="button">Summary</button>
-    </nav>
-    <div data-testid="page-content">
-      <button type="button">Something on the page</button>
-    </div>
-  </>
+  <div data-testid="page-content">
+    <button type="button">Something on the page</button>
+  </div>
+);
+
+/** Stands in for the bar a layout route hands the shell. */
+const Nav = () => (
+  <nav aria-label="Main navigation">
+    <button type="button">Summary</button>
+  </nav>
 );
 
 const renderShell = (authenticated: boolean, loading = false) => {
@@ -78,12 +85,11 @@ const renderShell = (authenticated: boolean, loading = false) => {
   render(
     <MemoryRouter initialEntries={["/start"]}>
       <LanguageContext.Provider value={languageValue}>
-        {/* Outside the shell deliberately: in the app `<Routes>` is <main>'s
-            only child, so the screen's own nav bar is <main>'s first element.
-            A probe inside would sit in front of it and make the skip-link
-            assertion below pass for the wrong reason. */}
+        {/* Outside the shell deliberately: a probe inside <main> would sit in
+            front of the screen's own content and make the skip-link assertion
+            below pass for the wrong reason. */}
         <Here />
-        <AppShell>
+        <AppShell nav={<Nav />}>
           <Routes>
             <Route path="/start" element={<Screen />} />
             <Route path="*" element={<div>somewhere else</div>} />
@@ -118,6 +124,36 @@ describe("the shell's landmarks", () => {
     // space and puts everything after it on the bottom of the viewport.
     expect(screen.getByRole("main")).not.toContainElement(footers[0]);
   });
+
+  test("puts the nav bar outside <main>, ahead of it", () => {
+    renderShell(false);
+
+    const main = screen.getByRole("main");
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    // Inside <main> is where it used to be, and is what made the skip link
+    // need a workaround to get past it.
+    expect(main).not.toContainElement(nav);
+    // Ahead of it, so a parent tabbing from the top reaches the bar before
+    // the page and the skip link has something to skip.
+    expect(nav.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  test("renders no nav bar for a route that passes none", () => {
+    authState.current = { authenticated: false, loading: false };
+    render(
+      <MemoryRouter initialEntries={["/start"]}>
+        <LanguageContext.Provider value={languageValue}>
+          <AppShell>
+            <div>a redirect, not a page</div>
+          </AppShell>
+        </LanguageContext.Provider>
+      </MemoryRouter>,
+    );
+
+    // /login, /r/:code and the catch-all render a <Navigate>. The frame is
+    // still theirs; a bar over a screen nobody sees is not.
+    expect(screen.queryByRole("navigation", { name: "Main navigation" })).toBeNull();
+  });
 });
 
 describe("the skip link", () => {
@@ -136,12 +172,19 @@ describe("the skip link", () => {
     await user.tab();
     await user.click(document.activeElement as HTMLElement);
 
-    // The thing that must NOT happen: focus on <main> itself, or inside the
-    // nav, either of which leaves the next Tab on the first nav button --
-    // exactly what the link exists to skip.
-    expect(document.activeElement).toBe(screen.getByTestId("page-content"));
+    // <main> itself, which is only the right answer because the bar is
+    // chrome and sits outside it.
+    expect(document.activeElement).toBe(screen.getByRole("main"));
     expect(screen.getByRole("navigation", { name: "Main navigation" })).not.toContainElement(
       document.activeElement as HTMLElement,
+    );
+
+    // The thing that must NOT happen, and the only assertion here that would
+    // notice the bar moving back inside <main>: the next Tab going to a nav
+    // button, which is exactly what the link exists to skip.
+    await user.tab();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Something on the page" }),
     );
   });
 });

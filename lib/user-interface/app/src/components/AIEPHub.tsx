@@ -8,11 +8,12 @@ import { useLanguage } from '../common/language-context';
 import { Container } from 'react-bootstrap';
 import AIEPSpinner from './AIEPSpinner';
 
-interface AIEPHubProps {
-  NavigationComponent?: React.ComponentType;
-}
-
-export default function AIEPHub({ NavigationComponent }: AIEPHubProps) {
+/**
+ * The public hub at /aiep-hub. The header used to arrive as a
+ * `NavigationComponent` prop that only AppRoutes passed; PublicChrome renders
+ * it for the whole public block now (components/RouteChrome.tsx).
+ */
+export default function AIEPHub() {
   const { t, translationsLoaded } = useLanguage();
 
   if (!translationsLoaded) {
@@ -28,7 +29,6 @@ export default function AIEPHub({ NavigationComponent }: AIEPHubProps) {
 
   return (
     <div>
-      {NavigationComponent && <NavigationComponent />}
       <LandingHeroSection />
       <LandingCardSection />
       <GreenSection />

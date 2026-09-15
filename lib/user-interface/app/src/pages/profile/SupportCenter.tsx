@@ -1,6 +1,5 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 import { Container, Row, Col, Card, Accordion } from 'react-bootstrap';
 import AIEPSpinner from '../../components/AIEPSpinner';
 import { useLanguage } from '../../common/language-context';
@@ -8,12 +7,10 @@ import { IconArrowRight } from '@tabler/icons-react';
 import './AccountCenter.css';
 
 interface SupportCenterProps {
-  NavigationComponent?: React.ComponentType;
   showAboutApp?: boolean;
 }
 
 const SupportCenter: React.FC<SupportCenterProps> = ({ 
-  NavigationComponent = MobileTopNavigation,
   showAboutApp = true 
 }) => {
 
@@ -67,7 +64,6 @@ const SupportCenter: React.FC<SupportCenterProps> = ({
 
   return (
     <>
-      <NavigationComponent />
       <Container className="account-center-container mt-3 mb-3">
         <Row className="mt-2">
           <Col>

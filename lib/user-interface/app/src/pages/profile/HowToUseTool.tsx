@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../../common/language-context';
 import { useFeatures } from '../../common/hooks/use-features';
 import { STEP } from '../../common/breadcrumb-steps';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
 
 /**
@@ -35,7 +34,6 @@ export default function HowToUseTool() {
 
   return (
     <>
-      <MobileTopNavigation />
       <div className="onboarding-page">
         {/* What comes before this step depends on studentNameGate, the same
             flag that decides whether the child's name is asked for at all:

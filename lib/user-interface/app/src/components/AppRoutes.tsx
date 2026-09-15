@@ -5,9 +5,6 @@ import { trackPageView } from '../common/helpers/analytics-helper';
 // Auth components
 import LoginRedirect from './LoginRedirect';
 
-// Navigation components
-import LandingTopNavigation from './LandingTopNavigation';
-
 // Public pages
 import LandingPage from '../pages/LandingPage';
 
@@ -19,7 +16,6 @@ import AboutApp from '../pages/profile/AboutApp';
 import PreferredLanguage from '../pages/profile/PreferredLanguage';
 import OnboardingUser from '../pages/profile/OnboardingUser';
 import UserProfileForm from '../pages/profile/UserProfileForm';
-// import WelcomePage from '../pages/WelcomePage'; // legacy card hub, route disabled below
 import IEPDocumentView from '../pages/iep-folder/IEPDocumentView';
 import SummaryAndTranslationsPage from '../pages/iep-folder/SummaryAndTranslationsPage';
 import ViewAndAddChild from '../pages/profile/ViewAndAddChild';
@@ -44,8 +40,8 @@ import PrivacyPolicy from '../pages/PrivacyPolicy';
 
 // Navigation behaviour shared by every route
 import ScrollToTop from './ScrollToTop';
-// The frame every route renders inside: skip link, <main>, and the footer
-import AppShell from './AppShell';
+// The frame a route renders inside: skip link, nav bar, <main>, and the footer
+import { PublicChrome } from './RouteChrome';
 
 // Referral system
 import ReferralRedirect from './ReferralRedirect';
@@ -71,11 +67,33 @@ export default function AppRoutes() {
     <ScrollToTop />
     {/* Referral capture (?ref=) + post-login signup attribution */}
     <ReferralTracker />
-    <AppShell>
     <Routes>
       {/* ===== PUBLIC ROUTES ===== */}
-      {/* Home/Landing page at root */}
-      <Route path="/" element={<LandingPage />} />
+      {/* PublicChrome is the frame AND the public header: every screen below
+          gets LandingTopNavigation whatever state it is in, including while
+          it waits for its dictionary. */}
+      <Route element={<PublicChrome />}>
+        {/* Home/Landing page at root */}
+        <Route path="/" element={<LandingPage />} />
+
+        {/* FAQs - public route */}
+        <Route path="/faqs" element={<FrequentlyAskedQuestions />} />
+
+        {/* About the project - public route */}
+        <Route path="/about-the-project" element={<AboutApp showBreadcrumbs={false} />} />
+
+        {/* Privacy Policy - public route. isPublic still decides where the
+            breadcrumb goes; which header it gets is this block's answer. */}
+        <Route path="/public-privacy-policy" element={<PrivacyPolicy isPublic={true} />} />
+
+        {/* AIEP Hub - public route */}
+        <Route path="/aiep-hub" element={<AIEPHub />} />
+      </Route>
+
+      {/* ===== REDIRECTS ===== */}
+      {/* Outside both chrome blocks on purpose: these render a <Navigate>, not
+          a page, so a header and footer here would be a frame around a screen
+          nobody is meant to see. */}
 
       {/* Shared referral links: a-iep.org/r/<code> */}
       <Route path="/r/:code" element={<ReferralRedirect />} />
@@ -83,36 +101,11 @@ export default function AppRoutes() {
       {/* The sign-in form is the landing page's hero card; this is the old
           page's URL, kept alive as a redirect to it (LoginRedirect.tsx) */}
       <Route path="/login" element={<LoginRedirect />} />
-      
-      {/* FAQs - public route */}
-      <Route path="/faqs" element={
-        <FrequentlyAskedQuestions 
-          NavigationComponent={LandingTopNavigation} 
-        />
-      } />
 
-
-      {/* About the project - public route */}
-      <Route path="/about-the-project" element={
-        <AboutApp 
-          NavigationComponent={LandingTopNavigation} 
-          showBreadcrumbs={false} 
-        />
-      } />
-
-      {/* Privacy Policy - public route */}
-      <Route path="/public-privacy-policy" element={
-        <PrivacyPolicy isPublic={true} />
-      } />
-
-      {/* AIEP Hub - public route */}
-      <Route path="/aiep-hub" element={
-        <AIEPHub 
-          NavigationComponent={LandingTopNavigation} 
-        />
-      } />
-      
       {/* ===== PROTECTED ROUTES ===== */}
+      {/* ProtectedRoute is the guard and the in-app chrome: see its docblock.
+          Everything below gets MobileTopNavigation, once, for the whole
+          block. */}
       <Route element={<ProtectedRoute />}>
         {/* Landing page after login - now at /preferred-language */}
         <Route path="/preferred-language" element={<PreferredLanguage />} />
@@ -132,9 +125,6 @@ export default function AppRoutes() {
         <Route path="/about-the-app" element={<AboutApp />} />
         
         {/* Main app pages */}
-        {/* Legacy card-hub home, superseded by the top navigation; nothing
-            links here anymore. Remove for good once we're sure. */}
-        {/* <Route path="/welcome-page" element={<WelcomePage />} /> */}
         {/* Consent is required to use the IEP tool itself; onboarding and
             account routes stay reachable because consent is collected as
             the final onboarding step */}
@@ -173,10 +163,9 @@ export default function AppRoutes() {
       </Route>
 
       {/* Unknown URLs (including the retired /welcome-page) go home instead
-          of rendering a blank screen */}
+          of rendering a blank screen. A redirect, so no chrome: see above. */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-    </AppShell>
     </>
   );
 }

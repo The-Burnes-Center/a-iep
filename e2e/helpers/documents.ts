@@ -284,6 +284,10 @@ export const APP_NAV_ROUTES = Object.keys(APP_NAV_ICONS) as AppNavRoute[];
  * Scoped to the component's own wrapper because the landing page's nav builds
  * its markup the same way, and react-bootstrap's tab nav (hidden by CSS on the
  * summary page, but in the DOM) also uses the class `nav-item`.
+ *
+ * One bar, mounted by the in-app layout route rather than by the screen
+ * (lib/user-interface/app/src/components/RouteChrome.tsx), so it is on every
+ * signed-in screen and stays put while one of them is loading.
  */
 export function appNavButton(page: Page, route: AppNavRoute): Locator {
   return page.locator(
@@ -300,9 +304,9 @@ export function appNavButton(page: Page, route: AppNavRoute): Locator {
 export async function tapAppNav(page: Page, route: AppNavRoute): Promise<void> {
   // 'Navigate to ' is hardcoded English in MobileTopNavigation and only the
   // label after it is translated, so this prefix match holds in any language.
-  // Kept as a separate, whole-bar check: it is what catches the nav rendering
-  // none of its buttons (the tutorial-phase branch renders a bare line of
-  // copy) or rendering twice.
+  // Kept as a separate, whole-bar check: it is what catches the bar rendering
+  // none of its buttons, or a screen going back to rendering one of its own on
+  // top of the layout's (four buttons, not eight).
   await expect(
     page.locator('.mobile-top-navigation button[aria-label^="Navigate to "]'),
     `the app nav did not render its ${APP_NAV_ROUTES.length} buttons ` +

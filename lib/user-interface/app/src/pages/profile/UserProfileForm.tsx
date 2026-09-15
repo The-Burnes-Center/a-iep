@@ -10,7 +10,6 @@ import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useNavigate } from 'react-router-dom';
 import { STEP } from '../../common/breadcrumb-steps';
 import Breadcrumbs from '../../components/Breadcrumbs';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 import DeleteProfileModal from './DeleteProfileModal';
 import './ProfileForms.css';
 
@@ -122,7 +121,6 @@ export default function UserProfileForm() {
 
   return (
     <>
-    <MobileTopNavigation />
     <Breadcrumbs trail={[STEP.summary, STEP.profile]} />
     <Container className="mt-4">
       <Form onSubmit={handleSubmit} className="mt-4">

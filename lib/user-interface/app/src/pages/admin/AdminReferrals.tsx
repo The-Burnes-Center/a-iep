@@ -21,7 +21,6 @@ import { AdminUser, ReferralLink } from '../../common/types';
 import { useAdminIdentity } from '../../common/helpers/use-admin-identity';
 import AIEPSpinner from '../../components/AIEPSpinner';
 import Breadcrumbs from '../../components/Breadcrumbs';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 import './AdminReferrals.css';
 
 const CHANNELS = ['social', 'conference', 'event', 'print', 'partner', 'other'];
@@ -211,7 +210,6 @@ export default function AdminReferrals() {
 
   return (
     <>
-      <MobileTopNavigation />
       <Breadcrumbs
         trail={[
           { labelKey: 'changeLanguage.breadcrumb.account', to: '/account-center' },

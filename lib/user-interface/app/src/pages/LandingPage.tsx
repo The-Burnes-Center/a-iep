@@ -1,5 +1,4 @@
 import React from 'react';
-import LandingTopNavigation from '../components/LandingTopNavigation';
 import './LandingPage.css';
 import MultiFaceGreenBanner from '../components/MultiFaceGreenBanner';
 import HowToBanner from '../components/HowToBanner';
@@ -11,7 +10,6 @@ import ResourcesBanner from '../components/ResourcesBanner';
 const LandingPage: React.FC = () => { 
     return (
         <>
-        <LandingTopNavigation />
         <div className="landing-page-container">
             <HeroSection />
             <SummarizeTranslateAdvocateBanner />

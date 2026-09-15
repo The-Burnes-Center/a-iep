@@ -10,7 +10,6 @@ import { useLanguage } from '../../common/language-context';
 import { isPlaceholderChildName } from '../../common/features';
 import { ChildNameError, normalizeChildName, validateChildName } from '../../common/child-name';
 import { STEP } from '../../common/breadcrumb-steps';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
 import './ViewAndAddChild.css';
 
@@ -229,7 +228,6 @@ export default function ViewAndAddChild() {
 
   return (
     <>
-      <MobileTopNavigation />
       <div className="onboarding-page">
         {/* The same fork Save takes below: onboarding arrived here from
             consent, and a parent correcting a name that is already there

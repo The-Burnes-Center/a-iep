@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faLock, faTrashCan, faArrowDownLong } from '@fortawesome/free-solid-svg-icons';
 import { useLanguage } from '../../common/language-context';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
 import { STEP } from '../../common/breadcrumb-steps';
 import './HowWeProtectYourPrivacy.css';
@@ -192,7 +191,6 @@ export default function HowWeProtectYourPrivacy() {
 
   return (
     <>
-      <MobileTopNavigation />
       <div className="onboarding-page privacy-page">
         <OnboardingTopBar trail={[STEP.howItWorks, STEP.privacy]} />
 

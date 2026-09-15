@@ -3,7 +3,6 @@ import { Container, Row, Col } from 'react-bootstrap';
 import { useLanguage } from '../common/language-context';
 import { STEP } from '../common/breadcrumb-steps';
 import Breadcrumbs from '../components/Breadcrumbs';
-import MobileTopNavigation from '../components/MobileTopNavigation';
 import './RightsAndOnboarding.css';
 
 const RightsAndOnboarding: React.FC = () => {
@@ -21,7 +20,6 @@ const RightsAndOnboarding: React.FC = () => {
 
   return (
     <>
-    <MobileTopNavigation />
     {/* The legacy /welcome-page card hub is retired; Summary is the app home */}
     <Breadcrumbs trail={[STEP.summary, STEP.rights]} />
     <Container className="mt-4 mb-5">

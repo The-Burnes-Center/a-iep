@@ -11,7 +11,6 @@ import { useLanguage } from '../../common/language-context';
 import { useFeatures } from '../../common/hooks/use-features';
 import { isStudentNameMissing } from '../../common/features';
 import { STEP } from '../../common/breadcrumb-steps';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
 import './ProfileForms.css';
 
@@ -150,7 +149,6 @@ export default function ConsentForm() {
 
   return (
     <>
-      <MobileTopNavigation />
       <div className="onboarding-page">
         {/* The trail points at the previous onboarding step, NOT at '/'. The
             landing page is the logged-out marketing site: its only way into

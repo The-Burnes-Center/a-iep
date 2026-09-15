@@ -11,30 +11,6 @@
   padding-top: max(8px, env(safe-area-inset-top));
 }
 
-.landing-top-navigation .processing-header {
-  text-align: start;
-  color: #F5F3EE;
-  padding: 6px 12px;
-  background-color: #00682F;
-  margin-bottom: 4px;
-}
-
-.landing-top-navigation .processing-header h3 {
-  margin: 0;
-  font-size: 0.9rem;
-  font-weight: 500;
-  line-height: 1.2;
-}
-
-.landing-top-navigation .processing-line {
-  text-align: center;
-  color: #F5F3EE;
-  font-size: 0.8rem;
-  padding: 4px 0;
-  background-color: #00682F;
-  margin-bottom: 4px;
-}
-
 .landing-top-navigation .navigation-container {
   display: flex;
   justify-content: space-around;
@@ -136,19 +112,6 @@
   
   .landing-top-navigation .nav-label {
     font-size: 0.65rem;
-  }
-  
-  .landing-top-navigation .processing-header {
-    padding: 4px 10px;
-  }
-  
-  .landing-top-navigation .processing-header h3 {
-    font-size: 1.5rem;
-  }
-  
-  .landing-top-navigation .processing-line {
-    font-size: 0.7rem;
-    padding: 3px 0;
   }
 }
 

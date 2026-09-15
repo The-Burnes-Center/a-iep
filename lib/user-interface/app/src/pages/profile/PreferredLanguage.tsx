@@ -10,7 +10,6 @@ import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useFeatures } from '../../common/hooks/use-features';
 import { isStudentNameMissing } from '../../common/features';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 import OnboardingTopBar from '../../components/OnboardingChrome';
 import { STEP } from '../../common/breadcrumb-steps';
 import './ProfileForms.css';
@@ -157,7 +156,6 @@ export default function PreferredLanguage() {
   // Show language preference UI
   return (
     <>
-      <MobileTopNavigation />
       <div className="onboarding-page">
         {/* No language dropdown: this screen IS the language picker, and the
             bar put a second copy of the same choice in the corner of it.

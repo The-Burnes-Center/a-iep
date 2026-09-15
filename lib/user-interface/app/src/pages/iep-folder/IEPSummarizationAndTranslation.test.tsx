@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import IEPSummarizationAndTranslation from "./IEPSummarizationAndTranslation";
-import MobileTopNavigation from "../../components/MobileTopNavigation";
+import { InAppChrome } from "../../components/RouteChrome";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
 import type { AppConfig } from "../../common/types";
@@ -112,15 +112,11 @@ const translationsBody = () => {
 };
 
 /**
- * Stands in for Account Center. It carries the real bottom nav, because that is
- * how a parent gets back and the tests below need the trip to be a round one.
+ * Stands in for Account Center. It carries no nav of its own: the bar is
+ * mounted by InAppChrome for the whole block below, which is where a real
+ * in-app screen gets it from, and is how a parent gets back here.
  */
-const AccountPage = () => (
-  <div>
-    {ACCOUNT_LANDING}
-    <MobileTopNavigation />
-  </div>
-);
+const AccountPage = () => <div>{ACCOUNT_LANDING}</div>;
 
 const renderPage = (
   language: SupportedLanguage = "es",
@@ -141,16 +137,23 @@ const renderPage = (
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
             <Routes>
-              <Route path="/summary" element={<IEPSummarizationAndTranslation />} />
-              {/* The page's REAL path, and the tab the bottom nav's own buttons
-                  point at, so a trip through the nav is a genuine route change
-                  rather than a simulated unmount. */}
-              <Route
-                path="/summary-and-translations"
-                element={<IEPSummarizationAndTranslation />}
-              />
-              <Route path="/account-center" element={<AccountPage />} />
-              <Route path="/iep-documents" element={<div>documents page</div>} />
+              {/* The real in-app layout route, so the bottom nav these tests
+                  travel on is mounted where the app mounts it: once, above
+                  <main>, surviving every route change and loading state
+                  inside the block. */}
+              <Route element={<InAppChrome />}>
+                <Route path="/summary" element={<IEPSummarizationAndTranslation />} />
+                {/* The page's REAL path, and the tab the bottom nav's own buttons
+                    point at, so a trip through the nav is a genuine route change
+                    rather than a simulated unmount. */}
+                <Route
+                  path="/summary-and-translations"
+                  element={<IEPSummarizationAndTranslation />}
+                />
+                <Route path="/account-center" element={<AccountPage />} />
+                <Route path="/iep-documents" element={<div>documents page</div>} />
+              </Route>
+              {/* Outside the block: '/' is the public landing page. */}
               <Route path="/" element={<div>home page</div>} />
             </Routes>
         </LanguageContext.Provider>

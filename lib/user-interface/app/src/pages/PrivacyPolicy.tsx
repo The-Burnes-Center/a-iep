@@ -1,13 +1,21 @@
 import React from 'react';
 import { Container, Row, Col, Card } from 'react-bootstrap';
 import AIEPSpinner from '../components/AIEPSpinner';
-import MobileTopNavigation from '../components/MobileTopNavigation';
-import LandingTopNavigation from '../components/LandingTopNavigation';
 import { useLanguage } from '../common/language-context';
 import Breadcrumbs from '../components/Breadcrumbs';
 import './PrivacyPolicy.css';
 
 interface PrivacyPolicyProps {
+  /**
+   * True on /public-privacy-policy, false on the signed-in /privacy-policy.
+   * The two copies are the same page under different breadcrumbs: the public
+   * one sits under the public About, the signed-in one under the in-app one.
+   *
+   * It used to pick the header as well (LandingTopNavigation vs
+   * MobileTopNavigation). That is the layout route's answer now
+   * (components/RouteChrome.tsx), which is also why the loading state below
+   * no longer strips the header off the page.
+   */
   isPublic?: boolean;
 }
 
@@ -25,11 +33,8 @@ const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ isPublic = false }) => {
     );
   }
 
-  const NavigationComponent = isPublic ? LandingTopNavigation : MobileTopNavigation;
-
   return (
     <div className="privacy-policy-page">
-      <NavigationComponent />
       {/* Breadcrumbs */}
       <Breadcrumbs
         trail={[

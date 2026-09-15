@@ -1,16 +1,15 @@
 import React from 'react';
-import MobileTopNavigation from './MobileTopNavigation';
 import { Container, Row, Col, Card, Accordion} from 'react-bootstrap';
 import './FrequentlyAskedQuestions.css';
 import { useLanguage } from '../common/language-context';
 
-interface FrequentlyAskedQuestionsProps {
-  NavigationComponent?: React.ComponentType;
-}
-
-const FrequentlyAskedQuestions: React.FC<FrequentlyAskedQuestionsProps> = ({ 
-  NavigationComponent = MobileTopNavigation 
-}) => {
+/**
+ * Routed twice: /faqs on the public site and /frequently-asked-questions
+ * inside the app. It used to take the header to render as a
+ * `NavigationComponent` prop; the layout route it sits under answers that
+ * now (components/RouteChrome.tsx), so the same component serves both.
+ */
+const FrequentlyAskedQuestions: React.FC = () => {
   // Multilingual FAQ data
   const faqsByLanguage = {
     // English (en) FAQs
@@ -407,7 +406,6 @@ const FrequentlyAskedQuestions: React.FC<FrequentlyAskedQuestionsProps> = ({
 
   return (
     <>
-      <NavigationComponent />
       <Container className="faqs-container mt-3 mb-3">
         <Row className="mt-2">
           <Col>

@@ -1,7 +1,6 @@
 import React from 'react';
 import { useAuth } from '../../common/auth-provider';
 import { useNavigate } from 'react-router-dom';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 import { Container, Row, Col, Card, Accordion } from 'react-bootstrap';
 import AIEPSpinner from '../../components/AIEPSpinner';
 import { useLanguage } from '../../common/language-context';
@@ -139,7 +138,6 @@ const AccountCenter: React.FC = () => {
 
   return (
     <>
-      <MobileTopNavigation />
       <Container className="account-center-container mt-3 mb-3">
         <Row className="mt-2">
           <Col>

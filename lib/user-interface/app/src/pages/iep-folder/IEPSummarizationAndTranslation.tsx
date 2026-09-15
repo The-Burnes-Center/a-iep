@@ -26,7 +26,6 @@ import {
 import type { TranslationRequestState } from '../utils/translation-flow.mjs';
 import { canRetryFailedDocument } from './document-failure';
 import AIEPSpinner from '../../components/AIEPSpinner';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
 import TTSPlayButton from '../../components/TTSPlayButton';
 import { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
@@ -1013,7 +1012,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   if (initialLoading) {
     return (
       <>
-        <MobileTopNavigation />
         <Container className="summary-container mt-3 mb-3">
           <Row className="mt-2">
             <Col>
@@ -1032,7 +1030,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   if (!document) {
     return (
       <>
-        <MobileTopNavigation />
         <Container className="summary-container mt-3 mb-3">
           <Row className="mt-2">
             <Col>
@@ -1084,7 +1081,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // Processed Container - when document is processed, failed, or in other states
   return (
     <>
-      <MobileTopNavigation />
       <Container className="summary-container mt-3 mb-3">
         <div className="mt-2 text-start button-container d-flex justify-content-between align-items-center">
           <div className="d-flex gap-2 align-items-center">
