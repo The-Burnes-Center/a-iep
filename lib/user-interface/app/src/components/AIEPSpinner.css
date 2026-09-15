@@ -101,12 +101,55 @@
 }
 
 /* The boot screen renders above AppShell and still wants the whole viewport.
-   The route guards render INSIDE it, where the shell already guarantees a
-   viewport-tall page and a footer follows: a second viewport-height box there
-   is the phantom scroll the shell exists to remove. */
+   Inside the shell a second viewport-height box is the phantom scroll the
+   shell exists to remove, so it takes the space <main> already has instead.
+
+   55dvh was the first answer to that and it is why the mark read as sitting
+   near the top: a 55dvh box starts directly under the nav bar, so its centre
+   is 27.5dvh down. Measured on a 375x812 phone with the in-app bar and the
+   compact footer, that put the mark at 39% of the viewport. Filling <main>
+   puts it at 51%.
+
+   The min-height stays as the fallback for an engine without :has() — there
+   it keeps the old 55dvh behaviour rather than collapsing to the mark's own
+   height at the very top, which is the one outcome worse than today. */
 .app-shell .aiep-spinner-page {
   min-height: 55vh;
   min-height: 55dvh;
+  flex: 1 1 auto;
+}
+
+/* Scoped to a <main> whose own child is the loader, so no other screen's
+   layout is touched: this is the only case where <main> should be a column. */
+.app-shell__main:has(> .aiep-spinner-page) {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell__main:has(> .aiep-spinner-page) > .aiep-spinner-page {
+  /* The flex fill above decides the height now, not the fallback. */
+  min-height: 0;
+}
+
+/* The page-level loading state: the mark, and the sentence a parent reads.
+
+   Announced ONCE. Where a visible message is present the mark is decoration
+   (AIEPSpinner drops role="status" and hides itself when given no label), and
+   the message carries role="status" instead. Several screens used to render
+   `<AIEPSpinner label={...}>` AND a visible <p> of the same string, so a
+   screen reader said it twice. */
+.aiep-page-loading {
+  /* The message sits under the mark, so this one overrides the row direction
+     .aiep-spinner-page sets for the bare-spinner case. */
+  flex-direction: column;
+}
+
+.aiep-page-loading__message {
+  margin: 1rem 0 0;
+  color: var(--aiep-ink);
+  font-size: 1rem;
+  line-height: 1.5;
+  text-align: center;
 }
 
 /* A parent who asked their OS for less motion gets the mark standing still,

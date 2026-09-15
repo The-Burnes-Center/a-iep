@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { Form, Button, Alert, Container } from 'react-bootstrap';
-import AIEPSpinner from '../../components/AIEPSpinner';
+import PageLoading from '../../components/PageLoading';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -212,9 +212,7 @@ export default function ViewAndAddChild() {
 
   if (loading) {
     return (
-      <Container className="text-center">
-        <AIEPSpinner label={t('common.loading')} />
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 

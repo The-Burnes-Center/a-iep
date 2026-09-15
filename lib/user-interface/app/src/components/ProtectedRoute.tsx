@@ -1,6 +1,6 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import AIEPSpinner from './AIEPSpinner';
+import PageLoading from './PageLoading';
 import AppShell from './AppShell';
 import { InAppChrome } from './RouteChrome';
 import { useAuth } from '../common/auth-provider';
@@ -28,7 +28,7 @@ export function ProtectedRoute() {
     // whatever language the parent picked.
     return (
       <AppShell>
-        <AIEPSpinner size="lg" fullPage label={t('common.loading')} />
+        <PageLoading label={t('common.loading')} />
       </AppShell>
     );
   }

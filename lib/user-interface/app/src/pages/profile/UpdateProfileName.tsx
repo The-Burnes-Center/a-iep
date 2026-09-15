@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Container, Form, Button, Row, Col, Alert } from 'react-bootstrap';
 import { useNavigate, useLocation } from 'react-router-dom';
-import AIEPSpinner from '../../components/AIEPSpinner';
+import PageLoading from '../../components/PageLoading';
 import { DEFAULT_CHILD_NAME } from '../../common/features';
 import { useQuery } from '@tanstack/react-query';
 import Breadcrumbs from '../../components/Breadcrumbs';
@@ -90,9 +90,7 @@ export default function UpdateProfileName() {
 
   if (isLoading) {
     return (
-      <Container className="text-center">
-        <AIEPSpinner label={t('updateProfile.loading')} />
-      </Container>
+      <PageLoading message={t('updateProfile.loading')} />
     );
   }
 

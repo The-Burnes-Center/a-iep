@@ -1,5 +1,5 @@
 import { Container, Row, Col } from 'react-bootstrap';
-import AIEPSpinner from '../../components/AIEPSpinner';
+import PageLoading from '../../components/PageLoading';
 import { useLanguage } from '../../common/language-context';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import ViewResourcesButton from '../../components/ViewResourcesButton';
@@ -13,11 +13,7 @@ export default function ViewResources() {
   // Return loading state if translations aren't ready
   if (!translationsLoaded) {
     return (
-      <Container className="view-resources-container mt-4 mb-5">
-        <div className="text-center my-5">
-          <AIEPSpinner label={t('common.loading')} />
-        </div>
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 

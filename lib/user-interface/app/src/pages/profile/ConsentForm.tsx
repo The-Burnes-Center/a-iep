@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Container, Form, Button, Row, Col, OverlayTrigger, Tooltip } from 'react-bootstrap';
 import AIEPSpinner from '../../components/AIEPSpinner';
+import PageLoading from '../../components/PageLoading';
 import { useNavigate } from 'react-router-dom';
 import { DEFAULT_CHILD_NAME } from '../../common/features';
 import { IconCheck } from '@tabler/icons-react';
@@ -128,9 +129,7 @@ export default function ConsentForm() {
 
   if (loading) {
     return (
-      <Container className="text-center profile-form-container">
-        <AIEPSpinner label={t('common.loading')} />
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 

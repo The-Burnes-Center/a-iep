@@ -5,8 +5,7 @@ import GreenSection from './GreenSection';
 import LandingHeroSection from './LandingHeroSection';
 import LandingCardSection from './LandingCardSection';
 import { useLanguage } from '../common/language-context';
-import { Container } from 'react-bootstrap';
-import AIEPSpinner from './AIEPSpinner';
+import PageLoading from './PageLoading';
 
 /**
  * The public hub at /aiep-hub. The header used to arrive as a
@@ -18,12 +17,7 @@ export default function AIEPHub() {
 
   if (!translationsLoaded) {
     return (
-      <Container className="mt-4 mb-5">
-        <div className="text-center my-5">
-          <AIEPSpinner label={t('common.loading')} />
-          <p className="mt-3">{t('common.loading')}</p>
-        </div>
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 

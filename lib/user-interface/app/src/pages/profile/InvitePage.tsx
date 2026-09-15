@@ -12,7 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { useLanguage } from '../../common/language-context';
-import AIEPSpinner from '../../components/AIEPSpinner';
+import PageLoading from '../../components/PageLoading';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import {
   ClipboardIcon,
@@ -68,9 +68,7 @@ export default function InvitePage() {
 
   if (isLoading) {
     return (
-      <Container className="text-center mt-5">
-        <AIEPSpinner label={t('invite.loading')} />
-      </Container>
+      <PageLoading message={t('invite.loading')} />
     );
   }
 

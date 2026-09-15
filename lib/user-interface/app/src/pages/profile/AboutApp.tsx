@@ -1,7 +1,6 @@
 import { useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Container } from 'react-bootstrap';
-import AIEPSpinner from '../../components/AIEPSpinner';
+import PageLoading from '../../components/PageLoading';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -60,11 +59,7 @@ export default function AboutApp({
   // Return loading state if translations aren't ready
   if (!translationsLoaded) {
     return (
-      <Container className="mt-4 mb-5">
-        <div className="text-center my-5">
-          <AIEPSpinner label={t('common.loading')} />
-        </div>
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 

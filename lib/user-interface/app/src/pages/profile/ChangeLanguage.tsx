@@ -1,6 +1,6 @@
 import React, { useContext } from 'react';
 import { Container, Form, Row, Col, Alert } from 'react-bootstrap';
-import AIEPSpinner from '../../components/AIEPSpinner';
+import PageLoading from '../../components/PageLoading';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppContext } from '../../common/app-context';
 import Breadcrumbs from '../../components/Breadcrumbs';
@@ -98,9 +98,7 @@ export default function ChangeLanguage() {
 
   if (isLoading) {
     return (
-      <Container className="text-center">
-        <AIEPSpinner label={t('changeLanguage.loading')} />
-      </Container>
+      <PageLoading message={t('changeLanguage.loading')} />
     );
   }
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Container, Form, Button, Row, Col, Alert } from 'react-bootstrap';
-import AIEPSpinner from '../../components/AIEPSpinner';
+import PageLoading from '../../components/PageLoading';
 import { AppContext } from '../../common/app-context';
 import { useAuth } from '../../common/auth-provider';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -105,9 +105,7 @@ export default function UserProfileForm() {
 
   if (loading) {
     return (
-      <Container className="mt-4 text-center">
-        <AIEPSpinner label={t('profile.loading')} />
-      </Container>
+      <PageLoading message={t('profile.loading')} />
     );
   }
 

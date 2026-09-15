@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import AIEPSpinner from './AIEPSpinner';
+import PageLoading from './PageLoading';
 import { AppContext } from '../common/app-context';
 import { ApiClient } from '../common/api-client/api-client';
 import { useLanguage } from '../common/language-context';
@@ -34,7 +34,7 @@ export function ConsentGate() {
   }, [appContext, location.pathname]);
 
   if (consented === null) {
-    return <AIEPSpinner size="lg" fullPage label={t('common.loading')} />;
+    return <PageLoading label={t('common.loading')} />;
   }
 
   if (!consented) {

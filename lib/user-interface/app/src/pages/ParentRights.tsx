@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Container, Row, Col, Card, Accordion } from 'react-bootstrap';
-import AIEPSpinner from '../components/AIEPSpinner';
+import PageLoading from '../components/PageLoading';
 import '../components/FrequentlyAskedQuestions.css';
 import { useLanguage } from '../common/language-context'; 
 
@@ -49,11 +49,7 @@ const ParentRights: React.FC = () => {
    // Return loading state if translations aren't ready
    if (!translationsLoaded) {
      return (
-       <Container className="faqs-container mt-4 mb-5">
-         <div className="text-center my-5">
-           <AIEPSpinner label={t('common.loading')} />
-         </div>
-       </Container>
+       <PageLoading message={t('common.loading')} />
      );
    }
 

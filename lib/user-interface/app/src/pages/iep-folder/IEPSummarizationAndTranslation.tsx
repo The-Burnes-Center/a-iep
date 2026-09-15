@@ -26,6 +26,7 @@ import {
 import type { TranslationRequestState } from '../utils/translation-flow.mjs';
 import { canRetryFailedDocument } from './document-failure';
 import AIEPSpinner from '../../components/AIEPSpinner';
+import PageLoading from '../../components/PageLoading';
 import TTSPlayButton from '../../components/TTSPlayButton';
 import { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
@@ -1000,28 +1001,14 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // Handle initial loading and no document states first
   if (!translationsLoaded || profileLoading) {
     return (
-      <Container className="summary-container mt-4 mb-5">
-        <div className="text-center my-5">
-          <AIEPSpinner label={t('common.loading')} />
-          <p className="mt-3">{t('common.loading')}</p>
-        </div>
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 
   if (initialLoading) {
     return (
       <>
-        <Container className="summary-container mt-3 mb-3">
-          <Row className="mt-2">
-            <Col>
-              <div className="text-center my-5">
-                <AIEPSpinner label={t('summary.loading')} />
-                <p className="mt-3">{t('summary.loading')}</p>
-              </div>
-            </Col>
-          </Row>
-        </Container>
+        <PageLoading message={t('summary.loading')} />
       </>
     );
   }

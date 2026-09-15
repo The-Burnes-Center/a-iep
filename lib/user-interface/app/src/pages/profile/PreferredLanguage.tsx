@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Container, Alert, Button } from 'react-bootstrap';
-import AIEPSpinner from '../../components/AIEPSpinner';
+import PageLoading from '../../components/PageLoading';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { IconCheck } from '@tabler/icons-react';
 import { AppContext } from '../../common/app-context';
@@ -139,9 +139,7 @@ export default function PreferredLanguage() {
 
   if (loading) {
     return (
-      <Container className="text-center">
-        <AIEPSpinner label={t('common.loading')} />
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 

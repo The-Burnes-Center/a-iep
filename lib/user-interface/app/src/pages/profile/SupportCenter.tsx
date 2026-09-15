@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Container, Row, Col, Card, Accordion } from 'react-bootstrap';
-import AIEPSpinner from '../../components/AIEPSpinner';
+import PageLoading from '../../components/PageLoading';
 import { useLanguage } from '../../common/language-context';
 import { IconArrowRight } from '@tabler/icons-react';
 import './AccountCenter.css';
@@ -21,11 +21,7 @@ const SupportCenter: React.FC<SupportCenterProps> = ({
   // Return loading state if translations aren't ready
   if (!translationsLoaded) {
     return (
-      <Container className="account-center-container mt-4 mb-5">
-        <div className="text-center my-5">
-          <AIEPSpinner label={t('common.loading')} />
-        </div>
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 

@@ -20,6 +20,7 @@ import { ApiClient } from '../../common/api-client/api-client';
 import { AdminUser, ReferralLink } from '../../common/types';
 import { useAdminIdentity } from '../../common/helpers/use-admin-identity';
 import AIEPSpinner from '../../components/AIEPSpinner';
+import PageLoading from '../../components/PageLoading';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import './AdminReferrals.css';
 
@@ -128,9 +129,7 @@ export default function AdminReferrals() {
 
   if (isAdmin === null) {
     return (
-      <Container className="text-center mt-5">
-        <AIEPSpinner label="Loading" />
-      </Container>
+      <PageLoading message={"Loading"} />
     );
   }
   if (isAdmin === false) {
