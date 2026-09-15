@@ -16,10 +16,16 @@ export abstract class TextHelper {
    * Formats a Unix timestamp (seconds since epoch) to a human-readable date string
    * @param timestamp - Unix timestamp in seconds
    * @param languageCode - Language code ('en', 'es', 'vi', 'zh') to determine locale
-   * @returns Formatted date string (e.g., "May 23, 2025")
+   * @returns Formatted date string (e.g., "May 23, 2025"), or '' if it is not a timestamp
    */
   static formatUnixTimestamp(timestamp: number | undefined, languageCode: string = 'en'): string {
-    if (!timestamp) {
+    // Nothing to say beats "Invalid Date" in front of a parent, and the type
+    // above is not a guarantee: this reads a DynamoDB field off an API
+    // response. The document row holds its last-update time in TWO attributes
+    // and only one of them is in seconds -- the other is an ISO string, whose
+    // `* 1000` below is NaN. The callers' own `value && ...` guards do not
+    // catch it, because a non-empty string is truthy.
+    if (!timestamp || typeof timestamp !== 'number' || !Number.isFinite(timestamp)) {
       return '';
     }
     

@@ -150,7 +150,21 @@ export interface IEPDocument {
   // this is where they land.
   failureReason?: string;
   createdAt?: number; // Unix timestamp (seconds since epoch)
-  updatedAt?: number; // Unix timestamp (seconds since epoch)
+  /**
+   * Unix timestamp (seconds since epoch), normalized server-side.
+   *
+   * The DynamoDB row carries this in two attributes that are not
+   * interchangeable: `updatedAt` in epoch seconds, written once by upload-s3
+   * when the row is created and never again, and `updated_at` as an ISO
+   * string, written by every pipeline step after that. The documents endpoint
+   * returns the LATER of the two, already converted to seconds
+   * (`_document_updated_at` in user-profile-handler), because
+   * TextHelper.formatUnixTimestamp multiplies by 1000 and an ISO string
+   * reaches a parent as "Invalid Date".
+   *
+   * `''` when the row carries neither, which is falsy like the absent case.
+   */
+  updatedAt?: number;
   message?: string;
   
   // Document content by language

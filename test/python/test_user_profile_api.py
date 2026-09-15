@@ -813,6 +813,129 @@ def test_the_substitution_logs_counts_and_never_the_name_or_the_content(api, cap
 
 
 # ---------------------------------------------------------------------------
+# GET /profile/children/{childId}/documents -- the "Last updated" timestamp
+#
+# The row holds this in two attributes that are NOT interchangeable, and the
+# endpoint used to read only the wrong one:
+#
+#   updatedAt   epoch seconds, written once by upload-s3 when the row is
+#               created, and never written again by anything.
+#   updated_at  an ISO string, written by every writer after that:
+#               ddb-service's update_progress at each pipeline milestone and
+#               record_failure, the S3 content migration, and
+#               translation-request-handler's claim/release.
+#
+# So the line under a parent's summary said "Last updated <the moment you
+# pressed upload>" for a document that took four minutes to summarize, and
+# still said it after a language was added weeks later.
+#
+# The ISO string cannot simply be forwarded either: the frontend's
+# formatUnixTimestamp multiplies by 1000, so a parent would read "Invalid
+# Date" -- and the `document.updatedAt &&` guard in front of it does not catch
+# that, because a non-empty string is truthy. Hence epoch seconds here, for
+# every one of these cases.
+
+#: 2026-09-15T20:30:00Z, as the pipeline writes it and as epoch seconds.
+PIPELINE_ISO = '2026-09-15T20:30:00.123456'
+PIPELINE_EPOCH = 1789504200
+UPLOAD_EPOCH = 1789500000  # 70 minutes earlier
+
+
+def documents_response(api):
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+    assert status == 200, body
+    return body
+
+
+def test_last_updated_is_when_the_pipeline_last_touched_the_document(api):
+    """The bug. Both attributes present, and the newer one has to win."""
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}},
+                 updatedAt=UPLOAD_EPOCH, updated_at=PIPELINE_ISO)
+
+    assert documents_response(api)['updatedAt'] == PIPELINE_EPOCH
+
+
+def test_last_updated_is_seconds_not_the_iso_string_the_row_holds(api):
+    """A string here renders as "Invalid Date" to a parent."""
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}}, updated_at=PIPELINE_ISO)
+
+    updated_at = documents_response(api)['updatedAt']
+    assert isinstance(updated_at, int), repr(updated_at)
+    assert updated_at == PIPELINE_EPOCH
+
+
+def test_the_iso_string_is_read_as_utc_not_as_the_machines_local_time(api):
+    """The pipeline writes datetime.utcnow().isoformat(): UTC, no offset on it.
+
+    A naive datetime's .timestamp() is read as LOCAL time, which is only UTC
+    in the lambda by accident of TZ. Asserting the exact epoch is what pins
+    the zone; without the explicit UTC this is off by the host's offset, and
+    a parent in another timezone sees the wrong day.
+    """
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}}, updated_at=PIPELINE_ISO)
+
+    assert documents_response(api)['updatedAt'] == PIPELINE_EPOCH
+
+
+def test_a_row_the_pipeline_has_not_touched_keeps_its_upload_time(api):
+    """PENDING_UPLOAD and the first seconds of a run have only the camelCase
+    field, so reading `updated_at` outright would have blanked the line."""
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}}, updatedAt=UPLOAD_EPOCH)
+
+    assert documents_response(api)['updatedAt'] == UPLOAD_EPOCH
+
+
+def test_an_upload_time_newer_than_the_pipeline_write_still_wins(api):
+    """The later of the two, not `updated_at` unconditionally. Guards against
+    a re-upload that reuses a row, and against clock skew between the two
+    writers."""
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}},
+                 updatedAt=PIPELINE_EPOCH + 600, updated_at=PIPELINE_ISO)
+
+    assert documents_response(api)['updatedAt'] == PIPELINE_EPOCH + 600
+
+
+def test_a_row_with_no_timestamp_at_all_says_nothing(api):
+    """Falsy, so the frontend omits the line rather than rendering a bad date.
+
+    record_failure can write a row with no userId, documentUrl or createdAt
+    (see ddb-service's docstring), so "neither attribute" is reachable.
+    """
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}})
+
+    assert not documents_response(api)['updatedAt']
+
+
+@pytest.mark.parametrize('garbage', ['', '   ', 'not-a-date', '2026-13-45T99:99:99'])
+def test_an_unparseable_timestamp_does_not_break_the_document(api, garbage):
+    """A parent losing one line of prose beats a 500 on a summary they could
+    otherwise read. The upload time is still there and is still reported."""
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}},
+                 updatedAt=UPLOAD_EPOCH, updated_at=garbage)
+
+    body = documents_response(api)
+    assert body['updatedAt'] == UPLOAD_EPOCH
+    assert body['summaries']['en'] == 'S'
+
+
+def test_an_iso_string_with_a_zone_on_it_is_honoured(api):
+    """Nothing writes one today. If a writer starts to, the offset it carries
+    has to be used rather than overwritten with UTC."""
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}},
+                 updated_at='2026-09-15T20:30:00+05:30')
+
+    assert documents_response(api)['updatedAt'] == PIPELINE_EPOCH - (5 * 3600 + 1800)
+
+
+# ---------------------------------------------------------------------------
 # DELETE /profile/children/{childId}/documents
 
 def test_delete_documents_denies_unowned_child(api):

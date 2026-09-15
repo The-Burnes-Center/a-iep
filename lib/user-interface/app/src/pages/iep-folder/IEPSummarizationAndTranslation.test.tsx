@@ -221,6 +221,52 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/**
+ * The "Last updated <date>" line under the summary.
+ *
+ * The page renders whatever the documents endpoint puts in `updatedAt`, and
+ * that field is normalized from two DynamoDB attributes of which only one is
+ * in epoch seconds (see _document_updated_at in user-profile-handler). This
+ * is the end of that chain: whatever arrives, a parent never reads the words
+ * "Invalid Date" where a date should be.
+ */
+describe("the last-updated line", () => {
+  const lastUpdated = () =>
+    document.querySelector(".summary-updated-at")?.textContent ?? "";
+
+  test("shows the date the endpoint sent", async () => {
+    // 2026-09-15T20:30:00Z, the instant the python suite pins too.
+    documentPayload = englishOnlyDocument({ updatedAt: 1789504200 });
+    renderPage();
+    await settle();
+
+    expect(lastUpdated()).toContain("summary.lastUpdate");
+    expect(lastUpdated()).toContain("2026");
+  });
+
+  test("is left out, not broken, if the raw ISO string ever leaks through", async () => {
+    // What the row itself holds in `updated_at`. Forwarding it was the
+    // tempting one-line fix on the backend, and this is what it would have
+    // looked like on screen.
+    documentPayload = englishOnlyDocument({ updatedAt: "2026-09-15T20:30:00.123456" });
+    renderPage();
+    await settle();
+
+    expect(lastUpdated()).not.toContain("Invalid Date");
+    // The summary itself is untouched: a missing line is not a broken page.
+    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(ENGLISH_SUMMARY);
+  });
+
+  test("is left out when the document carries no timestamp", async () => {
+    documentPayload = englishOnlyDocument({ updatedAt: "" });
+    renderPage();
+    await settle();
+
+    expect(lastUpdated()).toBe("");
+    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(ENGLISH_SUMMARY);
+  });
+});
+
 describe("the translate button", () => {
   test("is offered for a preferred language the document has no content for", async () => {
     renderPage();

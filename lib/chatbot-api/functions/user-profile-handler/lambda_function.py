@@ -2,7 +2,7 @@ import json
 import os
 import boto3
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional, Literal
 from router import Router, UserProfileRouter, RouteNotFoundException
@@ -780,6 +780,75 @@ def _child_name(user_id: str, child_id: str) -> Optional[str]:
     return None
 
 
+def _epoch_seconds(value) -> Optional[int]:
+    """`value` as epoch seconds, or None if it is not a timestamp we can read.
+
+    Handles the two shapes a document row's timestamps come in: a DynamoDB
+    number (Decimal) already in epoch seconds, and an ISO 8601 string.
+
+    Never raises. This feeds one line of prose under a parent's summary, which
+    is not worth a 500 on a document they could otherwise read.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+
+    if isinstance(value, (int, float, Decimal)):
+        return int(value)
+
+    if isinstance(value, str) and value.strip():
+        try:
+            # The pipeline writes datetime.utcnow().isoformat(): UTC, but with
+            # no offset on it. A naive datetime's .timestamp() is read as LOCAL
+            # time, which is only UTC in the lambda by accident of TZ, so the
+            # zone is attached explicitly. A trailing Z is normalized because
+            # fromisoformat only accepts one from Python 3.11.
+            parsed = datetime.fromisoformat(value.strip().replace('Z', '+00:00'))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return int(parsed.timestamp())
+
+    return None
+
+
+def _document_updated_at(doc: Dict):
+    """The last time anything touched this document, in epoch seconds.
+
+    Two attributes carry this and they are not interchangeable:
+
+    - `updatedAt` is written ONCE, by upload-s3, at the moment the row is
+      created, in epoch seconds. Nothing ever writes it again.
+    - `updated_at` is what every writer since then uses -- ddb-service's
+      update_progress and record_failure, the S3 content migration, and
+      translation-request-handler's claim/release -- as an ISO string.
+
+    So reading `updatedAt` alone, which is what this endpoint used to do,
+    reported the moment the parent pressed upload and called it the last
+    update: a document that took four minutes to summarize, and one that had a
+    language added weeks later, both showed the original upload time.
+
+    The later of the two is the answer, rather than `updated_at` outright, so
+    that rows predating it keep the only timestamp they have.
+
+    Normalized to seconds here rather than passed through: the frontend's
+    TextHelper.formatUnixTimestamp multiplies by 1000, so an ISO string
+    reaches a parent as "Invalid Date" -- and the `document.updatedAt &&`
+    guard in front of it does not catch that, because a non-empty string is
+    truthy.
+    """
+    known = [
+        seconds for seconds in (
+            _epoch_seconds(doc.get('updated_at')),
+            _epoch_seconds(doc.get('updatedAt')),
+        )
+        if seconds is not None
+    ]
+    # '' rather than None to match the createdAt line beside it. Both are
+    # falsy, which is what the frontend checks before rendering the line.
+    return max(known) if known else ''
+
+
 def get_child_documents(event: Dict) -> Dict:
     """
     Get document associated with a specific child.
@@ -842,7 +911,7 @@ def get_child_documents(event: Dict) -> Dict:
                         'progress': doc.get('progress', 0),
                         'current_step': doc.get('current_step', 'initializing'),
                         'createdAt': doc.get('createdAt', ''),
-                        'updatedAt': doc.get('updatedAt', '')
+                        'updatedAt': _document_updated_at(doc)
                     }
                     
                     # Check if content is in S3 (new format) or DynamoDB (old format)
