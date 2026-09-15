@@ -20,11 +20,11 @@
  * the page. Each `large` row names the selector and the px size that earns it.
  *
  * Scope notes, so the gaps are stated rather than implied:
- *  - Reachability is resolved from `import './x.css'` statements. Three
- *    stylesheets are not imported by anything and so render nowhere:
- *    components/AppTutorialCarousel.css, pages/AppTutorial.css and
- *    pages/ParentRights.css. They are skipped, and if one is ever imported it
- *    is picked up automatically.
+ *  - Reachability is resolved from `import './x.css'` statements. The three
+ *    stylesheets this note used to name as unreachable have since been
+ *    deleted, so there is nothing to skip today. The rule still holds: a
+ *    stylesheet nobody imports renders nowhere and is not measured, and one
+ *    that is imported is picked up automatically.
  *  - box-shadow and text-shadow are excluded. Neither carries meaning here.
  *  - Text over the brand pattern photographs cannot be measured from CSS. The
  *    worst pixel of each was measured by hand and is recorded in
