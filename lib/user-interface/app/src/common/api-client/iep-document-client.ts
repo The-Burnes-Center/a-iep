@@ -2,6 +2,7 @@
 import { Utils } from "../utils";
 import { AppConfig } from "../types";
 import { ProfileClient } from "./profile-client";
+import { DEFAULT_CHILD_NAME } from "../features";
 
 export interface DocumentAudioResponse {
   status: string;
@@ -57,7 +58,7 @@ export class IEPDocumentClient {
       
       try {
         // Create a default child
-        const childResponse = await this.profileClient.addChild('My Child', 'Not specified');
+        const childResponse = await this.profileClient.addChild(DEFAULT_CHILD_NAME, 'Not specified');
         // console.log('Successfully created default child:', childResponse.childId);
         return childResponse.childId;
       } catch (error) {

@@ -27,7 +27,7 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 
 /** Every alarm the construct is expected to create, by name suffix. */
 const EXPECTED_ALARM_SUFFIXES = [
-  'document pipeline failing',
+  'a document failed to process',
   'document stuck: pipeline execution timed out',
   'pending-upload sweep has stopped running',
   'pending-upload sweep failing to invoke',
@@ -48,7 +48,24 @@ const EXPECTED_ALARM_SUFFIXES = [
   'login codes being requested for numbers we do not serve',
   'login codes are being refused: the sending limit is reached',
   'login codes are not being delivered',
-  'the SMS provider is failing to deliver login codes',
+  'the SMS provider is rejecting login codes',
+  'the pipeline cannot write to its database',
+  'a failed document kept its unredacted copy',
+  'a document kept text we said we would delete',
+  'a parent asked us to delete their records and we did not',
+  // The signup endpoint. It is the ONLY way to create an account, because
+  // Cognito's public SignUp API is closed, and for its first day it had no
+  // alarm of any kind: not in pipelineFunctions, not in authTriggerFunctions,
+  // not in apiFunctions, no metric filter on any of its markers.
+  'signup broken: nobody can create an account',
+  'signup throttled: nobody can create an account',
+  'sign-ups are being refused in bulk',
+  'signup broken: accounts are not being created',
+  'new accounts may be reachable by whoever created them',
+  'the signup bot check is switched off',
+  // The alerting path watching itself, both halves of it.
+  'alerts are not reaching the formatter',
+  'the daily health brief is failing',
 ];
 
 /**
@@ -64,6 +81,21 @@ const SMS_MARKERS: [string, string][] = [
   ['SMS_REFUSED_DESTINATION', 'SmsRefusedDestination'],
   ['SMS_BUDGET_EXHAUSTED', 'SmsBudgetExhausted'],
   ['SMS_SEND_FAILED', 'SmsSendFailed'],
+];
+
+/**
+ * The same contract, for the signup endpoint.
+ *
+ * Nearly every way that function turns a family away is a deliberate 4xx
+ * refusal that raises nothing, so Lambda Errors stays flat through a total
+ * signup outage and these markers are the only signal there is. The lambda
+ * side is pinned in test/lambdas/phone-otp-auth/signup-endpoint.test.js.
+ */
+const SIGNUP_MARKERS: [string, string][] = [
+  ['SIGNUP_REFUSED', 'SignupRefused'],
+  ['SIGNUP_FAILED', 'SignupFailed'],
+  ['SIGNUP_ORPHANED', 'SignupOrphaned'],
+  ['TURNSTILE_NOT_CONFIGURED', 'TurnstileNotConfigured'],
 ];
 
 function synth(environment: string): Template {
@@ -129,13 +161,21 @@ describe.each([
   });
 
   // WHY: a broken formatter breaks every alert while every alarm still fires,
-  // which looks exactly like a healthy system. Its own alarm therefore must
-  // NOT route through it. Routing it through the formatter would be the
+  // which looks exactly like a healthy system. Its own alarms therefore must
+  // NOT route through it. Routing them through the formatter would be the
   // canonical alarm that cannot fire.
-  test('the alerting-is-broken alarm bypasses the formatter', () => {
-    const selfAlarm = alarms.find(
-      (a) => a.AlarmName === `${namePrefix}alerting itself is broken`,
-    );
+  //
+  // There are two, because "the formatter ran and raised" and "the formatter
+  // was never invoked" are different failures with no overlap. The second was
+  // added after an audit found nothing at all watched SNS delivery from the
+  // alarm topic to the formatter: subscription deleted, invoke permission
+  // lost, or SNS giving up retrying would each drop every alert silently,
+  // with the formatter's own Errors flat at zero.
+  test.each([
+    'alerting itself is broken',
+    'alerts are not reaching the formatter',
+  ])('the "%s" alarm bypasses the formatter', (name) => {
+    const selfAlarm = alarms.find((a) => a.AlarmName === `${namePrefix}${name}`);
     expect(selfAlarm).toBeDefined();
 
     const alertTopicRefs = Object.entries(template.findResources('AWS::SNS::Topic'))
@@ -145,6 +185,19 @@ describe.each([
 
     // Its action points at the alert topic (Chatbot) directly, not the raw one.
     expect(JSON.stringify(selfAlarm!.AlarmActions)).toContain(alertTopicRefs[0]);
+
+    // But its RECOVERY goes back through the formatter, and the asymmetry is
+    // deliberate. When this fires the formatter cannot be trusted, so the
+    // alert takes the direct route; when it clears the formatter is by
+    // definition working, so the recovery can be formatted -- and the
+    // formatter's coming-online suppression applies. Without that, first
+    // deploy posts a raw card reading "1 datapoint [0.0] was not greater than
+    // or equal to the threshold (1.0)" under a green tick, which tells a
+    // reader nothing and trains them to skim the channel.
+    const rawTopicId = Object.entries(template.findResources('AWS::SNS::Topic'))
+      .filter(([, r]: [string, any]) => r.Properties.TopicName === expectedTopicName)
+      .map(([id]) => id)[0];
+    expect(JSON.stringify(selfAlarm!.OKActions)).toContain(rawTopicId);
   });
 
   // Every other alarm goes the long way round, through the formatter, so that
@@ -154,8 +207,12 @@ describe.each([
       .filter(([, r]: [string, any]) => r.Properties.TopicName === expectedTopicName)
       .map(([id]) => id)[0];
 
+    const bypassByDesign = [
+      `${namePrefix}alerting itself is broken`,
+      `${namePrefix}alerts are not reaching the formatter`,
+    ];
     const routedElsewhere = alarms
-      .filter((a) => a.AlarmName !== `${namePrefix}alerting itself is broken`)
+      .filter((a) => !bypassByDesign.includes(a.AlarmName))
       .filter((a) => !JSON.stringify(a.AlarmActions).includes(rawTopicId))
       .map((a) => a.AlarmName);
 
@@ -249,13 +306,19 @@ describe.each([
     });
   });
 
-  // A single legitimately-unreadable scan must not page anyone: production has
-  // run roughly 5.5% lifetime failures, so the threshold is a rate.
-  test('the document-failure alarm needs several failures, not one', () => {
+  // Deliberately reversed from this alarm's earlier form (which required
+  // three failures inside fifteen minutes): the 2026-09-11 password-protected
+  // PDF incident was exactly one failure, and a rate threshold is precisely
+  // the shape of alarm that cannot fire on exactly one. The product owner
+  // chose to accept the resulting noise while upload volume stays low. See
+  // DOCUMENT_FAILURE_ALARM_THRESHOLD in monitoring.ts for the one-line
+  // change back to a rate if that stops being the right tradeoff.
+  test('the document-failure alarm fires on a single failure, by deliberate choice', () => {
     const alarm = alarms.find(
-      (a) => a.AlarmName === `${namePrefix}document pipeline failing`,
+      (a) => a.AlarmName === `${namePrefix}a document failed to process`,
     );
-    expect(alarm!.Threshold).toBeGreaterThanOrEqual(3);
+    expect(alarm).toBeDefined();
+    expect(alarm!.Threshold).toBe(1);
     expect(alarm!.MetricName).toBe('DocumentFailures');
   });
 
@@ -321,6 +384,179 @@ describe.each([
       expect(alarm.Threshold).toBe(1);
       expect(alarm.MetricName).toBe('Errors');
     }
+  });
+
+  // Audit finding #6: Cognito's 5-second synchronous trigger budget is fixed
+  // and non-adjustable, so a trigger stuck between 6 and 30 seconds fails a
+  // parent's sign-in while Lambda Errors stays at zero. This is the alarm
+  // that has to catch what Errors cannot.
+  test('all seven custom-auth triggers are also alarmed on Duration, with headroom below the 5s wall', () => {
+    const durationAlarms = alarms.filter((a) =>
+      String(a.AlarmName).startsWith(`${namePrefix}login slow:`),
+    );
+    expect(durationAlarms).toHaveLength(7);
+    for (const alarm of durationAlarms) {
+      expect(alarm.MetricName).toBe('Duration');
+      expect(alarm.Statistic).toBe('Maximum');
+      // Below Cognito's hard, non-adjustable 5000ms budget -- this alarm only
+      // means something if it can fire BEFORE that wall -- and comfortably
+      // above the 2460ms worst reading production has actually produced, so
+      // ordinary jitter cannot false-page.
+      expect(alarm.Threshold).toBeLessThan(5000);
+      expect(alarm.Threshold).toBeGreaterThan(2460);
+    }
+  });
+
+  // CustomSmsSender is invoked ASYNCHRONOUSLY by Cognito, so the 5-second
+  // synchronous budget these alarms exist to protect never applies to it.
+  test('CustomSmsSender carries no Duration alarm: Cognito invokes it asynchronously', () => {
+    const offenders = alarms.filter((a) =>
+      String(a.AlarmName).startsWith(`${namePrefix}login slow:`) &&
+      String(a.AlarmName).includes('CustomSmsSender'),
+    );
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe('a deletion that only partly happened', () => {
+  // These handlers catch and return an HTTP status, so Errors stays flat.
+  // Worse, they used to return 200 'successfully deleted' no matter which
+  // steps failed, so a parent could be told their child's records were gone
+  // while they were still there. The marker is the only signal.
+  //
+  // Pinned on the lambda side in test/python/test_user_profile_api.py and
+  // test/python/test_knowledge_delete_s3.py.
+  test('DELETION_INCOMPLETE is counted, but only when it is essential', () => {
+    const filters = Object.values(synth('production').findResources('AWS::Logs::MetricFilter'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'));
+
+    // One per watched handler: the account/profile path and the document path.
+    expect(filters.length).toBeGreaterThanOrEqual(2);
+    for (const filter of filters) {
+      // Both terms, load-bearing: matching the marker alone would page for an
+      // orphaned audio file.
+      expect(filter.FilterPattern).toContain('DELETION_INCOMPLETE');
+      expect(filter.FilterPattern).toContain('essential=yes');
+    }
+  });
+
+  test('one incomplete deletion is enough to alarm, at critical', () => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes('asked us to delete their records'));
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Threshold).toBe(1);
+    expect(alarm.AlarmDescription).toContain('[critical]');
+  });
+});
+
+describe('OCR text that should have been deleted and was not', () => {
+  // Neither existing signal reaches this. The pipeline's PurgeRedactedOCR
+  // task catches into a Pass state on purpose, so a finished document is not
+  // marked failed over a cleanup problem -- but the DDB service returns 500
+  // rather than raising, so that Catch never fires and the run ends green
+  // either way. And the DDB service alarm needs five occurrences in fifteen
+  // minutes, while one failed purge logs exactly once.
+  //
+  // Pinned on the lambda side in test/python/test_ddb_service.py.
+  test('OCR_PURGE_FAILED is counted into its own metric', () => {
+    for (const environment of ['production', 'staging']) {
+      synth(environment).hasResourceProperties('AWS::Logs::MetricFilter', {
+        FilterPattern: 'OCR_PURGE_FAILED',
+        MetricTransformations: Match.arrayWith([
+          Match.objectLike({
+            MetricName: 'OcrPurgeFailed',
+            MetricNamespace: 'AI-IEP/Pipeline',
+          }),
+        ]),
+      });
+    }
+  });
+
+  test('one document is enough to alarm, at critical', () => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes('kept text we said we would delete'));
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Threshold).toBe(1);
+    expect(alarm.AlarmDescription).toContain('[critical]');
+  });
+});
+
+describe('unredacted copies surviving a failed document', () => {
+  // The purge that backs "a FAILED document retains no unredacted artifacts"
+  // is deliberately best-effort, because recording the failure matters more
+  // and must not be masked by a cleanup problem. That makes this marker the
+  // only way anyone finds out, and its previous form was a plain print
+  // matching no filter: a child's raw OCR could sit in S3 indefinitely with
+  // the document marked FAILED and nothing anywhere saying so.
+  //
+  // Pinned on the lambda side in test/python/test_ddb_service.py.
+  test('UNREDACTED_ARTIFACTS_RETAINED is counted into its own metric', () => {
+    for (const environment of ['production', 'staging']) {
+      synth(environment).hasResourceProperties('AWS::Logs::MetricFilter', {
+        FilterPattern: 'UNREDACTED_ARTIFACTS_RETAINED',
+        MetricTransformations: Match.arrayWith([
+          Match.objectLike({
+            MetricName: 'UnredactedArtifactsRetained',
+            MetricNamespace: 'AI-IEP/Pipeline',
+          }),
+        ]),
+      });
+    }
+  });
+
+  // Unlike a failed write there is no benign volume of this: every occurrence
+  // is one child's records that should no longer exist.
+  test('a single surviving copy is enough to alarm, at critical', () => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes('kept its unredacted copy'));
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Threshold).toBe(1);
+    expect(alarm.AlarmDescription).toContain('[critical]');
+  });
+});
+
+describe('the signup endpoint is watched at all', () => {
+  // It is the only way to create an account, and for its first day it was in
+  // none of the three monitoring lists: no Errors alarm, no Throttles alarm,
+  // no metric filter on any of its six markers. This describe block exists so
+  // that a future change dropping it from the list fails here.
+  test.each(SIGNUP_MARKERS)('%s is counted into %s', (marker, metricName) => {
+    for (const environment of ['production', 'staging']) {
+      synth(environment).hasResourceProperties('AWS::Logs::MetricFilter', {
+        FilterPattern: marker,
+        MetricTransformations: Match.arrayWith([
+          Match.objectLike({ MetricName: metricName, MetricNamespace: 'AI-IEP/Auth' }),
+        ]),
+      });
+    }
+  });
+
+  // An account created but not secured is reachable by whoever created it,
+  // which is the hole the PostConfirmation rotation closed for the ~1,030
+  // accounts of the 2026-09-09 run. One is enough.
+  test('one unsecured account is enough to alarm', () => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes('reachable by whoever created them'));
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Threshold).toBe(1);
+  });
+
+  // The endpoint is in the daily brief too, so a day with zero signups is
+  // visible rather than merely un-alarmed.
+  test('the endpoint reaches the daily brief', () => {
+    const manifest = JSON.stringify(
+      synth('production').findResources('AWS::SSM::Parameter'));
+
+    expect(manifest).toContain('the only way to create an account');
   });
 });
 
@@ -491,5 +727,79 @@ describe('alarm periods are ones CloudWatch can actually evaluate', () => {
       .filter((a) => a.window > CLOUDWATCH_MAX_PERIOD_SECONDS);
 
     expect(tooWide).toEqual([]);
+  });
+});
+
+describe('undelivered login codes', () => {
+  // This pin was wrong, and it is corrected here rather than deleted.
+  //
+  // It asserted that NO alarm watches AWS/SNS NumberOfNotificationsFailed, on
+  // the reasoning that SNS does not emit that metric when a direct publish is
+  // dropped at the account spend cap. The account's own data says otherwise:
+  // SNS recorded 390 failures in the 19:00 hour on 2026-09-09 and 392 across
+  // the day, under PhoneNumber=PhoneNumberDirect. The metric moved exactly
+  // when it should have.
+  //
+  // What was actually broken was the DIMENSION. The original alarm queried
+  // the metric with no dimensions at all, and that series has never had a
+  // single datapoint. So the fix was one dimension, not a replacement, and
+  // the correct assertion is not "no such alarm" but "no such alarm on the
+  // empty series".
+  test('the delivery-failure metric alarm names a dimension that exists', () => {
+    // Two alarms share this metric name: SMS delivery (below) and alert
+    // delivery from the alarm topic to the formatter. Both are dimensioned,
+    // and a zero-dimension one is the bug, so assert on the whole set.
+    const alarms = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => p.MetricName === 'NumberOfNotificationsFailed');
+
+    expect(alarms.length).toBeGreaterThan(0);
+    for (const alarm of alarms) {
+      // Load-bearing: without a dimension the alarm watches a series with no
+      // data and sits green through a total outage, which is what it did.
+      expect(alarm.Dimensions).toBeDefined();
+      expect(alarm.Dimensions.length).toBeGreaterThan(0);
+    }
+
+    const sms = alarms.find((p: any) => String(p.AlarmName).includes('SMS provider is rejecting'));
+    expect(sms.Dimensions).toEqual([
+      { Name: 'PhoneNumber', Value: 'PhoneNumberDirect' },
+    ]);
+  });
+
+  // Two independent signals, kept deliberately. The metric needs no ops step
+  // and works in both environments; the log filter carries the REASON but
+  // only exists where delivery-status logging is switched on. Neither
+  // subsumes the other, and this alarm has already been wrong twice.
+  test('the delivery log is read as well as the metric', () => {
+    synth('production').hasResourceProperties('AWS::Logs::MetricFilter', Match.objectLike({
+      MetricTransformations: Match.arrayWith([
+        Match.objectLike({ MetricName: 'SmsDeliveryFailed', MetricNamespace: 'AI-IEP/Auth' }),
+      ]),
+    }));
+  });
+
+  // One undelivered code is one parent who cannot get in. Unlike a failing
+  // document, there is no benign volume of these to tolerate.
+  test('a single undelivered code is enough to alarm', () => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes('accepted and then not delivered'));
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Threshold).toBe(1);
+  });
+
+  // The log group is account-level and shared by both environments, so a
+  // filter in each would count every failure twice.
+  test('the filter is created once, in production only', () => {
+    const countFilters = (environment: string) =>
+      Object.values(synth(environment).findResources('AWS::Logs::MetricFilter'))
+        .map((r: any) => r.Properties)
+        .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('SmsDeliveryFailed'))
+        .length;
+
+    expect(countFilters('production')).toBe(1);
+    expect(countFilters('staging')).toBe(0);
   });
 });

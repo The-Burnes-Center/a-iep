@@ -1,5 +1,20 @@
+/* The one footer, on every screen (AppShell renders it).
+
+   Its height used to be `min-height: 954.75px` on mobile and `364.75px` on
+   desktop — Figma frame heights pasted in literally, fractional pixel and all.
+   On a 388px-wide phone that made the footer 1014px tall, 39% of the whole
+   page and about a screenful and a quarter of rainbow and logos under every
+   page's content.
+
+   Nothing here sets a height any more. The blocks carry their own spacing off
+   one scale (1.75rem between blocks, 1.25rem inside one), the partner logos
+   are capped so their intrinsic sizes — which run from 191x35 to 209x100 —
+   stop deciding the footer's height between them, and what is left is the
+   height of the content. That lands at roughly 630px on a phone and 315px on a
+   desktop: still the tallest block on a short page, but no longer most of it. */
+
 .aiep-footer {
-  background-color: #014620;
+  background-color: var(--aiep-green-dark);
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -30,16 +45,37 @@
   justify-content: space-between;
   align-items: center;
   flex-direction: column;
-  padding: 40px 20px;
+  gap: 1.75rem;
+  padding: 1.75rem 1.25rem;
 }
 
+/* A row on a phone too, not a column.
+   Stacked, the three marks were 148px of the footer's 635. Desktop already
+   laid them out in a row (44px) purely because `.footer-content` flips to
+   `row` at 1025px and took its children with it, so the phone was carrying an
+   extra 104px for no reason anyone chose. */
 .footer-project-partners {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   justify-content: center;
   align-items: center;
-  gap: 2.5rem;
-  padding: 4rem 0rem;
+  gap: 1rem;
+}
+
+/* The three partner marks are drawn at wildly different aspect ratios
+   (191x35, 204x50, 209x100). Unconstrained, the tallest one alone was 100px of
+   footer. Capped on both axes they read at a consistent size and cost a
+   predictable amount of height. */
+/* Capped smaller on a phone than on desktop, because three of them now share
+   one 375px-wide row: 3 x 96px plus two 1rem gaps is 320px inside the 335px
+   the content box leaves, so the row holds without wrapping on the narrowest
+   phone the footer supports (min-width: 360px below). */
+.footer-project-partners-logo img {
+  max-width: 96px;
+  max-height: 30px;
+  width: auto;
+  height: auto;
 }
 
 .footer-project-partners-logo a {
@@ -56,13 +92,17 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  color: white;
+  color: var(--aiep-surface-white);
 }
 
 .footer-logo img {
   max-width: 150px;
+  /* 64 on a phone, 96 from desktop up. The mark is a stacked "Ai/EP"
+     lockup, so it is the tallest single image in the footer and reads
+     perfectly well smaller. */
+  max-height: 64px;
   height: auto;
-  margin-bottom: 15px;
+  margin-bottom: 0.75rem;
 }
 
 .footer-logo p {
@@ -81,54 +121,68 @@
   align-items: center;
 }
 
+/* Two columns on a phone, one row per pair, rather than four stacked rows:
+   132px becomes about 70. `auto` columns rather than `1fr`, so the two
+   columns are as wide as the longest label in each and the pair stays
+   centred — the labels run from "Home" to "Centro de Apoyo", and a 1fr grid
+   would leave the short one floating in the middle of its half.
+
+   Grid follows the document direction, so the Arabic build orders these
+   right-to-left without a rule of its own. */
 .footer-links ul {
   list-style: none;
-  padding: 0;
   margin: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 15px;
-  padding: 4rem 0rem;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  justify-content: center;
+  gap: 0.75rem 1.5rem;
 }
 
-.footer-links li {
-  color: white;
+/* A real button, so the four links are in the tab order and answer Enter and
+   Space; styled back down to the plain text they have always looked like. */
+.footer-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--aiep-surface-white);
+  font-family: inherit;
   font-size: 16px;
+  line-height: 1.5;
   cursor: pointer;
   transition: opacity 0.3s ease;
 }
 
-.footer-links li:hover {
+.footer-link:hover {
   opacity: 0.7;
 }
 
-/* Mobile styles - min-width: 360px, min-height: 954.75px */
+.footer-link:focus-visible {
+  outline: 2px solid var(--aiep-surface-white);
+  outline-offset: 3px;
+}
+
+/* Phone and tablet */
 @media (max-width: 1024px) {
   .aiep-footer {
     min-width: 360px;
-    min-height: 954.75px;
   }
-  
+
   .footer-stripe-desktop {
     display: none;
   }
-  
+
   .footer-stripe-mobile {
     display: block;
   }
 }
 
-/* Desktop styles - min-height: 364.75px */
+/* Desktop */
 @media (min-width: 1025px) {
-  .aiep-footer {
-    min-height: 364.75px;
-  }
-  
   .footer-stripe-desktop {
     display: block;
   }
-  
+
   .footer-stripe-mobile {
     display: none;
   }
@@ -137,11 +191,11 @@
     flex-direction: row;
     flex-wrap: wrap;
     justify-content: space-between;
-    padding: 0.5rem 4rem;
+    align-items: center;
+    padding: 2.5rem 4rem;
   }
 
   .footer-project-partners {
-    display: flex;
     flex-direction: row;
     justify-content: center;
     align-items: center;
@@ -149,8 +203,41 @@
     gap: clamp(1.5rem, 4vw, 5rem);
   }
 
+  /* Back to full size: the phone caps above exist to fit three marks in a
+     375px row, and there is no such pressure here. */
+  .footer-project-partners-logo img {
+    max-width: 150px;
+    max-height: 44px;
+  }
+
+  .footer-logo img {
+    max-height: 96px;
+  }
+
+  /* A single column again. The three blocks sit side by side at this width,
+     so the links have a narrow column of their own and the two-column grid
+     the phone uses would fight it. */
   .footer-links ul {
+    display: flex;
+    flex-direction: column;
     align-items: flex-start;
+    gap: 0.75rem;
   }
 }
 
+/* The signed-in app's footer: the same four links, one row, nothing else.
+   Sized by its content like the full footer, which lands at about 56px on one
+   line and 88px if the labels wrap to two — against 635px on a phone before
+   this existed. See AIEPFooter's FooterVariant for the measurements. */
+.aiep-footer--compact {
+  align-items: center;
+  padding: 1rem 1.25rem;
+}
+
+.aiep-footer--compact .footer-links ul {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem 1.25rem;
+}

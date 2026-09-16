@@ -1,29 +1,60 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { Container, Form, Button, Row, Col, Alert, Spinner } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useContext, useRef } from 'react';
+import { Form, Button, Alert, Container } from 'react-bootstrap';
+import PageLoading from '../../components/PageLoading';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { UserProfile } from '../../common/types';
-import { useLanguage } from '../../common/language-context'; 
-import './ProfileForms.css';
+import { useLanguage } from '../../common/language-context';
+import { isPlaceholderChildName } from '../../common/features';
+import { ChildNameError, normalizeChildName, validateChildName } from '../../common/child-name';
+import { STEP } from '../../common/breadcrumb-steps';
+import OnboardingTopBar from '../../components/OnboardingChrome';
+import './ViewAndAddChild.css';
+
+// The school district is no longer asked for: nothing reads schoolCity - not
+// the pipeline, not a summary, no logic - and the design has one field. The
+// backend still rejects addChild without one (user-profile-handler, "Missing
+// required fields"), so an existing value is kept and a new child gets the
+// same default the other three addChild call sites send.
+const SCHOOL_CITY_DEFAULT = 'Not specified';
+
+// Named once: the message element carries it, the input points at it through
+// aria-describedby, so a screen reader reads the reason with the field.
+const CHILD_NAME_ERROR_ID = 'childNameError';
 
 export default function ViewAndAddChild() {
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
   const iepDocumentClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useLanguage();
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Two separate failures: a profile that will not load leaves nothing to
+  // show, but a save that fails must leave the form (and what the parent
+  // typed) on screen to retry, with the reason above it.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [childName, setChildName] = useState<string>('');
+  // Which rule the typed name breaks, or null. Set on blur and on submit,
+  // cleared the moment the parent starts changing the value it was about.
+  const [nameError, setNameError] = useState<ChildNameError | null>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
   const [schoolCity, setSchoolCity] = useState<string>('');
   const [hasExistingChild, setHasExistingChild] = useState<boolean>(false);
   const [firstChildId, setFirstChildId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [hasExistingDocument, setHasExistingDocument] = useState<boolean>(false);
+
+  // Set only by the onboarding entry points (ConsentForm, PreferredLanguage).
+  // Its absence is what tells this screen it was opened to edit a name that
+  // is already there.
+  const isOnboarding = Boolean(
+    (location.state as { onboardingContinue?: boolean } | null)?.onboardingContinue);
 
   useEffect(() => {
     loadProfileAndCheckDocument();
@@ -33,29 +64,33 @@ export default function ViewAndAddChild() {
   const loadProfileAndCheckDocument = async () => {
     try {
       setLoading(true);
-      
+
       // Load user profile
       const data = await apiClient.profile.getProfile();
       setProfile(data);
-      
+
       // Check if the user has any children
       if (data.children && data.children.length > 0) {
         const firstChild = data.children[0];
-        setChildName(firstChild.name || '');
+        // A stored '' or the auto-created 'My Child' placeholder must not
+        // look like an answer: prefilling it would let a parent click Save
+        // without ever typing a real name, which the gate would then send
+        // them right back here to do.
+        setChildName(isPlaceholderChildName(firstChild.name) ? '' : firstChild.name);
         setSchoolCity(firstChild.schoolCity || '');
         setFirstChildId(firstChild.childId || null);
         setHasExistingChild(true);
       } else {
         setHasExistingChild(false);
       }
-      
+
       // Always check for existing documents regardless of children
       await checkForExistingDocument();
-      
-      setError(null);
+
+      setLoadError(null);
     } catch (err) {
       // console.error('Error loading profile or checking document:', err);
-      setError(t('profile.error.serviceUnavailable'));
+      setLoadError(t('profile.error.serviceUnavailable'));
     } finally {
       setLoading(false);
     }
@@ -64,7 +99,7 @@ export default function ViewAndAddChild() {
   const checkForExistingDocument = async () => {
     try {
       const document = await iepDocumentClient.getMostRecentDocumentWithSummary();
-      
+
       // Check if document exists and has been processed or is processing
       if (document && (document.status === "PROCESSED" || document.status === "PROCESSING")) {
         setHasExistingDocument(true);
@@ -79,37 +114,51 @@ export default function ViewAndAddChild() {
   };
 
   const handleSaveAndContinue = async () => {
-    if (!childName.trim() || !schoolCity.trim()) {
-      return; // Button should be disabled in this case
+    // The button is no longer disabled on a name that will not do: a disabled
+    // button with nothing next to it is a dead end, and the parent who hit one
+    // had no way to find out what this screen wanted. Pressing it says what is
+    // wrong and puts the cursor back in the field.
+    const nameProblem = validateChildName(childName);
+    if (nameProblem) {
+      setNameError(nameProblem);
+      nameInput.current?.focus();
+      return;
     }
+    // What gets saved is the tidied name, not the keystrokes: the API applies
+    // the same rule, and a double space between two halves of a name would
+    // otherwise reach the heading of every summary.
+    const name = normalizeChildName(childName);
 
     try {
       setSaving(true);
-      
-      if (hasExistingChild && firstChildId) {
-        // Update existing child's information
-        const updatedProfile = { ...profile };
-        if (updatedProfile.children && updatedProfile.children.length > 0) {
-          updatedProfile.children[0] = {
-            ...updatedProfile.children[0],
-            name: childName,
-            schoolCity: schoolCity,
-            // Keep the existing childId
-            childId: firstChildId
-          };
+      setSaveError(null);
+      // Whatever the child already has on file, or the shared default: the
+      // screen no longer asks, but the API still requires it.
+      const childSchoolCity = schoolCity.trim() || profile?.city || SCHOOL_CITY_DEFAULT;
 
-          const updatedChildInfo = {children: [updatedProfile.children[0]]};
-          
-          await apiClient.profile.updateProfile(updatedChildInfo);
+      if (hasExistingChild && firstChildId) {
+        // Update the existing child, as a new object: the profile in state is
+        // read again on the way out of this handler.
+        const existingChild = profile?.children?.[0];
+        if (existingChild) {
+          await apiClient.profile.updateProfile({
+            children: [{
+              ...existingChild,
+              name,
+              schoolCity: childSchoolCity,
+              // Keep the existing childId
+              childId: firstChildId
+            }]
+          });
         }
       } else {
         // Add new child
-        await apiClient.profile.addChild(childName, schoolCity);
-        
+        await apiClient.profile.addChild(name, childSchoolCity);
+
         // After adding a new child, check for documents again
         await checkForExistingDocument();
       }
-      
+
       // Mark onboarding as completed since user has finished child setup
       try {
         await apiClient.profile.updateProfile({ showOnboarding: false });
@@ -118,102 +167,120 @@ export default function ViewAndAddChild() {
         // console.error('Error updating onboarding status:', onboardingError);
         // Don't fail the flow if this update fails
       }
-      
+
+
+      // Onboarding arrives here with onboardingContinue set, and carries on
+      // into the app. Account Center does not, and a parent who came to
+      // correct a name belongs back where they started rather than being
+      // pushed through the rest of a flow they finished long ago.
+      if (!isOnboarding) {
+        navigate('/account-center');
+        return;
+      }
+
       // Navigate based on whether user has existing documents
       if (hasExistingDocument) {
         // The legacy /welcome-page card hub is retired; Summary is the app home
         navigate('/summary-and-translations');
       } else {
-        navigate('/welcome-intro');
+        // Into the rest of onboarding: how the tool works, then the question
+        // about whether they have the IEP as a PDF, then the upload.
+        navigate('/how-to-use-the-tool');
       }
     } catch (err) {
-      // Inline, on the banner this page already renders: this failure used to
-      // be reported only by a toast.
-      setError(hasExistingChild ? t('child.error.updateFailed') : t('child.error.addFailed'));
+      // Inline, above the form the parent just filled in: this failure used
+      // to be reported only by a toast.
+      setSaveError(hasExistingChild ? t('child.error.updateFailed') : t('child.error.addFailed'));
     } finally {
       setSaving(false);
     }
   };
 
-  const isFormValid = () => {
-    return childName.trim() !== '' && schoolCity.trim() !== '';
+  // The one field also submits on the keyboard's Go/Enter key.
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    void handleSaveAndContinue();
+  };
+
+  const handleNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setChildName(event.target.value);
+    // Nagging somebody mid-word is worse than saying nothing: the message goes
+    // as soon as they start fixing it, and comes back on blur or on submit if
+    // the new value still breaks the rule.
+    setNameError(null);
   };
 
   if (loading) {
     return (
-      <Container className="text-center">
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">{t('common.loading')}</span>
-        </Spinner>
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 
-  if (error) {
+  if (loadError) {
     return (
       <Container>
-        <Alert variant="danger">{error}</Alert>
+        <Alert variant="danger">{loadError}</Alert>
       </Container>
     );
   }
 
   return (
-    <Container 
-      fluid 
-      className="profile-form-container"
-    >
-      <Row style={{ width: '100%', justifyContent: 'center' }}>
-        <Col xs={12} md={8} lg={6}>
-          <div className="profile-form">
-            <h2 className="text-center profile-title">
-              {t('child.title')}
-            </h2>
-            
-            <Form>
-              <Row className="mb-3">
-                <Col md={12}>
-                  <Form.Group controlId="formChildName">
-                    <Form.Label className="form-label">{t('child.name.label')}</Form.Label>
-                    <Form.Control 
-                      type="text" 
-                      placeholder={t('child.name.placeholder')}
-                      value={childName} 
-                      onChange={(e) => setChildName(e.target.value)}
-                    />
-                  </Form.Group>
-                </Col>
-              </Row>
+    <>
+      <div className="onboarding-page">
+        {/* The same fork Save takes below: onboarding arrived here from
+            consent, and a parent correcting a name that is already there
+            arrived from the Account Center. Read off `isOnboarding` rather
+            than off the history stack, so the trail says where the parent
+            actually came from instead of whatever they happened to visit. */}
+        <OnboardingTopBar
+          trail={[isOnboarding ? STEP.consent : STEP.account, STEP.child]}
+        />
 
-              <Row className="mb-4">
-                <Col md={12}>
-                  <Form.Group controlId="formSchoolCity">
-                    <Form.Label className="form-label">{t('child.school.label')}</Form.Label>
-                    <Form.Control 
-                      type="text" 
-                      placeholder={t('child.school.placeholder')}
-                      value={schoolCity} 
-                      onChange={(e) => setSchoolCity(e.target.value)}
-                    />
-                  </Form.Group>
-                </Col>
-              </Row>
+        {/* One question and one field, per the design. What the name is used
+            for is explained on the privacy screen further into onboarding, not
+            here: `child.description` is still in the dictionaries for it. */}
+        <h1 className="onboarding-heading">{t('child.heading')}</h1>
 
-              <div className="d-grid">
-                <Button
-                  variant="primary"
-                  onClick={handleSaveAndContinue}
-                  disabled={!isFormValid() || saving}
-                  className="button-text"
-                  // Stable E2E hook: the label is localized
-                  data-testid="child-save-button"
-                >
-                  {saving ? t('child.button.saving') : t('child.button.save')}
-                </Button>
+        {saveError && <Alert variant="danger" className="onboarding-error">{saveError}</Alert>}
+
+        <Form onSubmit={handleSubmit}>
+          <Form.Group controlId="formChildName" className="child-name-field">
+            {/* The design shows no label; screen readers still need one. */}
+            <Form.Label className="visually-hidden">{t('child.name.label')}</Form.Label>
+            <Form.Control
+              type="text"
+              ref={nameInput}
+              placeholder={t('child.name.placeholder')}
+              value={childName}
+              onChange={handleNameChange}
+              onBlur={() => setNameError(validateChildName(childName))}
+              aria-invalid={Boolean(nameError)}
+              aria-describedby={nameError ? CHILD_NAME_ERROR_ID : undefined}
+            />
+            {nameError && (
+              <div id={CHILD_NAME_ERROR_ID} className="child-name-error" role="alert">
+                {t(`child.name.error.${nameError}`)}
               </div>
-            </Form>
+            )}
+          </Form.Group>
+
+          <div className="d-grid">
+            <Button
+              type="submit"
+              variant="primary"
+              // Only the in-flight save disables it. Whether the name is
+              // acceptable is answered by pressing it, not by a button that
+              // will not react.
+              disabled={saving}
+              className="onboarding-action"
+              // Stable E2E hook: the label is localized
+              data-testid="child-save-button"
+            >
+              {saving ? t('child.button.saving') : t('child.button.save')}
+            </Button>
           </div>
-        </Col>
-      </Row>
-    </Container>
+        </Form>
+      </div>
+    </>
   );
 }

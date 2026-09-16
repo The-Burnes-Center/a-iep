@@ -1,10 +1,8 @@
 import React from 'react';
 import { useAuth } from '../../common/auth-provider';
-import { signOut } from 'aws-amplify/auth';
 import { useNavigate } from 'react-router-dom';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
-import { Container, Row, Col, Card, Accordion, Spinner} from 'react-bootstrap';
+import { Container, Row, Col, Card, Accordion } from 'react-bootstrap';
+import PageLoading from '../../components/PageLoading';
 import { useLanguage } from '../../common/language-context';
 import { useAdminIdentity } from '../../common/helpers/use-admin-identity';
 import { useFeatures } from '../../common/hooks/use-features';
@@ -14,7 +12,7 @@ import './AccountCenter.css';
 const AccountCenter: React.FC = () => {
 
   const { t, translationsLoaded } = useLanguage();
-  const { setAuthenticated } = useAuth();
+  const { logout, setAuthenticated } = useAuth();
   const { isAdmin } = useAdminIdentity();
   const { isFeatureEnabled } = useFeatures();
   const navigate = useNavigate();
@@ -22,24 +20,33 @@ const AccountCenter: React.FC = () => {
   // Return loading state if translations aren't ready
   if (!translationsLoaded) {
     return (
-      <Container className="account-center-container mt-4 mb-5">
-        <div className="text-center my-5">
-          <Spinner animation="border" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </Spinner>        
-        </div>
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 
+  /**
+   * The Sign Out button.
+   *
+   * Goes through the context's logout(), never Amplify's signOut() directly:
+   * once passwordlessAuth is on, signOut() leaves the durable session handle
+   * in localStorage and the next page load exchanges it for fresh tokens, so
+   * the account comes straight back. See AuthProvider.logout in
+   * common/auth-provider.tsx for what ending a session actually involves.
+   *
+   * Routing away AFTER, not before. The old order navigated first and signed
+   * out behind it, which is the window a page load inside lands in.
+   */
   const handleSignOut = async () => {
     try {
-      navigate('/', { replace: true });
-      await signOut();
+      await logout();
+    } catch {
+      // logout() clears this device's handle and token cache first and
+      // unconditionally, so the parent is signed out here whatever else
+      // failed. Reflect that rather than leave them on a screen that still
+      // says they are signed in.
       setAuthenticated(false);
-    } catch (error) {
-      // console.error("Error signing out:", error);
     }
+    navigate('/', { replace: true });
   };
 
   // Navigation handler for accordion items
@@ -50,6 +57,9 @@ const AccountCenter: React.FC = () => {
         break;
       case '1':
         navigate('/account-center/change-language');
+        break;
+      case '6':
+        navigate('/view-update-add-child');
         break;
       case '2':
         navigate('/account-center/delete-account');
@@ -81,6 +91,14 @@ const AccountCenter: React.FC = () => {
       id: "1",
       title: t("accountCenter.changeLanguage"),
       testId: "account-center-change-language",
+    },
+    // The only way back to the child's name once onboarding has asked for it.
+    // Without this a parent who mistyped it was stuck with it: the name heads
+    // every summary and every translation, and is read aloud.
+    {
+      id: "6",
+      title: t("accountCenter.childName"),
+      testId: "account-center-child-name",
     },
     // The only in-app entry point to the referral flow, so this row is what
     // keeps referrals dark where the feature is off (prod). The /invite route
@@ -116,7 +134,6 @@ const AccountCenter: React.FC = () => {
 
   return (
     <>
-      <MobileTopNavigation />
       <Container className="account-center-container mt-3 mb-3">
         <Row className="mt-2">
           <Col>
@@ -153,7 +170,6 @@ const AccountCenter: React.FC = () => {
           </Col>
         </Row>
       </Container>
-      <AIEPFooter />
     </>
   );
 };

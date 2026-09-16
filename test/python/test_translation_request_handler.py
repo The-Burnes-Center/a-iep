@@ -183,9 +183,61 @@ def test_starts_one_execution_and_flips_status(translations):
     # Persisted state, not the mock: the frontend polls on exactly this.
     doc = document(translations)
     assert doc['status'] == 'PROCESSING_TRANSLATIONS'
-    assert int(doc['progress']) == 70
+    # Read from the module rather than restated: the value moved once already,
+    # when the pipeline's milestones were re-spaced by measured time, and the
+    # constraint on it is pinned separately below.
+    assert int(doc['progress']) == translations.module.IN_FLIGHT_PROGRESS
     assert doc['current_step'] == 'translation_requested'
     assert int(doc['translationRequestCount']) == 1
+
+
+def test_the_in_flight_progress_sits_inside_the_pipelines_translate_gap(translations):
+    """Where a parent's bar starts when they ask for one extra language.
+
+    The frontend paces the bar from the milestone the server confirmed toward
+    the next one above it (nextMilestonePercent in
+    pages/utils/processing-progress.mjs), so this value decides how much room
+    the bar has for the whole single-language translation. It has to land
+    strictly between the upload pipeline's analysis and translation
+    milestones: at or below the first, a re-translation reads as going
+    backwards from a document that was already finished; at or above the
+    second, the bar has nowhere left to move for the next 24 seconds.
+
+    The two bounds are read off the ASL so this cannot drift from it.
+    """
+    import json
+    import os
+
+    asl_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        'lib', 'chatbot-api', 'state-machines', 'iep-processing.asl.json',
+    )
+    with open(asl_path) as f:
+        asl = f.read()
+
+    def milestone(step):
+        found = set()
+
+        def walk(node):
+            if isinstance(node, dict):
+                if node.get('current_step') == step and isinstance(node.get('progress'), int):
+                    found.add(node['progress'])
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(json.loads(asl))
+        assert len(found) == 1, (step, found)
+        return found.pop()
+
+    analysis = milestone('analysis_complete')
+    translation = milestone('translation_complete')
+    in_flight = translations.module.IN_FLIGHT_PROGRESS
+
+    assert analysis < in_flight < translation, (analysis, in_flight, translation)
+    assert translation - in_flight >= 15, 'not enough bar left to move through'
 
 
 def test_already_translated_is_a_free_no_op(translations):

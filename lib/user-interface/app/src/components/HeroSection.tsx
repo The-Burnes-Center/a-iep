@@ -1,6 +1,10 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Button } from 'react-bootstrap';
+import { useAuth } from '../common/auth-provider';
 import { useLanguage, SupportedLanguage } from '../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../common/languages';
+import { SIGN_IN_CARD_ID, SIGN_IN_HASH } from '../common/sign-in-location';
 import CustomLogin from './CustomLogin';
 import HowToUseToolButton from './HowToUseToolButton';
 import LanguageDropdown from './LanguageDropdown';
@@ -10,12 +14,42 @@ import './HeroSection.css';
 const HeroSection: React.FC = () => {
     const { t, language, setLanguage, enabledLanguages } = useLanguage();
     const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
+    const location = useLocation();
+    const navigate = useNavigate();
+    const { authenticated } = useAuth();
+    const signInCard = useRef<HTMLDivElement>(null);
+
+    // This card is the app's only sign-in form, so /login, ProtectedRoute and
+    // every "Upload An IEP" link arrive here rather than on a page of their
+    // own. They arrive at #sign-in, and a parent who asked for the form wants
+    // the form, not the top of a marketing page with it four screens down.
+    //
+    // The scroll is ours to do: ScrollToTop skips any location carrying a
+    // hash (see its docblock), which is exactly the hole this fills. Focus
+    // moves with it, onto the card's own heading, so a screen reader says
+    // "Log In" on arrival and the next Tab is the phone field — scrolling
+    // alone would leave focus on <body> and announce nothing.
+    //
+    // Keyed on the whole location, not just the hash: tapping the same link
+    // twice pushes a new entry with the same hash, and a parent who has
+    // scrolled away since expects the second tap to work too.
+    useEffect(() => {
+        if (location.hash !== SIGN_IN_HASH) return;
+        const card = signInCard.current;
+        if (!card) return;
+        // The container is the fallback, not the target: focusing the box
+        // announces the whole form at once. It only ever applies if the card
+        // renders without a heading.
+        const heading = card.querySelector<HTMLElement>('h1, h2, h3, h4, h5, h6');
+        (heading ?? card).focus({ preventScroll: true });
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, [location]);
 
     return (
         <div className='hero-section-container'>
             <div className='hero-section-content'>
                 <div className='hero-section-mobile-language-dropdown'>
-                    <LanguageDropdown 
+                    <LanguageDropdown
                         language={language}
                         languageOptions={languageOptions}
                         onLanguageChange={(lang: SupportedLanguage) => setLanguage(lang)}
@@ -37,10 +71,42 @@ const HeroSection: React.FC = () => {
                         />
                     </div>
                 </div>
-                <div className='hero-section-login-container'>
+                <div
+                    className='hero-section-login-container'
+                    id={SIGN_IN_CARD_ID}
+                    ref={signInCard}
+                    tabIndex={-1}
+                >
                     <div className='hero-section-login-container-content'>
-                        <CustomLogin showLogo={false} />
-                    </div> 
+                        {/* A signed-in parent reaches '/' often: the footer's
+                            Home link is on every page, the FAQs and resources
+                            live here, and ProtectedRoute lands them here too.
+                            Showing them a sign-in form offered no way forward
+                            and read as having been signed out, which is the
+                            same complaint LandingTopNavigation's uploadRoute
+                            already answers for its own link.
+
+                            `authenticated` is false while the session check is
+                            still running, so the form is what renders first.
+                            That is the right way round: it is correct for every
+                            anonymous visitor, and a parent who is signed in
+                            sees it for as long as a cached token read takes. */}
+                        {authenticated ? (
+                            <div className='hero-section-signed-in' data-testid="hero-signed-in">
+                                <h4 className='hero-signed-in-title'>{t('hero.signedIn.title')}</h4>
+                                <p className='hero-signed-in-description'>{t('hero.signedIn.description')}</p>
+                                <Button
+                                    variant='primary'
+                                    className='aiep-button hero-signed-in-action'
+                                    onClick={() => navigate('/iep-documents')}
+                                >
+                                    {t('hero.signedIn.button')}
+                                </Button>
+                            </div>
+                        ) : (
+                            <CustomLogin showLogo={false} />
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

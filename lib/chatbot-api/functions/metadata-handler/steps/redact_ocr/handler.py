@@ -11,17 +11,86 @@ from comprehend_redactor import redact_pii_from_texts
 # FERPA-protected document content (OCR text, parsed sections, translated
 # content) as the workflow evolves; dumping the whole event would expose it
 # to anyone with CloudWatch log access.
+# s3_key is deliberately NOT in this allowlist: the key is
+# userId/childId/iepId/<filename>, and parents routinely name an IEP after
+# their child, so the filename is student data. It is logged separately below
+# with the filename stripped (see _safe_key).
 _SAFE_LOG_FIELDS = (
-    'iep_id', 'child_id', 'user_id', 's3_bucket', 's3_key', 'current_step',
+    'iep_id', 'child_id', 'user_id', 's3_bucket', 'current_step',
     'progress', 'status', 'content_type', 'target_languages', 'translation_needed',
 )
+
+
+def _safe_key(key):
+    """An S3 key with the parent-chosen filename removed.
+
+    The key is userId/childId/iepId/filename, and only the last segment is
+    typed by a human. Mirrors metadata-handler/orchestrator.py's helper of the
+    same name.
+    """
+    if not isinstance(key, str):
+        return '<no key>'
+    head, sep, _filename = key.rpartition('/')
+    return f'{head}/...' if sep else '...'
 
 
 def _safe_event_meta(event):
     """Return only the allowlisted, non-sensitive fields from the event."""
     if not isinstance(event, dict):
         return {'_type': type(event).__name__}
-    return {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+    meta = {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+    if 's3_key' in event:
+        meta['s3_key'] = _safe_key(event['s3_key'])
+    return meta
+
+
+def _safe_error_summary(e):
+    """Content-free triage string for the outermost catch-all.
+
+    This is the last uncovered path by which a rejected value could reach
+    CloudWatch: every step re-raises, so whatever this catches is about to be
+    logged (and the Lambda runtime logs it again, unhandled, on top of that).
+    Reduced to the exception class only -- unlike a message string, a class
+    name cannot itself carry document text.
+    """
+    return type(e).__name__
+
+
+def _fetch_student_name(lambda_client, ddb_service_name, user_id, child_id):
+    """The child's name from their profile, or None.
+
+    Only ever used to decide which NAME entities become the student token, so
+    None is a degraded result and never an unsafe one: every name is redacted
+    either way, and the parsing prompt asks the model for the token from
+    context regardless. That is why a lookup failure is logged and swallowed
+    rather than raised -- failing a document, and deleting its original, over
+    a placeholder that the model can supply anyway is the worse trade.
+
+    The name is never returned to Step Functions, never logged, and never put
+    in this step's output: execution history is kept for 90 days and sits
+    outside every deletion path this project has.
+    """
+    try:
+        response = lambda_client.invoke(
+            FunctionName=ddb_service_name,
+            InvocationType='RequestResponse',
+            Payload=json.dumps({
+                'operation': 'get_student_name',
+                'params': {'user_id': user_id, 'child_id': child_id}
+            })
+        )
+        result = json.loads(response['Payload'].read())
+        if result.get('statusCode') != 200:
+            print('Student name lookup did not return 200; redacting without a '
+                  'targeted token')
+            return None
+        return json.loads(result['body']).get('name') or None
+    except Exception as e:
+        # Class name only: this call's RESPONSE carries the name, so a boto3
+        # or JSON error quoting what it choked on would quote the name.
+        print(f"Student name lookup failed: {type(e).__name__}; redacting "
+              f"without a targeted token")
+        return None
 
 
 def lambda_handler(event, context):
@@ -151,9 +220,15 @@ def lambda_handler(event, context):
         
         if page_texts:
             print(f"Redacting PII from {len(page_texts)} pages of text")
-            
+
+            # Read the child's name here, not from the event: it decides which
+            # name mentions become the student token rather than [NAME].
+            student_name = _fetch_student_name(
+                lambda_client, ddb_service_name, user_id, child_id)
+
             # Use Comprehend to redact PII
-            redacted_texts, stats = redact_pii_from_texts(page_texts)
+            redacted_texts, stats = redact_pii_from_texts(
+                page_texts, student_name=student_name)
             
             if redacted_texts:
                 # Create redacted OCR result maintaining original structure
@@ -243,6 +318,8 @@ def lambda_handler(event, context):
             raise Exception("No text found in OCR result for redaction")
             
     except Exception as e:
-        print(f"RedactOCR error: {str(e)}")
-        print(traceback.format_exc())
+        print(f"RedactOCR error: {_safe_error_summary(e)}")
+        # NOT traceback.format_exc(): its last line renders str(e), which is
+        # exactly what the summary above was built to avoid.
+        print(''.join(traceback.format_tb(e.__traceback__)))
         raise  # Let Step Functions retry policy handle the error

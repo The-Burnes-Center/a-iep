@@ -211,6 +211,9 @@ const DEFAULT_PREVIOUS_LABEL = 'Previous';
 
 const DEFAULT_NEXT_LABEL = 'Next';
 
+/** A template for the same reason the rights indicator is one: word order. */
+const DEFAULT_GO_TO_SLIDE_TEMPLATE = 'Go to slide {number}';
+
 /**
  * Every text prop here is optional and every one of them wins when given. A
  * caller that already owns a translator (the processing screen) hands over its
@@ -236,6 +239,8 @@ export interface ParentRightsCarouselProps {
    */
   loop?: boolean;
   rightsIndicatorTemplate?: string;
+  /** Accessible name for each dot, e.g. "Go to slide {number}". */
+  goToSlideTemplate?: string;
   /**
    * Body copy for a section divider, which has no content of its own. It fills
    * what would otherwise be an empty block and tells a parent how to move on.
@@ -255,6 +260,7 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
   headerGreenTitle,
   loop = true,
   rightsIndicatorTemplate,
+  goToSlideTemplate,
   sectionHint,
 }) => {
 
@@ -272,6 +278,7 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
   const displayHeaderPinkTitle = headerPinkTitle ?? translated('rights.header.title.pink', DEFAULT_HEADER_PINK_TITLE);
   const displayHeaderGreenTitle = headerGreenTitle ?? translated('rights.header.title.green', DEFAULT_HEADER_GREEN_TITLE);
   const displayRightsIndicatorTemplate = rightsIndicatorTemplate ?? translated('carousel.rights.indicator', DEFAULT_RIGHTS_INDICATOR_TEMPLATE);
+  const displayGoToSlideTemplate = goToSlideTemplate ?? translated('carousel.goToSlide', DEFAULT_GO_TO_SLIDE_TEMPLATE);
   const displaySectionHint = sectionHint ?? translated('carousel.section.hint', DEFAULT_SECTION_HINT);
 
   const slideCount = slides.length;
@@ -353,29 +360,13 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
     );
   };
 
+  const goToSlideLabel = (index: number) =>
+    displayGoToSlideTemplate.replace('{number}', String(index + 1));
+
   return (
     <div className="parent-rights-container">
 
       {renderHeaderCard()}
-
-      {/* The alt text is the only name these two buttons have, so it is the
-          parent's label for them and is localized like any other. */}
-      <div className='parent-rights-carousel-buttons'>
-          <button
-            onClick={() => goToSlide(currentIndex - 1)}
-            disabled={!loop && currentIndex === 0}
-            className='carousel-nav-button carousel-prev-button'
-          >
-            <img src="/images/arrow.svg" alt={translated('common.previous', DEFAULT_PREVIOUS_LABEL)} className="arrow-icon-prev" />
-          </button>
-          <button
-            onClick={() => goToSlide(currentIndex + 1)}
-            disabled={!loop && currentIndex === slideCount - 1}
-            className='carousel-nav-button carousel-next-button'
-          >
-            <img src="/images/arrow.svg" alt={translated('common.next', DEFAULT_NEXT_LABEL)} className="arrow-icon-next" />
-          </button>
-      </div>
 
       {/* Carousel*/}
       <div className="parent-rights-carousel-wrapper">
@@ -383,7 +374,11 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
           activeIndex={currentIndex}
           onSelect={goToSlide}
           controls={false}
-          indicators={true}
+          /* Ours instead, below: react-bootstrap's own dots are absolutely
+             positioned inside the deck, which is what forced every slide's
+             text block to reserve a fixed 228px of clearance whether it
+             needed it or not. */
+          indicators={false}
           interval={null}
           pause="hover"
           wrap={loop}
@@ -416,6 +411,48 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
             </Carousel.Item>
           ))}
         </Carousel>
+      </div>
+
+      {/* One row of controls, under the deck, rather than arrows floating
+          between the illustration and the words they belong to. Everything
+          that moves the carousel is now in the same place and within a
+          thumb's reach on a phone.
+
+          The alt text is the only name the two arrows have, so it is the
+          parent's label for them and is localized like any other. */}
+      <div className='parent-rights-carousel-buttons'>
+          <button
+            onClick={() => goToSlide(currentIndex - 1)}
+            disabled={!loop && currentIndex === 0}
+            className='carousel-nav-button carousel-prev-button'
+          >
+            <img src="/images/arrow.svg" alt={translated('common.previous', DEFAULT_PREVIOUS_LABEL)} className="arrow-icon-prev" />
+          </button>
+
+          {/* react-bootstrap hardcodes "Slide N" in English on its own dots,
+              so a screen reader in any of the other four languages read the
+              one English string on the screen. These are named from the
+              dictionary like everything else. */}
+          <div className="parent-rights-dots" data-testid="carousel-dots">
+            {slides.map((slide, index) => (
+              <button
+                key={slide.id}
+                type="button"
+                className={`parent-rights-dot ${index === currentIndex ? 'active' : ''}`}
+                aria-label={goToSlideLabel(index)}
+                aria-current={index === currentIndex ? 'true' : undefined}
+                onClick={() => goToSlide(index)}
+              />
+            ))}
+          </div>
+
+          <button
+            onClick={() => goToSlide(currentIndex + 1)}
+            disabled={!loop && currentIndex === slideCount - 1}
+            className='carousel-nav-button carousel-next-button'
+          >
+            <img src="/images/arrow.svg" alt={translated('common.next', DEFAULT_NEXT_LABEL)} className="arrow-icon-next" />
+          </button>
       </div>
     </div>
   );

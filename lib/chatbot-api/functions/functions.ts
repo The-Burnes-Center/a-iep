@@ -107,7 +107,11 @@ export class LambdaFunctionStack extends cdk.Stack {
       }), // Points to the lambda directory
       handler: 'lambda_function.lambda_handler', // Points to the 'hello' file in the lambda directory
       environment: {
-        "BUCKET" : props.knowledgeBucket.bucketName,        
+        "BUCKET" : props.knowledgeBucket.bucketName,
+        // Deleting a document is not deleting one object: the row is the only
+        // pointer to the summary, the redacted OCR text and the cached audio,
+        // and it also proves the caller owns the iepId named in the key.
+        "IEP_DOCUMENTS_TABLE": props.iepDocumentsTable.tableName,
       },
       timeout: cdk.Duration.seconds(30),
       logRetention: logs.RetentionDays.ONE_YEAR,
@@ -121,6 +125,28 @@ export class LambdaFunctionStack extends cdk.Stack {
         's3:DeleteObject'
       ],
       resources: [props.knowledgeBucket.bucketArn + "/*"]
+    }));
+
+    // The derived-artifact sweep lists iep-data/ and iep-audio/ before
+    // deleting; ListBucket is bucket-level, hence the separate statement.
+    deleteS3APIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        's3:ListBucket'
+      ],
+      resources: [props.knowledgeBucket.bucketArn]
+    }));
+
+    // GetItem to read contentS3Reference and check ownership, DeleteItem to
+    // drop the row once its artifacts are gone. No index: the key carries the
+    // full primary key (iepId + childId).
+    deleteS3APIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'dynamodb:GetItem',
+        'dynamodb:DeleteItem'
+      ],
+      resources: [props.iepDocumentsTable.tableArn]
     }));
 
     this.deleteS3Function = deleteS3APIHandlerFunction;
@@ -321,20 +347,23 @@ export class LambdaFunctionStack extends cdk.Stack {
           `arn:aws:ssm:${this.region}:${this.account}:parameter/ai-iep/OPENAI_API_KEY`,
           `arn:aws:ssm:${this.region}:${this.account}:parameter/ai-iep/MISTRAL_API_KEY`
         ]
-      }),
-      // Bedrock permissions  
-      new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: [
-          'bedrock:InvokeModel',
-          'bedrock:Retrieve',
-          'bedrock-agent-runtime:Retrieve'
-        ],
-        resources: [
-          `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0`,
-          '*'
-        ]
       })
+      // No Bedrock statement. There used to be one, inherited from the
+      // template this repo started as, granting bedrock:InvokeModel,
+      // bedrock:Retrieve and bedrock-agent-runtime:Retrieve to all eight
+      // roles below on `Resource: '*'` -- the model ARN sat next to the
+      // wildcard, so the wildcard was the whole grant.
+      //
+      // Nothing in this repo has ever called Bedrock: the pipeline uses
+      // Mistral for OCR, Comprehend for redaction and OpenAI for
+      // summarizing and translating, and no lambda constructs a bedrock or
+      // bedrock-agent-runtime client. This account is shared with other
+      // Burnes Center projects, so bedrock:Retrieve on '*' meant every step
+      // lambda could read another project's knowledge bases.
+      //
+      // If a Bedrock judge is ever wired in (see docs/AI_EVALUATION_RESEARCH.md),
+      // add it back scoped to the exact model ARN and to that one lambda,
+      // never to this shared list. test/infra pins the absence.
     ];
 
     // Helper function to create step function Lambdas

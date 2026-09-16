@@ -3,6 +3,7 @@ import * as cf from "aws-cdk-lib/aws-cloudfront";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
+import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import {
   ExecSyncOptionsWithBufferEncoding,
@@ -33,25 +34,54 @@ function resolveEnabledLanguages(): string[] {
 }
 
 // Optional features offered in the UI per environment, same mechanism as the
-// languages above. TTS, referrals and the parent-name gate run on dev/staging
-// but are dark on prod: the code ships and the backend (audio lambda, referral
-// table and routes) stays deployed and unused, so prod and staging keep
-// building from one source and enabling a feature is a config flip rather than
-// a release. An explicit ENABLED_FEATURES env var (comma-separated names)
-// overrides the default. Kept in sync with the dev-build logic in
+// languages above. TTS, the student-name gate, the parent-name gate and the
+// passwordless auth flow run on dev/staging but are dark on prod: the code
+// ships and the backend stays deployed and unused, so prod and staging keep
+// building from one source and enabling a feature is a config flip rather
+// than a release.
+// An explicit ENABLED_FEATURES env var (comma-separated names) overrides the
+// default. Kept in sync with the dev-build logic in
 // lib/user-interface/app/vite.config.ts, and with the feature list in
 // lib/user-interface/app/src/common/features.ts.
-export const ALL_FEATURES = ["tts", "referrals", "parentNameGate"];
-// Referrals went live on prod 2026-08-04: the invite entry point in Account
-// Center is all the flag gates, and the referral table and routes were already
-// deployed and idle. TTS and the parent-name gate stay dark.
-export const PROD_FEATURES: string[] = ["referrals"];
+export const ALL_FEATURES = ["tts", "referrals", "studentNameGate", "passwordlessAuth", "pdfHelpScreens"];
+// Referrals went live on prod 2026-08-04. The student-name gate, the parent-
+// name gate and passwordlessAuth go live with the promotion that carries this
+// line; TTS stays dark.
+//
+// The student-name gate is not optional in prod once the redaction ships,
+// which is the part worth understanding before changing this list. The
+// pipeline's redaction is NOT behind this flag -- ALLOWED_PII_ENTITY_TYPES in
+// redact_ocr/comprehend_redactor.py runs in every environment -- so prod
+// redacts every name the moment the promotion lands. With the gate dark no
+// parent is ever asked for their child's name, nothing is substituted back,
+// and every newly processed summary calls the child "your child" throughout.
+// Turning the gate off in prod without also reverting the redaction is
+// therefore a user-visible downgrade, not a safe no-op.
+//
+// passwordlessAuth gates CustomLogin's /auth/start + /auth/verify flow
+// (docs/AUTH_API_CONTRACT.md). The old Amplify custom-auth path keeps working
+// in every environment regardless of this flag, so reverting is a config flip
+// rather than a deploy.
+export const PROD_FEATURES: string[] = ["referrals", "studentNameGate", "passwordlessAuth"];
+// Dark in every environment by default, staging included, until a feature's
+// rollout needs that. Empty for now: passwordlessAuth was the one entry here,
+// kept dark even on staging until e2e/helpers/app.ts could detect and drive
+// PasswordlessAuthForm (it shares a single login helper across every
+// journey, and a staging build with the flag on used to fail seven of them
+// on "Send SMS Code" alone). That change landed together with this flip
+// (2026-09-11): the helper now detects which screen is live, so staging
+// picks up passwordlessAuth with no coverage gap, and prod is untouched
+// (PROD_FEATURES above never included it). Opt in with ENABLED_FEATURES for
+// local work or a one-off deploy; a future flag that needs the same staged
+// rollout goes here the same way.
+export const DARK_EVERYWHERE: string[] = [];
 function resolveEnabledFeatures(): string[] {
   const override = process.env.ENABLED_FEATURES;
   if (override) {
     return override.split(",").map((s) => s.trim()).filter(Boolean);
   }
-  return getEnvironment() === "prod" ? PROD_FEATURES : ALL_FEATURES;
+  const base = getEnvironment() === "prod" ? PROD_FEATURES : ALL_FEATURES;
+  return base.filter((f) => !DARK_EVERYWHERE.includes(f));
 }
 
 export interface UserInterfaceProps {
@@ -60,6 +90,29 @@ export interface UserInterfaceProps {
   readonly api: ChatBotApi;
   readonly cognitoDomain : string;
 }
+
+// Cloudflare Turnstile site key, read from Parameter Store at deploy time.
+//
+// Not a literal in this file, and not a default in the code. The site key is
+// served in the page to every visitor, so it is not a secret in the
+// cryptographic sense; keeping it out of the repo is a discipline rather than
+// a containment measure. One place for every externally-issued value means
+// there is no judgement call each time about which ones are safe to publish,
+// and rotating one never needs a code change.
+//
+// The parameter is per environment, which is also how production and staging
+// end up with different keys. That difference is deliberate: a challenge a
+// script can solve is not a challenge, so the real key and automated signup
+// coverage cannot both exist in one environment. Production gets the enforcing
+// key; staging gets one whose verdict is fixed, so the E2E suite can still
+// exercise the signup journey end to end (widget renders, token issued,
+// siteverify called and accepted). It is the verdict that is fixed, not the
+// plumbing.
+//
+// Both this and the matching secret are created out of band. See the
+// Turnstile section of README.md; a missing parameter fails the deploy loudly,
+// which is the right way for that to land.
+const TURNSTILE_SITE_KEY_PARAM = `/a-iep/${getEnvironment()}/turnstile/site-key`;
 
 export class UserInterface extends Construct {
   public readonly websiteDistribution: cf.CloudFrontWebDistribution;
@@ -116,6 +169,8 @@ export class UserInterface extends Construct {
       federatedSignInProvider : OIDCIntegrationName,
       enabledLanguages : resolveEnabledLanguages(),
       enabledFeatures : resolveEnabledFeatures(),
+      turnstileSiteKey : ssm.StringParameter.valueForStringParameter(
+        this, TURNSTILE_SITE_KEY_PARAM),
       // Gates prod-only frontend integrations (Google Analytics), since
       // staging and prod are otherwise identical production builds.
       environment : getEnvironment()

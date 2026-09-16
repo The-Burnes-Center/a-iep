@@ -10,8 +10,84 @@ from datetime import datetime, timedelta
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# requests has no default timeout: an unresponsive Mistral endpoint hangs the
+# call indefinitely (see requests docs, "Advanced Usage > Timeouts"). Those
+# same docs recommend a (connect, read) tuple over a single scalar, because
+# the two phases mean different things here: CONNECT is the TCP/TLS handshake
+# to a known, presumably-healthy API host, so a few seconds is generous; READ
+# is the gap between bytes once connected, which for the OCR call is however
+# long Mistral spends actually processing the document. Each budget below
+# stays well under MistralOCRFunction's own 600s Lambda timeout (functions.ts)
+# so a hung provider is caught and reported by this code -- a clean
+# {"error": ...} the state machine can retry -- before Lambda's runtime kills
+# the invocation outright with no such shape.
+CONNECT_TIMEOUT_SECONDS = 10
+UPLOAD_READ_TIMEOUT_SECONDS = 60
+METADATA_READ_TIMEOUT_SECONDS = 30
+OCR_READ_TIMEOUT_SECONDS = 300
+
 # Global cache for API key (reused across Lambda invocations)
 _cached_mistral_api_key = None
+
+# Mistral takes the uploaded file's type from the multipart part below, not by
+# sniffing the bytes, so this has to match what the parent actually picked. It
+# was hardcoded to 'application/pdf', while the uploader offers .doc and .docx
+# too (UploadIEPDocument.tsx's fileExtensions), which made every Word upload a
+# guaranteed permanent failure: Mistral answers 422, and handler.py -- correctly
+# -- treats a non-429 4xx as "this file will never be accepted" and retries it
+# zero times. One such .doc is the 422 in scripts/audit-residue.py's docblock.
+#
+# Word is not a format Mistral has to be talked into: its Document AI OCR FAQ
+# ("What document types are supported?") lists Word Documents (.docx, .doc)
+# next to PDF. Only the declared type was wrong.
+#
+# Keyed by extension rather than guessed with mimetypes.guess_type, whose table
+# is assembled partly from the host's /etc/mime.types and so is not the same on
+# a developer's Mac as in the Lambda image. These three are the ones the
+# uploader offers, spelled exactly as its own mimeTypes map spells them.
+_CONTENT_TYPE_BY_EXTENSION = {
+    '.pdf': 'application/pdf',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+}
+
+# For an extension the uploader does not offer, which should be unreachable.
+# Deliberately not 'application/pdf': declaring a type the bytes are not is the
+# entire defect above, and a generic "some bytes" at least says nothing false.
+_DEFAULT_CONTENT_TYPE = 'application/octet-stream'
+
+
+def _content_type_for(filename):
+    """The MIME type to declare for `filename` when posting it to Mistral."""
+    _stem, _dot, extension = str(filename).rpartition('.')
+    return _CONTENT_TYPE_BY_EXTENSION.get(f'.{extension}'.lower(), _DEFAULT_CONTENT_TYPE)
+
+
+def _http_status_code(exc):
+    """The provider's HTTP status code, if this exception carries one.
+
+    Only requests.exceptions.HTTPError -- raised by Response.raise_for_status()
+    -- carries a response object. A connection error or a timeout never got a
+    response at all, and correctly reports None here, which handler.py treats
+    as transient (see OcrClientError there): those failures say nothing about
+    whether the FILE is acceptable, only that this attempt did not complete.
+    """
+    response = getattr(exc, 'response', None)
+    return getattr(response, 'status_code', None) if response is not None else None
+
+
+def _safe_key(key):
+    """An S3 key (or filename) with the parent-chosen name removed.
+
+    Mirrors metadata-handler/orchestrator.py's helper of the same name: the
+    key is userId/childId/iepId/filename, and parents routinely name an IEP
+    after their child, so only the ids in front of the last path segment are
+    safe to log.
+    """
+    if not isinstance(key, str):
+        return '<no key>'
+    head, sep, _filename = key.rpartition('/')
+    return f'{head}/...' if sep else '...'
 
 def get_mistral_api_key():
     """
@@ -79,10 +155,10 @@ def process_document_with_mistral_ocr(bucket, key):
         
         # Check if the key and decoded key are different
         if key != decoded_key:
-            logger.info(f"Key was URL encoded. Original: {key}, Decoded: {decoded_key}")
+            logger.info(f"Key was URL encoded. Original: {_safe_key(key)}, Decoded: {_safe_key(decoded_key)}")
             key = decoded_key
-            
-        logger.info(f"Downloading document from S3: s3://{bucket}/{key}")
+
+        logger.info(f"Downloading document from S3: s3://{bucket}/{_safe_key(key)}")
         s3_client = boto3.client('s3')
         
         # Try with the key as is
@@ -114,7 +190,7 @@ def process_document_with_mistral_ocr(bucket, key):
         
         # Get the file name from the key
         filename = key.split('/')[-1]
-        logger.info(f"Successfully downloaded file: {filename} ({len(file_content)} bytes)")
+        logger.info(f"Successfully downloaded file ({len(file_content)} bytes)")
     except Exception as e:
         logger.error(f"Error downloading file from S3: {str(e)}")
         return {"error": f"Error downloading file from S3: {str(e)}"}
@@ -126,21 +202,27 @@ def process_document_with_mistral_ocr(bucket, key):
     
     # Step 1: Upload the file to Mistral
     try:
-        logger.info(f"Uploading file to Mistral: {filename}")
-        
+        # The declared type, not the filename: the filename is the parent's own
+        # and can carry a child's name (see _safe_key). A value from the fixed
+        # map above is safe to log and is the first thing to check when Mistral
+        # rejects a file, since a mismatch here is a permanent, unretried 422.
+        content_type = _content_type_for(filename)
+        logger.info(f"Uploading file to Mistral as {content_type}")
+
         upload_url = "https://api.mistral.ai/v1/files"
         files = {
-            'file': (filename, file_content, 'application/pdf')
+            'file': (filename, file_content, content_type)
         }
         data = {
             'purpose': 'ocr'
         }
-        
+
         upload_response = requests.post(
             upload_url,
             headers=headers,
             files=files,
-            data=data
+            data=data,
+            timeout=(CONNECT_TIMEOUT_SECONDS, UPLOAD_READ_TIMEOUT_SECONDS)
         )
         upload_response.raise_for_status()
         upload_result = upload_response.json()
@@ -153,7 +235,7 @@ def process_document_with_mistral_ocr(bucket, key):
         logger.info(f"File successfully uploaded to Mistral with ID: {file_id}")
     except Exception as e:
         logger.error(f"Error uploading file to Mistral: {str(e)}")
-        return {"error": f"Error uploading file to Mistral: {str(e)}"}
+        return {"error": f"Error uploading file to Mistral: {str(e)}", "status_code": _http_status_code(e)}
     
     # Step 2: Get a signed URL for the uploaded file
     try:
@@ -167,7 +249,8 @@ def process_document_with_mistral_ocr(bucket, key):
         signed_url_response = requests.get(
             signed_url_endpoint,
             headers=headers,
-            params=params
+            params=params,
+            timeout=(CONNECT_TIMEOUT_SECONDS, METADATA_READ_TIMEOUT_SECONDS)
         )
         signed_url_response.raise_for_status()
         signed_url_result = signed_url_response.json()
@@ -180,7 +263,7 @@ def process_document_with_mistral_ocr(bucket, key):
         logger.info(f"Successfully obtained signed URL for file ID: {file_id}")
     except Exception as e:
         logger.error(f"Error getting signed URL from Mistral: {str(e)}")
-        return {"error": f"Error getting signed URL from Mistral: {str(e)}"}
+        return {"error": f"Error getting signed URL from Mistral: {str(e)}", "status_code": _http_status_code(e)}
     
     # Step 3: Process the document with Mistral OCR API using the signed URL
     try:
@@ -194,19 +277,40 @@ def process_document_with_mistral_ocr(bucket, key):
         }
         
         # Create request payload for Mistral OCR API
+        #
+        # image_limit 0 is what makes a Word document work, and it is the only
+        # thing that does. Mistral refuses a .docx whenever images could be
+        # extracted but not returned, with a 400 that reads "For .docx files,
+        # extracted images can only be returned in base64. If you don't want
+        # images, try setting image_limit=0 instead." That is a permanent,
+        # unretried failure, so every Word upload the picker accepted died
+        # there after a full processing wait.
+        #
+        # Verified against the live endpoint, not inferred: a synthetic .docx
+        # returns 400 without this and 200 with it, and a synthetic PDF
+        # returns 200 either way, so the main path is unaffected. Declaring
+        # the right content type on upload does NOT fix it: the upload
+        # succeeds either way and the refusal happens here.
+        #
+        # We never ask for images: the pipeline reads text only, and a
+        # base64-inlined image would put document content somewhere we do not
+        # want it. 0 says "extract none", which is the same answer
+        # include_image_base64 False already gives for a PDF.
         ocr_payload = {
             "model": "mistral-ocr-latest",
             "document": {
                 "type": "document_url",
                 "document_url": signed_url
             },
-            "include_image_base64": False  # Set to true if you need images
+            "include_image_base64": False,
+            "image_limit": 0
         }
         
         ocr_response = requests.post(
             ocr_endpoint,
             headers=ocr_headers,
-            json=ocr_payload
+            json=ocr_payload,
+            timeout=(CONNECT_TIMEOUT_SECONDS, OCR_READ_TIMEOUT_SECONDS)
         )
         
         ocr_response.raise_for_status()
@@ -216,5 +320,5 @@ def process_document_with_mistral_ocr(bucket, key):
         return ocr_result
     except Exception as e:
         logger.error(f"Error calling Mistral OCR API: {str(e)}")
-        return {"error": str(e)}
+        return {"error": str(e), "status_code": _http_status_code(e)}
 

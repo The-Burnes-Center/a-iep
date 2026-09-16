@@ -37,17 +37,17 @@
 }
 
 .landing-hero-text-orange {
-  color: #FF8724;
+  color: var(--aiep-accent-orange);
   text-decoration: underline;
 }
 
 .landing-hero-text-blue {
-  color: #007AD1;
+  color: var(--aiep-accent-blue);
   text-decoration: underline;
 }
 
 .landing-hero-text-pink {
-  color: #F995A1;
+  color: var(--aiep-accent-rose);
   text-decoration: underline;
 }
 
@@ -60,13 +60,13 @@
 
 .landing-hero-project-by-text {
   font-size: 1rem;
-  color: rgba(30, 30, 30, 0.35);
+  color: var(--aiep-muted);
   margin-bottom: 0.75rem;
 }
 
 .landing-hero-project-about-text {
   font-size: 1.15rem;
-  color: #CBC6BC;
+  color: var(--aiep-muted);
 }
 
 .landing-hero-logos {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useContext, useState } from 'react';
 import {
   signIn, signUp, confirmSignIn, confirmSignUp, resendSignUpCode,
   resetPassword, confirmResetPassword, getCurrentUser, signOut,
@@ -16,7 +16,6 @@ import {
   Form, 
   Button, 
   Alert, 
-  Spinner,
 } from 'react-bootstrap';
 // Bootstrap CSS is managed at runtime by common/direction.ts (LTR/RTL swap) —
 // do not import it statically anywhere or both builds load at once
@@ -24,8 +23,14 @@ import './CustomLogin.css'; // Import the custom CSS file
 import { useLanguage, SupportedLanguage } from '../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import { useAuth } from '../common/auth-provider';
+import { clearCachedTokens, clearPersistedSessionHandle } from '../common/auth/passwordless-auth';
 import { cognitoErrorKey } from '../common/helpers/cognito-error-helper';
+import { useTurnstile, TurnstileStatus } from '../common/hooks/use-turnstile';
+import { useFeatures } from '../common/hooks/use-features';
+import { AppContext } from '../common/app-context';
+import AIEPSpinner from './AIEPSpinner';
 import AuthHeader from './AuthHeader';
+import PasswordlessAuthForm from './PasswordlessAuthForm';
 import PasswordInput from './PasswordInput';
 import PasswordRequirements from './PasswordRequirements';
 import AlertMessages from './AlertMessages';
@@ -56,12 +61,28 @@ import VerificationCodeInput from './VerificationCodeInput';
  * time signIn throws there is nothing left to tell the parent, and discarding
  * a session they are trying to sign out of is the right answer in every case.
  * getCurrentUser first so a normal login costs no RevokeToken round trip.
+ *
+ * A passwordless session is invisible to getCurrentUser() — it is a handle in
+ * localStorage, not an Amplify session — so it is dropped first and
+ * unconditionally, outside that check. Signing in as somebody else must not
+ * leave the previous parent's handle resumable: checkAuth prefers the handle
+ * over the Amplify session, so a survivor would sign the app in as whoever
+ * used this browser last, not as whoever just authenticated.
+ *
+ * Local only, no /auth/logout. Once the handle is deleted here it exists
+ * nowhere else (the browser holds the only copy), so revoking the row buys no
+ * access that is still reachable, and it would put a network round trip that
+ * can hang on the critical path of every sign-in attempt. Revoking belongs on
+ * Sign Out, where a parent is deliberately ending a session — see
+ * AuthProvider.logout.
  */
 const clearStaleSession = async (): Promise<void> => {
+  clearPersistedSessionHandle();
+  clearCachedTokens();
   try {
     await getCurrentUser();
   } catch {
-    return; // nobody signed in, nothing to clear
+    return; // nobody signed in via Amplify, nothing left to clear
   }
   try {
     await signOut();
@@ -75,6 +96,24 @@ interface CustomLoginProps {
   showLogo?: boolean;
   showLanguageDropdown?: boolean;
 }
+
+/**
+ * What the security check says to a parent who cannot see it, keyed by where
+ * the check has got to.
+ *
+ * `failed` and `timedOut` are absent on purpose: both render a visible
+ * react-bootstrap Alert, which carries role="alert" and announces itself.
+ * Listing them here too would say everything twice.
+ */
+const TURNSTILE_STATUS_KEYS: Partial<Record<TurnstileStatus, string>> = {
+  // The widget is injected after first paint, so it lands under a parent who
+  // may already be tabbing. Saying it arrived is the only warning they get.
+  ready: 'auth.securityCheckReady',
+  interactive: 'auth.securityCheckInteractive',
+  solved: 'auth.securityCheckDone',
+  expired: 'auth.securityCheckExpired',
+  reset: 'auth.securityCheckReset',
+};
 
 /** The slice of the v6 signIn/confirmSignIn result the phone custom-auth flow reads back */
 interface SmsChallengeUser {
@@ -115,6 +154,19 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   
   // Mobile login state variables
   const [phoneNumber, setPhoneNumber] = useState('+1 ');
+  // Supplies the anti-abuse token the PreSignUp trigger requires for a NEW
+  // account. Sign-in needs none: an unknown number never reaches the trigger
+  // that sends an SMS, so signup is the only path worth challenging.
+  // Handed the app's language so the challenge speaks it: Turnstile otherwise
+  // follows the browser, which is the wrong one for most parents who changed it.
+  const turnstile = useTurnstile(language);
+  const turnstileStatusKey = TURNSTILE_STATUS_KEYS[turnstile.status];
+  const appConfig = useContext(AppContext);
+  // Gates the /auth/start + /auth/verify flow in docs/AUTH_API_CONTRACT.md.
+  // On in dev/staging, off in prod until it has carried real traffic — see
+  // common/features.ts. Both backends stay live either way, so flipping this
+  // back is a full rollback with no deploy.
+  const { isFeatureEnabled } = useFeatures();
   const [showMobileLogin, setShowMobileLogin] = useState(true);  
   const [mobileLoading, setMobileLoading] = useState(false);
   const [smsCode, setSmsCode] = useState('');
@@ -146,6 +198,18 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     // PreferredLanguage will handle onboarding decisions based on profile.showOnboarding
     const from = location.state?.from?.pathname || '/preferred-language';
     navigate(from, { replace: true });
+  };
+
+  /**
+   * The passwordless flow never touches Amplify, so there is no
+   * getCurrentUser() to hand to login() the way every Amplify path below
+   * does. The real Cognito tokens stay server-side against the session
+   * handle (contract §6); this just marks the app authenticated for this
+   * page load so ProtectedRoute lets the parent through.
+   */
+  const handlePasswordlessSignedIn = () => {
+    login({ passwordlessAuth: true });
+    handleSuccessfulAuthentication();
   };
 
   const handleSignIn = async (e: React.FormEvent) => {
@@ -302,52 +366,41 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           // User doesn't exist, create them first
           // console.log('Creating new user for phone:', formattedPhone);
           
-          // Generate a secure random password
-          // The parent never learns this password, but the app client allows
-          // USER_PASSWORD_AUTH and USER_SRP_AUTH, so a guessable value would be a
-          // way to sign in without the SMS code. 128 bits from the platform CSPRNG;
-          // the prefix satisfies the pool's upper/lower/digit/symbol policy.
-          const randomSuffix = Array.from(
-            crypto.getRandomValues(new Uint8Array(16)),
-            (byte) => byte.toString(16).padStart(2, '0'),
-          ).join('');
-          const tempPassword = `TempPass123!${randomSuffix}`;
-          
           try {
-            // v6: attributes/clientMetadata move under options.
-            const signUpResult = await signUp({
-              username: formattedPhone,
-              password: tempPassword,
-              options: {
-                userAttributes: {
-                  phone_number: formattedPhone,
-                  // 'locale' is how the OTP login SMS gets localized: Cognito
-                  // doesn't forward sign-in clientMetadata to that trigger
-                  locale: language,
-                },
-                clientMetadata: { language },
-              },
+            // The account is created by OUR endpoint, not by Cognito's public
+            // SignUp API, which the pool now refuses. That API was reachable
+            // by anyone holding the app client id, which necessarily ships in
+            // this bundle, and is how the 2026-09-09 abuse run created a
+            // thousand accounts without ever loading this page.
+            //
+            // No password is chosen here any more. The endpoint generates one
+            // the moment the account exists and nobody, including this code,
+            // ever sees it.
+            const response = await fetch(`${appConfig?.httpEndpoint ?? '/'}auth/signup`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                phoneNumber: formattedPhone,
+                language,
+                // Verified server-side. Absent when no widget is configured,
+                // in which case the server decides whether to accept it.
+                ...(turnstile.token ? { turnstileToken: turnstile.token } : {}),
+              }),
             });
 
-            // v6 renamed userConfirmed -> isSignUpComplete
-            if (signUpResult.isSignUpComplete) {
-              // The PreSignUp trigger auto-confirmed the account, so Cognito
-              // minted no signup code and there is nothing to collect here:
-              // go straight to the login OTP, which is now the ONLY SMS a new
-              // parent receives.
-              setIsNewUserSignup(true);
-              await applyPhoneSignInResult(await signInWithPhone(formattedPhone), 'auth.smsCodeSentNewUser');
-            } else {
-              // userConfirmed === false means the trigger did not take effect.
-              // Fall back to the old two-code flow rather than stranding the
-              // parent on a screen waiting for a code that never comes.
-              setIsNewUserConfirmation(true);
-              setPendingPhoneNumber(formattedPhone);
-              setIsNewUserSignup(true); // Mark as new user signup
-              setSmsCodeSent(true);
-              setSuccessMessage('auth.smsCodeSentNewUser');
+            if (!response.ok) {
+              // 429 is a rate limit and 403 a failed anti-abuse check. Both
+              // are deliberate refusals a parent can act on by waiting or
+              // retrying, so they must not read as a generic failure.
+              throw Object.assign(new Error('signup refused'), {
+                name: response.status === 429 ? 'TooManyRequestsException' : 'SignupRefused',
+              });
             }
 
+            // The account exists and is confirmed, so the login OTP is the
+            // only SMS a new parent receives.
+            setIsNewUserSignup(true);
+            await applyPhoneSignInResult(await signInWithPhone(formattedPhone), 'auth.smsCodeSentNewUser');
           } catch (signUpError) {
             console.error('Phone sign-up failed:', errCode(signUpError) ?? 'unknown');
             if (errCode(signUpError) === 'UsernameExistsException') {
@@ -381,6 +434,12 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       
     } catch (error) {
       console.error('Phone authentication failed:', errCode(error) ?? 'unknown');
+
+      // Turnstile tokens are single-use, so whatever went wrong, the one we
+      // hold is spent. Without this a retry sends a used token, the trigger
+      // refuses it, and the form looks broken for a reason a parent cannot
+      // see or fix.
+      turnstile.reset();
 
       // In this flow InvalidParameterException means the phone number was
       // rejected, so it gets the phone-specific message
@@ -1000,6 +1059,16 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       )}
       <AuthHeader title={t('auth.signInHeader')} showLogo={showLogo} />
 
+      {isFeatureEnabled('passwordlessAuth') ? (
+        <PasswordlessAuthForm
+          t={t}
+          language={language}
+          httpEndpoint={appConfig?.httpEndpoint ?? '/'}
+          turnstile={turnstile}
+          onSignedIn={handlePasswordlessSignedIn}
+        />
+      ) : (
+      <>
       <LoginMethodToggle
         showMobileLogin={showMobileLogin}
         onMobileLoginClick={() => setShowMobileLogin(true)}
@@ -1007,7 +1076,26 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         mobileLoginText={t('auth.mobileLogin')}
         emailLoginText={t('auth.emailLogin')}
       />
-        
+
+        {/* Everything the security check has to say to a parent who cannot see
+            it. Two properties this depends on, both load-bearing:
+
+            It renders EMPTY at first paint and only ever has its text
+            swapped. A live region inserted with its content already inside it
+            is not announced by NVDA or JAWS — only role="alert" gets that
+            special treatment — so building it on demand would announce
+            nothing.
+
+            It sits OUTSIDE the Phone/Email switch, so it survives the switch
+            itself. The widget is torn down when a parent taps WITH EMAIL and
+            their token goes with it; a region living inside the phone tab
+            would unmount in the same commit and never get to say so. */}
+        {turnstile.isEnabled && (
+          <div aria-live="polite" aria-atomic="true" className="visually-hidden">
+            {turnstileStatusKey ? t(turnstileStatusKey) : ''}
+          </div>
+        )}
+
         {showMobileLogin ? (
           // Mobile Login Form
           smsCodeSent ? (
@@ -1044,7 +1132,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                     disabled={loading}
                     className="button-text"
                   >
-                    {loading ? <Spinner animation="border" size="sm" /> : t('auth.resendSmsCode')}
+                    {loading ? <AIEPSpinner size="sm" /> : t('auth.resendSmsCode')}
                   </Button>
                   <LinkButton
                     onClick={() => {
@@ -1145,6 +1233,79 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                   />
                 </Form.Group>
                 
+                {/* Cloudflare Turnstile. Renders nothing when no site key is
+                    configured, which is the local-dev and not-yet-rolled-out
+                    state. Placed above the button so a parent who does get an
+                    interactive challenge sees it before trying to submit.
+
+                    Turnstile owns the inner div and everything under it — it
+                    replaces the subtree with a closed shadow root holding a
+                    cross-origin iframe, which the page can neither name nor
+                    inspect. So the name and the instructions go on a wrapper
+                    around it. Without them the challenge contributes nothing
+                    to the accessibility tree at all: the form read as phone
+                    field, hidden field, submit button, with a focusable,
+                    unnamed, mandatory gate sitting invisibly between them.
+
+                    The widget's slot reserves its height, because the widget
+                    arrives after first paint and is 300x71: unreserved, it
+                    shoves the submit button down under a parent who is already
+                    reaching for it. The slot rather than the whole group, so
+                    the reservation does not have to guess how many lines the
+                    instruction wraps to in five languages. */}
+                {turnstile.isEnabled && (
+                  <div
+                    className="mb-3"
+                    role="group"
+                    aria-labelledby="turnstile-heading"
+                    aria-describedby="turnstile-help"
+                  >
+                    <p id="turnstile-heading" className="form-label mb-1">
+                      {t('auth.securityCheck')}
+                    </p>
+                    <p id="turnstile-help" className="text-muted small mb-2">
+                      {t('auth.securityCheckHelp')}
+                    </p>
+                    <div className="d-flex justify-content-center" style={{ minHeight: '4.5rem' }}>
+                      <div ref={turnstile.containerRef} />
+                    </div>
+                    {/* The challenge stopped being passive and now wants
+                        something. Sighted parents see the widget change; this
+                        is the same news in words, and the live region above
+                        speaks it. */}
+                    {turnstile.status === 'interactive' && (
+                      <p className="text-muted small mt-2 mb-0">
+                        {t('auth.securityCheckInteractive')}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {/* It went interactive and was never solved. Until 2026-09-10
+                    this was the quietest failure in the form: Turnstile fires
+                    timeout-callback rather than error-callback, nothing was
+                    listening, and the parent sat in front of a challenge that
+                    had already given up on them. */}
+                {turnstile.status === 'timedOut' && (
+                  <Alert variant="warning" className="mb-3">
+                    {t('auth.securityCheckTimedOut')}{' '}
+                    {turnstile.canRetry && (
+                      <Button variant="link" size="sm" className="p-0 align-baseline" onClick={turnstile.retry}>
+                        {t('auth.securityCheckRetry')}
+                      </Button>
+                    )}
+                  </Alert>
+                )}
+                {/* The check could not run at all, so the server will refuse
+                    this signup with a 403 no matter how many times a parent
+                    retries. Say what happened while they can still act on
+                    it, rather than letting them find out as a generic
+                    failure after filling the form in. */}
+                {turnstile.hasFailed && (
+                  <Alert variant="warning" className="mb-3">
+                    {t('auth.errorTurnstileUnavailable')}
+                  </Alert>
+                )}
+
                 <AlertMessages error={error} successMessage={successMessage} />
                 
                 <div className="d-grid gap-2">
@@ -1212,7 +1373,8 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             </div>
           </Form>
         )}
-      
+      </>
+      )}
     </>
   );
 };

@@ -1,56 +1,48 @@
 import React from 'react';
-import { Container, Row, Col, Card, Spinner, Breadcrumb } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
-import MobileTopNavigation from '../components/MobileTopNavigation';
-import LandingTopNavigation from '../components/LandingTopNavigation';
-import AIEPFooter from '../components/AIEPFooter';
+import { Container, Row, Col, Card } from 'react-bootstrap';
+import PageLoading from '../components/PageLoading';
 import { useLanguage } from '../common/language-context';
+import Breadcrumbs from '../components/Breadcrumbs';
 import './PrivacyPolicy.css';
 
-const publicFooterLinks = [
-  { route: '/', labelKey: 'footer.home' },
-  { route: '/login', labelKey: 'footer.uploadIEP' },
-  { route: '/faqs', labelKey: 'footer.faqs' },
-  { route: '/about-the-project', labelKey: 'footer.aboutUs' },
-];
-
 interface PrivacyPolicyProps {
+  /**
+   * True on /public-privacy-policy, false on the signed-in /privacy-policy.
+   * The two copies are the same page under different breadcrumbs: the public
+   * one sits under the public About, the signed-in one under the in-app one.
+   *
+   * It used to pick the header as well (LandingTopNavigation vs
+   * MobileTopNavigation). That is the layout route's answer now
+   * (components/RouteChrome.tsx), which is also why the loading state below
+   * no longer strips the header off the page.
+   */
   isPublic?: boolean;
 }
 
 const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ isPublic = false }) => {
-  const navigate = useNavigate();
   const { t, translationsLoaded } = useLanguage();
-
-  const handleBackClick = () => {
-    navigate(isPublic ? '/about-the-project' : '/about-the-app');
-  };
 
   // Return loading state if translations aren't ready
   if (!translationsLoaded) {
     return (
-      <Container className="privacy-policy-container mt-4 mb-5">
-        <div className="text-center my-5">
-          <Spinner animation="border" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </Spinner>
-        </div>
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 
-  const NavigationComponent = isPublic ? LandingTopNavigation : MobileTopNavigation;
-
   return (
     <div className="privacy-policy-page">
-      <NavigationComponent />
       {/* Breadcrumbs */}
-      <div className="mt-3 text-start px-4 breadcrumb-container">
-        <Breadcrumb>
-          <Breadcrumb.Item onClick={handleBackClick}>{t("privacyPolicy.breadcrumb.about")}</Breadcrumb.Item>
-          <Breadcrumb.Item active>{t("privacyPolicy.breadcrumb.privacyPolicy")}</Breadcrumb.Item>
-        </Breadcrumb>
-      </div>
+      <Breadcrumbs
+        trail={[
+          {
+            labelKey: "privacyPolicy.breadcrumb.about",
+            // The public copy of this page sits under the public About, the
+            // signed-in copy under the in-app one.
+            to: isPublic ? "/about-the-project" : "/about-the-app",
+          },
+          { labelKey: "privacyPolicy.breadcrumb.privacyPolicy" },
+        ]}
+      />
 
       <Container className="privacy-policy-container">
         <Row className="mt-2">
@@ -200,7 +192,6 @@ const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ isPublic = false }) => {
           </Col>
         </Row>
       </Container>
-      <AIEPFooter footerLinks={isPublic ? publicFooterLinks : undefined} />
     </div>
   );
 };

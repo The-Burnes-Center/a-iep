@@ -169,6 +169,42 @@ jobs:
       - name: Unit tests
         run: npm test
 
+  # e2e/ is a separate npm project with its own manifest, and until now no CI
+  # job touched it at all — the E2E workflows themselves need AWS credentials
+  # and only run on deploy and nightly. That let a dependency land in a spec
+  # helper without landing in e2e/package.json: the import resolved locally by
+  # walking up into the repo root's node_modules, where the same package is a
+  # root devDependency, and died on a CI checkout that has no parent tree to
+  # fall through to. The suite failed in 1.3s with Cannot find module, before
+  # test one, so zero journeys ran. This job installs e2e/ in isolation the way
+  # a CI checkout does and type-checks it, in about 30 seconds, with no
+  # credentials.
+  e2e-typecheck:
+    name: E2E typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: e2e/package-lock.json
+
+      # npm ci, not npm install: it fails when package.json and the lock
+      # disagree, which is half of what this job is here to catch.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
   infra-synth:
     name: CDK typecheck and synth
     runs-on: ubuntu-latest

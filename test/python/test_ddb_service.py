@@ -5,6 +5,7 @@ lazy migration depends on get_document_with_content. The retention rules
 matter most: OCR payloads live in S3 (400KB item limit), and a FAILED
 document must retain no unredacted artifacts.
 """
+import base64
 import json
 from types import SimpleNamespace
 
@@ -553,3 +554,293 @@ def test_the_guard_does_not_break_the_normal_path(service):
     item = service.documents.get_item(Key=KEY)['Item']
     assert item['userId'] == USER, 'the guard must not disturb existing attributes'
     assert 'contentS3Reference' in item
+
+
+def test_a_failure_logs_the_marker_its_alarm_watches(service, capsys):
+    """DDB_SERVICE_ERROR is a contract with a metric filter in monitoring.ts.
+
+    It has to be a log marker rather than a raised exception, because this
+    function REPORTS failures instead of raising them: it returns a 500 status
+    and the Lambda Errors metric stays at zero. The step lambdas check that
+    status; the state machine, which calls this function directly for progress
+    updates, for recording failures and for purging the redacted OCR, does not.
+    So without this line those failures are invisible everywhere.
+
+    Rewording the marker without changing the filter would disarm the alarm
+    while every test still passed, which is why the string is pinned here.
+    """
+    service.module.lambda_handler({'operation': 'no_such_operation'}, None)
+
+    logged = capsys.readouterr().out
+    assert 'DDB_SERVICE_ERROR' in logged
+    assert 'operation=no_such_operation' in logged
+    # The exception CLASS, never its message: the message can quote document
+    # content, which is why record_failure summarises error text before it is
+    # stored anywhere.
+    assert 'kind=ValueError' in logged
+
+
+def test_the_marker_carries_no_document_content(service, capsys):
+    """A marker that leaked content would be worse than no marker."""
+    service.module.lambda_handler(
+        {'operation': 'save_ocr_data', 'params': {'iep_id': IEP, 'child_id': CHILD,
+                                                  'data_type': 'not_a_valid_type',
+                                                  'ocr_data': {'secret': 'child name here'}}},
+        None,
+    )
+
+    marker_lines = [l for l in capsys.readouterr().out.splitlines() if 'DDB_SERVICE_ERROR' in l]
+    assert marker_lines, 'the marker must be emitted'
+    for line in marker_lines:
+        assert 'child name here' not in line
+
+
+# ---------------------------------------------------------------------------
+# A failed document whose unredacted copies could NOT be removed.
+#
+# The purge is deliberately best-effort: recording the failure matters more,
+# and must not be masked by a cleanup problem. That makes the marker below the
+# only way anyone ever finds out, and its previous form was a plain print that
+# matched no metric filter, so a child's raw OCR and original upload could sit
+# in S3 indefinitely with the document marked FAILED and nothing saying so.
+#
+# MonitoringStack's UnredactedArtifactsRetainedFilter counts this token, so the
+# exact string is a contract across two languages. Pinned on the CDK side in
+# test/infra/monitoring.test.ts.
+# ---------------------------------------------------------------------------
+
+def test_a_surviving_unredacted_copy_is_reported_not_swallowed(service, monkeypatch, capsys):
+    service.s3.put_object(Bucket=BUCKET, Key=f'{USER}/{CHILD}/{IEP}/original.pdf', Body=b'pdf')
+    seed_document(service, documentUrl=f's3://{BUCKET}/{USER}/{CHILD}/{IEP}/original.pdf')
+
+    def refuse(*_args, **_kwargs):
+        raise RuntimeError('S3 unavailable')
+
+    monkeypatch.setattr(service.module, 'delete_content_from_s3', refuse)
+
+    status, _ = op(service, 'record_failure', **IDS,
+                   error_message='OCR provider exploded', failed_step='mistral_ocr')
+
+    # The failure record still wins: the document is FAILED, not stuck.
+    assert status == 200
+    assert item(service)['status'] == 'FAILED'
+
+    out = capsys.readouterr().out
+    assert 'UNREDACTED_ARTIFACTS_RETAINED' in out
+    assert 'original-upload' in out
+    # Ids and artifact kinds only. The exception text could quote content.
+    assert 'S3 unavailable' not in out
+
+
+def test_one_artifact_failing_does_not_abandon_the_others(service, monkeypatch, capsys):
+    # A single raise used to skip everything after it, so an S3 blip on the
+    # original upload left the raw OCR behind as well. Every one of these is a
+    # child's unredacted record; failing on one is no reason to keep the rest.
+    service.s3.put_object(Bucket=BUCKET, Key=f'{USER}/{CHILD}/{IEP}/original.pdf', Body=b'pdf')
+    seed_document(service, documentUrl=f's3://{BUCKET}/{USER}/{CHILD}/{IEP}/original.pdf')
+    op(service, 'save_ocr_data', **IDS, ocr_data={'pages': ['raw']})
+
+    real_delete = service.module.delete_content_from_s3
+
+    def fail_only_the_original(key, bucket=None, *args, **kwargs):
+        if key.startswith(f'{USER}/'):
+            raise RuntimeError('S3 unavailable')
+        return real_delete(key, bucket, *args, **kwargs)
+
+    monkeypatch.setattr(service.module, 'delete_content_from_s3', fail_only_the_original)
+
+    op(service, 'record_failure', **IDS,
+       error_message='OCR provider exploded', failed_step='mistral_ocr')
+
+    # The raw OCR was still removed, both its object and its attribute.
+    assert 'ocr_result_s3_ref' not in item(service)
+    out = capsys.readouterr().out
+    assert 'original-upload' in out
+    assert 'raw-ocr-object' not in out
+
+
+def test_a_clean_purge_reports_nothing(service, capsys):
+    # Mutation guard: if the marker were logged unconditionally the alarm
+    # would fire on every failed document and be muted within a day.
+    service.s3.put_object(Bucket=BUCKET, Key=f'{USER}/{CHILD}/{IEP}/original.pdf', Body=b'pdf')
+    seed_document(service, documentUrl=f's3://{BUCKET}/{USER}/{CHILD}/{IEP}/original.pdf')
+
+    op(service, 'record_failure', **IDS,
+       error_message='OCR provider exploded', failed_step='mistral_ocr')
+
+    assert 'UNREDACTED_ARTIFACTS_RETAINED' not in capsys.readouterr().out
+
+
+def test_a_failed_ocr_purge_raises_its_own_marker(service, monkeypatch, capsys):
+    """The pipeline deliberately swallows this failure, so the marker is all there is.
+
+    PurgeRedactedOCR catches into a Pass state on purpose: a finished document
+    must not be marked failed over a cleanup problem. But this service reports
+    failure in a 500 rather than raising, so that Catch never fires and the run
+    ends green regardless, and DDB_SERVICE_ERROR needs five occurrences in
+    fifteen minutes while one failed purge logs once.
+
+    MonitoringStack's OcrPurgeFailedFilter counts this token at a threshold of
+    one. Pinned on the CDK side in test/infra/monitoring.test.ts.
+    """
+    seed_document(service)
+    op(service, 'save_ocr_data', **IDS, ocr_data={'pages': ['redacted']},
+       data_type='redacted_ocr_result')
+
+    def refuse(*_args, **_kwargs):
+        raise RuntimeError('S3 unavailable')
+
+    monkeypatch.setattr(service.module, 'delete_content_from_s3', refuse)
+
+    op(service, 'delete_ocr_data', **IDS, data_type='redacted_ocr_result')
+
+    out = capsys.readouterr().out
+    marker_line = next(l for l in out.splitlines() if 'OCR_PURGE_FAILED' in l)
+    assert IEP in marker_line
+    assert 'redacted_ocr_result' in marker_line
+    # The marker line carries ids and the kind of payload, never the exception
+    # text: a pydantic ValidationError names the value it rejected, which for
+    # this pipeline is section text. (The handler's own catch-all line is
+    # sanitised separately; this asserts the line the alarm reads.)
+    assert 'S3 unavailable' not in marker_line
+
+
+# ---------------------------------------------------------------------------
+# The dispatcher's own catch-all used to contradict its docblock: the
+# docblock promises "only the operation and the exception class are logged",
+# but the very next print line dumped str(e) in full. Any operation without
+# its own try/except (most of them) bubbles an exception here, and the
+# message can quote document content the same way record_failure's can.
+# ---------------------------------------------------------------------------
+
+SENTINEL = 'Sentinel-Casey-Nguyen-77f1-do-not-log-this'
+
+
+def test_dispatcher_error_log_line_never_leaks_the_underlying_exception_text(
+        service, monkeypatch, capsys):
+    def explode(params):
+        raise Exception(f"failed while holding this document text: {SENTINEL}")
+
+    monkeypatch.setattr(service.module, 'get_document', explode)
+
+    status, body = op(service, 'get_document', **IDS)
+    assert status == 500
+
+    captured = capsys.readouterr()
+    # traceback.format_exc()'s last line renders str(e) too -- the same leak
+    # the print line above it was fixed to avoid -- so both streams matter.
+    logged = captured.out + captured.err
+    assert SENTINEL not in logged
+    assert 'DDB_SERVICE_ERROR' in logged
+    assert 'kind=Exception' in logged
+    # The returned body is a separate, narrower contract this fix leaves
+    # alone (existing callers like translate_content/handler.py already
+    # extract just 'error' rather than dumping the whole response) --
+    # confirms this test is only pinning the logged line, not silently also
+    # asserting a body change that never happened.
+    assert body['error'] == f"failed while holding this document text: {SENTINEL}"
+
+
+def test_unknown_operation_message_still_survives_in_the_log(service, capsys):
+    """Mutation-safety in the other direction: a short, code-controlled,
+    content-free message (not a document-derived one) must not be reduced to
+    an unhelpful character count -- _summarize_error_for_logging's fallback
+    for a non-JSON string does exactly that, so this pins that the class name
+    logged alongside it (kind=ValueError) still carries the useful signal."""
+    service.module.lambda_handler({'operation': 'no_such_operation'}, None)
+
+    logged = capsys.readouterr().out
+    assert 'kind=ValueError' in logged
+
+
+def test_save_content_to_s3_error_log_line_never_leaks_document_content(
+        service, monkeypatch, capsys):
+    """save_content_to_s3_operation catches its own exceptions (they never
+    reach the dispatcher's catch-all above), and its params include the full
+    content dict being saved -- str(e) here is one of the few messages in
+    this file that can realistically quote document content."""
+    def explode(*args, **kwargs):
+        raise Exception(f"S3 put failed for content containing: {SENTINEL}")
+
+    monkeypatch.setattr(service.module, 'save_content_to_s3', explode)
+
+    status, body = op(service, 'save_content_to_s3', iep_id=IEP, child_id=CHILD,
+                      content={'summaries': {'en': 'S'}})
+    assert status == 500
+
+    captured = capsys.readouterr()
+    # traceback.print_exc() writes to stderr and its last line renders
+    # str(e) too, so both streams need checking, not just the print() line.
+    logged = captured.out + captured.err
+    assert SENTINEL not in logged
+    assert 'Error saving content to S3' in captured.out
+
+
+# --- the student name: read it, and never write it back ----------------------
+#
+# The pipeline replaces every name before the document reaches OpenAI, and the
+# child's mentions come back as {{S}}. This service holds one end of that:
+# get_student_name feeds the redaction step's matcher. It holds no other end.
+# Stored content keeps the placeholder permanently and the name is substituted
+# by whichever lambda serves a read, so nothing here ever writes a name into a
+# summary. That is what makes the placeholder survive into every translation
+# and makes a corrected name reach documents that finished months ago.
+
+CHILD_NAME = 'Jordan Smith'
+
+
+def encrypted(name):
+    """A name as user-profile-handler stores it: KMS ciphertext, base64."""
+    kms = boto3.client('kms', region_name='us-east-1')
+    key_id = kms.create_key()['KeyMetadata']['KeyId']
+    blob = kms.encrypt(KeyId=key_id, Plaintext=name.encode('utf-8'))['CiphertextBlob']
+    return base64.b64encode(blob).decode('utf-8')
+
+
+def seed_profile(service, name, child_id=CHILD):
+    service.profiles.put_item(Item={
+        'userId': USER,
+        'children': [{'childId': 'other-child', 'name': encrypted('Casey Brooks')},
+                     {'childId': child_id, 'name': name}],
+    })
+
+
+def test_get_student_name_decrypts_what_the_profile_stored(service):
+    seed_profile(service, encrypted(CHILD_NAME))
+    status, body = op(service, 'get_student_name', user_id=USER, child_id=CHILD)
+    assert (status, body['name']) == (200, CHILD_NAME)
+
+
+def test_get_student_name_still_reads_a_plaintext_legacy_row(service):
+    """Child names were stored in plaintext until the name became mandatory.
+    Those rows must keep reading, which is why the decrypt falls through."""
+    seed_profile(service, 'Anna')  # 4 chars: valid base64, not ciphertext
+    assert op(service, 'get_student_name', user_id=USER, child_id=CHILD)[1]['name'] == 'Anna'
+
+
+@pytest.mark.parametrize('stored', ['', 'My Child'])
+def test_get_student_name_treats_the_old_placeholder_as_no_name(service, stored):
+    seed_profile(service, stored)
+    assert op(service, 'get_student_name', user_id=USER, child_id=CHILD)[1]['name'] == ''
+
+
+def test_get_student_name_is_empty_when_there_is_no_profile(service):
+    assert op(service, 'get_student_name', user_id=USER, child_id=CHILD)[1]['name'] == ''
+
+
+def test_an_undecryptable_name_is_no_name_rather_than_a_blob(service, monkeypatch):
+    """If the CMK is ever revoked or the role's kms:Decrypt narrowed, the
+    stored value is a base64 ciphertext. Handing that to the redaction matcher
+    as the child's name would look for a blob in the OCR text and find
+    nothing, and the value itself would travel further than the profile."""
+    ciphertext = encrypted(CHILD_NAME)
+    seed_profile(service, ciphertext)
+
+    def denied(**kwargs):
+        raise Exception('AccessDeniedException')
+    monkeypatch.setattr(service.module.kms_client, 'decrypt', denied)
+
+    status, body = op(service, 'get_student_name', user_id=USER, child_id=CHILD)
+
+    assert (status, body['name']) == (200, '')
+    assert ciphertext[:24] not in json.dumps(body)

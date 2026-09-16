@@ -1,10 +1,9 @@
 import React, { useContext } from 'react';
-import { Container, Form, Row, Col, Alert, Spinner, Breadcrumb } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
+import { Container, Form, Row, Col, Alert } from 'react-bootstrap';
+import PageLoading from '../../components/PageLoading';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppContext } from '../../common/app-context';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
+import Breadcrumbs from '../../components/Breadcrumbs';
 import { ApiClient } from '../../common/api-client/api-client';
 import { UserProfile } from '../../common/types';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
@@ -15,7 +14,6 @@ import './ProfileForms.css';
 export default function ChangeLanguage() {
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t, language, setLanguage, enabledLanguages } = useLanguage();
 
@@ -85,10 +83,6 @@ export default function ChangeLanguage() {
     },
   });
 
-  const handleBackClick = () => {
-    navigate('/account-center');
-  };
-
   // ============================================================================
   // LANGUAGE CHANGE HANDLER
   // ============================================================================
@@ -104,11 +98,7 @@ export default function ChangeLanguage() {
 
   if (isLoading) {
     return (
-      <Container className="text-center">
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">{t('changeLanguage.loading')}</span>
-        </Spinner>
-      </Container>
+      <PageLoading message={t('changeLanguage.loading')} />
     );
   }
 
@@ -122,15 +112,14 @@ export default function ChangeLanguage() {
 
   return (
   <>
-      <MobileTopNavigation />
       <div>
       {/* Breadcrumbs */}
-      <div className="mt-3 text-start px-4 breadcrumb-container">
-        <Breadcrumb>
-          <Breadcrumb.Item onClick={handleBackClick}>{t('changeLanguage.breadcrumb.account')}</Breadcrumb.Item>
-          <Breadcrumb.Item active>{t('changeLanguage.breadcrumb.changeLanguage')}</Breadcrumb.Item>
-        </Breadcrumb>
-      </div>
+      <Breadcrumbs
+        trail={[
+          { labelKey: 'changeLanguage.breadcrumb.account', to: '/account-center' },
+          { labelKey: 'changeLanguage.breadcrumb.changeLanguage' },
+        ]}
+      />
       
       <Container 
         fluid 
@@ -184,7 +173,6 @@ export default function ChangeLanguage() {
         </Row>
       </Container>
     </div>
-    <AIEPFooter />
   </>
   );
 }

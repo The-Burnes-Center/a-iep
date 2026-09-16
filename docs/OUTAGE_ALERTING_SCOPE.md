@@ -15,7 +15,7 @@ request turn out to be wrong, and one of them saves most of the work.
 
 | Thing | Reality |
 |---|---|
-| SNS to Slack bridge | **Exists.** AWS Chatbot configuration `a-iep-findings` posts to Slack channel `C0BL9QU1L3V`, subscribed to the `inspector-aiep-findings` SNS topic. This is the fiddly part (Slack app install, workspace authorisation, IAM role) and it is already done for A-IEP. |
+| SNS to Slack bridge | **Exists.** An AWS Chatbot configuration already posts an SNS topic into Slack for this project. This is the fiddly part (Slack app install, workspace authorisation, IAM role) and it is already done. Names and ids are in the console, deliberately not here. |
 | Slack from GitHub Actions | **Exists.** `nightly_e2e.yml`, `e2e_staging.yml` and `nightly_residue.yml` post digests with a `SLACK_WEBHOOK_URL` secret and `curl`. |
 | A lambda that posts to Slack | **Does not exist.** Every apparent match in `lib/chatbot-api/functions/` is a `node_modules` README. The AWS-side Slack path is AWS Chatbot, not our code. |
 | CloudWatch alarms for A-IEP | **None.** The account holds 71 alarms and every one belongs to `ABEStack`, a different project. A-IEP has zero. |
@@ -168,7 +168,7 @@ the security-relevant property:
 
 ## 9. Open questions
 
-1. **Channel.** Reuse the existing `a-iep-findings` channel, or a separate
+1. **Channel.** Reuse the existing findings channel, or a separate
    `#aiep-alerts`? Inspector findings are low-urgency; outages are not, and
    mixing them dulls both.
 2. **Overnight.** Who is on the hook out of hours? If nobody is, the Page tier

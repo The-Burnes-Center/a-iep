@@ -13,7 +13,7 @@
  * 2. Selectors are language-independent: a run can start with the account in
  *    any language (a previous run could have died mid-language-switch), so
  *    localized button labels are off limits. Ids that the app already sets
- *    (#formParentName, #formChildName, #formSchoolCity) plus the handful of
+ *    (#formParentName, #formChildName) plus the handful of
  *    data-testids added for this suite are the anchors.
  */
 import { Locator, Page, expect } from '@playwright/test';
@@ -39,7 +39,6 @@ export const PROFILE_PATHS = {
 export const PROFILE_BASELINE = {
   parentName: 'E2E Profile Parent',
   childName: 'E2E Profile Child',
-  schoolCity: 'E2E Test City',
   language: 'en',
 } as const;
 
@@ -60,7 +59,6 @@ export const parentNameInput = (page: Page): Locator => page.locator('#formParen
 export const parentNameSubmit = (page: Page): Locator => page.getByTestId('update-profile-submit');
 export const languageSelect = (page: Page): Locator => page.getByTestId('language-select');
 export const childNameInput = (page: Page): Locator => page.locator('#formChildName');
-export const childSchoolCityInput = (page: Page): Locator => page.locator('#formSchoolCity');
 export const childSubmit = (page: Page): Locator => page.getByTestId('child-save-button');
 
 export type AccountCenterRow =
@@ -117,14 +115,10 @@ export async function openChildForm(page: Page): Promise<void> {
   // This page fills its state before it swaps the spinner for the form, so a
   // visible input already holds the server's value (no empty first frame).
   await expect(childNameInput(page)).toBeVisible();
-  await expect(childSchoolCityInput(page)).toBeVisible();
 }
 
-export async function readChild(page: Page): Promise<{ name: string; schoolCity: string }> {
-  return {
-    name: await childNameInput(page).inputValue(),
-    schoolCity: await childSchoolCityInput(page).inputValue(),
-  };
+export async function readChild(page: Page): Promise<{ name: string }> {
+  return { name: await childNameInput(page).inputValue() };
 }
 
 /**
@@ -133,9 +127,8 @@ export async function readChild(page: Page): Promise<{ name: string; schoolCity:
  * (on a child-less profile) adds, and the profile keeps exactly one child.
  * Saving routes away from the form; the navigation is the success signal.
  */
-export async function saveChild(page: Page, name: string, schoolCity: string): Promise<void> {
+export async function saveChild(page: Page, name: string): Promise<void> {
   await childNameInput(page).fill(name);
-  await childSchoolCityInput(page).fill(schoolCity);
   await expect(childSubmit(page)).toBeEnabled();
   await childSubmit(page).click();
   await page.waitForURL((url) => url.pathname !== PROFILE_PATHS.child, { timeout: 45_000 });
@@ -211,10 +204,9 @@ export async function ensureProfileBaseline(page: Page): Promise<void> {
 
   await openChildForm(page);
   const child = await readChild(page);
-  if (child.name !== PROFILE_BASELINE.childName || child.schoolCity !== PROFILE_BASELINE.schoolCity) {
-    await saveChild(page, PROFILE_BASELINE.childName, PROFILE_BASELINE.schoolCity);
+  if (child.name !== PROFILE_BASELINE.childName) {
+    await saveChild(page, PROFILE_BASELINE.childName);
     await openChildForm(page);
   }
   await expect(childNameInput(page)).toHaveValue(PROFILE_BASELINE.childName);
-  await expect(childSchoolCityInput(page)).toHaveValue(PROFILE_BASELINE.schoolCity);
 }

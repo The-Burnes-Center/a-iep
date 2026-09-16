@@ -66,8 +66,8 @@ const ENCRYPTED_CODE = Buffer.from('cognito-encryption-sdk-blob').toString('base
 
 // The pool's copy, duplicated from lib/authorization/new-auth.ts exactly as
 // the handler duplicates it; this pins the two in sync.
-const VERIFICATION_SMS = `Your OTP from The GovLab AIEP is: ${CODE}. Do not share this code. Msg & data rates may apply.`;
-const AUTHENTICATION_SMS = `Your login code for The GovLab AIEP is: ${CODE}. Do not share this code.`;
+const VERIFICATION_SMS = `A-IEP verification code: ${CODE}\nDo not share it.`;
+const AUTHENTICATION_SMS = `A-IEP login code: ${CODE}\nDo not share it.`;
 
 const SMS_ATTRIBUTES = {
     'AWS.SNS.SMS.SenderID': { DataType: 'String', StringValue: 'GovLab-AIEP' },
@@ -255,5 +255,36 @@ describe('custom-sms-sender', () => {
         expect(mockDecrypt).not.toHaveBeenCalled();
         expect(mockSsmSend).not.toHaveBeenCalled();
         expect(mockSnsSend).not.toHaveBeenCalled();
+    });
+});
+
+describe('the copy this sender duplicates has not drifted', () => {
+    // Assigning this trigger stops Cognito rendering its own templates, so
+    // the wording lives in three places: phone-otp-auth/messages.js (the
+    // source of truth), the pool properties in lib/authorization/new-auth.ts,
+    // and the constants above. Staging runs this sender and production does
+    // not, so drift shows up as the two environments texting different words
+    // and nothing failing. These assertions are the only thing that notices.
+    const { getMessages } = require('../../../lib/chatbot-api/functions/phone-otp-auth/messages');
+    const read = (relative) => require('fs').readFileSync(
+        require('path').join(__dirname, relative), 'utf8',
+    );
+    const poolSource = read('../../../lib/authorization/new-auth.ts');
+    const senderSource = read('../../../lib/chatbot-api/functions/custom-sms-sender/index.js');
+
+    test.each([
+        ['verificationSms', VERIFICATION_SMS],
+        ['authenticationSms', AUTHENTICATION_SMS],
+    ])('%s is the same string in all three places', (key, rendered) => {
+        const template = getMessages('en')[key];
+        expect(template.replace('{####}', CODE)).toBe(rendered);
+
+        // Both other copies are source-level string literals, so the newline
+        // is the two characters backslash-n rather than a real line break.
+        const literal = `'${template.replace('\n', '\\n')}'`;
+        expect({ where: 'new-auth.ts', found: poolSource.includes(literal) })
+            .toEqual({ where: 'new-auth.ts', found: true });
+        expect({ where: 'custom-sms-sender/index.js', found: senderSource.includes(literal) })
+            .toEqual({ where: 'custom-sms-sender/index.js', found: true });
     });
 });

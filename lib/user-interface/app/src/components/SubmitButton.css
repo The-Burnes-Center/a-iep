@@ -27,9 +27,9 @@
 }
 
 .submit-button-login:disabled {
-  border: 1px solid #CBC6BC !important;
+  border: 1px solid var(--aiep-disabled-border) !important;
   box-shadow: none;
-  color: #b3ada9 !important;
+  color: var(--aiep-disabled-text) !important;
   background-color: #F5F3EE;
   cursor: not-allowed !important;
 }
@@ -41,14 +41,14 @@
 /* Secondary outline button styles for submit-button-login */
 .submit-button-login.btn-outline-secondary {
   color: #1e1e1e;
-  border: 1px solid #CBC6BC;
+  border: 1px solid var(--aiep-border);
   background-color: #F5F3EE;
   box-shadow: none;
 }
 
 .submit-button-login.btn-outline-secondary:hover {
   color: #1e1e1e;
-  border: 1px solid #CBC6BC;
-  background-color: #E7E4DC;
+  border: 1px solid var(--aiep-border);
+  background-color: var(--aiep-surface-field);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }

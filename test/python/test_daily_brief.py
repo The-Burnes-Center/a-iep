@@ -35,9 +35,15 @@ def brief(monkeypatch):
     unload(ALIAS)
 
 
-def _stub(module, totals, firing=(), components=None):
-    """totals: {functionName: (invocations, errors)}."""
-    module._components = lambda: list(COMPONENTS if components is None else components)
+def _stub(module, totals, firing=(), components=None, manifest_unreadable=False):
+    """totals: {functionName: (invocations, errors)}.
+
+    _components returns (components, could_not_read). The second element is
+    what stops an unreadable manifest from publishing a green tick for a brief
+    that measured nothing.
+    """
+    module._components = lambda: (
+        list(COMPONENTS if components is None else components), manifest_unreadable)
     module._totals = lambda comps, start, end: {
         i: list(totals.get(c['functionName'], (0, 0))) for i, c in enumerate(comps)
     }
@@ -162,3 +168,23 @@ def test_the_manifest_is_read_from_the_configured_parameter(brief):
     brief.build_brief(now=NOW)
 
     assert asked == ['/a-iep/prod/daily-brief/components']
+
+
+def test_an_unreadable_manifest_is_never_reported_as_all_green(brief):
+    """The failure this was found by: nothing firing, nothing measured.
+
+    With an empty manifest and no alarms, the brief used to publish
+    ':white_check_mark: ... all green (0 ran, 0 idle)'. Every word of that is
+    true and the message is false: it had measured nothing at all. A green
+    tick from a check that did not run is worse than no brief, because it
+    actively tells someone to stop looking.
+    """
+    _stub(brief, {}, components=[], manifest_unreadable=True)
+
+    content = brief.build_brief(now=NOW)['content']
+
+    assert 'all green' not in content['title']
+    assert content['title'].startswith(brief.WARN)
+    # And it says which way it is broken, so the reader knows the components
+    # below are missing rather than healthy.
+    assert 'could not read' in content['title']

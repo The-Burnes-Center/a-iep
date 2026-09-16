@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
-import MobileTopNavigation from '../components/MobileTopNavigation';
-import AIEPFooter from '../components/AIEPFooter';
-import { Container, Row, Col, Card, Accordion, Spinner} from 'react-bootstrap';
+import { Container, Row, Col, Card, Accordion } from 'react-bootstrap';
+import PageLoading from '../components/PageLoading';
 import '../components/FrequentlyAskedQuestions.css';
 import { useLanguage } from '../common/language-context'; 
 
@@ -50,19 +49,12 @@ const ParentRights: React.FC = () => {
    // Return loading state if translations aren't ready
    if (!translationsLoaded) {
      return (
-       <Container className="faqs-container mt-4 mb-5">
-         <div className="text-center my-5">
-           <Spinner animation="border" role="status">
-             <span className="visually-hidden">Loading...</span>
-           </Spinner>
-         </div>
-       </Container>
+       <PageLoading message={t('common.loading')} />
      );
    }
 
   return (
     <>
-      <MobileTopNavigation />
       <Container className="faqs-container mt-3 mb-3">
         <Row className="mt-2">
           <Col>
@@ -92,7 +84,6 @@ const ParentRights: React.FC = () => {
           </Col>
         </Row>
       </Container>
-      <AIEPFooter />
     </>
   );
 };

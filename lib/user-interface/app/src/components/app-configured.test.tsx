@@ -71,7 +71,12 @@ describe("boot states", () => {
     // and a bare spinning div would announce nothing at all.
     const indicator = screen.getByRole("status");
     expect(indicator).toHaveTextContent("Loading configuration...");
-    expect(indicator).toHaveClass("spinner-border");
+    // Was `toHaveClass("spinner-border")`, react-bootstrap's own class. The
+    // indicator is now the shared AIEPSpinner, so that pin named an
+    // implementation this screen no longer has; what it was protecting -- that
+    // a named live region is on screen, not a bare div -- is the line above.
+    // AIEPSpinner.test.tsx covers the component itself.
+    expect(indicator).toHaveClass("aiep-spinner");
   });
 
   test("reports a missing configuration as an alert, not a blank screen", async () => {

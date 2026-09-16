@@ -29,6 +29,16 @@ export interface AppConfig {
       // Deployment environment, set by CDK. Gates prod-only integrations
       // (Google Analytics). Absent on local dev configs, which disables them.
       environment? : "prod" | "dev",
+      // Cloudflare Turnstile site key. Public by design: it identifies the
+      // widget, and the secret that validates its token lives in Parameter
+      // Store and is only ever read by the PreSignUp trigger.
+      //
+      // Absent means no widget is rendered, which is the local-dev and
+      // not-yet-configured state. The trigger is what actually enforces the
+      // check, so a missing key here weakens nothing on its own: it just
+      // means signups arrive without a token, and whether that is refused is
+      // decided server-side.
+      turnstileSiteKey? : string,
 }
 
 export type LoadingStatus = "pending" | "loading" | "finished" | "error";
@@ -131,8 +141,30 @@ export interface IEPDocument {
   status?: "PROCESSING" | "PROCESSING_TRANSLATIONS" | "PROCESSED" | "FAILED";
   progress?: number; // Processing progress percentage (0-100)
   current_step?: string; // Current processing step (e.g., "initializing", "ocr_complete", "redacting", etc.)
+  // A structured, parent-safe cause for a FAILED document (e.g.
+  // "password_protected"). The backend does not send this today — the
+  // DynamoDB row only carries a raw provider error_message, which is not
+  // shown to a parent — so this is always undefined in production. It exists
+  // as the seam pages/iep-folder/document-failure.ts reads: the day the
+  // backend maps error_message/failed_step to a closed set of safe reasons,
+  // this is where they land.
+  failureReason?: string;
   createdAt?: number; // Unix timestamp (seconds since epoch)
-  updatedAt?: number; // Unix timestamp (seconds since epoch)
+  /**
+   * Unix timestamp (seconds since epoch), normalized server-side.
+   *
+   * The DynamoDB row carries this in two attributes that are not
+   * interchangeable: `updatedAt` in epoch seconds, written once by upload-s3
+   * when the row is created and never again, and `updated_at` as an ISO
+   * string, written by every pipeline step after that. The documents endpoint
+   * returns the LATER of the two, already converted to seconds
+   * (`_document_updated_at` in user-profile-handler), because
+   * TextHelper.formatUnixTimestamp multiplies by 1000 and an ISO string
+   * reaches a parent as "Invalid Date".
+   *
+   * `''` when the row carries neither, which is falsy like the absent case.
+   */
+  updatedAt?: number;
   message?: string;
   
   // Document content by language

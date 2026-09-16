@@ -19,6 +19,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import LandingTopNavigation from "./LandingTopNavigation";
 import { LanguageContext } from "../common/language-context";
 import { AuthProvider, useAuth } from "../common/auth-provider";
+import { SIGN_IN_ROUTE } from "../common/sign-in-location";
 import type { SupportedLanguage } from "../common/languages";
 
 const Auth = vi.hoisted(() => ({
@@ -29,11 +30,14 @@ const Auth = vi.hoisted(() => ({
 vi.mock("aws-amplify/auth", () => Auth);
 
 const Here = () => {
-  const { pathname } = useLocation();
+  const { pathname, hash } = useLocation();
   const { authenticated } = useAuth();
   return (
     <>
-      <div data-testid="landed-on">{pathname}</div>
+      {/* Hash included on purpose: the sign-in form is a card on the landing
+          page, so '/' alone cannot tell "landed on the form" apart from
+          "landed at the top of the marketing page". */}
+      <div data-testid="landed-on">{pathname + hash}</div>
       <div data-testid="auth-state">{authenticated ? "signed-in" : "anonymous"}</div>
     </>
   );
@@ -57,8 +61,15 @@ const renderHeader = () => {
           <Here />
           <LandingTopNavigation />
           <Routes>
-            <Route path="/" element={<div>public landing page</div>} />
-            <Route path="/login" element={<div>sign in form</div>} />
+            <Route
+              path="/"
+              element={
+                <>
+                  <div>public landing page</div>
+                  <div>sign in form</div>
+                </>
+              }
+            />
             <Route path="/iep-documents" element={<div>iep documents</div>} />
           </Routes>
         </AuthProvider>
@@ -89,7 +100,7 @@ describe("a signed-in parent who lands on the public site", () => {
 
     await clickUploadItem(user);
 
-    expect(screen.getByTestId("landed-on")).toHaveTextContent("/iep-documents");
+    expect(screen.getByTestId("landed-on").textContent).toBe("/iep-documents");
     expect(screen.queryByText("sign in form")).toBeNull();
     expect(Auth.signOut).not.toHaveBeenCalled();
     expect(screen.getByTestId("auth-state")).toHaveTextContent("signed-in");
@@ -107,7 +118,10 @@ describe("a visitor with no session", () => {
 
     await clickUploadItem(user);
 
-    expect(screen.getByTestId("landed-on")).toHaveTextContent("/login");
+    // Exactly SIGN_IN_ROUTE, hash and all: a plain '/' would put them at the
+    // top of the marketing page with the form several screens below, which is
+    // the same dead end as sending them nowhere.
+    expect(screen.getByTestId("landed-on").textContent).toBe(SIGN_IN_ROUTE);
     expect(screen.getByText("sign in form")).toBeInTheDocument();
   });
 });

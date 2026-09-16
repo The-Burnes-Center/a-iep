@@ -19,5 +19,20 @@ export default defineConfig({
     // passing for the wrong reason.
     mockReset: true,
     unstubGlobals: true,
+    server: {
+      deps: {
+        // @cantoo/pdf-lib's ESM entry imports its bundled font metrics as
+        // plain `.json`, which Node's own ESM loader rejects without an
+        // `import ... with { type: "json" }` attribute. Vitest externalises
+        // node_modules by default, so that entry is loaded by Node and the
+        // import throws; inlining it routes the package through Vite
+        // instead, which inlines JSON exactly as the production build does.
+        // Without this the module simply fails to import and pdf-decrypt.ts
+        // silently falls back to rasterizing every file -- which still
+        // "passes" any test that only asserts a file comes back, so the
+        // lossless tests assert on the PDF's bytes rather than on that.
+        inline: ["@cantoo/pdf-lib"],
+      },
+    },
   },
 });

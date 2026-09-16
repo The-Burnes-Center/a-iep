@@ -35,11 +35,11 @@
 }
 
 .banner-card--pink {
-    background-image: url('/images/patterns-pink.jpg');
+    background-image: linear-gradient(var(--aiep-image-scrim-soft), var(--aiep-image-scrim-soft)), url('/images/patterns-pink.jpg');
 }
 
 .banner-card--green {
-    background-image: url('/images/patterns-dark-green.jpg');
+    background-image: linear-gradient(var(--aiep-image-scrim-soft), var(--aiep-image-scrim-soft)), url('/images/patterns-dark-green.jpg');
 }
 
 .banner-card h1 {
@@ -100,7 +100,7 @@
     position: relative;
     z-index: 2;
     text-align: start;
-    color: #343a40;
+    color: var(--aiep-ink);
     height: 228px;
     margin-bottom: 0.5rem;
 }
@@ -117,7 +117,7 @@
     font-size: 1rem;
     line-height: 1.5;
     margin-bottom: 0;
-    color: #6c757d;
+    color: var(--aiep-muted);
 }
 
 /* Banner Carousel Buttons */
@@ -130,7 +130,7 @@
 
 .banner-nav-button {
     background-color: #F5F3EE;
-    border: 1px solid transparent;
+    border: 1px solid var(--aiep-border);
     border-radius: 20px;
     padding: 0.75rem 1rem;
     cursor: pointer;
@@ -141,7 +141,7 @@
 }
 
 .banner-nav-button:hover:not(:disabled) {
-    background-color: #E7E4DC;
+    background-color: var(--aiep-surface-field);
 }
 
 .banner-nav-button:disabled {

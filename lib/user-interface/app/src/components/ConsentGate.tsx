@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { Spinner } from 'react-bootstrap';
+import PageLoading from './PageLoading';
 import { AppContext } from '../common/app-context';
 import { ApiClient } from '../common/api-client/api-client';
 import { useLanguage } from '../common/language-context';
@@ -34,21 +34,7 @@ export function ConsentGate() {
   }, [appContext, location.pathname]);
 
   if (consented === null) {
-    return (
-      <div
-        style={{
-          width: '100%',
-          height: '100vh',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-        }}
-      >
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">{t('common.loading')}</span>
-        </Spinner>
-      </div>
-    );
+    return <PageLoading label={t('common.loading')} />;
   }
 
   if (!consented) {

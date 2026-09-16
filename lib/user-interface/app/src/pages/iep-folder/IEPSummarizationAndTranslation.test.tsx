@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import IEPSummarizationAndTranslation from "./IEPSummarizationAndTranslation";
-import MobileTopNavigation from "../../components/MobileTopNavigation";
+import { InAppChrome } from "../../components/RouteChrome";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
 import type { AppConfig } from "../../common/types";
@@ -92,6 +92,13 @@ const translatedDocument = () =>
 
 /** Mutable so a later poll can answer differently from the first read. */
 let documentPayload: Record<string, unknown>;
+/**
+ * How many of the next document reads throw instead of answering.
+ *
+ * A network blip on a parent's phone, which is the failure the page has to
+ * survive: `fetch` rejects, so nothing about the document is known.
+ */
+let documentReadFailures: number;
 /** What the translations endpoint answers, or a throw for a network failure. */
 let translationsAnswer: StubResponse | Error;
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -105,15 +112,11 @@ const translationsBody = () => {
 };
 
 /**
- * Stands in for Account Center. It carries the real bottom nav, because that is
- * how a parent gets back and the tests below need the trip to be a round one.
+ * Stands in for Account Center. It carries no nav of its own: the bar is
+ * mounted by InAppChrome for the whole block below, which is where a real
+ * in-app screen gets it from, and is how a parent gets back here.
  */
-const AccountPage = () => (
-  <div>
-    {ACCOUNT_LANDING}
-    <MobileTopNavigation />
-  </div>
-);
+const AccountPage = () => <div>{ACCOUNT_LANDING}</div>;
 
 const renderPage = (
   language: SupportedLanguage = "es",
@@ -134,16 +137,23 @@ const renderPage = (
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
             <Routes>
-              <Route path="/summary" element={<IEPSummarizationAndTranslation />} />
-              {/* The page's REAL path, and the tab the bottom nav's own buttons
-                  point at, so a trip through the nav is a genuine route change
-                  rather than a simulated unmount. */}
-              <Route
-                path="/summary-and-translations"
-                element={<IEPSummarizationAndTranslation />}
-              />
-              <Route path="/account-center" element={<AccountPage />} />
-              <Route path="/iep-documents" element={<div>documents page</div>} />
+              {/* The real in-app layout route, so the bottom nav these tests
+                  travel on is mounted where the app mounts it: once, above
+                  <main>, surviving every route change and loading state
+                  inside the block. */}
+              <Route element={<InAppChrome />}>
+                <Route path="/summary" element={<IEPSummarizationAndTranslation />} />
+                {/* The page's REAL path, and the tab the bottom nav's own buttons
+                    point at, so a trip through the nav is a genuine route change
+                    rather than a simulated unmount. */}
+                <Route
+                  path="/summary-and-translations"
+                  element={<IEPSummarizationAndTranslation />}
+                />
+                <Route path="/account-center" element={<AccountPage />} />
+                <Route path="/iep-documents" element={<div>documents page</div>} />
+              </Route>
+              {/* Outside the block: '/' is the public landing page. */}
               <Route path="/" element={<div>home page</div>} />
             </Routes>
         </LanguageContext.Provider>
@@ -172,6 +182,7 @@ beforeEach(async () => {
     tokens: { idToken: { toString: () => "id-token", payload: {} } },
   });
   documentPayload = englishOnlyDocument();
+  documentReadFailures = 0;
   translationsAnswer = jsonResponse(202, {
     status: "PROCESSING_TRANSLATIONS",
     language: "es",
@@ -190,7 +201,13 @@ beforeEach(async () => {
         },
       });
     }
-    if (url === DOCUMENTS_URL) return jsonResponse(200, documentPayload);
+    if (url === DOCUMENTS_URL) {
+      if (documentReadFailures > 0) {
+        documentReadFailures -= 1;
+        throw new TypeError("Failed to fetch");
+      }
+      return jsonResponse(200, documentPayload);
+    }
     if (url === TRANSLATIONS_URL) {
       if (translationsAnswer instanceof Error) throw translationsAnswer;
       return translationsAnswer;
@@ -202,6 +219,52 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+/**
+ * The "Last updated <date>" line under the summary.
+ *
+ * The page renders whatever the documents endpoint puts in `updatedAt`, and
+ * that field is normalized from two DynamoDB attributes of which only one is
+ * in epoch seconds (see _document_updated_at in user-profile-handler). This
+ * is the end of that chain: whatever arrives, a parent never reads the words
+ * "Invalid Date" where a date should be.
+ */
+describe("the last-updated line", () => {
+  const lastUpdated = () =>
+    document.querySelector(".summary-updated-at")?.textContent ?? "";
+
+  test("shows the date the endpoint sent", async () => {
+    // 2026-09-15T20:30:00Z, the instant the python suite pins too.
+    documentPayload = englishOnlyDocument({ updatedAt: 1789504200 });
+    renderPage();
+    await settle();
+
+    expect(lastUpdated()).toContain("summary.lastUpdate");
+    expect(lastUpdated()).toContain("2026");
+  });
+
+  test("is left out, not broken, if the raw ISO string ever leaks through", async () => {
+    // What the row itself holds in `updated_at`. Forwarding it was the
+    // tempting one-line fix on the backend, and this is what it would have
+    // looked like on screen.
+    documentPayload = englishOnlyDocument({ updatedAt: "2026-09-15T20:30:00.123456" });
+    renderPage();
+    await settle();
+
+    expect(lastUpdated()).not.toContain("Invalid Date");
+    // The summary itself is untouched: a missing line is not a broken page.
+    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(ENGLISH_SUMMARY);
+  });
+
+  test("is left out when the document carries no timestamp", async () => {
+    documentPayload = englishOnlyDocument({ updatedAt: "" });
+    renderPage();
+    await settle();
+
+    expect(lastUpdated()).toBe("");
+    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(ENGLISH_SUMMARY);
+  });
 });
 
 describe("the translate button", () => {
@@ -659,5 +722,121 @@ describe("the English content stays readable while a translation runs", () => {
     await settle();
 
     expect(screen.queryAllByTestId("summary-section")).toHaveLength(0);
+  });
+});
+
+describe("when the document read fails", () => {
+  // The whole point of the change: the hook's catch used to be a single
+  // commented-out console.error, so a blip on a parent's phone was
+  // indistinguishable from "this document has nothing in it".
+  const LOAD_FAILED = "summary.error.loadFailed";
+  /** How many failed reads keep the retry interval alive (useDocumentFetch). */
+  const RETRY_BUDGET = 5;
+
+  let consoleError: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    // The hook logs the underlying error on purpose. Keep it out of the run's
+    // output, and out of the assertions: what it logged is not the contract.
+    consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleError.mockRestore();
+  });
+
+  test("says so, instead of offering to re-upload a document it never read", async () => {
+    documentReadFailures = 1;
+    renderPage();
+    await settle();
+
+    expect(screen.getByText(LOAD_FAILED)).toBeInTheDocument();
+    // The reported harm: "No Summary Available" plus a button inviting a
+    // parent to throw a perfectly good document away.
+    expect(screen.queryByTestId("summary-empty")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("sections-empty")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("no-content-available")).not.toBeInTheDocument();
+    expect(screen.queryByText("summary.reuploadButton")).not.toBeInTheDocument();
+  });
+
+  test("a processing document is still polled after a poll throws", async () => {
+    documentPayload = englishOnlyDocument({ status: "PROCESSING" });
+    renderPage();
+    await settle();
+    const afterFirstRead = countCalls(DOCUMENTS_URL);
+
+    documentReadFailures = 1;
+    await settle(POLL_INTERVAL_MS);
+    expect(countCalls(DOCUMENTS_URL)).toBe(afterFirstRead + 1);
+
+    // REGRESSION, and the reason this is the worst of the two harms. The
+    // effect's cleanup stops the interval on every tick and the restart used
+    // to sit after the await inside the try, so one throw ended the wait for
+    // good: no error, no spinner change, nothing ever arriving.
+    await settle(POLL_INTERVAL_MS);
+    expect(countCalls(DOCUMENTS_URL)).toBe(afterFirstRead + 2);
+    await settle(POLL_INTERVAL_MS);
+    expect(countCalls(DOCUMENTS_URL)).toBe(afterFirstRead + 3);
+  });
+
+  test("a read that recovers clears the message and shows the document", async () => {
+    documentReadFailures = 1;
+    renderPage();
+    await settle();
+    expect(screen.getByText(LOAD_FAILED)).toBeInTheDocument();
+
+    await settle(POLL_INTERVAL_MS);
+
+    // A PROCESSED document is not polled otherwise (see the forcePolling
+    // block above), so the retry itself is what produced this.
+    expect(screen.queryByText(LOAD_FAILED)).not.toBeInTheDocument();
+    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(ENGLISH_SUMMARY);
+  });
+
+  test("retrying is bounded when the server never said work was in flight", async () => {
+    documentReadFailures = Number.MAX_SAFE_INTEGER;
+    renderPage();
+    await settle();
+
+    // One interval at a time: each tick's restart happens in the effect that
+    // the tick's own state update schedules, so a single long advance would
+    // only ever see the first one.
+    for (let tick = 0; tick < RETRY_BUDGET; tick += 1) {
+      await settle(POLL_INTERVAL_MS);
+    }
+    const afterBudget = countCalls(DOCUMENTS_URL);
+    expect(afterBudget).toBe(1 + RETRY_BUDGET);
+
+    // Nobody is waiting on a pipeline here, so the page stops asking rather
+    // than hammering a backend that is already having a bad day.
+    for (let tick = 0; tick < 3; tick += 1) {
+      await settle(POLL_INTERVAL_MS);
+    }
+    expect(countCalls(DOCUMENTS_URL)).toBe(afterBudget);
+    expect(screen.getByText(LOAD_FAILED)).toBeInTheDocument();
+  });
+
+  test("leaving the page and returning mid-failure rebuilds from the server", async () => {
+    renderPage("es", "/summary-and-translations");
+    await settle();
+    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(ENGLISH_SUMMARY);
+
+    // The blip lands on the read the remount does, which is the one that
+    // decides what a returning parent sees.
+    documentReadFailures = 1;
+    fireEvent.click(screen.getByRole("button", { name: NAV_TO_ACCOUNT }));
+    await settle();
+    expect(screen.getByText(ACCOUNT_LANDING)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: NAV_TO_SUMMARY }));
+    await settle();
+
+    expect(screen.getByText(LOAD_FAILED)).toBeInTheDocument();
+    expect(screen.queryByTestId("summary-empty")).not.toBeInTheDocument();
+
+    // And the state comes back from the payload, not from anything the
+    // unmounted page was holding.
+    await settle(POLL_INTERVAL_MS);
+    expect(screen.queryByText(LOAD_FAILED)).not.toBeInTheDocument();
+    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(ENGLISH_SUMMARY);
   });
 });

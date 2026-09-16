@@ -1,0 +1,19 @@
+/* The student-name step. Everything shared with the rest of the onboarding
+   set — the page box, the back / language row, the heading, the full-width
+   pill button — lives in components/OnboardingChrome.css; only the one field
+   this screen adds is here. */
+
+.child-name-field {
+  margin-bottom: 2rem;
+}
+
+/* The one refusal this screen can give, directly under the field it is about.
+   A parent who typed something we cannot save reads this instead of pressing
+   a button that does nothing. */
+.child-name-error {
+  margin-top: 0.5rem;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--aiep-error);
+}

@@ -1,7 +1,7 @@
 .privacy-diagram {
   width: 100%;
   display: block;
-  border: 1px solid #CBC6BC;
+  border: 1px solid var(--aiep-border);
   border-radius: 20px;
   margin-top: 2rem;
 }

@@ -4,6 +4,8 @@
 !lib/chatbot-api/functions/phone-otp-auth/*.js
 # ...and so is the staging-only custom SMS sender
 !lib/chatbot-api/functions/custom-sms-sender/*.js
+# ...and so is the SES bounce/complaint handler
+!lib/chatbot-api/functions/ses-suppression/*.js
 # ...and so are their unit tests
 !test/lambdas/**/*.js
 *.d.ts
@@ -119,4 +121,9 @@ output2.json
 # another Burnes Center distribution that is still open. Share it with the team
 # directly, not by pushing it here.
 /docs/encryption-at-rest-and-in-transit.md
+
+# Same reason: the handoff notes name the SSM path holding the staging E2E
+# bot-check bypass token and explain what it is for, which is a pointer to
+# where a secret lives. Hand it to the team directly.
+/docs/HANDOFF.md
 .venv-test/

@@ -101,3 +101,46 @@ describe('enabled languages per environment', () => {
     expect(deployProd).toContain('en');
   });
 });
+
+/**
+ * The Turnstile site key must not be a literal anywhere in the tree.
+ *
+ * It is read from Parameter Store per environment, which is what lets
+ * production and staging carry different keys without a code change. That
+ * difference is deliberate and load-bearing: a challenge a script can solve is
+ * not a challenge, so the enforcing key and automated signup coverage cannot
+ * both exist in one environment.
+ *
+ * This asserts the mechanism rather than the values, because the values are
+ * exactly what must not be committed. A key pasted back into the source as a
+ * default is the regression it is here to catch, and a default is the tempting
+ * shape: it makes a local build "just work" and silently ships whatever was
+ * hardcoded to whichever environment forgets to override it.
+ */
+describe('the Turnstile site key is configuration, not code', () => {
+  const sourceFiles = [
+    '../../lib/user-interface/index.ts',
+    '../../lib/user-interface/app/vite.config.ts',
+  ].map((rel) => fs.readFileSync(path.join(__dirname, rel), 'utf8'));
+
+  // Cloudflare issues site keys as 0x/1x/2x/3x followed by base62. The dummy
+  // testing keys share that shape, so one pattern covers real and test alike.
+  const KEY_SHAPE = /['"`][0-3]x[A-Za-z0-9_-]{20,}['"`]/;
+
+  test.each(sourceFiles.map((src, i) => [i, src]))(
+    'source file %i contains no Turnstile key literal', (_i, source) => {
+      expect(source as string).not.toMatch(KEY_SHAPE);
+    });
+
+  test('the key is read from a per-environment parameter', () => {
+    const source = sourceFiles[0];
+    expect(source).toContain('turnstile/site-key');
+    expect(source).toContain('valueForStringParameter');
+  });
+
+  // No default. A fallback key would be shipped by any environment whose
+  // parameter is missing, which is precisely the case that should fail loudly.
+  test('there is no hardcoded fallback if the parameter is missing', () => {
+    expect(sourceFiles[1]).toContain("process.env.TURNSTILE_SITE_KEY || ''");
+  });
+});

@@ -173,10 +173,13 @@ def lambda_handler(event, context):
         # Create timestamp
         current_time = int(datetime.now().timestamp())
         
-        # Create default child for IEP document functionality
+        # Create default child for IEP document functionality, with NO name.
+        # 'My Child' used to go here; see the matching comment in
+        # user-profile-handler/lambda_function.py's get_user_profile for why
+        # an empty name is what onboarding's studentNameGate now expects.
         default_child = {
             'childId': str(uuid.uuid4()),
-            'name': 'My Child',
+            'name': '',
             'schoolCity': 'Not specified',
             'createdAt': current_time,
             'updatedAt': current_time

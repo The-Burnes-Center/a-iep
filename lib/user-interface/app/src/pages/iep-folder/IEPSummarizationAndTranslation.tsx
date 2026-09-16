@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useContext } from 'react';
-import { Container, Row, Col, Card, Spinner, Alert, Button, Accordion, Tabs, Tab, Offcanvas, Dropdown} from 'react-bootstrap';
+import { Container, Row, Col, Card, Alert, Button, Accordion, Tabs, Tab, Offcanvas, Dropdown} from 'react-bootstrap';
 import LinearProgress from '@mui/material/LinearProgress';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useNavigate } from 'react-router-dom';
@@ -24,11 +24,14 @@ import {
   shouldSuppressProcessingTakeover,
 } from '../utils/translation-flow.mjs';
 import type { TranslationRequestState } from '../utils/translation-flow.mjs';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
+import { processingStepKey } from '../utils/processing-progress.mjs';
+import { canRetryFailedDocument } from './document-failure';
+import AIEPSpinner from '../../components/AIEPSpinner';
+import PageLoading from '../../components/PageLoading';
 import TTSPlayButton from '../../components/TTSPlayButton';
 import { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
-import AIEPFooter from '../../components/AIEPFooter';
+import DocumentFailureState from './DocumentFailureState';
 import { ApiClient } from '../../common/api-client/api-client';
 import {
   IEPDocumentClient,
@@ -41,6 +44,23 @@ import { TextHelper } from '../../common/helpers/text-helper';
 // offers the button again. Whole-document translation is a multi-minute job, so
 // this is a backstop against a request that vanished, not a real deadline.
 const TRANSLATION_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
+ * Whether a content field really is text this page can render.
+ *
+ * The API's summary/index fields are typed as strings, but the type is a
+ * claim about the happy path, not a guarantee about the payload. A document
+ * written in the oldest storage layout and later migrated to S3 came back as
+ * `{S: '<the summary>'}`: truthy, so every existence check passed, and then
+ * `.split` on it threw during render. With no ErrorBoundary above it that
+ * emptied the whole page, and the parent got a white screen while the network
+ * tab showed a healthy 200.
+ *
+ * Checking the type rather than truthiness is what turns that into the
+ * ordinary "no summary yet" state, which already tells a parent what to do.
+ */
+const isReadableText = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0;
 
 const IEPSummarizationAndTranslation: React.FC = () => {
   const { t, language, setLanguage, translationsLoaded, enabledLanguages } = useLanguage();
@@ -330,7 +350,11 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     const target = e.target as HTMLElement;
     if (target.classList.contains('jargon-term')) {
       e.preventDefault();
-      const term = target.textContent || '';
+      // data-term is the glossary's own spelling of the word; the span's text
+      // is however the document wrote it, which is lowercase often enough that
+      // the drawer used to be titled "accommodations". Content highlighted
+      // before data-term existed has no attribute, so fall back to the text.
+      const term = target.getAttribute('data-term') || target.textContent || '';
       const definition = target.getAttribute('data-tooltip') || '';
       setSelectedJargon({ term, definition });
       setShowJargonDrawer(true);
@@ -493,6 +517,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     setError,
     setInitialLoading,
     processDocumentSections,
+    loadErrorMessage: t('summary.error.loadFailed'),
     // Refetch the moment a translation request starts, and keep the existing
     // poller alive until it finishes, even if the status read lags behind.
     forcePolling: isTranslatingOnDemand
@@ -501,8 +526,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
 
   // Safe check for content availability
   const hasContent = (lang: string) => {
-    const hasSummary = Boolean(document.summaries && document.summaries[lang]);
-    const hasDocumentIndex = Boolean(document.document_index && document.document_index[lang]);
+    const hasSummary = isReadableText(document.summaries?.[lang]);
+    const hasDocumentIndex = isReadableText(document.document_index?.[lang]);
     const hasSections = Boolean(
       document.sections && 
       document.sections[lang] && 
@@ -733,8 +758,11 @@ const IEPSummarizationAndTranslation: React.FC = () => {
 
   // Helper function to truncate content to the first paragraph
   const truncateContent = (content: string): { truncated: string; needsTruncation: boolean } => {
-    if (!content) {
-      return { truncated: content, needsTruncation: false };
+    // Not `!content`: the caller's guard is isReadableText now, but this
+    // function is the thing that actually threw, so it refuses a non-string
+    // on its own rather than trusting the call site to keep doing it.
+    if (!isReadableText(content)) {
+      return { truncated: '', needsTruncation: false };
     }
     
     // Split by double newline (paragraph separator)
@@ -760,7 +788,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
 
   // Render tab content for a specific language
   const renderTabContent = (lang: string) => {
-    const hasSummary = document.summaries && document.summaries[lang];
+    const hasSummary = isReadableText(document.summaries?.[lang]);
     const hasSections = (
       document.sections && 
       document.sections[lang] && 
@@ -768,6 +796,12 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     );
     
     const isEnglishTab = lang === 'en';
+
+    // "We asked and there is none" is not the same thing as "we could not
+    // ask". While a read is failing, an empty document tells us nothing, so
+    // the page must not invite a parent to throw a healthy one away and
+    // re-upload it. The error alert above says what actually happened.
+    const emptinessIsTrustworthy = !error;
 
     // Content direction follows the CONTENT language, not the UI language
     // (e.g. Arabic UI viewing the English tab stays LTR, and vice versa)
@@ -838,10 +872,10 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               </Card.Body>
             </Card>
           </>
-        ) : (
-          <Alert variant="info">
+        ) : emptinessIsTrustworthy && (
+          <Alert variant="info" data-testid="summary-empty">
             <h5>
-              {isEnglishTab 
+              {isEnglishTab
                 ? t('summary.noSummary.title')
                 : t('summary.noTranslatedSummary.title')}
             </h5>
@@ -926,8 +960,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               ))}
             </Accordion>
           </>
-        ) : (
-          <Alert variant="info">
+        ) : emptinessIsTrustworthy && (
+          <Alert variant="info" data-testid="sections-empty">
             <h5>
               {isEnglishTab
                 ? t('summary.noSections.title')
@@ -968,37 +1002,14 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // Handle initial loading and no document states first
   if (!translationsLoaded || profileLoading) {
     return (
-      <Container className="summary-container mt-4 mb-5">
-        <div className="text-center my-5">
-          <Spinner animation="border" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </Spinner>
-          <p className="mt-3">
-            {!translationsLoaded && profileLoading ? 'Loading translations and profile...' :
-             !translationsLoaded ? 'Loading translations...' : 
-             'Loading profile...'}
-          </p>
-        </div>
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 
   if (initialLoading) {
     return (
       <>
-        <MobileTopNavigation />
-        <Container className="summary-container mt-3 mb-3">
-          <Row className="mt-2">
-            <Col>
-              <div className="text-center my-5">
-                <Spinner animation="border" role="status">
-                  <span className="visually-hidden">{t('summary.loading')}</span>
-                </Spinner>
-                <p className="mt-3">{t('summary.loading')}</p>
-              </div>
-            </Col>
-          </Row>
-        </Container>
+        <PageLoading message={t('summary.loading')} />
       </>
     );
   }
@@ -1007,7 +1018,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   if (!document) {
     return (
       <>
-        <MobileTopNavigation />
         <Container className="summary-container mt-3 mb-3">
           <Row className="mt-2">
             <Col>
@@ -1052,6 +1062,12 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         headerGreenTitle={t('rights.header.title.green')}
         rightsIndicatorTemplate={t('carousel.rights.indicator')}
         sectionHint={t('carousel.section.hint')}
+        // The document itself rather than a number off it: the bar eases
+        // between milestones and needs the timestamp to ease from. Nothing is
+        // kept in state, so a parent who taps Account mid-run and comes back
+        // lands where they left instead of watching the bar restart.
+        progressDocument={document}
+        progressStepLabel={t(processingStepKey(document))}
       />
     );
   }
@@ -1059,7 +1075,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // Processed Container - when document is processed, failed, or in other states
   return (
     <>
-      <MobileTopNavigation />
       <Container className="summary-container mt-3 mb-3">
         <div className="mt-2 text-start button-container d-flex justify-content-between align-items-center">
           <div className="d-flex gap-2 align-items-center">
@@ -1074,7 +1089,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               >
                 {isGeneratingPDF ? (
                   <>
-                    <Spinner animation="border" size="sm" className="me-2" />
+                    <AIEPSpinner size="sm" className="me-2" />
                     {t('common.generatingPdf')}
                   </>
                 ) : (
@@ -1146,22 +1161,11 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                 <Row className="g-0">
                   <Col md={12} className="no-padding-inherit">
                     {document.status === "FAILED" ? (
-                      <Alert variant="danger">
-                        {/* data-testid: stable E2E hook so the pipeline
-                            journey can fail fast instead of waiting out its
-                            budget. It sits on the heading, not on <Alert>,
-                            because Alert forwards unknown props to its Fade
-                            transition rather than to the rendered div. */}
-                        <h5 data-testid="summary-failed">{t('summary.failed.title')}</h5>
-                        <p>{t('summary.failed.message')}</p>
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onClick={() => navigate('/iep-documents')}
-                        >
-                          {t('summary.reuploadButton')}
-                        </Button>
-                      </Alert>
+                      <DocumentFailureState
+                        canRetry={canRetryFailedDocument(document)}
+                        t={t}
+                        onGoToDocuments={() => navigate('/iep-documents')}
+                      />
                     ) :
                       <>
                         {/* The preferred language has no translation yet: offer
@@ -1248,8 +1252,11 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                           )}
                         </Tabs>
                         
-                        {!hasContent('en') && !hasContent(preferredLanguage) && (
-                          <Alert variant="info">
+                        {/* !error for the same reason as in renderTabContent:
+                            a failed read makes the document look empty, and a
+                            parent must not be told to re-upload on that basis. */}
+                        {!error && !hasContent('en') && !hasContent(preferredLanguage) && (
+                          <Alert variant="info" data-testid="no-content-available">
                             <h5>{t('summary.noContentAvailable.title')}</h5>
                             <p>{t('summary.noContentAvailable.message')}</p>
                             <Button 
@@ -1302,7 +1309,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
           </Offcanvas.Body>
         </Offcanvas>
       </Container>
-      <AIEPFooter />
     </>
   );
 };

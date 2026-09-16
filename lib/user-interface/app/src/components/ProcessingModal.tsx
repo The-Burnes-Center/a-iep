@@ -1,8 +1,8 @@
 import React from 'react';
 import { Card, Alert } from 'react-bootstrap';
-import LinearProgress from '@mui/material/LinearProgress';
-import { ClipLoader } from 'react-spinners';
+import AIEPSpinner from './AIEPSpinner';
 import ParentRightsCarousel, { SlideData } from './ParentRightsCarousel';
+import ProcessingStatusBar from './ProcessingStatusBar';
 import './ProcessingModal.css';
 
 interface ProcessingModalProps {
@@ -15,6 +15,19 @@ interface ProcessingModalProps {
   /** e.g. "{number}. {title}", localized by the page that owns t(). */
   rightsIndicatorTemplate: string;
   sectionHint: string;
+  /**
+   * The document's progress fields, passed through to ProcessingStatusBar,
+   * which derives everything it draws from them. See
+   * pages/utils/processing-progress.mjs.
+   */
+  progressDocument: {
+    status?: string;
+    progress?: number;
+    current_step?: string;
+    updatedAt?: number;
+  };
+  /** Already-translated name of the step in flight, e.g. "Reading your document". */
+  progressStepLabel: string;
 }
 
 const ProcessingModal: React.FC<ProcessingModalProps> = ({
@@ -26,7 +39,20 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
   headerGreenTitle,
   rightsIndicatorTemplate,
   sectionHint,
+  progressDocument,
+  progressStepLabel,
 }) => {
+  /**
+   * The step in flight and the bar, as one block.
+   *
+   * Rendered for both phases: the wait is the same wait, and a parent who
+   * reaches the final screen should not lose the only thing on screen that
+   * says how far along they are.
+   */
+  const statusBlock = (
+    <ProcessingStatusBar document={progressDocument} stepLabel={progressStepLabel} />
+  );
+
   return (
     // Stable E2E hook: "the pipeline is running" is a milestone the document
     // journey must see before it may believe any summary, and every string on
@@ -38,12 +64,12 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
         {tutorialPhase === 'parent-rights' ? (
           <Card className="processing-summary-parent-rights-card">
             <Card.Body className="processing-summary-card-body pt-0 pb-0">
-              <div className='loading-while-parent-rights'>
-                <p>
+              <div className="loading-while-parent-rights">
+                <p className="processing-status-headline">
                   {t('summary.processing.hangTight')}
                 </p>
+                {statusBlock}
               </div>
-              <LinearProgress color="success" /> 
               <div className="carousel-with-button">
                 {/* Loops for as long as this screen is up. Nothing the parent
                     does inside the carousel ends the wait — the document's
@@ -61,15 +87,18 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
         ) : (
           <Card className="processing-summary-loader-card">
             <Card.Body className="processing-summary-card-body pt-0 pb-0">
-              <div className='loading-final-screen'>
+              <div className="loading-final-screen">
                 <div className="desktop-only-spinner">
-                  <ClipLoader color="#F5F3EE" size={50} cssOverride={{ borderWidth: '5px' }} />
+                  {/* The heading below says what the wait is, so the mark
+                      here is decoration. Cream, because this card is dark
+                      green. */}
+                  <AIEPSpinner size="lg" className="aiep-spinner-inverse" />
                 </div>
-                <h3>
+                <h3 className="processing-status-headline">
                   {t('summary.processing.hangTight')}
                 </h3>
+                {statusBlock}
               </div>
-              <LinearProgress color="success" /> 
             </Card.Body>
           </Card>
         )}
@@ -79,4 +108,3 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
 };
 
 export default ProcessingModal;
-

@@ -23,7 +23,13 @@ const AuthHeader: React.FC<AuthHeaderProps> = ({
           className="aiep-logo mb-3" 
         />
       )}
-      <h4>{title}</h4>
+      {/* Focusable, but never in the tab order. The landing page moves focus
+          here when a parent arrives at the sign-in card from /login, from a
+          protected page they were not signed in for, or from an "Upload An
+          IEP" link, so this heading is what gets announced on arrival.
+          -1 keeps it out of the tab sequence, so nobody tabbing through the
+          form itself ever stops on it. */}
+      <h4 tabIndex={-1}>{title}</h4>
     </div>
   );
 };

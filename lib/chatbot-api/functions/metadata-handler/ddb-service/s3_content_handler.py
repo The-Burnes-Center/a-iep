@@ -126,27 +126,68 @@ def delete_content_from_s3(s3_key: str, bucket: str) -> bool:
         print(f"Error deleting content from S3: {str(e)}")
         return False
 
+def clean_dynamodb_json(data):
+    """Recursively unwrap DynamoDB type descriptors into plain JSON.
+
+    Same contract as clean_dynamodb_json in user-profile-handler, which is
+    where this shape is dealt with on the read side. Duplicated rather than
+    shared because each handler folder is zipped into its own lambda asset.
+
+    The oldest documents stored their content already serialized, so the
+    attribute reads back as {'en': {'S': '...'}} / {'en': {'L': [...]}}
+    instead of {'en': '...'} / {'en': [...]}. Everything written since the
+    pipeline moved to S3 is already plain, and passes through untouched.
+    """
+    if isinstance(data, dict):
+        if set(data.keys()) == {'S'}:
+            return data['S']
+        if set(data.keys()) == {'N'}:
+            n = data['N']
+            try:
+                return int(n)
+            except ValueError:
+                try:
+                    return float(n)
+                except ValueError:
+                    return n
+        if set(data.keys()) == {'L'}:
+            return [clean_dynamodb_json(item) for item in data['L']]
+        if set(data.keys()) == {'M'}:
+            return {k: clean_dynamodb_json(v) for k, v in data['M'].items()}
+        return {k: clean_dynamodb_json(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [clean_dynamodb_json(item) for item in data]
+    return data
+
+
 def migrate_dynamodb_to_s3(iep_id: str, child_id: str, ddb_item: Dict, table) -> Optional[Dict]:
     """
     Migrate content from DynamoDB (old format) to S3 (new format)
-    
+
     Args:
         iep_id: IEP document ID
         child_id: Child ID
         ddb_item: DynamoDB item containing old format data
         table: DynamoDB table resource
-    
+
     Returns:
         S3 reference dict if successful, None otherwise
     """
-    # Extract content fields
+    # Unwrap BEFORE writing, because this write is one-way. The read paths
+    # that serve a still-inline document clean the same shape on the way out,
+    # so the wrapper was invisible for as long as the document stayed in
+    # DynamoDB; copying it into content.json verbatim made it permanent, and
+    # every later reader got {'S': '<summary>'} where a string belongs. The
+    # summary screen renders that object as truthy and then calls .split on
+    # it, which throws and blanks the whole page. Cleaning here is what keeps
+    # the migration lossless instead of merely successful.
     content = {
-        'summaries': ddb_item.get('summaries', {}),
-        'sections': ddb_item.get('sections', {}),
-        'document_index': ddb_item.get('document_index', {}),
-        'abbreviations': ddb_item.get('abbreviations', {})
+        'summaries': clean_dynamodb_json(ddb_item.get('summaries', {})),
+        'sections': clean_dynamodb_json(ddb_item.get('sections', {})),
+        'document_index': clean_dynamodb_json(ddb_item.get('document_index', {})),
+        'abbreviations': clean_dynamodb_json(ddb_item.get('abbreviations', {}))
     }
-    
+
     # Check if there's any content to migrate
     has_content = bool(
         content.get('summaries') or 
@@ -189,8 +230,14 @@ def migrate_dynamodb_to_s3(iep_id: str, child_id: str, ddb_item: Dict, table) ->
         return s3_ref
         
     except Exception as e:
-        print(f"Error migrating {iep_id}/{child_id} to S3: {str(e)}")
+        # content (summaries/sections/document_index/abbreviations) is what's
+        # being migrated here, so str(e) is one of the few messages in this
+        # file that could realistically quote it; only the exception class
+        # is guaranteed not to. traceback.format_exc()'s last line renders
+        # str(e) too -- the same leak -- so format_tb (call stack only, no
+        # values) replaces it rather than just the summary line above.
+        print(f"Error migrating {iep_id}/{child_id} to S3: {type(e).__name__}")
         import traceback
-        print(traceback.format_exc())
+        print(''.join(traceback.format_tb(e.__traceback__)))
         return None
 

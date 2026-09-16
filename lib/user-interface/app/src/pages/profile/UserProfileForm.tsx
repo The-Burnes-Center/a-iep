@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Container, Form, Button, Row, Col, Alert, Spinner } from 'react-bootstrap';
-import { signOut } from 'aws-amplify/auth';
+import { Container, Form, Button, Row, Col, Alert } from 'react-bootstrap';
+import PageLoading from '../../components/PageLoading';
 import { AppContext } from '../../common/app-context';
 import { useAuth } from '../../common/auth-provider';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -8,14 +8,14 @@ import { UserProfile } from '../../common/types';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useNavigate } from 'react-router-dom';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
+import { STEP } from '../../common/breadcrumb-steps';
+import Breadcrumbs from '../../components/Breadcrumbs';
 import DeleteProfileModal from './DeleteProfileModal';
 import './ProfileForms.css';
 
 export default function UserProfileForm() {
   const appContext = useContext(AppContext);
-  const { setAuthenticated } = useAuth();
+  const { logout, setAuthenticated } = useAuth();
   const apiClient = new ApiClient(appContext);
   const { t, setLanguage, enabledLanguages } = useLanguage();
 
@@ -91,23 +91,21 @@ export default function UserProfileForm() {
     setShowDeleteModal(true);
   };
 
+  // This page's own Log out button. Same reasoning as AccountCenter's: the
+  // context's logout() is the only thing that ends a passwordless session,
+  // and it runs before the navigation rather than behind it.
   const handleSignOut = async () => {
     try {
-      navigate('/', { replace: true });
-      await signOut();
+      await logout();
+    } catch {
       setAuthenticated(false);
-    } catch (error) {
-      // console.error("Error signing out:", error);
     }
+    navigate('/', { replace: true });
   };
 
   if (loading) {
     return (
-      <Container className="mt-4 text-center">
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">{t('profile.loading')}</span>
-        </Spinner>
-      </Container>
+      <PageLoading message={t('profile.loading')} />
     );
   }
 
@@ -119,19 +117,10 @@ export default function UserProfileForm() {
     );
   }
 
-  const handleBackClick = () => {
-    navigate('/summary-and-translations');
-  };
-
   return (
     <>
-    <MobileTopNavigation />
+    <Breadcrumbs trail={[STEP.summary, STEP.profile]} />
     <Container className="mt-4">
-      <div className="mt-3 text-start">
-        <Button variant="outline-secondary" onClick={handleBackClick}>
-          {t('common.back')}
-        </Button>
-      </div>
       <Form onSubmit={handleSubmit} className="mt-4">
         <h3 className="mb-3">{t('profile.title')}</h3>
         
@@ -198,7 +187,6 @@ export default function UserProfileForm() {
       show={showDeleteModal} 
       onHide={() => setShowDeleteModal(false)} 
     />
-    <AIEPFooter />
     </>
   );
 }

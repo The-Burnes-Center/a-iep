@@ -1,8 +1,8 @@
 import React, { useState, useContext } from 'react';
 import { Modal, Button, Alert } from 'react-bootstrap';
+import AIEPSpinner from '../../components/AIEPSpinner';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
-import { signOut } from 'aws-amplify/auth';
 import { useAuth } from '../../common/auth-provider';
 import { useLanguage } from '../../common/language-context';
 
@@ -16,28 +16,34 @@ const DeleteProfileModal: React.FC<DeleteProfileModalProps> = ({ show, onHide })
   const [error, setError] = useState<string | null>(null);
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
-  const { setAuthenticated } = useAuth();
+  const { logout, setAuthenticated } = useAuth();
   const { t } = useLanguage();
 
   const handleDeleteProfile = async () => {
+    setProcessing(true);
+    setError(null);
+
     try {
-      setProcessing(true);
-      setError(null);
-      
       // Delete the entire user profile and all data
       await apiClient.profile.deleteProfile();
-      
-      // Sign out the user
-      await signOut();
-      setAuthenticated(false);
-      
-      // Close modal and redirect will happen via auth context
-      onHide();
     } catch (err) {
-      // console.error('Error deleting profile:', err);
       setError(t('delete.error.failed'));
       setProcessing(false);
+      return;
     }
+
+    // Sign out through the context, which is the only thing that also drops
+    // the passwordless session handle; Amplify's signOut() alone leaves it in
+    // localStorage for the next page load to resume.
+    try {
+      await logout();
+    } catch {
+      // The profile is already deleted and this device is already cleared.
+      setAuthenticated(false);
+    }
+
+    // Close modal and redirect will happen via auth context
+    onHide();
   };
 
   const handleCancel = () => {
@@ -88,7 +94,7 @@ const DeleteProfileModal: React.FC<DeleteProfileModalProps> = ({ show, onHide })
         >
           {processing ? (
             <>
-              <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+              <AIEPSpinner size="sm" className="me-2" />
               {t('delete.button.processing')}
             </>
           ) : (

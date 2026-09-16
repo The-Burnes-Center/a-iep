@@ -4,19 +4,16 @@ import {
   Row,
   Col,
   Alert,
-  Spinner,
-  Breadcrumb,
   Button,
   Form,
   InputGroup,
 } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { useLanguage } from '../../common/language-context';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
+import PageLoading from '../../components/PageLoading';
+import Breadcrumbs from '../../components/Breadcrumbs';
 import {
   ClipboardIcon,
   EnvelopeIcon,
@@ -33,7 +30,6 @@ import './InvitePage.css';
 export default function InvitePage() {
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
-  const navigate = useNavigate();
   const { t, language } = useLanguage();
   const [copied, setCopied] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
@@ -72,26 +68,19 @@ export default function InvitePage() {
 
   if (isLoading) {
     return (
-      <Container className="text-center mt-5">
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">{t('invite.loading')}</span>
-        </Spinner>
-      </Container>
+      <PageLoading message={t('invite.loading')} />
     );
   }
 
   return (
     <>
-      <MobileTopNavigation />
       <div className="invite-page">
-        <div className="mt-3 text-start px-4 breadcrumb-container">
-          <Breadcrumb>
-            <Breadcrumb.Item onClick={() => navigate('/account-center')}>
-              {t('changeLanguage.breadcrumb.account')}
-            </Breadcrumb.Item>
-            <Breadcrumb.Item active>{t('invite.breadcrumb.invite')}</Breadcrumb.Item>
-          </Breadcrumb>
-        </div>
+        <Breadcrumbs
+          trail={[
+            { labelKey: 'changeLanguage.breadcrumb.account', to: '/account-center' },
+            { labelKey: 'invite.breadcrumb.invite' },
+          ]}
+        />
 
         <Container fluid className="update-profile-container">
           <Row style={{ width: '100%', justifyContent: 'center' }}>
@@ -202,7 +191,6 @@ export default function InvitePage() {
           </Row>
         </Container>
       </div>
-      <AIEPFooter />
       {/* `inviteUrl` is the same value every other share control sends, so the
           code can never encode a different link. Empty until the referral
           loads, and a QR of an empty string is meaningless, hence the guard. */}

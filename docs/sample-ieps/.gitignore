@@ -1,0 +1,3 @@
+# Reference PDFs are public documents kept locally for research.
+# Never commit them (some are redacted real-student records).
+*.pdf

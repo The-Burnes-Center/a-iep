@@ -1,31 +1,19 @@
-import { Container, Row, Col, Breadcrumb, Spinner } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
+import { Container, Row, Col } from 'react-bootstrap';
+import PageLoading from '../../components/PageLoading';
 import { useLanguage } from '../../common/language-context';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
+import Breadcrumbs from '../../components/Breadcrumbs';
 import ViewResourcesButton from '../../components/ViewResourcesButton';
 import './ChangeLanguage.css';
 import './ProfileForms.css';
 import './ViewResources.css';
 
 export default function ViewResources() {
-  const navigate = useNavigate();
   const { t, translationsLoaded } = useLanguage();
   
-  const handleBackClick = () => {
-    navigate('/support-center');
-  };
-
   // Return loading state if translations aren't ready
   if (!translationsLoaded) {
     return (
-      <Container className="view-resources-container mt-4 mb-5">
-        <div className="text-center my-5">
-          <Spinner animation="border" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </Spinner>
-        </div>
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 
@@ -58,15 +46,14 @@ export default function ViewResources() {
 
   return (
   <>
-      <MobileTopNavigation />
       <div>
       {/* Breadcrumbs */}
-      <div className="mt-3 text-start px-4 breadcrumb-container">
-        <Breadcrumb>
-          <Breadcrumb.Item onClick={handleBackClick}>{t("resources.breadcrumb.supportCenter")}</Breadcrumb.Item>
-          <Breadcrumb.Item active>{t("resources.breadcrumb.resources")}</Breadcrumb.Item>
-        </Breadcrumb>
-      </div>
+      <Breadcrumbs
+        trail={[
+          { labelKey: "resources.breadcrumb.supportCenter", to: "/support-center" },
+          { labelKey: "resources.breadcrumb.resources" },
+        ]}
+      />
       
       <Container 
         fluid 
@@ -91,7 +78,6 @@ export default function ViewResources() {
         ))}
       </div>
     </div>
-    <AIEPFooter />
   </>
   );
 }

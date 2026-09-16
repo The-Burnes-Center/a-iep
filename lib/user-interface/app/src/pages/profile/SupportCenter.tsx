@@ -1,19 +1,16 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
-import { Container, Row, Col, Card, Accordion, Spinner} from 'react-bootstrap';
+import { Container, Row, Col, Card, Accordion } from 'react-bootstrap';
+import PageLoading from '../../components/PageLoading';
 import { useLanguage } from '../../common/language-context';
 import { IconArrowRight } from '@tabler/icons-react';
 import './AccountCenter.css';
 
 interface SupportCenterProps {
-  NavigationComponent?: React.ComponentType;
   showAboutApp?: boolean;
 }
 
 const SupportCenter: React.FC<SupportCenterProps> = ({ 
-  NavigationComponent = MobileTopNavigation,
   showAboutApp = true 
 }) => {
 
@@ -24,13 +21,7 @@ const SupportCenter: React.FC<SupportCenterProps> = ({
   // Return loading state if translations aren't ready
   if (!translationsLoaded) {
     return (
-      <Container className="account-center-container mt-4 mb-5">
-        <div className="text-center my-5">
-          <Spinner animation="border" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </Spinner>        
-        </div>
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 
@@ -69,7 +60,6 @@ const SupportCenter: React.FC<SupportCenterProps> = ({
 
   return (
     <>
-      <NavigationComponent />
       <Container className="account-center-container mt-3 mb-3">
         <Row className="mt-2">
           <Col>
@@ -100,7 +90,6 @@ const SupportCenter: React.FC<SupportCenterProps> = ({
           </Col>
         </Row>
       </Container>
-      <AIEPFooter />
     </>
   );
 };

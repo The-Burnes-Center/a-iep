@@ -1,16 +1,14 @@
 import React, { useState, useContext } from 'react';
-import { Container, Form, Row, Col, Breadcrumb, Alert } from 'react-bootstrap';
+import { Container, Form, Row, Col, Alert } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
-import { signOut } from 'aws-amplify/auth';
 import { useAuth } from '../../common/auth-provider';
 import { useLanguage } from '../../common/language-context'; 
 import './UpdateProfileName.css';
 import './ProfileForms.css';
 import DeleteButton from '../../components/DeleteButton';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
+import Breadcrumbs from '../../components/Breadcrumbs';
 
 export default function DeleteAccount() {
   const [processing, setProcessing] = useState(false);
@@ -21,45 +19,51 @@ export default function DeleteAccount() {
   const navigate = useNavigate();
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
-  const { setAuthenticated } = useAuth();
+  const { logout, setAuthenticated } = useAuth();
   const { t } = useLanguage();
 
   const handleDeleteProfile = async () => {
+    setProcessing(true);
+    setError(null);
+
     try {
-      setProcessing(true);
-      setError(null);
-      
       // Delete the entire user profile and all data
       await apiClient.profile.deleteProfile();
-      
-      // Navigate to root BEFORE signing out to reset browser history
-      navigate('/', { replace: true });
-      
-      // Sign out the user
-      await signOut();
-      setAuthenticated(false);
     } catch (err) {
-      // console.error('Error deleting profile:', err);
       setError(t('delete.error.failed'));
       setProcessing(false);
+      return;
     }
-  };
 
-  const handleBackClick = () => {
-    navigate('/account-center');
+    // The account is gone. End the session BEFORE routing away, and through
+    // the context's logout() so the passwordless handle goes with it: this
+    // used to navigate first and sign out behind the navigation, which is the
+    // window a page load lands in and rehydrates a session for a user who no
+    // longer exists (see clearStaleSession in components/CustomLogin.tsx).
+    // A handle here would 401 session_invalid and self-clear on next use, but
+    // relying on that is relying on the server to undo something we should
+    // never have left behind.
+    try {
+      await logout();
+    } catch {
+      // Deletion already succeeded and logout() has already cleared this
+      // device. A failed Amplify call is not a failed deletion, so it does
+      // not get reported to the parent as one.
+      setAuthenticated(false);
+    }
+    navigate('/', { replace: true });
   };
 
   return (
     <>
-    <MobileTopNavigation />
     <div>
       {/* Breadcrumbs */}
-      <div className="mt-3 text-start px-4 breadcrumb-container">
-        <Breadcrumb>
-          <Breadcrumb.Item onClick={handleBackClick}>{t('deleteAccount.breadcrumb.account')}</Breadcrumb.Item>
-          <Breadcrumb.Item active>{t('deleteAccount.breadcrumb.deleteAccount')}</Breadcrumb.Item>
-        </Breadcrumb>
-      </div>
+      <Breadcrumbs
+        trail={[
+          { labelKey: 'deleteAccount.breadcrumb.account', to: '/account-center' },
+          { labelKey: 'deleteAccount.breadcrumb.deleteAccount' },
+        ]}
+      />
       
       <Container 
         fluid 
@@ -86,7 +90,6 @@ export default function DeleteAccount() {
         </Row>
       </Container>
     </div>
-    <AIEPFooter />
     </>
   );
 }

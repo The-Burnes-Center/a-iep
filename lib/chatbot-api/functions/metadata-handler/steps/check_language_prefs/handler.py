@@ -9,17 +9,49 @@ import boto3
 # FERPA-protected document content (OCR text, parsed sections, translated
 # content) as the workflow evolves; dumping the whole event would expose it
 # to anyone with CloudWatch log access.
+# s3_key is deliberately NOT in this allowlist: the key is
+# userId/childId/iepId/<filename>, and parents routinely name an IEP after
+# their child, so the filename is student data. It is logged separately below
+# with the filename stripped (see _safe_key).
 _SAFE_LOG_FIELDS = (
-    'iep_id', 'child_id', 'user_id', 's3_bucket', 's3_key', 'current_step',
+    'iep_id', 'child_id', 'user_id', 's3_bucket', 'current_step',
     'progress', 'status', 'content_type', 'target_languages', 'translation_needed',
 )
+
+
+def _safe_key(key):
+    """An S3 key with the parent-chosen filename removed.
+
+    The key is userId/childId/iepId/filename, and only the last segment is
+    typed by a human. Mirrors metadata-handler/orchestrator.py's helper of the
+    same name.
+    """
+    if not isinstance(key, str):
+        return '<no key>'
+    head, sep, _filename = key.rpartition('/')
+    return f'{head}/...' if sep else '...'
 
 
 def _safe_event_meta(event):
     """Return only the allowlisted, non-sensitive fields from the event."""
     if not isinstance(event, dict):
         return {'_type': type(event).__name__}
-    return {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+    meta = {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+    if 's3_key' in event:
+        meta['s3_key'] = _safe_key(event['s3_key'])
+    return meta
+
+
+def _safe_error_summary(e):
+    """Content-free triage string for the outermost catch-all.
+
+    This is the last uncovered path by which a rejected value could reach
+    CloudWatch: every step re-raises, so whatever this catches is about to be
+    logged (and the Lambda runtime logs it again, unhandled, on top of that).
+    Reduced to the exception class only -- unlike a message string, a class
+    name cannot itself carry document text.
+    """
+    return type(e).__name__
 
 
 def lambda_handler(event, context):
@@ -80,7 +112,9 @@ def lambda_handler(event, context):
         return result
         
     except Exception as e:
-        print(f"CheckLanguagePrefs error: {str(e)}")
+        print(f"CheckLanguagePrefs error: {_safe_error_summary(e)}")
+        # NOT traceback.format_exc(): its last line renders str(e), which is
+        # exactly what the summary above was built to avoid.
         import traceback
-        print(traceback.format_exc())
+        print(''.join(traceback.format_tb(e.__traceback__)))
         raise

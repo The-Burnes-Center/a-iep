@@ -1,9 +1,124 @@
-/* SMS verification code input styling */
-.sms-code-input {
-  text-align: center;
+/* SMS verification code input styling.
+
+   Six drawn boxes with one transparent input stretched across them. The
+   input stays a real, visible, focusable field — it just renders no text of
+   its own, so what a parent sees is .sms-code-box holding the digit. Keep it
+   that way: hiding the input (display/visibility/opacity) would take the
+   caret, the OS one-time-code autofill and the e2e handle with it. */
+
+.sms-code-field {
+  position: relative;
+}
+
+.sms-code-boxes {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.sms-code-box {
+  /* Shares the field look with .form-control in CustomLogin.css: same
+     2px border, same fill, same radius. */
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 3.25rem;
+  height: 3.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-family: akzidenz-grotesk-next-pro, sans-serif;
   font-weight: 400;
   font-style: normal;
-  font-size: 1rem !important;
-  border-radius: 30px;
+  font-size: 1.5rem;
+  color: var(--aiep-ink);
+  background-color: var(--aiep-surface-field);
+  border: 2px solid var(--aiep-border);
+  border-radius: 0.5rem;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.sms-code-box.is-filled {
+  border-color: var(--aiep-ink);
+}
+
+/* The focus treatment .form-control:focus uses, moved onto the one box the
+   next digit lands in. */
+.sms-code-box.is-caret {
+  border-color: var(--aiep-link);
+  box-shadow: 0 0 0 0.25rem rgba(0, 64, 186, 0.15);
+}
+
+.sms-code-box.is-caret::after {
+  content: '';
+  width: 2px;
+  height: 1.75rem;
+  background-color: var(--aiep-link);
+  animation: sms-code-caret-blink 1s step-end infinite;
+}
+
+/* A filled box shows its digit, so the caret would sit on top of it. */
+.sms-code-box.is-caret.is-filled::after {
+  display: none;
+}
+
+@keyframes sms-code-caret-blink {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sms-code-box {
+    transition: none;
+  }
+
+  .sms-code-box.is-caret::after {
+    animation: none;
+  }
+}
+
+.sms-code-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* Invisible text, not an invisible field: see the note at the top. */
+  color: transparent;
+  caret-color: transparent;
+  background-color: transparent;
+  border: none;
+  /* 1rem = 16px, the threshold below which iOS Safari zooms the page in on
+     focus. The value is never seen, but the zoom would be. */
+  font-size: 1rem;
+  /* Beats .form-control's own padding and focus ring from CustomLogin.css;
+     the boxes underneath draw both. */
+  padding: 0;
+  text-align: center;
+  letter-spacing: 1em;
+}
+
+.sms-code-input::placeholder {
+  color: transparent;
+}
+
+.sms-code-input::selection {
+  background-color: transparent;
+}
+
+.sms-code-input:focus {
+  color: transparent;
+  caret-color: transparent;
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+  outline: none;
+  /* .form-control:focus nudges the field up a pixel; here that would slide
+     the input off the boxes it is sitting on. */
+  transform: none;
+}
+
+/* Windows high contrast: forced-colors repaints our borders and drops the
+   background, so the caret ring is the only thing left marking position. */
+@media (forced-colors: active) {
+  .sms-code-box.is-caret {
+    outline: 2px solid Highlight;
+  }
 }

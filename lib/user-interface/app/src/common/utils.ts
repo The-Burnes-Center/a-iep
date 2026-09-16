@@ -1,4 +1,5 @@
 import { fetchAuthSession } from 'aws-amplify/auth'
+import { getCachedIdToken, renewIdToken } from './auth/passwordless-auth';
 export class Utils {
   // static isDevelopment() {
   //   return import.meta.env.MODE === "development";
@@ -130,6 +131,31 @@ export class Utils {
   }
 
   static async authenticate(): Promise<string> {
+    // A parent who signed in through the passwordlessAuth flow (see
+    // CustomLogin.tsx / docs/AUTH_API_CONTRACT.md) never has an Amplify
+    // session at all — the real Cognito tokens stay server-side against the
+    // session handle. Checked first, and it is a no-op for every other
+    // caller: getCachedIdToken() only ever returns non-null right after that
+    // flow's own /auth/token exchange populated it in memory, within the
+    // same page load.
+    const passwordlessToken = getCachedIdToken();
+    if (passwordlessToken) return passwordlessToken;
+
+    // Cold cache, but the durable session handle may still be good: renew
+    // from it before giving up. This is the whole of the idle-tab fix. The
+    // tokens above last an hour and live in memory only, so before this a tab
+    // left open past that threw here -- the Amplify fall-through below cannot
+    // help a parent who signed in this way, because that flow deliberately
+    // keeps the real Cognito tokens server-side and leaves Amplify with no
+    // session at all.
+    //
+    // Null covers both "nothing to renew from" and "the handle is dead". In
+    // the second case renewIdToken has already cleared it and announced
+    // SESSION_INVALID_EVENT, which AuthProvider turns into a redirect to the
+    // sign-in card, so falling through to the throw is right either way.
+    const renewedToken = await renewIdToken();
+    if (renewedToken) return renewedToken;
+
     try {
       // v6: the ID token comes from fetchAuthSession(); v5's
       // currentUser.signInUserSession.idToken.jwtToken no longer exists.

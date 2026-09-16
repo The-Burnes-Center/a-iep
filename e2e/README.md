@@ -68,7 +68,8 @@ All fictional (NANP 555-01XX), none can ever receive SMS.
 | +15555550120 | Re-signup journey burner: the only number that runs a real Cognito sign-up. Healed (delete + admin-create) inside the spec each attempt, admin-deleted in its `afterEach`. |
 | +15555550121 | Referral journey's referrer: owns the personal invite code, stats accumulate across runs. Persists. |
 | +15555550122 | Referral journey's invited-parent burner: healed (delete + admin-create) each attempt, admin-deleted in `afterEach`. |
-| +15555550124-0129 | Rest of the throwaway pool, in reserve. |
+| +15555550126 | Encrypted-PDF upload journey (`encrypted-pdf.spec.ts`): owner-restricted files, the password prompt, cancelling. Persists across runs. It never creates a document: the spec stubs the signed-URL endpoint and the S3 PUT (see that spec's docblock for why). |
+| +15555550124, 0125, 0127-0129 | Rest of the throwaway pool, in reserve. |
 | +15555550123 | **Claimed by scripts/smoke-test.sh as its unknown-number probe**: excluded from the backdoor allowlist in CDK; never create a user for it. |
 
 Global setup idempotently ensures the persistent users exist
@@ -88,6 +89,14 @@ permanent random password, mirroring the smoke users).
   pipeline runs are self-cleaning.
 - Runs are serialized (one worker here, a shared concurrency group in CI)
   because the journeys share stateful users.
+
+`encrypted-pdf.spec.ts` is in the per-deploy set on purpose even though it
+drives the upload page: it stops at the upload boundary (the signed-URL
+endpoint and the S3 PUT are stubbed, and the PUT's bytes are asserted), so it
+costs no pipeline run, creates no document row, and takes about 35 seconds.
+Its stage 4 is a `test.fail()` pinning a live defect: cancelling the password
+prompt still shows the parent "this PDF can't be processed". Reported as
+passed while it stays broken, red the day it is fixed.
 
 ## The on-demand translation language rotates
 

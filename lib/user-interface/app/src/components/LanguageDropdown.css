@@ -1,22 +1,22 @@
 /* Default variant CSS variables */
 .language-login-dropdown {
-    --dropdown-color: #67B275;
-    --dropdown-border: #67B275;
+    --dropdown-color: var(--aiep-sage);
+    --dropdown-border: var(--aiep-sage);
     --dropdown-bg: #014620;
     --dropdown-hover-bg: #014620;
-    --dropdown-disabled-color: #67B275;
-    --dropdown-disabled-border: #67B275;
+    --dropdown-disabled-color: var(--aiep-sage);
+    --dropdown-disabled-border: var(--aiep-sage);
     --dropdown-disabled-bg: #014620;
   }
 
   /* Secondary variant CSS variables */
   .language-dropdown--secondary {
     --dropdown-color: #1e1e1e;
-    --dropdown-border: #CBC6BC;
+    --dropdown-border: var(--aiep-border);
     --dropdown-bg: #F5F3EE;
-    --dropdown-hover-bg: #E7E4DC;
-    --dropdown-disabled-color: #b3ada9;
-    --dropdown-disabled-border: #CBC6BC;
+    --dropdown-hover-bg: var(--aiep-surface-field);
+    --dropdown-disabled-color: var(--aiep-disabled-text);
+    --dropdown-disabled-border: var(--aiep-disabled-border);
     --dropdown-disabled-bg: #F5F3EE;
   }
 

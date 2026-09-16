@@ -41,6 +41,33 @@ export class TableStack extends Stack {
     // test/infra/gen-ai-mvp-stack.test.ts.
     const USER_DATA_REMOVAL_POLICY = cdk.RemovalPolicy.RETAIN;
 
+    // RETAIN only defends against a CloudFormation-level event. It does
+    // nothing about a bad ops script, a mistaken console delete, or an
+    // UpdateItem that overwrites the wrong row, and until now those had no
+    // restore path at all: the knowledge bucket got `versioned: true` after
+    // the 2026-06-22 loss and the tables got nothing.
+    //
+    //  - PITR gives a continuous 35-day restore window at per-second
+    //    granularity. A restore always creates a NEW table, so recovery is a
+    //    deliberate act, never an in-place surprise.
+    //  - Deletion protection blocks DeleteTable outright, including from the
+    //    console. Two production tables already had it switched on by hand and
+    //    declared nowhere; CloudFormation only tracks drift on properties that
+    //    are set explicitly, so the safe move is to say so in code.
+    //
+    // Neither property replaces the table: both are "Update requires: No
+    // interruption" on AWS::DynamoDB::Table. Pinned by
+    // test/infra/gen-ai-mvp-stack.test.ts.
+    //
+    // Note for a future `cdk destroy` on staging: deletion protection makes it
+    // fail until the flag is turned off. That is the point.
+    const USER_DATA_PROTECTION = {
+      // aws-cdk-lib 2.177 has no `pointInTimeRecoverySpecification` on the L2
+      // Table (it arrived later); this is the current spelling for this pin.
+      pointInTimeRecovery: true,
+      deletionProtection: true,
+    };
+
     // Both tables hold FERPA-protected data in a shared AWS account: attach a
     // resource policy that explicitly denies every principal outside the
     // IEP-data allowlist (identity-based IAM policies cannot override it).
@@ -55,6 +82,7 @@ export class TableStack extends Stack {
       partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: USER_DATA_REMOVAL_POLICY,
+      ...USER_DATA_PROTECTION,
       timeToLiveAttribute: 'ttl',
       encryption: props?.kmsKey ? dynamodb.TableEncryption.CUSTOMER_MANAGED : dynamodb.TableEncryption.AWS_MANAGED,
       ...(props?.kmsKey ? { encryptionKey: props.kmsKey } : {}),
@@ -68,6 +96,7 @@ export class TableStack extends Stack {
       sortKey: { name: 'childId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: USER_DATA_REMOVAL_POLICY,
+      ...USER_DATA_PROTECTION,
       timeToLiveAttribute: 'ttl',
       encryption: props?.kmsKey ? dynamodb.TableEncryption.CUSTOMER_MANAGED : dynamodb.TableEncryption.AWS_MANAGED,
       ...(props?.kmsKey ? { encryptionKey: props.kmsKey } : {}),
@@ -99,6 +128,7 @@ export class TableStack extends Stack {
       sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: USER_DATA_REMOVAL_POLICY,
+      ...USER_DATA_PROTECTION,
       timeToLiveAttribute: 'ttl',
       encryption: props?.kmsKey ? dynamodb.TableEncryption.CUSTOMER_MANAGED : dynamodb.TableEncryption.AWS_MANAGED,
       ...(props?.kmsKey ? { encryptionKey: props.kmsKey } : {}),

@@ -8,12 +8,10 @@ import {
   Col,
   Card,
   Alert,
-  Spinner,
   Modal,
   Badge,
-  Breadcrumb,
 } from 'react-bootstrap';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { saveAs } from 'file-saver';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -21,9 +19,9 @@ import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { AdminUser, ReferralLink } from '../../common/types';
 import { useAdminIdentity } from '../../common/helpers/use-admin-identity';
-import { useLanguage } from '../../common/language-context';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
+import AIEPSpinner from '../../components/AIEPSpinner';
+import PageLoading from '../../components/PageLoading';
+import Breadcrumbs from '../../components/Breadcrumbs';
 import './AdminReferrals.css';
 
 const CHANNELS = ['social', 'conference', 'event', 'print', 'partner', 'other'];
@@ -52,8 +50,6 @@ export default function AdminReferrals() {
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
-  const { t } = useLanguage();
 
   const { isAdmin, sub, username } = useAdminIdentity();
   const [typeFilter, setTypeFilter] = useState<'all' | 'campaign' | 'user'>('all');
@@ -133,9 +129,7 @@ export default function AdminReferrals() {
 
   if (isAdmin === null) {
     return (
-      <Container className="text-center mt-5">
-        <Spinner animation="border" role="status" />
-      </Container>
+      <PageLoading message={"Loading"} />
     );
   }
   if (isAdmin === false) {
@@ -215,15 +209,15 @@ export default function AdminReferrals() {
 
   return (
     <>
-      <MobileTopNavigation />
-      <div className="mt-3 text-start px-4 breadcrumb-container">
-        <Breadcrumb>
-          <Breadcrumb.Item onClick={() => navigate('/account-center')}>
-            {t('changeLanguage.breadcrumb.account')}
-          </Breadcrumb.Item>
-          <Breadcrumb.Item active>Admin Console</Breadcrumb.Item>
-        </Breadcrumb>
-      </div>
+      <Breadcrumbs
+        trail={[
+          { labelKey: 'changeLanguage.breadcrumb.account', to: '/account-center' },
+          // Not a dictionary key. This console is deliberately English-only
+          // (see the docblock at the top of pages/admin), and t() is
+          // `translations[key] || key`, so the literal renders as written.
+          { labelKey: 'Admin Console' },
+        ]}
+      />
 
       <Container fluid className="admin-referrals-container">
         <Card className="admin-referrals-card">
@@ -261,7 +255,7 @@ export default function AdminReferrals() {
                 <option value="campaign">Campaign links</option>
                 <option value="user">Parent links</option>
               </Form.Select>
-              {isLoading && <Spinner animation="border" size="sm" />}
+              {isLoading && <AIEPSpinner size="sm" label="Loading links" />}
             </div>
 
             {error ? (
@@ -346,7 +340,7 @@ export default function AdminReferrals() {
           <Card.Body className="text-start">
             <div className="d-flex justify-content-between align-items-center mb-4">
               <h4 className="admin-referrals-section-title mb-0">Admins</h4>
-              {adminsLoading && <Spinner animation="border" size="sm" />}
+              {adminsLoading && <AIEPSpinner size="sm" label="Loading admins" />}
             </div>
 
             <Form
@@ -428,7 +422,6 @@ export default function AdminReferrals() {
           </Card.Body>
         </Card>
       </Container>
-      <AIEPFooter />
 
       <Modal show={showCreateModal} onHide={closeCreateModal} centered className="admin-referrals-modal">
         <Form onSubmit={handleCreate}>

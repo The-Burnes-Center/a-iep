@@ -14,7 +14,7 @@
   /* Near-black rather than the cream page background: the surround is what a
      camera meters against, and a dark frame around a white card is the easiest
      thing for another phone to lock onto. */
-  background-color: #0E1B2A;
+  background-color: var(--aiep-overlay-navy);
 }
 
 .invite-qr-close {
@@ -66,7 +66,7 @@
   border-radius: 8px;
   /* qrcode.react paints its own white background path across the quiet zone,
      so the card needs no extra padding to preserve it. */
-  background-color: #FFFFFF;
+  background-color: var(--aiep-surface-white);
 }
 
 .invite-qr-hint {

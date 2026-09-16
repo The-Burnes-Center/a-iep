@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../common/language-context';
+import { SIGN_IN_ROUTE } from '../common/sign-in-location';
 import './MultiFaceGreenBanner.css';
 import CreateAccountButton from './CreateAccountButton';
 
@@ -16,7 +17,7 @@ const MultiFaceGreenBanner: React.FC = () => {
                         <h2 className='multi-face-green-banner-title'>{t("landing.greenBanner.title")}</h2>
                         <p className='multi-face-green-banner-text'>{t("landing.greenBanner.description")}</p>
                         <CreateAccountButton 
-                            onClick={() => navigate('/login')} 
+                            onClick={() => navigate(SIGN_IN_ROUTE)} 
                             buttonText={t("landing.greenBanner.createAccountButton")}
                         />
                     </div>

@@ -2,6 +2,7 @@
 DynamoDB Service Lambda - Centralized database operations for Step Functions workflow
 Handles all DynamoDB read/write operations with standardized interface
 """
+import base64
 import json
 import os
 import time
@@ -22,6 +23,15 @@ from s3_content_handler import (
 # Initialize DynamoDB client
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(os.environ['IEP_DOCUMENTS_TABLE'])
+
+# Read for exactly one thing: the child's name, for get_student_name. Content
+# is stored with the {{S}} placeholder and stays that way; the name is
+# substituted by whichever lambda serves a read. os.environ.get rather than
+# [...] so every other operation in this service still imports without it.
+USER_PROFILES_TABLE = os.environ.get('USER_PROFILES_TABLE')
+kms_client = boto3.client(
+    'kms', region_name=os.environ.get('AWS_REGION',
+                                      os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')))
 
 
 class DocumentDeleted(Exception):
@@ -173,12 +183,40 @@ def lambda_handler(event, context):
             return save_content_to_s3_operation(params)
         elif operation == 'expire_stale_pending_uploads':
             return expire_stale_pending_uploads(params)
+        elif operation == 'get_student_name':
+            return get_student_name(params)
         else:
             raise ValueError(f"Unknown operation: {operation}")
             
     except Exception as e:
-        print(f"DDB Service error: {str(e)}")
-        print(traceback.format_exc())
+        # DDB_SERVICE_ERROR is a stable marker, not prose: a metric filter
+        # alarms on it, and rewording this line would disarm that alarm.
+        #
+        # It has to be a log marker because of the return below. Every failure
+        # here is REPORTED rather than raised, so the Lambda Errors metric
+        # stays at zero and an alarm on it can never fire. The step lambdas
+        # check the status code, but the state machine calls this function
+        # directly for update_progress, record_failure and the redacted-OCR
+        # purge, and nothing there reads it: those failures were completely
+        # silent until this marker existed.
+        #
+        # Only the operation, the exception class, and a redacted summary of
+        # the message are logged (via _summarize_error_for_logging, the same
+        # helper record_failure uses): str(e) can quote document content for
+        # some operations (e.g. a deep failure while saving OCR data), and
+        # this dispatcher has no way to know which operation's exception it is
+        # holding. The returned body below is a separate, narrower contract:
+        # callers (e.g. translate_content/handler.py) already extract just its
+        # 'error' field rather than dumping the response, and existing safe,
+        # code-controlled messages (like "Unknown operation: x") are expected
+        # to survive there for callers that surface them.
+        print(f"DDB_SERVICE_ERROR operation={event.get('operation', 'unknown')} kind={type(e).__name__}")
+        print(f"DDB Service error: {_summarize_error_for_logging(str(e))}")
+        # NOT traceback.format_exc(): its last line renders str(e) too (the
+        # same thing the two lines above redact), so printing it here would
+        # undo the redaction one line down. format_tb gives the call stack --
+        # file/line/function, i.e. source lines, not values -- without it.
+        print(''.join(traceback.format_tb(e.__traceback__)))
         return {
             'statusCode': 500,
             'body': json.dumps({
@@ -242,25 +280,59 @@ def _cleanup_unredacted_artifacts(iep_id, child_id):
     Data-retention policy: only redacted content may persist. On the happy
     path the DeleteOriginal step handles this; this runs on failure so a
     FAILED document also retains no unredacted artifacts.
+
+    Returns the artifacts that could NOT be removed, so the caller can say so.
+    Two properties matter here and neither was true before:
+
+    1. **Each artifact is deleted independently.** A single raise used to
+       abandon everything after it, so an S3 blip on the original upload left
+       the raw OCR behind as well. Every one of these is a child's unredacted
+       record; failing to delete one is no reason to keep the rest.
+    2. **The failure is reported rather than swallowed.** This is the purge
+       that backs "a FAILED document retains no unredacted artifacts", and it
+       could quietly not happen. Recording the failure still takes priority
+       over the purge, so this does not raise; it tells the truth instead.
     """
-    response = table.get_item(Key={'iepId': iep_id, 'childId': child_id})
-    item = response.get('Item', {})
+    retained = []
+    try:
+        response = table.get_item(Key={'iepId': iep_id, 'childId': child_id})
+        item = response.get('Item', {})
+    except Exception as error:  # noqa: BLE001 - reported, see docstring
+        # Without the row the artifacts cannot even be named, let alone
+        # deleted. That is the worst case, not a reason to continue quietly.
+        print(f'Unredacted cleanup could not read the document record: {type(error).__name__}')
+        return ['document-record-unreadable']
 
     # Original uploaded file (documentUrl = s3://bucket/key)
     document_url = item.get('documentUrl') or ''
     if document_url.startswith('s3://'):
         bucket, _, key = document_url[len('s3://'):].partition('/')
         if bucket and key:
-            delete_content_from_s3(key, bucket)
+            try:
+                delete_content_from_s3(key, bucket)
+            except Exception as error:  # noqa: BLE001 - reported, see docstring
+                print(f'Unredacted cleanup left the original upload: {type(error).__name__}')
+                retained.append('original-upload')
 
     # Raw OCR: S3 payload (new format) and/or inline attribute (legacy)
     s3_ref = item.get('ocr_result_s3_ref')
     if s3_ref:
-        delete_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
-    _guarded_update(
-        Key={'iepId': iep_id, 'childId': child_id},
-        UpdateExpression="REMOVE ocr_result, ocr_result_s3_ref"
-    )
+        try:
+            delete_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
+        except Exception as error:  # noqa: BLE001 - reported, see docstring
+            print(f'Unredacted cleanup left the raw OCR object: {type(error).__name__}')
+            retained.append('raw-ocr-object')
+
+    try:
+        _guarded_update(
+            Key={'iepId': iep_id, 'childId': child_id},
+            UpdateExpression="REMOVE ocr_result, ocr_result_s3_ref"
+        )
+    except Exception as error:  # noqa: BLE001 - reported, see docstring
+        print(f'Unredacted cleanup left the raw OCR attribute: {type(error).__name__}')
+        retained.append('raw-ocr-attribute')
+
+    return retained
 
 
 def record_failure(params):
@@ -277,11 +349,24 @@ def record_failure(params):
     # (a delayed S3 event finally landed) in the meantime.
     only_if_status_in = params.get('only_if_status_in')
 
-    # Best-effort purge of unredacted artifacts; must never mask the failure record
+    # Purge of unredacted artifacts. Still must never mask the failure record,
+    # so this does not raise; but a survivor is now REPORTED rather than
+    # printed and forgotten.
+    #
+    # This is the purge that backs "a FAILED document retains no unredacted
+    # artifacts", and it could quietly not happen: the old message matched no
+    # metric filter, so a child's raw OCR and original upload could sit in S3
+    # indefinitely with the document marked FAILED, and nothing anywhere said
+    # so. The marker below is watched by an alarm.
     try:
-        _cleanup_unredacted_artifacts(iep_id, child_id)
-    except Exception as cleanup_error:
-        print(f"Cleanup of unredacted artifacts after failure did not complete: {str(cleanup_error)}")
+        retained = _cleanup_unredacted_artifacts(iep_id, child_id)
+    except Exception as cleanup_error:  # noqa: BLE001 - the failure record wins
+        print(f"Cleanup of unredacted artifacts after failure did not complete: "
+              f"{type(cleanup_error).__name__}")
+        retained = ['unknown']
+    if retained:
+        # Ids and artifact kinds only, never content.
+        print(f"UNREDACTED_ARTIFACTS_RETAINED iep={iep_id} artifacts={','.join(retained)}")
 
     update_kwargs = {
         'Key': {'iepId': iep_id, 'childId': child_id},
@@ -559,26 +644,42 @@ def delete_ocr_data(params):
     data_type = params.get('data_type', 'ocr_result')
     _validate_ocr_data_type(data_type)
 
-    response = table.get_item(Key={'iepId': iep_id, 'childId': child_id})
-    item = response.get('Item', {})
+    # Reported through its OWN marker, then re-raised.
+    #
+    # Neither existing signal reaches this. The pipeline's PurgeRedactedOCR
+    # task catches into a Pass state on purpose, because a completed document
+    # must not be marked failed over a cleanup problem -- but the handler
+    # returns 500 rather than raising, so that Catch never fires and the run
+    # ends green either way. And DDB_SERVICE_ERROR needs five occurrences in
+    # fifteen minutes, while one failed purge logs once.
+    #
+    # So without this line, one document silently keeps text we said we would
+    # not keep. Threshold on this marker is one.
+    try:
+        response = table.get_item(Key={'iepId': iep_id, 'childId': child_id})
+        item = response.get('Item', {})
 
-    s3_ref = item.get(f'{data_type}_s3_ref')
-    if s3_ref:
-        delete_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
-    else:
-        # Delete the conventional key too in case the ref write was lost
-        delete_content_from_s3(get_ocr_s3_key(iep_id, child_id, data_type), os.environ.get('BUCKET', ''))
+        s3_ref = item.get(f'{data_type}_s3_ref')
+        if s3_ref:
+            delete_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
+        else:
+            # Delete the conventional key too in case the ref write was lost
+            delete_content_from_s3(get_ocr_s3_key(iep_id, child_id, data_type), os.environ.get('BUCKET', ''))
 
-    _guarded_update(
-        Key={
-            'iepId': iep_id,
-            'childId': child_id
-        },
-        UpdateExpression=f"REMOVE {data_type}, {data_type}_s3_ref SET updated_at = :updated_at",
-        ExpressionAttributeValues={
-            ':updated_at': datetime.utcnow().isoformat()
-        }
-    )
+        _guarded_update(
+            Key={
+                'iepId': iep_id,
+                'childId': child_id
+            },
+            UpdateExpression=f"REMOVE {data_type}, {data_type}_s3_ref SET updated_at = :updated_at",
+            ExpressionAttributeValues={
+                ':updated_at': datetime.utcnow().isoformat()
+            }
+        )
+    except Exception as error:
+        # Ids and the kind of payload only, never the text itself.
+        print(f"OCR_PURGE_FAILED iep={iep_id} kind={data_type} error={type(error).__name__}")
+        raise
 
     return {
         'statusCode': 200,
@@ -736,8 +837,15 @@ def save_content_to_s3_operation(params):
             }, default=str)
         }
     except Exception as e:
-        print(f"Error saving content to S3: {str(e)}")
-        traceback.print_exc()
+        # Same shape as the dispatcher's own catch-all above: params here
+        # include the full content dict being saved, so str(e) is one of the
+        # few exception messages in this file that can realistically quote
+        # document content. Only the printed line is redacted; the returned
+        # body keeps str(e) for now, matching the dispatcher's contract.
+        print(f"Error saving content to S3: {_summarize_error_for_logging(str(e))}")
+        # NOT traceback.print_exc(): it prints the same str(e) the line above
+        # redacts, as its own last line. print_tb gives the call stack alone.
+        traceback.print_tb(e.__traceback__)
         return {
             'statusCode': 500,
             'body': json.dumps({
@@ -745,6 +853,86 @@ def save_content_to_s3_operation(params):
                 'iep_id': iep_id
             }, default=str)
         }
+
+
+# What the parent never actually gave us. 'My Child' is the placeholder older
+# profiles carry; the onboarding gate writes '' until a name is entered.
+_PLACEHOLDER_NAMES = {'', 'my child'}
+
+
+def usable_student_name(value):
+    """The profile name to hand the redaction matcher, or None if unusable."""
+    if not isinstance(value, str) or value.strip().casefold() in _PLACEHOLDER_NAMES:
+        return None
+    return value.strip()
+
+
+# No child's name is this long. A KMS ciphertext blob, base64-encoded, always
+# is: that is what tells an undecryptable ciphertext apart from a legacy
+# plaintext name that happens to be valid base64 ("Anna").
+_MAX_PLAINTEXT_NAME_LENGTH = 100
+
+
+def _decrypt_profile_field(value):
+    """Decrypt a KMS-encrypted profile field, or hand back what was stored.
+
+    Same contract as kms_decrypt_string in user-profile-handler, which is what
+    wrote the value: child names became CMK-encrypted when the name was made
+    mandatory, and rows written before that are still plaintext. Falling
+    through on a decrypt failure is what keeps those legacy rows readable.
+
+    With one addition, because this value is written into a summary rather
+    than returned to an API: a failure to decrypt something that is plainly
+    ciphertext returns None, not the ciphertext. Otherwise a revoked key or a
+    narrowed IAM policy would print a base64 blob to a parent as their child's
+    name, which is worse than the neutral phrase they get instead.
+    """
+    if not isinstance(value, str) or not value:
+        return value
+    try:
+        blob = base64.b64decode(value)
+    except Exception:
+        return value  # not base64, so it was never encrypted
+    try:
+        return kms_client.decrypt(CiphertextBlob=blob)['Plaintext'].decode('utf-8')
+    except Exception as e:
+        # Class name only, and no value: this function's argument and result
+        # are a child's name.
+        print(f"Profile field decrypt failed: {type(e).__name__}")
+        if len(value) > _MAX_PLAINTEXT_NAME_LENGTH:
+            return None
+        return value
+
+
+def _student_name(user_id, child_id):
+    """The child's name from their profile, decrypted, or None.
+
+    Read here rather than passed in: a name in a step's event is a name in
+    Step Functions execution history, which is kept for 90 days and sits
+    outside every deletion path this project has.
+    """
+    if not user_id or not child_id or not USER_PROFILES_TABLE:
+        return None
+    profiles = dynamodb.Table(USER_PROFILES_TABLE)
+    profile = profiles.get_item(Key={'userId': user_id}).get('Item') or {}
+    for child in profile.get('children') or []:
+        if isinstance(child, dict) and child.get('childId') == child_id:
+            return usable_student_name(_decrypt_profile_field(child.get('name')))
+    return None
+
+
+def get_student_name(params):
+    """The child's name, for the redaction step's strict mention matcher.
+
+    The only operation in this service that returns PII. It goes to
+    redact_ocr, which uses it to decide which NAME entities become the student
+    token, and never stores or logs it.
+    """
+    name = _student_name(params.get('user_id'), params.get('child_id'))
+    return {
+        'statusCode': 200,
+        'body': json.dumps({'name': name or ''})
+    }
 
 
 def _write_content_reference(iep_id, child_id, s3_ref):

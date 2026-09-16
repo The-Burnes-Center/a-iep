@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Container, Form, Button, Row, Col, Alert, Spinner, Breadcrumb } from 'react-bootstrap';
+import { Container, Form, Button, Row, Col, Alert } from 'react-bootstrap';
 import { useNavigate, useLocation } from 'react-router-dom';
+import PageLoading from '../../components/PageLoading';
+import { DEFAULT_CHILD_NAME } from '../../common/features';
 import { useQuery } from '@tanstack/react-query';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
+import Breadcrumbs from '../../components/Breadcrumbs';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { useLanguage } from '../../common/language-context'; 
@@ -57,7 +58,7 @@ export default function UpdateProfileName() {
         try {
           // Create a default child with generic information
           // The user can update this later if needed
-          await apiClient.profile.addChild('My Child', profile?.city || 'Not specified');
+          await apiClient.profile.addChild(DEFAULT_CHILD_NAME, profile?.city || 'Not specified');
           // console.log('Created default child for IEP document functionality');
         } catch (childError) {
           // console.error('Error creating default child:', childError);
@@ -87,17 +88,9 @@ export default function UpdateProfileName() {
     return parentName.trim() !== '';
   };
 
-  const handleBackClick = () => {
-    navigate('/account-center');
-  };
-
   if (isLoading) {
     return (
-      <Container className="text-center">
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">{t('updateProfile.loading')}</span>
-        </Spinner>
-      </Container>
+      <PageLoading message={t('updateProfile.loading')} />
     );
   }
 
@@ -111,17 +104,16 @@ export default function UpdateProfileName() {
 
   return (
     <>
-    <MobileTopNavigation />
     <div>
-      {/* Breadcrumbs (hidden mid-flow: they lead back to the Account
-          Center, which makes no sense while finishing sign-in) */}
+      {/* Hidden mid-flow: the trail leads back to the Account Center, which
+          makes no sense while a parent is still finishing sign-in. */}
       {!onboardingContinue && (
-        <div className="mt-3 text-center px-4 breadcrumb-container">
-          <Breadcrumb>
-            <Breadcrumb.Item onClick={handleBackClick}>{t('updateProfile.breadcrumb.account')}</Breadcrumb.Item>
-            <Breadcrumb.Item active>{t('updateProfile.breadcrumb.updateProfile')}</Breadcrumb.Item>
-          </Breadcrumb>
-        </div>
+        <Breadcrumbs
+          trail={[
+            { labelKey: 'updateProfile.breadcrumb.account', to: '/account-center' },
+            { labelKey: 'updateProfile.breadcrumb.updateProfile' },
+          ]}
+        />
       )}
       
       <Container 
@@ -168,7 +160,6 @@ export default function UpdateProfileName() {
         </Row>
       </Container>
     </div>
-    <AIEPFooter />
     </>
   );
 }

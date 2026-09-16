@@ -12,10 +12,12 @@ import {
   AdminUpdateUserAttributesCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm';
+import { DynamoDBClient, DeleteItemCommand } from '@aws-sdk/client-dynamodb';
 import { randomBytes } from 'crypto';
-import { REGION, TEST_OTP_PARAM_PREFIX, getUserPoolId } from './config';
+import { REGION, TEST_OTP_PARAM_PREFIX, getUserPoolId, getUserProfilesTableName } from './config';
 
 const ssm = new SSMClient({ region: REGION });
+const ddb = new DynamoDBClient({ region: REGION });
 const cognito = new CognitoIdentityProviderClient({ region: REGION });
 
 /**
@@ -157,6 +159,54 @@ export async function readTestUserState(phone: string): Promise<TestUserState> {
 }
 
 /**
+ * How long a fresh sign-up's Cognito user may take to appear after
+ * /auth/start has already answered 200. See waitForTestUserState below.
+ */
+const USER_EXISTS_POLL_TIMEOUT_MS = 30_000;
+const USER_EXISTS_POLL_INTERVAL_MS = 1_500;
+
+/**
+ * Poll for `phone` to exist in Cognito, then return readTestUserState's
+ * result for it.
+ *
+ * auth-start.js (~line 195) hands account creation to auth-dispatch.js
+ * (~line 145, AdminCreateUser) through an async `InvocationType: 'Event'`
+ * Lambda invoke, and answers the caller as soon as that invoke is merely
+ * ACCEPTED, not once it has run. That is deliberate (see auth-start.js's own
+ * docblock): doing the account-exists branch on the request path is exactly
+ * the response-time oracle passwordlessAuth exists to close. The
+ * consequence for a white-box check like this one is that a destination
+ * which did not exist before a /auth/start call may still not exist for a
+ * little while AFTER that call returns 200 -- reading once here is the same
+ * class of race fetchOtp's poll above already exists to avoid, just against
+ * the admin-plane user lookup instead of the OTP stash. The client-visible
+ * half of this same window is what /auth/verify's `not_ready` retry covers
+ * (docs/AUTH_API_CONTRACT.md); this is the admin-plane equivalent for a test
+ * that looks directly at Cognito.
+ */
+export async function waitForTestUserState(phone: string): Promise<TestUserState> {
+  const deadline = Date.now() + USER_EXISTS_POLL_TIMEOUT_MS;
+  let lastFailure = 'no lookup attempted yet';
+
+  while (Date.now() < deadline) {
+    try {
+      return await readTestUserState(phone);
+    } catch (error) {
+      if ((error as Error).name !== 'UserNotFoundException') throw error;
+      lastFailure = 'UserNotFoundException';
+    }
+    await sleep(USER_EXISTS_POLL_INTERVAL_MS);
+  }
+
+  throw new Error(
+    `${phone} never appeared in Cognito within ${USER_EXISTS_POLL_TIMEOUT_MS / 1000}s of ` +
+    `starting sign-up (last lookup: ${lastFailure}). auth-dispatch.js creates the account ` +
+    "asynchronously after /auth/start already answered the caller (Event invocation), so " +
+    'either it has not run yet or account creation failed outright.'
+  );
+}
+
+/**
  * A throwaway password that satisfies the pool policy (minLength 8, digits).
  * The OTP flow never uses passwords; this exists only because Cognito
  * requires AdminSetUserPassword(Permanent) to move an admin-created user
@@ -223,6 +273,20 @@ export async function ensureTestUser(phone: string): Promise<void> {
  * leftover, and the journey needs a clean, confirmed starting state.
  */
 export async function deleteTestUserIfExists(phone: string): Promise<void> {
+  // The sub, read BEFORE the delete: it is the profile table's key, and once
+  // the Cognito user is gone there is no way to look it up again.
+  let sub: string | undefined;
+  try {
+    const user = await cognito.send(new AdminGetUserCommand({
+      UserPoolId: getUserPoolId(),
+      Username: phone,
+    }));
+    sub = user.UserAttributes?.find((a) => a.Name === 'sub')?.Value;
+  } catch (error) {
+    if ((error as Error).name !== 'UserNotFoundException') throw error;
+    return;
+  }
+
   try {
     await cognito.send(new AdminDeleteUserCommand({
       UserPoolId: getUserPoolId(),
@@ -231,4 +295,53 @@ export async function deleteTestUserIfExists(phone: string): Promise<void> {
   } catch (error) {
     if ((error as Error).name !== 'UserNotFoundException') throw error;
   }
+
+  // AdminDeleteUser removes the login and nothing else. This teardown does
+  // NOT go through the product's own delete, so the profile row it wrote at
+  // signup is left with no owner: unreachable, because nothing can
+  // authenticate as a deleted user, and therefore undeletable through the
+  // app. Staging had accumulated 128 of them before anyone looked.
+  if (!sub) {
+    return;
+  }
+  try {
+    await ddb.send(new DeleteItemCommand({
+      TableName: getUserProfilesTableName(),
+      Key: { userId: { S: sub } },
+    }));
+  } catch (error) {
+    // Best effort: a leftover row is untidy, not a failed test.
+    console.warn(`could not remove the profile row for a deleted test user: ${(error as Error).name}`);
+  }
+}
+
+/**
+ * The staging-only token that gets this suite past the Turnstile bot check.
+ *
+ * Turnstile refuses automated browsers. That is the entire product, so a real
+ * widget and an automated signup cannot both work, and staging keeps the real
+ * widget for anyone testing by hand. Without this the signup journey cannot
+ * run at all, and that journey is the coverage that caught a phone-signup bug
+ * which had been broken for over a month.
+ *
+ * The token alone is not enough to create an account: the endpoint also
+ * requires one of TEST_PHONE_NUMBERS, and production is not given the
+ * parameter, the environment variable or the IAM grant.
+ */
+let cachedBypassToken: string | undefined;
+export async function fetchTurnstileBypassToken(): Promise<string> {
+  if (cachedBypassToken === undefined) {
+    const result = await ssm.send(new GetParameterCommand({
+      Name: '/a-iep/staging/e2e-turnstile-bypass',
+      WithDecryption: true,
+    }));
+    const value = result.Parameter?.Value;
+    if (!value) {
+      throw new Error(
+        'The Turnstile bypass parameter is missing or empty, so no signup in this ' +
+        'suite can succeed. Create /a-iep/staging/e2e-turnstile-bypass.');
+    }
+    cachedBypassToken = value;
+  }
+  return cachedBypassToken;
 }

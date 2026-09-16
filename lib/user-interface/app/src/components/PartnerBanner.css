@@ -25,7 +25,7 @@
   font-size: 13px;
   line-height: 1;
   font-weight: 400;
-  color: #ffffff;
+  color: var(--aiep-surface-white);
   white-space: nowrap;
 }
 
@@ -44,7 +44,7 @@
 
 .partner-banner__link:hover {
   opacity: 0.8;
-  color: #ffffff;
+  color: var(--aiep-surface-white);
 }
 
 .partner-banner__icon {

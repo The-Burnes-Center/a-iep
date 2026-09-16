@@ -23,6 +23,11 @@ jobs:
     secrets: inherit
     with:
       run_pipeline: ${{ github.event_name == 'schedule' || inputs.run_pipeline }}
+      # The suite has to come from the branch that is deployed to staging, not
+      # from the default branch a schedule runs on. Without this the nightly
+      # checks a deployment against an older copy of its own tests, and goes
+      # red on the difference rather than on anything being wrong.
+      ref: staging
       # The daily report into #a-iep-dev, pass or fail. Needs the
       # SLACK_WEBHOOK_URL repository secret; without it the step logs that it
       # skipped and the run still passes.

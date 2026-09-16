@@ -65,9 +65,15 @@
     "MistralOCR": {
       "Type": "Task",
       "Resource": "${MistralOCRArn}",
-      "Comment": "Extract text from document using Mistral OCR API",
+      "Comment": "Extract text from document using Mistral OCR API. mistral_ocr/handler.py raises OcrClientError for a 4xx (other than 429) from Mistral: that means the file itself was rejected -- a password-protected PDF is the incident this was written for -- so retrying an unchanged request is guaranteed to fail three more times. That error is retried zero times, below. Everything else (5xx, 429, or a timeout/connection error that never got a response) falls through to the States.ALL retrier and keeps the original 3-attempt policy.",
       "ResultPath": null,
       "Retry": [
+        {
+          "ErrorEquals": [
+            "OcrClientError"
+          ],
+          "MaxAttempts": 0
+        },
         {
           "ErrorEquals": [
             "States.ALL"
@@ -383,7 +389,7 @@
           "user_id.$": "$.user_id",
           "status": "PROCESSING",
           "current_step": "analysis_complete",
-          "progress": 65
+          "progress": 75
         }
       },
       "ResultPath": null,
@@ -424,7 +430,7 @@
         "user_id.$": "$.user_id",
         "s3_bucket.$": "$.s3_bucket",
         "s3_key.$": "$.s3_key",
-        "progress": 65,
+        "progress": 75,
         "current_step": "analysis_complete",
         "status": "PROCESSING"
       },
@@ -487,7 +493,7 @@
     "TranslateParsingResult": {
       "Type": "Task",
       "Resource": "${TranslateContentArn}",
-      "Comment": "Translate parsing agent results to target languages",
+      "Comment": "Translate parsing agent results to target languages. ResultSelector narrows the output to languages_processed only: translate_content returns the full translated summary/sections, and Step Functions keeps every state's output in execution history for 90 days, so without this the translated document content (FERPA-protected) would sit in the console. Mirrors single-language-translation.asl.json's TranslateRequestedLanguage state.",
       "Parameters": {
         "iep_id.$": "$.iep_id",
         "child_id.$": "$.child_id",
@@ -495,6 +501,10 @@
         "target_languages.$": "$.target_languages",
         "content_type": "parsing_result"
       },
+      "ResultSelector": {
+        "languages_processed.$": "$.languages_processed"
+      },
+      "ResultPath": "$.translation_result",
       "Retry": [
         {
           "ErrorEquals": [
@@ -514,12 +524,32 @@
           "ResultPath": "$.error"
         }
       ],
-      "Next": "UpdateTranslationProgress",
-      "ResultPath": null
+      "Next": "VerifyLanguageProduced"
+    },
+    "VerifyLanguageProduced": {
+      "Type": "Choice",
+      "Comment": "translate_content swallows a per-language translation error (it logs and continues), then saves whatever succeeded and returns languages_processed: []. Without this check the document would be marked PROCESSED with every requested language missing and no failure recorded anywhere. Mirrors single-language-translation.asl.json's state of the same name; that machine's own comment describes this exact defect. Only total failure is caught here: a partial failure (some but not all requested languages) still passes, same as the single-language precedent.",
+      "Choices": [
+        {
+          "Variable": "$.translation_result.languages_processed[0]",
+          "IsPresent": true,
+          "Next": "UpdateTranslationProgress"
+        }
+      ],
+      "Default": "NoLanguageProducedForTranslateParsingResult"
+    },
+    "NoLanguageProducedForTranslateParsingResult": {
+      "Type": "Pass",
+      "Comment": "translate_content returned normally (it did not raise), so there is no $.error for RecordFailure's error_message.$ ($.error.Cause) to read. Synthesize the same shape a Catch would have produced, then join the existing failure path below.",
+      "Result": {
+        "Cause": "TranslateParsingResult completed without producing any of the requested target languages"
+      },
+      "ResultPath": "$.error",
+      "Next": "FailedAtTranslateParsingResult"
     },
     "FailedAtTranslateParsingResult": {
       "Type": "Pass",
-      "Comment": "Name the failing step for record_failure (TranslateParsingResult)",
+      "Comment": "Name the failing step for record_failure (TranslateParsingResult). Reached either from the Catch above ($.error already set) or from NoLanguageProducedForTranslateParsingResult ($.error set synthetically).",
       "Result": "TranslateParsingResult",
       "ResultPath": "$.failed_step",
       "Next": "RecordFailure"
@@ -536,7 +566,7 @@
           "user_id.$": "$.user_id",
           "status": "PROCESSING",
           "current_step": "translation_complete",
-          "progress": 85
+          "progress": 97
         }
       },
       "ResultPath": null,
@@ -577,7 +607,7 @@
         "user_id.$": "$.user_id",
         "s3_bucket.$": "$.s3_bucket",
         "s3_key.$": "$.s3_key",
-        "progress": 85,
+        "progress": 97,
         "current_step": "translation_complete",
         "status": "PROCESSING",
         "target_languages.$": "$.target_languages",
@@ -618,7 +648,7 @@
           "ResultPath": "$.error"
         }
       ],
-      "End": true
+      "Next": "PurgeRedactedOCR"
     },
     "FailedAtFinalizeResults": {
       "Type": "Pass",
@@ -651,6 +681,46 @@
           "BackoffRate": 2
         }
       ],
+      "End": true
+    },
+    "PurgeRedactedOCR": {
+      "Type": "Task",
+      "Resource": "${DDBServiceArn}",
+      "Comment": "Delete the redacted OCR once the summary exists. The summary, sections and translations are the product; the redacted text is an intermediate we have no further use for, and redaction is best-effort rather than a guarantee.",
+      "Parameters": {
+        "operation": "delete_ocr_data",
+        "params": {
+          "iep_id.$": "$.iep_id",
+          "child_id.$": "$.child_id",
+          "user_id.$": "$.user_id",
+          "data_type": "redacted_ocr_result"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "RedactedOCRPurgeSkipped",
+          "ResultPath": "$.purge_error"
+        }
+      ],
+      "End": true
+    },
+    "RedactedOCRPurgeSkipped": {
+      "Type": "Pass",
+      "Comment": "The purge failed and the document is still complete, so the run ends normally rather than marking a finished document failed. This state is reached only when the service RAISES; when it reports the failure in a 500 instead, the run never gets here at all. Either way the OCR_PURGE_FAILED marker is what actually surfaces it, at a threshold of one.",
       "End": true
     }
   }

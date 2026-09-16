@@ -1,5 +1,5 @@
 .resources-banner-container {
-    background-color: #007AD1;
+    background-color: var(--aiep-accent-blue);
     width: 100%;
     display: flex;
     position: relative;
@@ -26,7 +26,9 @@
     display: flex;
     flex-direction: row;
     width: 100%;
-    align-items: center;
+    /* Not center: a centered card sizes to its own text, so four cards of
+       four different lengths end up four different heights */
+    align-items: stretch;
     gap: 2rem;
 }
 
@@ -34,7 +36,6 @@
     display: flex;
     flex-direction: column;
     background-color: #F5F3EE;
-    min-height: 100px;
     width: 100%;
     min-width: 300px;
     min-height: 300px;
@@ -55,6 +56,12 @@
     font-weight: 400;
     font-size: 1.125rem;
     margin-bottom: 1rem;
+}
+
+/* Sits at the foot of the card rather than directly under a description whose
+   length differs per card, so the four buttons line up across the row */
+.resources-banner-item .view-resources-button {
+    margin-top: auto;
 }
 
 @media (max-width: 1024px) { 
@@ -84,7 +91,6 @@
         width: 100%;
         /* Cards shrink to 250px before wrapping so the row never overflows */
         flex-wrap: wrap;
-        align-items: stretch;
     }
 
     .resources-banner-item {

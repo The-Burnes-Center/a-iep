@@ -13,12 +13,12 @@
 
 .invite-page .invite-link-group .form-control {
   background-color: #F5F3EE;
-  border-color: #CBC6BC;
+  border-color: var(--aiep-border);
   color: #1E1E1E;
 }
 
 .invite-page .invite-link-group .btn {
-  border-color: #CBC6BC;
+  border-color: var(--aiep-border);
   color: #1E1E1E;
 }
 
@@ -54,7 +54,7 @@
 }
 
 .invite-page .invite-stats-panel {
-  border: 1px solid rgba(30, 30, 30, 0.25);
+  border: 1px solid var(--aiep-border);
   border-radius: 10px;
 }
 
@@ -64,7 +64,7 @@
 }
 
 .invite-page .invite-stat + .invite-stat {
-  border-inline-start: 1px solid rgba(30, 30, 30, 0.15);
+  border-inline-start: 1px solid var(--aiep-border);
 }
 
 .invite-page .invite-stat-value {
@@ -93,7 +93,7 @@
 }
 
 .invite-page .invite-joins-panel {
-  border: 1px solid rgba(30, 30, 30, 0.25);
+  border: 1px solid var(--aiep-border);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -105,7 +105,7 @@
 }
 
 .invite-page .invite-join-row + .invite-join-row {
-  border-top: 1px solid rgba(30, 30, 30, 0.15);
+  border-top: 1px solid var(--aiep-border);
 }
 
 .invite-page .invite-join-row .invite-icon {

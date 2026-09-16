@@ -5,23 +5,44 @@ import json
 import os
 import boto3
 import traceback
-from translation_agent import OptimizedTranslationAgent
+from translation_agent import OptimizedTranslationAgent, _safe_error_summary
+from student_token import count_tokens, verify_token_survived
 
 # Only non-sensitive metadata is safe to log. These events can carry
 # FERPA-protected document content (OCR text, parsed sections, translated
 # content) as the workflow evolves; dumping the whole event would expose it
 # to anyone with CloudWatch log access.
+# s3_key is deliberately NOT in this allowlist: the key is
+# userId/childId/iepId/<filename>, and parents routinely name an IEP after
+# their child, so the filename is student data. It is logged separately below
+# with the filename stripped (see _safe_key).
 _SAFE_LOG_FIELDS = (
-    'iep_id', 'child_id', 'user_id', 's3_bucket', 's3_key', 'current_step',
+    'iep_id', 'child_id', 'user_id', 's3_bucket', 'current_step',
     'progress', 'status', 'content_type', 'target_languages', 'translation_needed',
 )
+
+
+def _safe_key(key):
+    """An S3 key with the parent-chosen filename removed.
+
+    The key is userId/childId/iepId/filename, and only the last segment is
+    typed by a human. Mirrors metadata-handler/orchestrator.py's helper of the
+    same name.
+    """
+    if not isinstance(key, str):
+        return '<no key>'
+    head, sep, _filename = key.rpartition('/')
+    return f'{head}/...' if sep else '...'
 
 
 def _safe_event_meta(event):
     """Return only the allowlisted, non-sensitive fields from the event."""
     if not isinstance(event, dict):
         return {'_type': type(event).__name__}
-    return {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+    meta = {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+    if 's3_key' in event:
+        meta['s3_key'] = _safe_key(event['s3_key'])
+    return meta
 
 
 def lambda_handler(event, context):
@@ -41,7 +62,7 @@ def lambda_handler(event, context):
         child_id = event['child_id']
         target_languages = event['target_languages']
         content_type = event.get('content_type', 'parsing_result')
-        
+
         if not target_languages:
             print("No target languages provided, skipping translation")
             event_copy = {k: v for k, v in event.items() if k not in ['progress', 'current_step']}
@@ -57,7 +78,10 @@ def lambda_handler(event, context):
         lambda_client = boto3.client('lambda')
         ddb_service_name = os.environ.get('DDB_SERVICE_FUNCTION_NAME', 'DDBService')
         
-        # Get the document with content (handles S3 storage and lazy migration)
+        # Get the document with content (handles S3 storage and lazy migration).
+        # Stored content refers to the child as {{S}} and keeps doing so, here
+        # and on the on-demand add-a-language path: the name is substituted by
+        # whichever lambda serves a read, so this step never sees it.
         source_payload = {
             'operation': 'get_document_with_content',
             'params': {
@@ -84,7 +108,18 @@ def lambda_handler(event, context):
             raise Exception(f"Failed to parse DDB service response as JSON: {e}")
         
         if source_ddb_result.get('statusCode') != 200:
-            raise Exception(f"Failed to get document from DDB: {source_ddb_result}")
+            # Same shape as the get_content_result check below: pull just the
+            # error out of the body rather than interpolating the whole
+            # ddb-service response, which for get_document_with_content is a
+            # document read and can carry more than a status message.
+            source_error_body = source_ddb_result.get('body', '')
+            source_error_msg = source_error_body
+            try:
+                source_error_data = json.loads(source_error_body)
+                source_error_msg = source_error_data.get('error', source_error_body)
+            except:
+                pass
+            raise Exception(f"Failed to get document from DDB: {source_error_msg}")
         
         document = json.loads(source_ddb_result['body'])
         print(f"Retrieved document for {content_type} translation")
@@ -140,10 +175,16 @@ def lambda_handler(event, context):
             raise Exception("OPENAI_API_KEY not available from environment or SSM")
         
         optimized_agent = OptimizedTranslationAgent()
-        
+
         # Translate content to target languages using agent framework
         translations = {}
-        
+
+        # The child is referred to as {{S}} throughout the English content and
+        # the real name is restored once, after this step. Count the
+        # placeholders going in so each translation can be checked coming out.
+        expected_student_tokens = count_tokens(source_result)
+        print(f"Student placeholders in source content: {expected_student_tokens}")
+
         for lang in target_languages:
             print(f"Translating {content_type} to {lang} using optimized agent framework")
             
@@ -157,7 +198,14 @@ def lambda_handler(event, context):
             if "error" in translated_content:
                 print(f"Translation to {lang} failed: {translated_content['error']}")
                 continue
-            
+
+            # Raises, so a run that lost the placeholder is never stored. Not
+            # treated like the model error above (skip the language, carry on):
+            # a skipped language is missing, which the state machine can see,
+            # while a translation with the placeholder gone is a summary that
+            # silently calls the child by no name or an invented one.
+            verify_token_survived(expected_student_tokens, translated_content, lang)
+
             translations[lang] = translated_content
             print(f"Translation to {lang} completed successfully using optimized agent framework")
         
@@ -185,9 +233,20 @@ def lambda_handler(event, context):
             raise Exception("Empty response when getting existing content")
         
         get_content_result = json.loads(get_content_payload_response)
-        
+
         if get_content_result.get('statusCode') != 200:
-            raise Exception(f"Failed to get existing content: {get_content_result}")
+            # Mirror the save-path shape below: pull just the error out of the
+            # body rather than interpolating the whole ddb-service response,
+            # which for get_document_with_content is a document read and can
+            # carry more than a status message.
+            error_body = get_content_result.get('body', '')
+            error_msg = error_body
+            try:
+                error_data = json.loads(error_body)
+                error_msg = error_data.get('error', error_body)
+            except:
+                pass
+            raise Exception(f"Failed to get existing content: {error_msg}")
         
         existing_doc = json.loads(get_content_result['body'])
         
@@ -259,16 +318,25 @@ def lambda_handler(event, context):
         else:
             result_key = f'{content_type}_translations'
         
-        # Return result
+        # Return result. "completed" means at least one language actually came
+        # back: every language can fail (each is caught and skipped above), and
+        # claiming completion with an empty result is what let a document be
+        # marked PROCESSED with the parent's language silently missing and no
+        # failure recorded anywhere. VerifyLanguageProduced in the state
+        # machine is the other half of this fix: it reads languages_processed
+        # to fail the run when this is False.
         event_copy = {k: v for k, v in event.items() if k not in ['progress', 'current_step']}
         return {
             **event_copy,
             result_key: translations,
-            f'{content_type}_translation_completed': True,
+            f'{content_type}_translation_completed': bool(translations),
             'languages_processed': list(translations.keys())
         }
         
     except Exception as e:
-        print(f"TranslateContent error: {str(e)}")
-        print(traceback.format_exc())
+        print(f"TranslateContent error: {_safe_error_summary(e)}")
+        # NOT traceback.format_exc(): its last line renders str(e), which is
+        # exactly what the summary above (the same helper translation_agent.py
+        # uses for a pydantic ValidationError) was built to avoid.
+        print(''.join(traceback.format_tb(e.__traceback__)))
         raise

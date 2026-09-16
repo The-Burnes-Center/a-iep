@@ -2,6 +2,7 @@ import os
 import logging
 import json
 import traceback
+from pydantic import ValidationError
 from data_model import SingleLanguageIEP
 from openai import OpenAI
 from agents import Agent, Runner, function_tool, ModelSettings
@@ -16,6 +17,34 @@ except ImportError:
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _validation_error_summary(e):
+    """A content-free triage string for a pydantic ValidationError.
+
+    str(e) quotes `input_value` for every failing field: pydantic truncates it
+    to roughly 50 characters but does not remove it, and here that value is
+    OCR-derived document text (CLAUDE.md: never log document content, OCR
+    text, or a summary). `.errors()` carries the same triage signal (field
+    path + error type) without the `input` key each entry also carries, so
+    the summary is built from `loc`/`type` explicitly rather than by dumping
+    an entry wholesale.
+    """
+    locations = [err.get('loc') for err in e.errors()]
+    return f"{type(e).__name__}: {e.error_count()} error(s) at {locations}"
+
+
+def _safe_error_summary(e):
+    """Content-free triage string for any exception raised while parsing or
+    validating model output. Narrows to `_validation_error_summary` for a
+    pydantic ValidationError (the one exception type in this file's output
+    handling that is known to quote document text); every other exception
+    here is reduced to its class name only, since nothing downstream needs to
+    special-case it to stay safe.
+    """
+    if isinstance(e, ValidationError):
+        return _validation_error_summary(e)
+    return type(e).__name__
 
 class OpenAIAgent:
     def __init__(self, ocr_data=None, api_key=None):
@@ -168,10 +197,12 @@ class OpenAIAgent:
             )
             raw_output = result.final_output
         except MaxTurnsExceeded as e:
-            logger.error(f"Max turns exceeded: {str(e)}")
+            logger.error(f"Max turns exceeded: {type(e).__name__}")
             return {"error": "Max turns exceeded"}
         except ModelBehaviorError as e:
-            logger.error(f"Model behavior error (likely validation failure): {str(e)}")
+            # str(e) can echo the model's raw (malformed) output, which is
+            # derived from OCR document text, so only the class is logged.
+            logger.error(f"Model behavior error (likely validation failure): {type(e).__name__}")
             # Try to extract partial output if available
             if hasattr(e, 'final_output') and e.final_output:
                 logger.info("Attempting to recover from partial output")
@@ -180,10 +211,11 @@ class OpenAIAgent:
                 logger.info("Attempting to recover from result object")
                 raw_output = e.result.final_output
             else:
-                # If we can't recover, try to parse the error message for JSON
-                error_str = str(e)
-                logger.warning(f"Could not recover output, error: {error_str}")
-                return {"error": f"Model behavior error: {error_str}"}
+                # Can't recover a usable output either way, so there is
+                # nothing left to gain from the message that would justify
+                # the risk of logging or returning it.
+                logger.warning(f"Could not recover output, error: {type(e).__name__}")
+                return {"error": f"Model behavior error: {type(e).__name__}"}
 
         # Parse & validate
         try:
@@ -205,11 +237,14 @@ class OpenAIAgent:
                 output_type = type(raw_output).__name__
                 logger.error(f"Unexpected output type: {output_type}")
                 if raw_output is not None:
-                    logger.error(f"Output preview: {str(raw_output)[:200]}")
+                    # The model's raw output can itself be OCR-derived
+                    # document text; only its length is safe to log.
+                    logger.error(f"Output preview unavailable (length: {len(str(raw_output))} chars)")
                 return {"error": f"Unexpected output type: {output_type}"}
             return data.model_dump()
         except Exception as e:
-            logger.error(f"Validation error: {str(e)}")
+            summary = _safe_error_summary(e)
+            logger.error(f"Validation error: {summary}")
             # Log what sections were actually present
             if isinstance(raw_output, (dict, SingleLanguageIEP)):
                 try:
@@ -222,9 +257,18 @@ class OpenAIAgent:
                         logger.error(f"Present sections: {present_titles}")
                         logger.error(f"Total sections found: {len(sections_data)}")
                 except Exception as log_err:
-                    logger.error(f"Error logging section info: {log_err}")
-            logger.error(traceback.format_exc(limit=3))
-            return {"error": f"Validation failed: {str(e)}"}
+                    logger.error(f"Error logging section info: {type(log_err).__name__}")
+            if isinstance(e, ValidationError):
+                # traceback.format_exc()'s last line renders str(e) (see
+                # _validation_error_summary above): for a ValidationError that
+                # quotes the same rejected document text the summary above was
+                # written to avoid. The summary already carries the useful
+                # triage signal, so the traceback is skipped rather than
+                # risking the same leak one line down.
+                logger.error("Traceback suppressed for ValidationError (see summary above)")
+            else:
+                logger.error(traceback.format_exc(limit=3))
+            return {"error": f"Validation failed: {summary}"}
 
 
     def _ensure_complete_english_sections(self, data):

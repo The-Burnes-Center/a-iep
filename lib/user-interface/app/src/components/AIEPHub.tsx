@@ -4,45 +4,29 @@ import LandingContainer from './LandingContainer';
 import GreenSection from './GreenSection';
 import LandingHeroSection from './LandingHeroSection';
 import LandingCardSection from './LandingCardSection';
-import AIEPFooter from './AIEPFooter';
 import { useLanguage } from '../common/language-context';
-import { Container } from 'react-bootstrap';
+import PageLoading from './PageLoading';
 
-const publicFooterLinks = [
-  { route: '/', labelKey: 'footer.home' },
-  { route: '/login', labelKey: 'footer.uploadIEP' },
-  { route: '/faqs', labelKey: 'footer.faqs' },
-  { route: '/about-the-project', labelKey: 'footer.aboutUs' },
-];
-
-interface AIEPHubProps {
-  NavigationComponent?: React.ComponentType;
-}
-
-export default function AIEPHub({ NavigationComponent }: AIEPHubProps) {
-  const { translationsLoaded } = useLanguage();
+/**
+ * The public hub at /aiep-hub. The header used to arrive as a
+ * `NavigationComponent` prop that only AppRoutes passed; PublicChrome renders
+ * it for the whole public block now (components/RouteChrome.tsx).
+ */
+export default function AIEPHub() {
+  const { t, translationsLoaded } = useLanguage();
 
   if (!translationsLoaded) {
     return (
-      <Container className="mt-4 mb-5">
-        <div className="text-center my-5">
-          <div className="spinner-border text-primary" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </div>
-          <p className="mt-3">Loading...</p>
-        </div>
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 
   return (
     <div>
-      {NavigationComponent && <NavigationComponent />}
       <LandingHeroSection />
       <LandingCardSection />
       <GreenSection />
       <LandingContainer />
-      <AIEPFooter footerLinks={publicFooterLinks} />
     </div>
   );
 }

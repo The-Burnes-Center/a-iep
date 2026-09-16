@@ -6,6 +6,8 @@ import "./common/direction";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import AppConfigured from "./components/app-configured";
+// Palette first: every other stylesheet resolves its colours from these tokens.
+import './styles/palette.css';
 import './styles/app.scss';
 import './styles/modal.css';
 import './styles/buttons.css';

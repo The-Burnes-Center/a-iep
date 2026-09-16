@@ -5,14 +5,19 @@ import json
 import os
 import traceback
 import boto3
-from mistral_ocr import process_document_with_mistral_ocr
+from mistral_ocr import process_document_with_mistral_ocr, _safe_key
 
 # Only non-sensitive metadata is safe to log. These events can carry
 # FERPA-protected document content (OCR text, parsed sections, translated
 # content) as the workflow evolves; dumping the whole event would expose it
 # to anyone with CloudWatch log access.
+#
+# s3_key is deliberately NOT in this allowlist: the key is
+# userId/childId/iepId/<filename>, and parents routinely name an IEP after
+# their child, so the filename is student data. It is logged separately below
+# with the filename stripped (see _safe_key).
 _SAFE_LOG_FIELDS = (
-    'iep_id', 'child_id', 'user_id', 's3_bucket', 's3_key', 'current_step',
+    'iep_id', 'child_id', 'user_id', 's3_bucket', 'current_step',
     'progress', 'status', 'content_type', 'target_languages', 'translation_needed',
 )
 
@@ -21,7 +26,54 @@ def _safe_event_meta(event):
     """Return only the allowlisted, non-sensitive fields from the event."""
     if not isinstance(event, dict):
         return {'_type': type(event).__name__}
-    return {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+    meta = {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+    if 's3_key' in event:
+        meta['s3_key'] = _safe_key(event['s3_key'])
+    return meta
+
+
+# A 4xx status other than 429 means Mistral rejected the FILE, not the
+# request: the request is unchanged on retry and the provider's answer will
+# not change either. A password-protected PDF (400) is the case this was
+# written for. 429 is excluded on purpose -- it means "you", not "this
+# file": Mistral is throttling the account, and the identical request has a
+# real chance of succeeding once the throttle clears. Anything else --
+# 5xx, or no status code at all because a timeout or connection error never
+# got a response back -- is transient and keeps the default retry policy.
+_PERMANENT_OCR_FAILURE_STATUS_RANGE = range(400, 500)
+_RETRYABLE_CLIENT_STATUS = 429
+
+
+class OcrClientError(Exception):
+    """Mistral rejected the document itself; retrying it is pointless.
+
+    Raised instead of a bare Exception so the state machine's Retry can tell
+    the two apart by name (iep-processing.asl.json's MistralOCR state matches
+    on this class name and sets MaxAttempts: 0 for it, versus 3 for
+    everything else). The message is passed through unchanged from the
+    "OCR processing failed: ..." text below, which -- like every error this
+    pipeline raises -- must stay content-free: see f48b08f.
+    """
+
+
+def _is_permanent_ocr_failure(status_code):
+    """True for a 4xx (other than 429) from the OCR call; see the comment on
+    _PERMANENT_OCR_FAILURE_STATUS_RANGE above for the reasoning."""
+    return status_code is not None \
+        and status_code in _PERMANENT_OCR_FAILURE_STATUS_RANGE \
+        and status_code != _RETRYABLE_CLIENT_STATUS
+
+
+def _safe_error_summary(e):
+    """Content-free triage string for the outermost catch-all.
+
+    This is the last uncovered path by which a rejected value could reach
+    CloudWatch: every step re-raises, so whatever this catches is about to be
+    logged (and the Lambda runtime logs it again, unhandled, on top of that).
+    Reduced to the exception class only -- unlike a message string, a class
+    name cannot itself carry document text.
+    """
+    return type(e).__name__
 
 
 def lambda_handler(event, context):
@@ -40,18 +92,23 @@ def lambda_handler(event, context):
         
         # Validate that this is a document file, not a JSON content file
         if s3_key.endswith('content.json') or '/content.json' in s3_key or s3_key.lower().endswith('.json'):
-            error_message = f"Cannot process JSON file as document: {s3_key}. Only PDF/image files can be processed with OCR."
+            # The filename (student data) must not reach this message: it is
+            # raised, caught by the state machine's Catch, and persisted as
+            # error_message on the document row (not just printed).
+            error_message = "Cannot process a JSON file as a document. Only PDF/image files can be processed with OCR."
             print(error_message)
             raise Exception(error_message)
-        
+
         # Process document with Mistral OCR
-        print(f"Processing document: s3://{s3_bucket}/{s3_key}")
+        print(f"Processing document: s3://{s3_bucket}/{_safe_key(s3_key)}")
         ocr_result = process_document_with_mistral_ocr(s3_bucket, s3_key)
         
         # Check if OCR was successful
         if "error" in ocr_result:
             error_message = f"OCR processing failed: {ocr_result['error']}"
             print(error_message)
+            if _is_permanent_ocr_failure(ocr_result.get('status_code')):
+                raise OcrClientError(error_message)
             raise Exception(error_message)
         
         print(f"OCR completed successfully. Found {len(ocr_result.get('pages', []))} pages")
@@ -96,6 +153,8 @@ def lambda_handler(event, context):
         }
         
     except Exception as e:
-        print(f"MistralOCR error: {str(e)}")
-        print(traceback.format_exc())
+        print(f"MistralOCR error: {_safe_error_summary(e)}")
+        # NOT traceback.format_exc(): its last line renders str(e), which is
+        # exactly what the summary above was built to avoid.
+        print(''.join(traceback.format_tb(e.__traceback__)))
         raise  # Let Step Functions retry policy handle the error

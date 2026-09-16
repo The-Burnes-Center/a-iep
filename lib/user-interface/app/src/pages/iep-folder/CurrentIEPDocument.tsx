@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react';
-import { Alert, Card, Spinner } from 'react-bootstrap';
+import { Alert, Card } from 'react-bootstrap';
+import AIEPSpinner from '../../components/AIEPSpinner';
 import { AppContext } from '../../common/app-context';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import './CurrentIEPDocument.css';
@@ -69,9 +70,7 @@ const CurrentIEPDocument: React.FC<CurrentIEPDocumentProps> = ({ onRefreshNeeded
         
         {loading ? (
           <div className="text-center my-4">
-            <Spinner animation="border" role="status">
-              <span className="visually-hidden">{t('current.loading')}</span>
-            </Spinner>
+            <AIEPSpinner label={t('current.loading')} />
           </div>
         ) : documentName ? (
         // The two data-testids below are stable E2E hooks for "is a document

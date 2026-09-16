@@ -17,6 +17,7 @@ from conftest import load_lambda_module, unload
 
 PROFILES_TABLE = 'profiles-test'
 USER = 'user-sub-1'
+SENTINEL = 'Sentinel-Jordan-Smith-9f3c-do-not-log-this'
 
 
 @pytest.fixture()
@@ -90,13 +91,33 @@ def test_missing_user_id_fails_the_step(step):
         step.module.lambda_handler({'iep_id': 'iep-1'}, None)
 
 
+def test_outer_catch_all_never_logs_the_rejected_value(step, monkeypatch, capsys):
+    """The outermost catch-all used to print(str(e)) and
+    traceback.format_exc() verbatim -- the last uncovered path by which a
+    rejected value could reach CloudWatch after f48b08f's fixes elsewhere in
+    the pipeline. boto3.resource is patched (rather than table.get_item,
+    which the inner try/except already swallows without re-raising) so the
+    sentinel-bearing exception reaches the OUTER handler instead."""
+    def _boom(*a, **kw):
+        raise Exception(SENTINEL)
+    monkeypatch.setattr(step.module, 'boto3', SimpleNamespace(resource=_boom))
+
+    with pytest.raises(Exception):
+        run(step)
+
+    logged = capsys.readouterr().out
+    assert SENTINEL not in logged
+    assert 'Traceback (most recent call last)' not in logged
+    assert 'Exception' in logged  # the class name survives
+
+
 def test_event_passthrough_keeps_progress_tracking(step):
     # Unlike redact_ocr, this step intentionally preserves progress and
     # current_step (the state machine reads them back after the branch).
     step.profiles.put_item(Item={'userId': USER, 'primaryLanguage': 'vi'})
-    result = run(step, progress=65, current_step='analysis_complete',
+    result = run(step, progress=75, current_step='analysis_complete',
                  s3_bucket='iep-uploads', iep_id='iep-1')
-    assert result['progress'] == 65
+    assert result['progress'] == 75
     assert result['current_step'] == 'analysis_complete'
     assert result['s3_bucket'] == 'iep-uploads'
     assert result['iep_id'] == 'iep-1'

@@ -48,13 +48,27 @@
  * Retry-safety: the account is healed at the top of the test body (not in
  * global setup, which runs once) and admin-deleted in an afterEach, so every
  * attempt starts from a confirmed user and leaves nothing behind.
+ *
+ * Two screens, one contract. Behind the passwordlessAuth flag, sign-up and
+ * sign-in are the SAME /auth/start call (docs/AUTH_API_CONTRACT.md 2: "there
+ * is no mode, no isSignup"), so the incident's own UI signal -- seeing the
+ * existing-user message on a destination that should be new -- has nothing
+ * to key on any more, by design: the response, and the screen, are byte-
+ * identical either way. What survives unchanged on both screens is the part
+ * that actually matters, the ONE-SMS assertion (expectExactlyOneCodeIssued
+ * below), which is why this spec detects the screen and only branches the
+ * parts that are genuinely screen-shaped: the mid-flow UI signal, and what
+ * the browser is expected to have called over the wire.
  */
 import { test, expect, Page } from '@playwright/test';
 import {
   EN,
+  EN_PASSWORDLESS,
   IN_APP_PATHS,
   completeOnboardingIfShown,
   deleteAccountThroughUi,
+  detectLoginScreen,
+  isSignedOutPath,
   loginWithOtp,
   phoneInput,
   startPhoneLogin,
@@ -66,7 +80,7 @@ import {
   ensureTestUser,
   fetchOtp,
   readOtpSendCount,
-  readTestUserState,
+  waitForTestUserState,
 } from '../helpers/aws';
 import { THROWAWAY_USER } from '../helpers/phones';
 
@@ -79,14 +93,19 @@ const SINGLE_CODE_DEADLINE_MS = 90_000;
  * alert (the login OTP submitted to confirmSignUp is rejected as a mismatch),
  * or a silent bounce back to the phone form. Without this, both would surface
  * as an opaque wait-for-URL timeout.
+ *
+ * "Left the sign-in card", not "left /login": /login redirects to the landing
+ * page that holds the form, so a /login-only check returns on the redirect
+ * itself and this whole assertion passes without a session being issued. See
+ * isSignedOutPath in helpers/app.ts.
  */
 async function waitForTheNewAccountToBeLetIn(page: Page): Promise<void> {
   const deadline = Date.now() + SINGLE_CODE_DEADLINE_MS;
   const errorAlert = page.locator('.alert-danger');
 
   while (Date.now() < deadline) {
-    // The app leaves /login only once it holds a session.
-    if (!new URL(page.url()).pathname.startsWith('/login')) return;
+    // The app leaves the sign-in card only once it holds a session.
+    if (!isSignedOutPath(new URL(page.url()).pathname)) return;
 
     if (await errorAlert.isVisible().catch(() => false)) {
       const text = (await errorAlert.innerText().catch(() => '')).trim();
@@ -109,8 +128,8 @@ async function waitForTheNewAccountToBeLetIn(page: Page): Promise<void> {
   }
 
   throw new Error(
-    `The app never left /login within ${SINGLE_CODE_DEADLINE_MS / 1000}s of ` +
-    'submitting the only code a new parent is sent.'
+    `The app never left the sign-in card within ${SINGLE_CODE_DEADLINE_MS / 1000}s ` +
+    'of submitting the only code a new parent is sent.'
   );
 }
 
@@ -147,14 +166,22 @@ test('deleted account signs up again and is sent exactly one code', async ({ pag
   test.setTimeout(420_000);
 
   // Every Cognito API call the browser makes, by operation name (Amplify puts
-  // it in the X-Amz-Target header). Collected for the whole test because the
-  // operations asserted on below (SignUp and ConfirmSignUp) can only occur in
-  // Act 3.
+  // it in the X-Amz-Target header), plus every call to our own signup
+  // endpoint, OR (passwordlessAuth) /auth/start. Collected for the whole test
+  // because the operations asserted on below can only occur in Act 3.
   const cognitoOperations: string[] = [];
+  const signupEndpointCalls: string[] = [];
+  const authStartCalls: string[] = [];
   page.on('request', (request) => {
     const target = request.headers()['x-amz-target'];
     if (target?.startsWith('AWSCognitoIdentityProviderService.')) {
       cognitoOperations.push(target.split('.')[1]);
+    }
+    if (request.method() === 'POST' && request.url().includes('/auth/signup')) {
+      signupEndpointCalls.push(request.url());
+    }
+    if (request.method() === 'POST' && request.url().includes('/auth/start')) {
+      authStartCalls.push(request.url());
     }
   });
 
@@ -181,15 +208,25 @@ test('deleted account signs up again and is sent exactly one code', async ({ pag
   // running total and only the delta across this window means anything.
   const codesBeforeSignUp = await readOtpSendCount(THROWAWAY_USER);
 
-  // The same number must now be treated as a NEW user. The sign-up
-  // fallback's distinct message ("Account created...") is the signal; the
-  // pre-incident bug showed the existing-user "SMS code sent." while nothing
-  // was actually sent.
+  // The same number must now be treated as a NEW user.
   const signUpSentAt = await startPhoneLogin(page, THROWAWAY_USER);
-  await expect(
-    page.getByRole('alert').filter({ hasText: EN.smsCodeSentNewUser })
-  ).toBeVisible({ timeout: 45_000 });
-  await expect(page.getByTestId('sms-code-input')).toBeVisible();
+  await expect(page.getByTestId('sms-code-input')).toBeVisible({ timeout: 45_000 });
+  const screen = await detectLoginScreen(page);
+
+  if (screen === 'legacy') {
+    // The sign-up fallback's distinct message ("Account created...") is the
+    // signal; the pre-incident bug showed the existing-user "SMS code sent."
+    // while nothing was actually sent.
+    await expect(
+      page.getByRole('alert').filter({ hasText: EN.smsCodeSentNewUser })
+    ).toBeVisible({ timeout: 45_000 });
+  } else {
+    // passwordlessAuth shows no new-vs-existing signal at all here, by
+    // design (see the docblock above): reaching the code screen for a
+    // destination that was just deleted, with its own (equally generic)
+    // code-sent copy, is the closest equivalent milestone.
+    await expect(page.getByText(EN_PASSWORDLESS.codeSentTo)).toBeVisible();
+  }
 
   // ---- Act 3: one text, and it is the login OTP -------------------------
 
@@ -197,7 +234,13 @@ test('deleted account signs up again and is sent exactly one code', async ({ pag
   // screen and the login OTP screen are the same screen). UNCONFIRMED here
   // would mean Cognito is still waiting for a verification code it has just
   // texted, i.e. the parent is owed a second message.
-  const signedUpState = await readTestUserState(THROWAWAY_USER);
+  //
+  // Polled, not read once: account creation happens in auth-dispatch.js,
+  // invoked asynchronously from auth-start.js AFTER the 200 this journey
+  // already waited past (see waitForTestUserState's docblock in
+  // helpers/aws.ts), so the user can easily not exist yet at this exact
+  // instant even though the sign-up is proceeding normally.
+  const signedUpState = await waitForTestUserState(THROWAWAY_USER);
   expect(
     signedUpState.status,
     'pre-sign-up.js must auto-confirm a phone-only self-service signup; an ' +
@@ -255,20 +298,59 @@ test('deleted account signs up again and is sent exactly one code', async ({ pag
     'once the new parent is inside the app',
   );
 
-  // What the browser did, as the client-side half of the same contract. The
-  // SignUp assertion comes first on purpose: it proves the request listener
-  // above actually matched something, so the ConfirmSignUp assertion below
-  // cannot pass vacuously.
-  expect(
-    cognitoOperations,
-    'the journey never saw a SignUp call, so the request listener matched ' +
-    'nothing (header name changed?) and the ConfirmSignUp check is vacuous'
-  ).toContain('SignUp');
-  expect(
-    cognitoOperations,
-    'the app called ConfirmSignUp, so it took its two-code fallback branch: ' +
-    'Auth.signUp came back with userConfirmed === false'
-  ).not.toContain('ConfirmSignUp');
+  // What the browser did, as the client-side half of the same contract.
+  //
+  // This used to assert the journey saw a Cognito SignUp call. It no longer
+  // may: the pool is AllowAdminCreateUserOnly, so the public SignUp API is
+  // closed, and an account is created by POSTing to our own endpoint instead.
+  // That API being reachable from the browser is exactly how the 2026-09-09
+  // abuse run created a thousand accounts without ever loading this page, so
+  // "the browser called SignUp" has gone from the thing that must happen to
+  // the thing that must never happen. Both directions are asserted below.
+  //
+  // The vacuity guard still comes first, re-anchored on the call that does
+  // happen now: without it the two negative assertions could both pass
+  // because the listener matched nothing at all.
+  if (screen === 'legacy') {
+    expect(
+      signupEndpointCalls,
+      'the journey never POSTed to /auth/signup, so the request listener ' +
+      'matched nothing and the assertions below are vacuous'
+    ).not.toHaveLength(0);
+    expect(
+      cognitoOperations,
+      'the browser called Cognito SignUp directly. That API is supposed to be ' +
+      'closed (AllowAdminCreateUserOnly), and it is the path the 2026-09-09 ' +
+      'abuse run used'
+    ).not.toContain('SignUp');
+    expect(
+      cognitoOperations,
+      'the app called ConfirmSignUp, so a second code was requested: the ' +
+      'endpoint is meant to create the account already confirmed'
+    ).not.toContain('ConfirmSignUp');
+  } else {
+    // passwordlessAuth never gives the browser a reason to call Cognito at
+    // all (docs/AUTH_API_CONTRACT.md 1: "the real Cognito tokens never reach
+    // the browser"), so the legacy spot-checks above generalize here to one
+    // stronger pair: the new endpoint was actually exercised (the vacuity
+    // guard, re-anchored on /auth/start since /auth/signup is never called
+    // on this screen), and Cognito was never called directly, full stop.
+    expect(
+      authStartCalls,
+      'the journey never POSTed to /auth/start, so the request listener ' +
+      'matched nothing and the assertion below is vacuous'
+    ).not.toHaveLength(0);
+    expect(
+      signupEndpointCalls,
+      'passwordlessAuth is on: sign-up and sign-in are both /auth/start, and ' +
+      'the legacy /auth/signup endpoint must never be called'
+    ).toHaveLength(0);
+    expect(
+      cognitoOperations,
+      'passwordlessAuth brokers every Cognito call server-side (AdminInitiateAuth ' +
+      'etc., via auth-dispatch.js); the browser must never call Cognito directly'
+    ).toEqual([]);
+  }
 
   // Leave staging clean through the product itself (profile row, documents
   // and the Cognito user all go); the afterEach is the backstop.

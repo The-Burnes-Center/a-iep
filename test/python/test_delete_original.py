@@ -26,6 +26,7 @@ UPLOAD_KEY = f'{USER}/{CHILD}/{IEP}/report.pdf'
 RAW_OCR_KEY = f'iep-data/{IEP}/{CHILD}/ocr_result.json'
 REDACTED_OCR_KEY = f'iep-data/{IEP}/{CHILD}/redacted_ocr_result.json'
 DDB_SERVICE = 'DDBServiceTest'
+SENTINEL = 'Sentinel-Jordan-Smith-9f3c-do-not-log-this'
 
 
 @pytest.fixture()
@@ -171,3 +172,22 @@ def test_missing_s3_location_raises_before_touching_anything(step):
         step.module.lambda_handler({'iep_id': IEP, 'child_id': CHILD}, None)
     assert bucket_keys(step, UPLOADS_BUCKET) == {UPLOAD_KEY}
     assert step.fake_lambda.invocations == []
+
+
+def test_outer_catch_all_never_logs_the_rejected_value(step, monkeypatch, capsys):
+    """The outermost catch-all used to print(str(e)) and
+    traceback.format_exc() verbatim -- the last uncovered path by which a
+    rejected value could reach CloudWatch after f48b08f's fixes elsewhere in
+    the pipeline. Unlike the inner delete_s3_object catch (already reduced to
+    type(e).__name__ before this change), this pins the *outer* handler."""
+    def _boom(*a, **kw):
+        raise Exception(SENTINEL)
+    monkeypatch.setattr(step.module, 'delete_s3_object', _boom)
+
+    with pytest.raises(Exception):
+        step.module.lambda_handler(event(), None)
+
+    logged = capsys.readouterr().out
+    assert SENTINEL not in logged
+    assert 'Traceback (most recent call last)' not in logged
+    assert 'Exception' in logged  # the class name survives

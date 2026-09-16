@@ -21,20 +21,35 @@ function resolveEnabledLanguages(): string[] {
 }
 
 // Optional features offered in the UI, same mechanism as the languages above.
-// Defaults to every feature on dev/local; prod runs referrals only, with TTS
-// and the parent-name gate shipping as code but staying dark. An explicit
-// ENABLED_FEATURES env var (comma-separated names) overrides both. Kept in
-// sync with the deploy-time logic in lib/user-interface/index.ts (asserted by
-// test/infra/enabled-features.test.ts), and with src/common/features.ts.
-const ALL_FEATURES = ["tts", "referrals", "parentNameGate"];
-const PROD_FEATURES: string[] = ["referrals"];
+// Defaults to every feature on dev/local; prod runs referrals only, with TTS,
+// the student-name gate, the parent-name gate and passwordlessAuth shipping
+// as code but staying dark.
+// An explicit ENABLED_FEATURES env var (comma-separated names) overrides both.
+// Kept in sync with the deploy-time logic in lib/user-interface/index.ts
+// (asserted by test/infra/enabled-features.test.ts), and with
+// src/common/features.ts.
+const ALL_FEATURES = ["tts", "referrals", "studentNameGate", "passwordlessAuth", "pdfHelpScreens"];
+const PROD_FEATURES: string[] = ["referrals", "studentNameGate", "passwordlessAuth"];
+// Dark in every environment by default, staging included, until a feature's
+// rollout needs that. Empty for now: passwordlessAuth was the one entry here,
+// kept dark even on staging until e2e/helpers/app.ts could detect and drive
+// PasswordlessAuthForm (it shares a single login helper across every
+// journey, and a staging build with the flag on used to fail seven of them
+// on "Send SMS Code" alone). That change landed together with this flip
+// (2026-09-11): the helper now detects which screen is live, so staging
+// picks up passwordlessAuth with no coverage gap, and prod is untouched
+// (PROD_FEATURES above never included it). Opt in with ENABLED_FEATURES for
+// local work or a one-off deploy; a future flag that needs the same staged
+// rollout goes here the same way.
+const DARK_EVERYWHERE: string[] = [];
 function resolveEnabledFeatures(): string[] {
   const override = process.env.ENABLED_FEATURES;
   if (override) {
     return override.split(",").map((s) => s.trim()).filter(Boolean);
   }
   const env = process.env.ENVIRONMENT || process.env.NODE_ENV;
-  return env === "prod" || env === "production" ? PROD_FEATURES : ALL_FEATURES;
+  const base = env === "prod" || env === "production" ? PROD_FEATURES : ALL_FEATURES;
+  return base.filter((f) => !DARK_EVERYWHERE.includes(f));
 }
 
 // https://vitejs.dev/config/
@@ -60,6 +75,12 @@ export default defineConfig({
                 process.env.AWS_USER_POOLS_WEB_CLIENT_ID,
               enabledLanguages: resolveEnabledLanguages(),
               enabledFeatures: resolveEnabledFeatures(),
+              // No default, deliberately. This is the local dev build, and an
+              // unset key means no widget and no token, which the server
+              // already treats as the not-configured state. The deployed
+              // builds read the key from Parameter Store instead; see
+              // lib/user-interface/index.ts.
+              turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '',
               config: {
                 api_endpoint: `https://${process.env.API_DISTRIBUTION_DOMAIN_NAME}/api`,
                 websocket_endpoint: `wss://${process.env.API_DISTRIBUTION_DOMAIN_NAME}/socket`,

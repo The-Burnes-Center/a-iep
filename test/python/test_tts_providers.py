@@ -17,6 +17,7 @@ from conftest import load_lambda_module, unload
 PROVIDER_PARAM = '/test/tts/provider'
 VOICE_CONFIG_PARAM = '/test/tts/voice-config'
 API_KEY_PARAM = '/test/tts/api-key'
+SENTINEL = 'Sentinel-Jordan-Smith-9f3c-do-not-log-this'
 
 
 class FakeHTTP:
@@ -173,3 +174,31 @@ def test_synthesize_failures_raise_provider_error(providers, monkeypatch):
     monkeypatch.setattr(module, 'http', FakeHTTP(status=429))
     with pytest.raises(module.TTSProviderError, match='429'):
         module.OpenAIProvider({}).synthesize('Hi.', 'en')
+
+
+# ---------------------------------------------------------------------------
+# A non-200 response body must never reach the raised TTSProviderError: the
+# request body it could echo back (`text`/`input`) is a chunk of a child's
+# IEP summary, and both providers can return validation/content-moderation
+# errors that quote the submitted text back in the body.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize('provider_cls,api_key_env', [
+    ('OpenAIProvider', 'OPENAI_API_KEY_PARAMETER_NAME'),
+    ('ElevenLabsProvider', 'ELEVENLABS_API_KEY_PARAMETER_NAME'),
+])
+def test_synthesize_error_never_echoes_the_provider_response_body(
+        providers, monkeypatch, provider_cls, api_key_env):
+    module = providers.module
+    arm_api_key(providers, monkeypatch, api_key_env)
+    monkeypatch.setattr(module, 'http',
+                        FakeHTTP(status=400, data=SENTINEL.encode('utf-8')))
+
+    provider = getattr(module, provider_cls)({})
+    with pytest.raises(module.TTSProviderError) as exc_info:
+        provider.synthesize('Hi.', 'en')
+
+    message = str(exc_info.value)
+    assert SENTINEL not in message
+    assert '400' in message
+    assert 'client_error' in message

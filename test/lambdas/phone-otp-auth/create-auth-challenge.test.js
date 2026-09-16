@@ -87,12 +87,27 @@ const otpMetadata = (code, ageMs = 0) => JSON.stringify({
     attempt: 2,
 });
 
+// errorCode joined `error` when /auth/start began reading this shape.
+// `error` is parent-facing copy in their own language and copy gets
+// reworded; a caller deciding whether a destination will EVER work must not
+// be parsing English prose to find out. Kept as an exact match on purpose:
+// an exact-match shape is the only kind that catches a field creeping in.
 const ERROR_SHAPE = {
     error: 'Failed to send verification code. Please try again.',
+    errorCode: 'delivery_failed',
 };
 
 const RATE_LIMITED_SHAPE = {
     error: 'Too many verification codes requested. Please wait an hour and try again.',
+    errorCode: 'rate_limited',
+};
+
+// Every destination refusal answers with this, whatever the reason. A caller
+// must not be able to tell a country the service does not serve from a value
+// it could not read, so the two are pinned to one shape rather than two.
+const UNSUPPORTED_SHAPE = {
+    error: 'This phone number is not supported. A-IEP can only send codes to United States numbers.',
+    errorCode: 'unsupported_destination',
 };
 
 const updateCalls = () => mockDdbSend.mock.calls.filter(([cmd]) => cmd instanceof UpdateCommand);
@@ -175,6 +190,42 @@ describe('create-auth-challenge', () => {
         const code = event.response.privateChallengeParameters.secretLoginCode;
         const expected = getMessages('en').otpLoginSms.replace('{code}', code).replace('{minutes}', 5);
         expect(mockSnsSend.mock.calls[0][0].input.Message).toBe(expected);
+    });
+
+    test('nothing from the profile row but the language reaches the text', async () => {
+        // The profile is read to pick a language. Everything else on that row
+        // describes a child and their records, and a text message leaves our
+        // systems entirely: it crosses carriers and lands on a lock screen.
+        // The templates are constants, so this holds by construction -- which
+        // is exactly the kind of thing that stays true until someone
+        // personalizes the copy.
+        process.env.USER_PROFILES_TABLE = 'test-profiles-table';
+        const bait = {
+            secondaryLanguage: 'es',
+            childName: 'BAIT-CHILD-NAME',
+            documentName: 'BAIT-DOCUMENT-NAME',
+            parentName: 'BAIT-PARENT-NAME',
+            email: 'bait@example.com',
+            schoolDistrict: 'BAIT-DISTRICT',
+        };
+        mockDdbSend.mockImplementation(async (cmd) => {
+            if (cmd instanceof UpdateCommand) return { Attributes: { smsCount: 1 } };
+            return { Item: bait };
+        });
+
+        const event = await handler(baseEvent([HANDSHAKE_PASS]));
+        const { Message, PhoneNumber } = mockSnsSend.mock.calls[0][0].input;
+
+        // The language DID come from the row, so the lookup really happened.
+        const code = event.response.privateChallengeParameters.secretLoginCode;
+        expect(Message).toBe(getMessages('es').otpLoginSms.replace('{code}', code).replace('{minutes}', 5));
+
+        for (const value of Object.values(bait).filter((v) => v !== 'es')) {
+            expect({ value, leaked: Message.includes(value) }).toEqual({ value, leaked: false });
+        }
+        // The destination is the phone number and nothing about it is in the body.
+        expect(PhoneNumber).toBe(PHONE);
+        expect(Message).not.toContain(PHONE);
     });
 
     test('reuses the previous OTP inside the 5-minute window without re-texting', async () => {
@@ -267,6 +318,7 @@ describe('create-auth-challenge', () => {
         expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
         expect(event.response.publicChallengeParameters).toEqual({
             error: 'Text messaging is temporarily unavailable. Please try again in a little while.',
+            errorCode: 'budget_exhausted',
         });
     });
 
@@ -289,10 +341,16 @@ describe('create-auth-challenge', () => {
         expect(JSON.parse(event.response.challengeMetadata).error).toBe('SNS is down');
     });
 
-    test('a phone number not in E.164 format is rejected before any SMS', async () => {
+    // Previously this returned the generic "try again" shape, which was both
+    // a lie (a stored value that is not a number never becomes one on a
+    // retry) and an alarm problem: it counted an unusable attribute as broken
+    // SMS delivery. It is a destination refusal, and it answers as one.
+    test('a phone number not in E.164 format is refused before any SMS', async () => {
         const event = await handler(baseEvent([HANDSHAKE_PASS], { userAttributes: { phone_number: '5551234567' } }));
-        expect(event.response.publicChallengeParameters).toEqual(ERROR_SHAPE);
+        expect(event.response.publicChallengeParameters).toEqual(UNSUPPORTED_SHAPE);
         expect(mockSnsSend).not.toHaveBeenCalled();
+        // And no counter row either: nothing was spent, so nothing is metered.
+        expect(updateCalls()).toHaveLength(0);
     });
 
     test('a missing phone number is rejected before any SMS', async () => {
@@ -309,6 +367,7 @@ describe('create-auth-challenge', () => {
         // than a message the provider accepts and never delivers.
         const BUDGET_SHAPE = {
             error: 'Text messaging is temporarily unavailable. Please try again in a little while.',
+            errorCode: 'budget_exhausted',
         };
 
         // Counts every UpdateCommand for a given key prefix as its own window,
@@ -472,6 +531,7 @@ describe('create-auth-challenge', () => {
         const PREFIX = '/a-iep/test/sms-policy';
         const BUDGET_SHAPE = {
             error: 'Text messaging is temporarily unavailable. Please try again in a little while.',
+            errorCode: 'budget_exhausted',
         };
 
         const paramsReturn = (values) => {
@@ -612,6 +672,7 @@ describe('create-auth-challenge', () => {
             // failure copy would be a lie.
             expect(event.response.publicChallengeParameters).toEqual({
                 error: 'This phone number is not supported. A-IEP can only send codes to United States numbers.',
+                errorCode: 'unsupported_destination',
             });
         });
 
@@ -668,8 +729,68 @@ describe('create-auth-challenge', () => {
             await handler(eventTo(TANZANIA));
 
             const messages = logged.mock.calls.map((args) => args.join(' ')).join('\n');
+            expect(messages).toContain('SMS_REFUSED_DESTINATION');
+            // Which refusal it was, so the two are separable in CloudWatch
+            // even though they are identical to the caller.
+            expect(messages).toContain('reason=country-code');
             expect(messages).toContain('+255');
             expect(messages).not.toContain(TANZANIA);
+            logged.mockRestore();
+        });
+
+        // The E2E suite's numbers are NANP fictional (+1 555 555-01XX), so
+        // they clear the allowlist on the country code like any other US
+        // number, with no exception carved for them. Pinned rather than
+        // assumed: the backdoor env vars are unset here, so this is the
+        // allowlist passing them and not the test path swallowing them.
+        test('the reserved E2E numbers clear the allowlist as ordinary +1 numbers', async () => {
+            for (const reserved of ['+15555550100', '+15555550101', '+15555550111']) {
+                mockSnsSend.mockClear();
+
+                const event = await handler(eventTo(reserved));
+
+                expect(mockSnsSend).toHaveBeenCalledTimes(1);
+                expect(mockSnsSend.mock.calls[0][0].input.PhoneNumber).toBe(reserved);
+                expect(event.response.privateChallengeParameters.secretLoginCode).toMatch(/^\d{6}$/);
+            }
+        });
+
+        // Fails CLOSED on anything it cannot read, and repairs none of it.
+        // The second case is a US number missing its '+': coercing it would
+        // mean inventing a destination. The last two are the ones that used
+        // to get through, because this file carried its own E.164 expression
+        // that was looser than the one /auth/start vets a typed destination
+        // with, and the looser rule is the one that decides what is sent.
+        test.each([
+            ['no leading plus', '15555550100'],
+            ['leading whitespace', ' +15555550100'],
+            ['letters in the middle', '+1555ABC0100'],
+            ['far too short to be a number', '+12'],
+        ])('an unreadable destination (%s) is refused, never texted', async (_label, value) => {
+            const event = await handler(eventTo(value));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(updateCalls()).toHaveLength(0);
+            // Identical to the wrong-country answer on purpose.
+            expect(event.response.publicChallengeParameters).toEqual(UNSUPPORTED_SHAPE);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+        });
+
+        test('the unreadable refusal is logged with its reason and without the value', async () => {
+            const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            await handler(eventTo('15555550100'));
+
+            const messages = logged.mock.calls.map((args) => args.join(' ')).join('\n');
+            expect(messages).toContain('SMS_REFUSED_DESTINATION');
+            expect(messages).toContain('reason=unreadable');
+            // Nothing of the value itself: there is no dialling prefix worth
+            // recording on something that is not a number, and no safe way to
+            // quote the rest of it.
+            expect(messages).not.toContain('15555550100');
+            // And it is not counted as broken delivery, which would page the
+            // SMS outage alarm every time an account carries a bad attribute.
+            expect(messages).not.toContain('SMS_SEND_FAILED');
             logged.mockRestore();
         });
 

@@ -5,23 +5,43 @@ import json
 import os
 import boto3
 import traceback
-from open_ai_agent import OpenAIAgent
+from open_ai_agent import OpenAIAgent, _safe_error_summary
 
 # Only non-sensitive metadata is safe to log. These events can carry
 # FERPA-protected document content (OCR text, parsed sections, translated
 # content) as the workflow evolves; dumping the whole event would expose it
 # to anyone with CloudWatch log access.
+# s3_key is deliberately NOT in this allowlist: the key is
+# userId/childId/iepId/<filename>, and parents routinely name an IEP after
+# their child, so the filename is student data. It is logged separately below
+# with the filename stripped (see _safe_key).
 _SAFE_LOG_FIELDS = (
-    'iep_id', 'child_id', 'user_id', 's3_bucket', 's3_key', 'current_step',
+    'iep_id', 'child_id', 'user_id', 's3_bucket', 'current_step',
     'progress', 'status', 'content_type', 'target_languages', 'translation_needed',
 )
+
+
+def _safe_key(key):
+    """An S3 key with the parent-chosen filename removed.
+
+    The key is userId/childId/iepId/filename, and only the last segment is
+    typed by a human. Mirrors metadata-handler/orchestrator.py's helper of the
+    same name.
+    """
+    if not isinstance(key, str):
+        return '<no key>'
+    head, sep, _filename = key.rpartition('/')
+    return f'{head}/...' if sep else '...'
 
 
 def _safe_event_meta(event):
     """Return only the allowlisted, non-sensitive fields from the event."""
     if not isinstance(event, dict):
         return {'_type': type(event).__name__}
-    return {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+    meta = {k: event[k] for k in _SAFE_LOG_FIELDS if k in event}
+    if 's3_key' in event:
+        meta['s3_key'] = _safe_key(event['s3_key'])
+    return meta
 
 
 def lambda_handler(event, context):
@@ -150,7 +170,7 @@ def lambda_handler(event, context):
         try:
             save_result = json.loads(save_payload_response)
         except json.JSONDecodeError as e:
-            raise Exception(f"Failed to parse save DDB service response as JSON: {e}. Response: {save_payload_response}")
+            raise Exception(f"Failed to parse save DDB service response as JSON: {e}. Response length: {len(save_payload_response)} bytes")
         
         if not save_result or save_result.get('statusCode') != 200:
             error_body = save_result.get('body', '')
@@ -176,6 +196,9 @@ def lambda_handler(event, context):
         }
         
     except Exception as e:
-        print(f"ParsingAgent error: {str(e)}")
-        print(traceback.format_exc())
+        print(f"ParsingAgent error: {_safe_error_summary(e)}")
+        # NOT traceback.format_exc(): its last line renders str(e), which is
+        # exactly what the summary above (the same helper open_ai_agent.py
+        # uses for a pydantic ValidationError) was built to avoid.
+        print(''.join(traceback.format_tb(e.__traceback__)))
         raise  # Let Step Functions retry policy handle the error

@@ -1,13 +1,12 @@
 import { useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Container, Breadcrumb, Spinner } from 'react-bootstrap';
+import PageLoading from '../../components/PageLoading';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { useLanguage } from '../../common/language-context';
 import GoToWebsiteButton from '../../components/GoToWebsiteButton';
-import MobileTopNavigation from '../../components/MobileTopNavigation';
-import AIEPFooter from '../../components/AIEPFooter';
+import Breadcrumbs from '../../components/Breadcrumbs';
 import LandingHeroSection from '../../components/LandingHeroSection';
 import GreenSection from '../../components/GreenSection';
 import LandingContainer from '../../components/LandingContainer';
@@ -18,20 +17,17 @@ import './UpdateProfileName.css';
 import './ProfileForms.css';
 import './AboutApp.css';
 
-const publicFooterLinks = [
-  { route: '/', labelKey: 'footer.home' },
-  { route: '/login', labelKey: 'footer.uploadIEP' },
-  { route: '/faqs', labelKey: 'footer.faqs' },
-  { route: '/about-the-project', labelKey: 'footer.aboutUs' },
-];
-
 interface AboutAppProps {
-  NavigationComponent?: React.ComponentType;
+  /**
+   * Off on the public copy of this page (/about-the-project), whose trail
+   * would lead into the app. It also picks which privacy policy the link at
+   * the bottom opens. Which header the page gets is NOT decided here: the
+   * layout route it sits under answers that (components/RouteChrome.tsx).
+   */
   showBreadcrumbs?: boolean;
 }
 
 export default function AboutApp({ 
-  NavigationComponent = MobileTopNavigation,
   showBreadcrumbs = true 
 }: AboutAppProps = {}) {
   const navigate = useNavigate();
@@ -60,35 +56,24 @@ export default function AboutApp({
     {id: '6', first_name: 'Noelia', last_name: 'Solval', title: 'Innovate Parent Navigators - Bay Area', headshot: '/images/navigators/Noelia_Solval.png'},
     {id: '7', first_name: 'Carmen', last_name: 'Rodriguez', title: 'Innovate Parent Navigators - Bay Area', headshot: '/images/navigators/Carmen_Rodriguez.png'}];
 
-  const handleBackClick = () => {
-    navigate('/support-center');
-  };
-
   // Return loading state if translations aren't ready
   if (!translationsLoaded) {
     return (
-      <Container className="mt-4 mb-5">
-        <div className="text-center my-5">
-          <Spinner animation="border" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </Spinner>
-        </div>
-      </Container>
+      <PageLoading message={t('common.loading')} />
     );
   }
 
   return (
     <>
-      <NavigationComponent />
       <div>
       {/* Breadcrumbs - only show when enabled */}
       {showBreadcrumbs && (
-        <div className="mt-3 text-start px-4 breadcrumb-container">
-          <Breadcrumb>
-            <Breadcrumb.Item onClick={handleBackClick}>{t("about.breadcrumb.supportCenter")}</Breadcrumb.Item>
-            <Breadcrumb.Item active>{t("about.breadcrumb.about")}</Breadcrumb.Item>
-          </Breadcrumb>
-        </div>
+        <Breadcrumbs
+          trail={[
+            { labelKey: "about.breadcrumb.supportCenter", to: "/support-center" },
+            { labelKey: "about.breadcrumb.about" },
+          ]}
+        />
       )}
       
       <LandingHeroSection />
@@ -187,7 +172,6 @@ export default function AboutApp({
       </div>
       
       </div>
-      <AIEPFooter {...(!showBreadcrumbs && { footerLinks: publicFooterLinks })} />
     </>
   );
 }

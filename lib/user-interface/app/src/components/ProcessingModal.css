@@ -8,44 +8,134 @@
   display: none;
 }
 
+/* Fills <main>, at every width.
+
+   This used to live only in the desktop block, because on a phone the card
+   inside set its own `height: 100dvh` and the wrapper just wrapped it. That
+   was the 123px of phantom scroll (see the card's own comment in
+   IEPSummarizationAndTranslation.css): a viewport-height card plus a nav plus
+   a footer is always taller than the viewport.
+
+   Column so the single child can take the free space and still grow past it;
+   the desktop block below adds the centring on top, where the child is a
+   hugged 600px card rather than the whole screen.
+
+   AppShell.css's :has(> .processing-modal-wrapper) rule is what makes <main>
+   a flex container for this to be a flex item of. */
+.processing-modal-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+
+/* The status block: what we are doing, and how far along it is.
+
+   One dark-green band owns the whole answer to "is this working?" — the
+   headline, the step in flight, and the bar pinned to the band's lower edge.
+   The bar used to float on the cream below the band, unlabelled, which is
+   where an indeterminate barber-pole can sit without anyone asking what it
+   means. */
+.processing-status-headline {
+  margin: 0;
+  text-align: center;
+}
+
+.processing-status-step {
+  margin: 0;
+  text-align: center;
+  font-size: 0.9375rem;
+  color: var(--aiep-on-green-muted);
+}
+
+/* A light track carrying a green fill, on the dark-green band.
+
+   Both halves have to be legible for a bar to mean anything: the track shows
+   how far there is to go (9.1 against the band) and the fill shows how far
+   along the run is (5.7 against the track). Tried the other way round first —
+   a green track reads as part of the band, so the fill floated on its own and
+   the bar lost its scale. MUI's own success palette is a mid green that
+   disappears against either. */
+.processing-status-bar.MuiLinearProgress-root {
+  width: 100%;
+  height: 8px;
+  background-color: var(--aiep-surface-field);
+  border-radius: 999px;
+}
+
+.processing-status-bar .MuiLinearProgress-bar {
+  background-color: var(--aiep-green);
+  /* Slow enough to read as the bar advancing rather than teleporting: the
+     poll interval is 5s and the jump from redaction (22%) to a written
+     summary (65%) is the biggest one there is. MUI's determinate default is
+     0.4s linear. */
+  transition: transform 900ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .processing-status-bar .MuiLinearProgress-bar {
+    transition: none;
+  }
+}
+
 /* Desktop mode: Modal dialog effect (ONLY on desktop) */
 @media (min-width: 992px) and (min-height: 700px) {
+  /* The fill comes from the base rule above; this adds the centring. With a
+     column direction, justify-content centres on the vertical axis and
+     align-items on the horizontal one. */
   .processing-modal-wrapper {
-    display: flex;
     justify-content: center;
     align-items: center;
     width: 100%;
-    height: 100%;
   }
 
+  /* inset: 0 is load-bearing, not tidying.
+     Without it a fixed element sits at its STATIC position, and this one's
+     static position is as a flex item of a centring parent -- so when the
+     wrapper was shorter than the viewport the scrim got centred against it
+     and hung off the top. Measured at 1245x1055: wrapper 597 tall, scrim
+     1055, top = 68 + (597 - 1055) / 2 = -161, bottom edge at 894. Everything
+     from there to the footer showed the page background instead of the
+     scrim. */
   .processing-modal-overlay {
     position: fixed;
+    inset: 0;
     width: 100%;
     height: 100%;
     background-color: #014620;
     z-index: -100;
-    background-image: linear-gradient(to bottom, #E7E4DC 0px, #f5f3ee70 1px), linear-gradient(to right, #E7E4DC 0px, #f5f3ee70 1px);
+    background-image: linear-gradient(to bottom, var(--aiep-surface-field) 0px, var(--aiep-cream-veil) 1px), linear-gradient(to right, var(--aiep-surface-field) 0px, var(--aiep-cream-veil) 1px);
     background-size: 100% 40px;
     background-repeat: repeat;
   }
 
   .processing-modal-container {
     background-color: #F5F3EE;
+    /* Hugs its card here, where the base rule has it filling the phone. */
+    flex: 0 1 auto;
     height: unset;
-    min-height: 50vh;
     max-width: 95vw;
-    max-width: 800px;
     margin-left: auto;
     margin-right: auto;
-    border: solid 1px black;
-    border-radius: 10px;
+    border: solid 1px var(--aiep-ink);
+    border-radius: 16px;
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+    /* The corners were the container's alone: the card inside it is
+       border-radius 0, so the dark-green band's square top corners sat
+       outside the rounded frame and the whole modal read as a mistake.
+       Clipping is what makes the radius apply to everything in here. */
+    overflow: hidden;
   }
 
+  /* Same: hug, not fill. Both cards fill on a phone, where they ARE the
+     screen, and are a fixed-width panel here. */
   .processing-modal-container .processing-summary-parent-rights-card,
   .processing-modal-container .processing-summary-loader-card {
-    height: 100%;
-    min-height: 60vh;
+    flex: 0 1 auto;
+    /* No min-height. It was 60vh here and 50vh on the container, so on a tall
+       window the modal was forced taller than its contents and the deck sat
+       against the top edge with the slack underneath — the same wasted space
+       the carousel had, one level up. */
+    height: unset;
     width: 600px;
   }
 
@@ -58,9 +148,4 @@
     display: block;
     margin-bottom: 1rem;
   }
-
-  .loading-final-screen h3 {
-    padding: 1rem;
-  }
 }
-

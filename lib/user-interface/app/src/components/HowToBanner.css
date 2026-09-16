@@ -25,7 +25,7 @@
 }
 
 .how-to-banner-title-orange {
-    color: #FF8724;
+    color: var(--aiep-accent-orange);
 }
 
 /* Base styles (Mobile-first) */

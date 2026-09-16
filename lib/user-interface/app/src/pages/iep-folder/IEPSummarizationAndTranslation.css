@@ -21,34 +21,38 @@
   background-color: #F5f3EE;
 }
 
+/* Fills the frame <main> gives it, rather than measuring itself against the
+   viewport.
+
+   `height: 100dvh` here stacked with the nav and the footer, so the document
+   came out 967px tall in an 844px viewport: 123px of scroll on a screen with
+   nothing below the fold, which is the phantom scrollbar AppShell.css's own
+   header says the sticky-footer layout exists to prevent. `flex` instead, so
+   the card is exactly the free space and grows only if its own content needs
+   more. The desktop block below overrides this back to a hugged 600px card. */
 .processing-summary-parent-rights-card {
   border: none;
   box-shadow: none;
   border-radius: 0;
-  height: 100dvh;
+  flex: 1 0 auto;
   background-color: #EEEBE5;
   background-size: auto;
   background-position: center;
   background-repeat: repeat;
 }
 
+/* Same as the parent-rights card above, and worse before it: `100vh` rather
+   than `100dvh`, which on a phone is taller than the visible viewport by the
+   height of the browser's own chrome. */
 .processing-summary-loader-card {
   border: none;
   box-shadow: none;
   border-radius: 0;
-  height: 100vh;
+  flex: 1 0 auto;
   background-image: url('/images/bg-your-rights.png');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-}
-
-.processing-summary-loader-card .spinner-border {
-  display: none;
-}
-
-.processing-summary-loader-card .desktop-processing-spinner-text {
-  display: none;
 }
 
 .processing-summary-card-body {
@@ -58,32 +62,55 @@
   background-color: transparent;
 }
 
-.loading-while-parent-rights {
-  color: #F5F3EE;
-  background-color: #014620;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 85.5px;
-}
-
-.loading-while-parent-rights p {
-  margin: 0px;
-  padding: 0.75rem;
-}
-
+/* Headline, step and bar, stacked. Was a fixed 85.5px single-line row; the
+   band sizes itself to what is in it. */
+.loading-while-parent-rights,
 .loading-final-screen {
   color: #F5F3EE;
   background-color: #014620;
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
-  height: 120px;
-  padding: 0 1rem;
+  gap: 0.5rem;
+  padding: 1rem;
 }
 
 .loading-final-screen h3 {
   margin: 0px;
+}
+
+/* Passes the fill from the wrapper down to the card.
+
+   Neither of these had any rules outside the desktop media query, so on a
+   phone they were plain blocks sized by their contents and the card's own
+   viewport height was the only thing establishing the screen's height. */
+.processing-modal-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+
+/* The deck takes whatever the status band leaves.
+
+   Without this the body is a plain block sized to its contents, and
+   .parent-rights-container's `height: 100%` resolves against an auto height
+   — so it stopped at its content and left a screen's worth of empty cream
+   under the dots. The column below is what turns that leftover into height
+   the container can centre inside.
+
+   This is the last link in the chain: <main> (AppShell.css) -> the wrapper ->
+   the container -> the card -> here. Every one of them is a flex column so
+   that the fill reaches the deck without a percentage anywhere, because
+   nothing above has a definite height to resolve one against. */
+.processing-summary-parent-rights-card .processing-summary-card-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.carousel-with-button {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .summary-container {
   width: 100%;
@@ -172,7 +199,7 @@
 
 /* Background color for open accordion header */
 .summary-accordion .accordion-button:not(.collapsed) {
-  background-color: #E7E4DC;
+  background-color: var(--aiep-surface-field);
 }
 
 .summary-accordion .accordion-item:first-child {
@@ -263,7 +290,7 @@ background-color: #F5f3EE;
 .markdown-content table, 
 .markdown-content th, 
 .markdown-content td {
-  border: 1px solid #dee2e6;
+  border: 1px solid var(--aiep-border);
 }
 
 .markdown-content th,
@@ -276,7 +303,7 @@ background-color: #F5f3EE;
   border-inline-start: 4px solid #0040BA;
   padding-inline-start: 1rem;
   margin-inline-start: 0;
-  color: #6c757d;
+  color: var(--aiep-muted);
 }
 
 .markdown-content img {
@@ -286,14 +313,14 @@ background-color: #F5f3EE;
 }
 
 .markdown-content pre {
-  background-color: #FFFFFF;
+  background-color: var(--aiep-surface-white);
   padding: 1rem;
   border-radius: 4px;
   overflow-x: auto;
 }
 
 .markdown-content code {
-  background-color: #FFFFFF;
+  background-color: var(--aiep-surface-white);
   padding: 0.2rem 0.4rem;
   border-radius: 4px;
   font-size: 0.875rem;
@@ -315,7 +342,7 @@ background-color: #F5f3EE;
 
 /* More prominent with animated underline */
 .jargon-term {
-color: #007AD1;
+color: var(--aiep-accent-blue);
 font-weight: 500;
 position: relative;
 cursor: pointer;
@@ -325,7 +352,7 @@ padding: 0 2px;
 }
 
 .jargon-term:hover {
-color: #0056b3;
+color: var(--aiep-accent-blue-hover);
 text-decoration-thickness: 2px;
 }
 
@@ -339,8 +366,8 @@ background-color: #F5F3EE;
 }
 
 .jargon-drawer .offcanvas-header {
-border-bottom: 1px solid #dee2e6;
-background-color: #007AD1;
+border-bottom: 1px solid var(--aiep-border);
+background-color: var(--aiep-accent-blue);
 }
 
 .jargon-drawer .offcanvas-title {
@@ -431,7 +458,7 @@ padding: 0 1rem;
 /* Language dropdown styling in button-container */
 .button-container .dropdown .dropdown-toggle {
 background-color: #F5F3EE;
-border: 1px solid #CBC6BC;
+border: 1px solid var(--aiep-border);
 border-radius: 30px;
 color: #1E1E1E;
 min-width: 100px;
@@ -501,7 +528,7 @@ display: none !important;
 }
 
 .page-numbers-label {
-  color: #A8A9A5;
+  color: var(--aiep-muted);
 }
 
 .page-numbers-value {
@@ -525,6 +552,7 @@ display: none !important;
   
   .processing-summary-loader-card .processing-summary-card-body {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     width: 100%;
@@ -532,14 +560,6 @@ display: none !important;
   }
 
   
-.processing-summary-loader-card .spinner-border {
-  display: inline-block;
-}
-
-.processing-summary-loader-card .desktop-processing-spinner-text {
-  display: inline-block;
-}
-
 /* .processing-summary-parent-rights-card {
   background-image: none !important;
   background-color: #F5F3EE;

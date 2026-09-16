@@ -2,12 +2,15 @@ import json
 import os
 import boto3
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional, Literal
 from router import Router, UserProfileRouter, RouteNotFoundException
+from student_name_substitution import substitute_content, usable_student_name
 import base64
 import copy
+import re
+import unicodedata
 from botocore.exceptions import ClientError
 
 dynamodb = boto3.resource('dynamodb')
@@ -23,6 +26,10 @@ print(f"KMS client initialized for region: {region}, using key alias: {kms_key_a
 
 SUPPORTED_LANGUAGES = ['en', 'zh', 'es', 'vi', 'ar']
 DEFAULT_LANGUAGE = 'en'
+
+# Where a document's content lives, whether inline on the row or in the S3
+# object. Every shape get_child_documents can return fills all four.
+CONTENT_FIELDS = ('summaries', 'sections', 'document_index', 'abbreviations')
 
 # Document processing statuses
 DocumentStatus = Literal['PROCESSING', 'PROCESSING_TRANSLATIONS', 'PROCESSED', 'FAILED']
@@ -202,6 +209,125 @@ def kms_encrypt_string(plaintext: str) -> str:
             f"Field encryption failed: {type(e).__name__}"
         ) from e
 
+# --- What counts as a child's name ------------------------------------------
+# The same rule the screen applies in
+# lib/user-interface/app/src/common/child-name.ts, and the two have to stay
+# identical: a name the screen accepts and this rejects reaches the parent as a
+# generic "could not save", with nothing on the page telling them what to fix.
+#
+# Nothing validated this before. '123', '!!!' and '.' all stored fine, and the
+# stored value is what goes into the heading of every summary, every
+# translation, and the audio a parent listens to.
+CHILD_NAME_MAX_LENGTH = 64
+
+# What a name may hold besides letters (Unicode category L*) and combining
+# marks (M*, which is what makes Vietnamese and Arabic work at all): a space,
+# both hyphens, both apostrophes, and the period that ends an initial.
+_CHILD_NAME_PUNCTUATION = frozenset(" -\u2010'\u2019.")
+
+# (log reason, response message) per refusal. Only the code's log reason
+# reaches CloudWatch and only the message reaches the caller: the name itself
+# is a FERPA-protected record of a child with a disability, so it is in neither,
+# nor in any exception raised along the way.
+CHILD_NAME_REJECTIONS = {
+    'required': (
+        'blank or whitespace-only child name',
+        'Child name cannot be blank',
+    ),
+    'tooLong': (
+        f'child name longer than {CHILD_NAME_MAX_LENGTH} characters',
+        f'Child name must be {CHILD_NAME_MAX_LENGTH} characters or fewer',
+    ),
+    'invalid': (
+        'child name holds no letter, or a character that is not name punctuation',
+        'Child name must contain a letter, and can only use letters, numbers, '
+        'spaces, hyphens, apostrophes and periods',
+    ),
+}
+
+
+def validate_child_name(name) -> Optional[str]:
+    """Which rule the name breaks, or None when it breaks none.
+
+    Checked in the order the messages are written, so an over-long run of
+    digits is reported as too long here and on the screen both.
+
+    Deliberately not a regex over an ASCII range: four of the five languages
+    this ships in are Spanish, Chinese, Vietnamese and Arabic, and a name is
+    whatever a family's script writes one with.
+    """
+    collapsed = ' '.join(name.split()) if isinstance(name, str) else ''
+    if not collapsed:
+        return 'required'
+    if len(collapsed) > CHILD_NAME_MAX_LENGTH:
+        return 'tooLong'
+    has_letter = False
+    for character in collapsed:
+        category = unicodedata.category(character)
+        if category.startswith('L'):
+            has_letter = True
+        # Nd alongside M: a digit is allowed in a name that also has letters,
+        # so a parent telling two children apart as "Anna 2" is not refused.
+        elif (not category.startswith('M') and category != 'Nd'
+                and character not in _CHILD_NAME_PUNCTUATION):
+            return 'invalid'
+    # "123", "." and "-" are not names: something has to be a letter.
+    return None if has_letter else 'invalid'
+
+
+def reject_child_name(event: Dict, operation: str, user_id: str, reason: str) -> Dict:
+    """400 for a name we will not store, with the reason code in CloudWatch.
+
+    The reason, never the value: a silent 4xx made one real failure in this
+    file undiagnosable, and a logged child's name would be a FERPA disclosure
+    to anyone with log-read access.
+    """
+    log_reason, message = CHILD_NAME_REJECTIONS[reason]
+    print(f"Rejecting {operation} for userId {user_id}: {log_reason}")
+    return create_response(event, 400, {'message': message})
+
+
+# Word starts, for capitalising a name: the beginning of the string, or the
+# character after a space, a hyphen, or either apostrophe. So "mary-jane" and
+# "o'brien" get both halves, not just the first.
+_NAME_WORD_START = re.compile(r"(^|[\s\-'\u2019])(\w)", re.UNICODE)
+
+
+def normalize_child_name(name: str) -> str:
+    """Tidy the name a parent typed, without ever overruling a choice they made.
+
+    A parent typing "dhruv" gets "Dhruv" in the heading of every summary, in
+    five languages, and today has no way to go back and fix it. So the lower
+    case case is worth correcting on the way in.
+
+    The rule is deliberately narrow: capitalise ONLY when the parent typed no
+    capital at all. The moment there is one, the whole value is left exactly as
+    given, because every clever rule beyond this point gets somebody's name
+    wrong:
+
+      AJ -> Aj             McDonald -> Mcdonald
+      van der Berg -> Van Der Berg      JOSE -> Jose
+
+    Those are real names, and getting a child's name wrong is not a neutral
+    error in a product about their disability. An all-capitals name is left
+    alone for the same reason: "AJ" and a stuck caps lock are indistinguishable
+    from here, and only one of the two guesses is recoverable by the parent.
+
+    Scripts without case are unaffected by construction, since str.upper() is a
+    no-op on them: Chinese, Arabic and the unaccented parts of Vietnamese all
+    pass through untouched, and Python's upper() is Unicode-aware, so
+    "nguyễn" -> "Nguyễn" and "josé" -> "José" both come out right.
+
+    Runs of whitespace are collapsed as well, so the redaction matcher, which
+    splits the name on whitespace, sees the same tokens the parent meant.
+    """
+    collapsed = ' '.join((name or '').split())
+    if any(character.isupper() for character in collapsed):
+        return collapsed
+    return _NAME_WORD_START.sub(
+        lambda match: match.group(1) + match.group(2).upper(), collapsed)
+
+
 def kms_decrypt_string(ciphertext_b64: str) -> str:
     if not ciphertext_b64:
         return ciphertext_b64
@@ -270,11 +396,16 @@ def get_user_profile(event: Dict) -> Dict:
         
         if 'Item' not in response:
             print(f"No existing profile found for userId: {user_id}, creating new profile")
-            
-            # Create default child for IEP document functionality
+
+            # Create default child for IEP document functionality, with NO
+            # name. 'My Child' used to go here, but the redaction pipeline
+            # restores this value verbatim into the summary, so a placeholder
+            # would land in a parent's document. An empty name is what the
+            # frontend's studentNameGate (common/features.ts) checks for, so
+            # onboarding asks every parent for it exactly once.
             default_child = {
                 'childId': str(uuid.uuid4()),
-                'name': 'My Child',
+                'name': '',
                 'schoolCity': 'Not specified',
                 'createdAt': times['timestamp'],
                 'updatedAt': times['timestamp']
@@ -303,15 +434,16 @@ def get_user_profile(event: Dict) -> Dict:
         # Check if existing profile has no children and add default child if needed
         if 'children' not in existing_profile or not existing_profile['children']:
             print(f"Existing profile found but no children, adding default child for userId: {user_id}")
-            
+
+            # Empty name, same reasoning as the fresh-profile branch above.
             default_child = {
                 'childId': str(uuid.uuid4()),
-                'name': 'My Child',
+                'name': '',
                 'schoolCity': 'Not specified',
                 'createdAt': times['timestamp'],
                 'updatedAt': times['timestamp']
             }
-            
+
             # Update the profile with default child
             user_profiles_table.update_item(
                 Key={'userId': user_id},
@@ -322,12 +454,21 @@ def get_user_profile(event: Dict) -> Dict:
                     ':updatedAtISO': times['datetime']
                 }
             )
-            
+
             # Update the existing profile object to return
             existing_profile['children'] = [default_child]
             existing_profile['updatedAt'] = times['timestamp']
             existing_profile['updatedAtISO'] = times['datetime']
-        
+
+        # Decrypt each child's name -- see kms_encrypt_string in add_child and
+        # in the children branch of update_user_profile for where it is
+        # written encrypted. A freshly created/backfilled default_child's
+        # name is '' and decrypting that is a no-op, so this runs
+        # unconditionally rather than only for pre-existing children.
+        for child in existing_profile.get('children', []):
+            if isinstance(child, dict) and isinstance(child.get('name'), str):
+                child['name'] = kms_decrypt_string(child['name'])
+
         return create_response(event, 200, {'profile': existing_profile})
         
     except Exception as e:
@@ -422,11 +563,24 @@ def update_user_profile(event: Dict) -> Dict:
             for child in body['children']:
                 if 'name' not in child or 'schoolCity' not in child:
                     return create_response(event, 400, {'message': 'Each child must have name and schoolCity'})
+                # A present-but-blank name used to pass -- 'name' in child was
+                # the whole check -- which is exactly the value the redaction
+                # pipeline has nothing to restore from. So did '123' and '!!!',
+                # which is what validate_child_name now also catches. Reject
+                # and log why: an unlogged validation rejection already made
+                # one real failure in this file undiagnosable.
+                reason = validate_child_name(child['name'])
+                if reason:
+                    return reject_child_name(event, 'update_user_profile', user_id, reason)
                 if 'childId' not in child:
                     child['childId'] = str(uuid.uuid4())
-            
+
+            # Encrypt at rest, same as phone/city/parentName above.
             update_parts.append('children = :children')
-            expr_values[':children'] = body['children']
+            expr_values[':children'] = [
+                {**child, 'name': kms_encrypt_string(normalize_child_name(child['name']))}
+                for child in body['children']
+            ]
         
         # If no fields to update (the first two parts are always the
         # updatedAt/updatedAtISO timestamps)
@@ -498,12 +652,19 @@ def add_child(event: Dict) -> Dict:
         # Validate required fields
         if 'name' not in body or 'schoolCity' not in body:
             return create_response(event, 400, {'message': 'Missing required fields: name and schoolCity required'})
-            
+
+        # Blank, over-long, or not a name at all: same rule, same reason and
+        # the same reason codes as the children branch of update_user_profile.
+        # Two write paths, one definition of what we will store.
+        reason = validate_child_name(body['name'])
+        if reason:
+            return reject_child_name(event, 'add_child', user_id, reason)
+
         # Generate new childId
         child_id = str(uuid.uuid4())
         new_child = {
             'childId': child_id,
-            'name': body['name'],
+            'name': kms_encrypt_string(normalize_child_name(body['name'])),
             'schoolCity': body['schoolCity'],
             'createdAt': times['timestamp'],
             'createdAtISO': times['datetime'],
@@ -531,6 +692,13 @@ def add_child(event: Dict) -> Dict:
             'createdAtISO': times['datetime'],
         })
         
+    except FieldEncryptionError as e:
+        # Same rule as update_user_profile: never fall back to storing the
+        # child's name in plaintext.
+        print(f"Refusing to add child due to field encryption failure: {str(e)}")
+        return create_response(event, 503, {
+            'message': 'Could not add the child right now: encryption service error. Please try again later.'
+        })
     except Exception as e:
         print(f"Error in add_child: {str(e)}")
         return create_response(event, 500, {'message': 'Could not add the child. Please try again later.'})
@@ -586,6 +754,99 @@ def _user_owns_child(user_id: str, child_id: str) -> bool:
         isinstance(child, dict) and child.get('childId') == child_id
         for child in children
     )
+
+
+def _child_name(user_id: str, child_id: str) -> Optional[str]:
+    """The child's name from the profile, decrypted, or None.
+
+    None is a complete answer rather than a failure: the parent may not have
+    been asked for a name yet, and the caller falls back to the neutral phrase
+    for the language being read. Nothing here raises. A profile read or a
+    decrypt that fails costs a parent the name inside their summary, which is
+    not worth a 500 on a document they could otherwise read.
+
+    kms_decrypt_string hands back the ciphertext it was given when a decrypt
+    fails; usable_student_name's length guard is what stops that base64 blob
+    being printed to a parent as their child's name.
+    """
+    try:
+        profile = user_profiles_table.get_item(Key={'userId': user_id}).get('Item') or {}
+        for child in profile.get('children') or []:
+            if isinstance(child, dict) and child.get('childId') == child_id:
+                return usable_student_name(kms_decrypt_string(child.get('name')))
+    except Exception as e:
+        # Class name only: this function's result is a child's name.
+        print(f"Could not read the child's name for substitution: {type(e).__name__}")
+    return None
+
+
+def _epoch_seconds(value) -> Optional[int]:
+    """`value` as epoch seconds, or None if it is not a timestamp we can read.
+
+    Handles the two shapes a document row's timestamps come in: a DynamoDB
+    number (Decimal) already in epoch seconds, and an ISO 8601 string.
+
+    Never raises. This feeds one line of prose under a parent's summary, which
+    is not worth a 500 on a document they could otherwise read.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+
+    if isinstance(value, (int, float, Decimal)):
+        return int(value)
+
+    if isinstance(value, str) and value.strip():
+        try:
+            # The pipeline writes datetime.utcnow().isoformat(): UTC, but with
+            # no offset on it. A naive datetime's .timestamp() is read as LOCAL
+            # time, which is only UTC in the lambda by accident of TZ, so the
+            # zone is attached explicitly. A trailing Z is normalized because
+            # fromisoformat only accepts one from Python 3.11.
+            parsed = datetime.fromisoformat(value.strip().replace('Z', '+00:00'))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return int(parsed.timestamp())
+
+    return None
+
+
+def _document_updated_at(doc: Dict):
+    """The last time anything touched this document, in epoch seconds.
+
+    Two attributes carry this and they are not interchangeable:
+
+    - `updatedAt` is written ONCE, by upload-s3, at the moment the row is
+      created, in epoch seconds. Nothing ever writes it again.
+    - `updated_at` is what every writer since then uses -- ddb-service's
+      update_progress and record_failure, the S3 content migration, and
+      translation-request-handler's claim/release -- as an ISO string.
+
+    So reading `updatedAt` alone, which is what this endpoint used to do,
+    reported the moment the parent pressed upload and called it the last
+    update: a document that took four minutes to summarize, and one that had a
+    language added weeks later, both showed the original upload time.
+
+    The later of the two is the answer, rather than `updated_at` outright, so
+    that rows predating it keep the only timestamp they have.
+
+    Normalized to seconds here rather than passed through: the frontend's
+    TextHelper.formatUnixTimestamp multiplies by 1000, so an ISO string
+    reaches a parent as "Invalid Date" -- and the `document.updatedAt &&`
+    guard in front of it does not catch that, because a non-empty string is
+    truthy.
+    """
+    known = [
+        seconds for seconds in (
+            _epoch_seconds(doc.get('updated_at')),
+            _epoch_seconds(doc.get('updatedAt')),
+        )
+        if seconds is not None
+    ]
+    # '' rather than None to match the createdAt line beside it. Both are
+    # falsy, which is what the frontend checks before rendering the line.
+    return max(known) if known else ''
 
 
 def get_child_documents(event: Dict) -> Dict:
@@ -650,7 +911,7 @@ def get_child_documents(event: Dict) -> Dict:
                         'progress': doc.get('progress', 0),
                         'current_step': doc.get('current_step', 'initializing'),
                         'createdAt': doc.get('createdAt', ''),
-                        'updatedAt': doc.get('updatedAt', '')
+                        'updatedAt': _document_updated_at(doc)
                     }
                     
                     # Check if content is in S3 (new format) or DynamoDB (old format)
@@ -737,7 +998,27 @@ def get_child_documents(event: Dict) -> Dict:
         # If no document found
         if not latest_doc:
             return create_response(event, 200, {'documents': [], 'message': 'No document found for this child'})
-        
+
+        # The child's name is never written into stored content: it keeps the
+        # {{S}} placeholder and every reader substitutes on the way out. That
+        # is why the on-demand translation can re-read this same content
+        # without handing the model a name, and why correcting a misspelled
+        # name fixes every summary a parent already has.
+        #
+        # One site, after the branches above have converged on one dict,
+        # rather than one per branch: a return shape added later cannot skip
+        # it. Documents that predate the redaction hold real names and no
+        # token, and pass through unchanged.
+        try:
+            stored = {field: latest_doc[field] for field in CONTENT_FIELDS if field in latest_doc}
+            substituted, count = substitute_content(stored, _child_name(user_id, child_id))
+            latest_doc = {**latest_doc, **substituted}
+            print(f"Substituted the student token in {count} place(s) for {latest_doc['iepId']}")
+        except Exception as e:
+            # A placeholder on screen is bad; losing a readable document to a
+            # 500 is worse. Class name only, never the content.
+            print(f"Student name substitution failed: {type(e).__name__}")
+
         return create_response(event, 200, latest_doc)
         
     except Exception as e:
@@ -938,6 +1219,51 @@ def _query_all_documents(index_name: str, key_expression: str, values: Dict) -> 
             return items
 
 
+# --- Deletion outcome -------------------------------------------------------
+# A deletion that reports a success it did not achieve is the worst failure
+# shape in this handler: the parent is told their child's records are gone,
+# stops asking, and the FERPA content is still in the bucket. Both handlers
+# below therefore record what survived each step and derive the response from
+# that record, rather than from having reached the end of the function.
+#
+# Essential vs best-effort is decided by what is left behind when a step
+# fails, not by how the step failed:
+#
+#   essential   - the child's record or the account itself survives. Raw
+#                 uploads, the derived artifacts (summary, redacted OCR,
+#                 cached audio), the document rows, the profile, the Cognito
+#                 login. Cached audio counts: an mp3 is the child's summary
+#                 read aloud, so leaving one behind is the same disclosure as
+#                 leaving the summary behind.
+#   best-effort - nothing of the child's record survives, only bookkeeping
+#                 that carries no document content (the referral footprint).
+#                 A failure there is logged and alarmed but does not turn the
+#                 parent's deletion into an error, because there is nothing
+#                 for them to retry and a stuck referral row must not strand a
+#                 half-deleted account.
+
+def _report_deletion_incomplete(scope: str, survived: List[str],
+                                essential: bool, **ids) -> None:
+    """Log the one line an alarm can count when a deletion did not finish.
+
+    DELETION_INCOMPLETE is a stable marker, not prose: a metric filter alarms
+    on it, and rewording this line would disarm that alarm. Same contract as
+    RECORD_FAILURE in the pipeline. knowledge-management/delete-s3 emits it
+    too, with scope=document.
+
+    `essential` says whether the parent was told the deletion failed, so one
+    filter can page on real data survival and another can merely ticket a
+    stuck referral row.
+
+    Ids and artifact kinds only. Exception text stays in the per-step lines
+    above this one: it can quote table and bucket names, and an uploaded
+    filename routinely carries the child's name.
+    """
+    detail = ' '.join(f'{name}={value}' for name, value in ids.items())
+    print(f"DELETION_INCOMPLETE scope={scope} essential={'yes' if essential else 'no'} "
+          f"{detail} survived={','.join(sorted(set(survived)))}")
+
+
 def delete_child_documents(event: Dict) -> Dict:
     """
     Delete all IEP-related data for a specific child.
@@ -945,20 +1271,24 @@ def delete_child_documents(event: Dict) -> Dict:
     1. S3 files (actual IEP documents)
     2. Records in IEP documents table
     3. IEP references in the user's profile
-    
+
+    Every step is essential here: each one leaves either the child's records
+    or a profile pointing at documents that no longer exist. A step that fails
+    is reported to the parent as a failure, not swallowed.
+
     Args:
         event (Dict): API Gateway event object containing user context and childId
-        
+
     Returns:
         Dict: API Gateway response indicating success or error
-        
+
     Raises:
         Exception: If there's an error during deletion process
     """
     try:
         user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
         child_id = event['pathParameters']['childId']
-        
+
         print(f"Processing request to delete IEP documents for childId: {child_id} by userId: {user_id}")
 
         # Authorization: only allow deletion if the authenticated user owns the child.
@@ -967,123 +1297,145 @@ def delete_child_documents(event: Dict) -> Dict:
             return create_response(event, 403, {'message': 'Access denied'})
 
         # Delete all IEP-related data
+        # Initialize clients
+        s3 = boto3.client('s3')
+        bucket_name = os.environ.get('BUCKET', '')
+        survived: List[str] = []
+
+        # Order: S3 objects first, then the rows that point at them, then
+        # the profile reference. Every pointer outlives what it points at,
+        # so a retry can still find whatever survived. Each step is
+        # idempotent (a deleted object is simply not listed the second
+        # time, DeleteItem succeeds on a row already gone, and the profile
+        # update is a rewrite of the same list), so a retry after a
+        # partial failure converges instead of compounding.
+
+        # 1. First delete files from S3
         try:
-            # Initialize clients
-            s3 = boto3.client('s3')
-            bucket_name = os.environ.get('BUCKET', '')
-            
-            # 1. First delete files from S3
-            try:
-                # Create the S3 key prefix for this child (all objects under userId/childId/)
-                prefix = f"{user_id}/{child_id}/"
-                
-                print(f"Listing S3 objects with prefix: {prefix} in bucket: {bucket_name}")
-                
-                # List all objects with this prefix
-                paginator = s3.get_paginator('list_objects_v2')
-                objects_deleted = 0
-                
-                for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
-                    if 'Contents' in page:
-                        for obj in page['Contents']:
-                            s3.delete_object(Bucket=bucket_name, Key=obj['Key'])
-                            print(f"Deleted S3 object: {obj['Key']}")
-                            objects_deleted += 1
-                
-                print(f"Deleted {objects_deleted} S3 objects for childId: {child_id}")
-                
-            except Exception as s3_error:
-                print(f"Error deleting S3 objects: {str(s3_error)}")
-                # Continue with other deletions even if S3 deletion fails
-            
-            # 2. Delete records from IEP documents table
-            try:
-                # Query documents by childId
-                documents = _query_all_documents(
-                    'byChildId', 'childId = :childId', {':childId': child_id})
+            # Create the S3 key prefix for this child (all objects under userId/childId/)
+            prefix = f"{user_id}/{child_id}/"
 
-                documents_deleted = 0
+            print(f"Listing S3 objects with prefix: {prefix} in bucket: {bucket_name}")
 
-                # Delete each document record that belongs to this user.
-                # Strict ownership: require an explicit userId match.
-                for doc in documents:
-                    if doc.get('userId') == user_id:
-                        # Summary content and cached TTS audio, before the row
-                        # that points at them.
-                        try:
-                            _delete_document_artifacts(s3, bucket_name, doc)
-                        except Exception as artifact_error:
-                            print(f"Error deleting S3 artifacts for {doc.get('iepId')}: {str(artifact_error)}")
+            objects_deleted = _delete_prefix(s3, bucket_name, prefix)
 
-                        # Check for document_index field before deletion
-                        if 'document_index' in doc:
-                            print(f"Deleting document with document_index field: {doc['iepId']}")
+            print(f"Deleted {objects_deleted} S3 objects for childId: {child_id}")
 
+        except Exception as s3_error:
+            print(f"Error deleting S3 objects: {str(s3_error)}")
+            # Continue with the other steps: one stuck object must not
+            # leave the rows and the profile reference behind too.
+            survived.append('raw-uploads')
+
+        # 2. Delete records from IEP documents table
+        try:
+            # Query documents by childId
+            documents = _query_all_documents(
+                'byChildId', 'childId = :childId', {':childId': child_id})
+
+            documents_deleted = 0
+
+            # Delete each document record that belongs to this user.
+            # Strict ownership: require an explicit userId match.
+            for doc in documents:
+                if doc.get('userId') == user_id:
+                    # Summary content and cached TTS audio, before the row
+                    # that points at them.
+                    try:
+                        _delete_document_artifacts(s3, bucket_name, doc)
+                    except Exception as artifact_error:
+                        print(f"Error deleting S3 artifacts for {doc.get('iepId')}: {str(artifact_error)}")
+                        # Keep the row. contentS3Reference is the only
+                        # pointer to what survived, so dropping it here
+                        # would strand the summary and the audio where
+                        # only an ops sweep could reach them, and a retry
+                        # would report a clean deletion over the top.
+                        survived.extend(['derived-artifacts', 'document-rows'])
+                        continue
+
+                    # Check for document_index field before deletion
+                    if 'document_index' in doc:
+                        print(f"Deleting document with document_index field: {doc['iepId']}")
+
+                    try:
                         iep_documents_table.delete_item(
                             Key={
                                 'iepId': doc['iepId'],
                                 'childId': doc['childId']
                             }
                         )
-                        print(f"Deleted IEP document record with iepId: {doc['iepId']} for childId: {child_id}")
-                        documents_deleted += 1
+                    except Exception as row_error:
+                        print(f"Error deleting IEP document record {doc.get('iepId')}: {str(row_error)}")
+                        survived.append('document-rows')
+                        continue
+
+                    print(f"Deleted IEP document record with iepId: {doc['iepId']} for childId: {child_id}")
+                    documents_deleted += 1
+
+            print(f"Deleted {documents_deleted} IEP document records for childId: {child_id}")
+
+        except Exception as ddb_error:
+            print(f"Error deleting document records: {str(ddb_error)}")
+            survived.append('document-rows')
+
+        # 3. Update the user profile to remove any IEP document references for this child
+        try:
+            # First get the current user profile
+            user_profile_response = user_profiles_table.get_item(
+                Key={'userId': user_id}
+            )
                 
-                print(f"Deleted {documents_deleted} IEP document records for childId: {child_id}")
-                
-            except Exception as ddb_error:
-                print(f"Error deleting document records: {str(ddb_error)}")
-            
-            # 3. Update the user profile to remove any IEP document references for this child
-            try:
-                # First get the current user profile
-                user_profile_response = user_profiles_table.get_item(
-                    Key={'userId': user_id}
-                )
-                
-                if 'Item' in user_profile_response:
-                    user_profile = user_profile_response['Item']
-                    updated_profile = False
+            if 'Item' in user_profile_response:
+                user_profile = user_profile_response['Item']
+                updated_profile = False
                     
-                    # Check if there are children in the profile
-                    if 'children' in user_profile and isinstance(user_profile['children'], list):
-                        children = user_profile['children']
+                # Check if there are children in the profile
+                if 'children' in user_profile and isinstance(user_profile['children'], list):
+                    children = user_profile['children']
                         
-                        # Find the child and remove any IEP document references
-                        for i, child in enumerate(children):
-                            if child.get('childId') == child_id:
-                                # Remove any IEP document data if present
-                                if 'iepDocument' in child:
-                                    del children[i]['iepDocument']
-                                    updated_profile = True
-                                    print(f"Removed IEP document reference from child {child_id} in user profile")
+                    # Find the child and remove any IEP document references
+                    for i, child in enumerate(children):
+                        if child.get('childId') == child_id:
+                            # Remove any IEP document data if present
+                            if 'iepDocument' in child:
+                                del children[i]['iepDocument']
+                                updated_profile = True
+                                print(f"Removed IEP document reference from child {child_id} in user profile")
                         
-                        # Update the profile if changes were made
-                        if updated_profile:
-                            times = get_timestamps()
-                            user_profiles_table.update_item(
-                                Key={'userId': user_id},
-                                UpdateExpression='SET #children = :children, updatedAt = :updatedAt, updatedAtISO = :updatedAtISO',
-                                ExpressionAttributeNames={'#children': 'children'},
-                                ExpressionAttributeValues={
-                                    ':children': children,
-                                    ':updatedAt': times['timestamp'],
-                                    ':updatedAtISO': times['datetime']
-                                }
-                            )
-                            print(f"Updated user profile to remove IEP document references")
+                    # Update the profile if changes were made
+                    if updated_profile:
+                        times = get_timestamps()
+                        user_profiles_table.update_item(
+                            Key={'userId': user_id},
+                            UpdateExpression='SET #children = :children, updatedAt = :updatedAt, updatedAtISO = :updatedAtISO',
+                            ExpressionAttributeNames={'#children': 'children'},
+                            ExpressionAttributeValues={
+                                ':children': children,
+                                ':updatedAt': times['timestamp'],
+                                ':updatedAtISO': times['datetime']
+                            }
+                        )
+                        print(f"Updated user profile to remove IEP document references")
                 
-            except Exception as profile_error:
-                print(f"Error updating user profile: {str(profile_error)}")
-                # Continue even if profile update fails
-        except Exception as e:
-            print(f"Error during deletion process: {str(e)}")
-            
+        except Exception as profile_error:
+            print(f"Error updating user profile: {str(profile_error)}")
+            # Left behind: a child still pointing at documents that are gone.
+            survived.append('profile-reference')
+
+        if survived:
+            _report_deletion_incomplete('child-documents', survived, True,
+                                        user=user_id, child=child_id)
+            return create_response(event, 500, {
+                'message': 'Could not delete the documents. Please try again later.',
+                'childId': child_id
+            })
+
         # Return success response
         return create_response(event, 200, {
             'message': 'IEP documents successfully deleted',
             'childId': child_id
         })
-        
+
     except Exception as e:
         print(f"Error in delete_child_documents: {str(e)}")
         return create_response(event, 500, {'message': 'Could not delete the documents. Please try again later.'})
@@ -1096,7 +1448,11 @@ def delete_user_profile(event: Dict) -> Dict:
     2. All IEP document records in IEP documents table
     3. User profile record in user profiles table
     4. Cognito user account
-    
+
+    Anything that survives an essential step makes this an error response, not
+    a 200 with the truth buried in deletionSummary. See the classification
+    above _report_deletion_incomplete for which steps are which.
+
     Args:
         event (Dict): API Gateway event object containing user context
         
@@ -1118,36 +1474,42 @@ def delete_user_profile(event: Dict) -> Dict:
             'profileDeleted': False,
             'cognitoUserDeleted': False
         }
-        
+        # What is still in place when we answer. `survived` is essential and
+        # makes the response an error; `best_effort_survived` is named in the
+        # marker but does not, per the classification above.
+        survived: List[str] = []
+        best_effort_survived: List[str] = []
+
         # Hoisted: step 2 purges S3 artifacts too, so these must exist even if
         # the raw-upload sweep below raises.
         s3 = boto3.client('s3')
         bucket_name = os.environ.get('BUCKET', '')
+
+        # The five steps run data first and credentials last, and every step
+        # runs even when an earlier one failed: one stuck object must not leave
+        # the rest of the account behind too. The order is what makes a retry
+        # converge. Each pointer outlives what it points at (the row over its
+        # artifacts, the profile over the documents, the login over all of it),
+        # so whatever survived is still reachable on the next attempt, and
+        # every step is idempotent.
 
         # 1. Delete the user's raw uploads (originals live under userId/).
         #    Derived artifacts are NOT under this prefix; step 2 handles those.
         try:
             # Create the S3 key prefix for this user (all objects under userId/)
             prefix = f"{user_id}/"
-            
+
             print(f"Listing S3 objects with prefix: {prefix} in bucket: {bucket_name}")
-            
-            # List all objects with this prefix
-            paginator = s3.get_paginator('list_objects_v2')
-            
-            for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
-                if 'Contents' in page:
-                    for obj in page['Contents']:
-                        s3.delete_object(Bucket=bucket_name, Key=obj['Key'])
-                        print(f"Deleted S3 object: {obj['Key']}")
-                        result['s3ObjectsDeleted'] += 1
-            
+
+            result['s3ObjectsDeleted'] += _delete_prefix(s3, bucket_name, prefix)
+
             print(f"Deleted {result['s3ObjectsDeleted']} S3 objects for userId: {user_id}")
-            
+
         except Exception as s3_error:
             print(f"Error deleting S3 objects: {str(s3_error)}")
             # Continue with other deletions even if S3 deletion fails
-        
+            survived.append('raw-uploads')
+
         # 2. Delete ALL IEP document records for the user, and the S3 artifacts
         #    derived from each one. Order matters: contentS3Reference is the
         #    only pointer to the summary object, so the row has to be read (and
@@ -1164,22 +1526,35 @@ def delete_user_profile(event: Dict) -> Dict:
                         s3, bucket_name, doc)
                 except Exception as artifact_error:
                     print(f"Error deleting S3 artifacts for {doc.get('iepId')}: {str(artifact_error)}")
+                    # Keep the row: it is the only pointer to what survived,
+                    # and the next attempt needs it to find those artifacts
+                    # again. Deleting it here would turn a retryable partial
+                    # failure into a permanent orphan reported as success.
+                    survived.extend(['derived-artifacts', 'document-rows'])
+                    continue
 
-                iep_documents_table.delete_item(
-                    Key={
-                        'iepId': doc['iepId'],
-                        'childId': doc['childId']
-                    }
-                )
+                try:
+                    iep_documents_table.delete_item(
+                        Key={
+                            'iepId': doc['iepId'],
+                            'childId': doc['childId']
+                        }
+                    )
+                except Exception as row_error:
+                    print(f"Error deleting IEP document record {doc.get('iepId')}: {str(row_error)}")
+                    survived.append('document-rows')
+                    continue
+
                 print(f"Deleted IEP document record with iepId: {doc['iepId']}")
                 result['documentsDeleted'] += 1
-            
+
             print(f"Deleted {result['documentsDeleted']} IEP document records for userId: {user_id}")
-            
+
         except Exception as ddb_error:
             print(f"Error deleting document records: {str(ddb_error)}")
             # Continue with profile deletion even if document deletion fails
-        
+            survived.append('document-rows')
+
         # 3. Remove their referral footprint. Before the profile goes, because
         #    a failure here should still leave the account recoverable-looking
         #    rather than half-deleted with no profile to explain it.
@@ -1187,7 +1562,10 @@ def delete_user_profile(event: Dict) -> Dict:
             result['referrals'] = _purge_referral_data(user_id)
         except Exception as referral_error:
             print(f"Error purging referral data: {str(referral_error)}")
-            # Continue: a stuck referral row must not block account deletion
+            # Continue: a stuck referral row must not block account deletion.
+            # Best-effort by classification: a link code and a userId reference
+            # carry no document content, and the parent has nothing to retry.
+            best_effort_survived.append('referrals')
 
         # 4. Delete the user profile record
         try:
@@ -1200,31 +1578,66 @@ def delete_user_profile(event: Dict) -> Dict:
         except Exception as profile_error:
             print(f"Error deleting user profile: {str(profile_error)}")
             # Continue with Cognito deletion even if profile deletion fails
-        
-        # 5. Delete the Cognito user account
-        try:
+            survived.append('profile')
+
+        # 5. Delete the Cognito user account, last and only if the records are
+        #    actually gone. The login is the parent's only way back in, so
+        #    deleting it while their child's documents survive would strand
+        #    those documents where nothing they can do reaches them: no token,
+        #    no retry, an ops script or nothing. Leaving the account alive
+        #    costs them one more tap on Delete and converges.
+        if survived:
+            print('Keeping the Cognito account: data survived and the login is '
+                  'the only way to retry')
+            survived.append('cognito-account')
+        else:
+            # Built outside the try: the except clause below names an
+            # exception class off this client, and evaluating that clause with
+            # `cognito` unbound would raise NameError over the real error.
             cognito = boto3.client('cognito-idp')
-            user_pool_id = os.environ.get('USER_POOL_ID', '')
-            
-            # Delete the user from Cognito User Pool
-            cognito.admin_delete_user(
-                UserPoolId=user_pool_id,
-                Username=user_id
-            )
-            result['cognitoUserDeleted'] = True
-            print(f"Deleted Cognito user for userId: {user_id}")
-            
-        except Exception as cognito_error:
-            print(f"Error deleting Cognito user: {str(cognito_error)}")
-            # This is not a critical failure - user data is already deleted
-        
+            try:
+                user_pool_id = os.environ.get('USER_POOL_ID', '')
+
+                # Delete the user from Cognito User Pool
+                cognito.admin_delete_user(
+                    UserPoolId=user_pool_id,
+                    Username=user_id
+                )
+                result['cognitoUserDeleted'] = True
+                print(f"Deleted Cognito user for userId: {user_id}")
+
+            except cognito.exceptions.UserNotFoundException:
+                # Already gone. A retry after a partial deletion must converge,
+                # not report a failure for work an earlier attempt finished.
+                result['cognitoUserDeleted'] = True
+                print(f"Cognito user already absent for userId: {user_id}")
+
+            except Exception as cognito_error:
+                print(f"Error deleting Cognito user: {str(cognito_error)}")
+                # The account still exists, so the deletion did not happen. It
+                # was reported as success for as long as this was swallowed.
+                survived.append('cognito-account')
+
+        if survived or best_effort_survived:
+            # The marker names everything that survived so an alarm sees the
+            # whole picture; only the essential kinds set the status code.
+            _report_deletion_incomplete('account', survived + best_effort_survived,
+                                        bool(survived), user=user_id)
+
+        if survived:
+            return create_response(event, 500, {
+                'message': 'Could not delete your account. Please try again later.',
+                'userId': user_id,
+                'deletionSummary': result
+            })
+
         # Return success response with deletion summary
         return create_response(event, 200, {
             'message': 'User profile and all associated data successfully deleted',
             'userId': user_id,
             'deletionSummary': result
         })
-        
+
     except Exception as e:
         print(f"Error in delete_user_profile: {str(e)}")
         return create_response(event, 500, {'message': 'Could not delete your account. Please try again later.'})

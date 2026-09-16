@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import IEPSummarizationAndTranslation from "./IEPSummarizationAndTranslation";
+import { PIPELINE_MILESTONES } from "../utils/processing-progress.mjs";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
 import type { AppConfig } from "../../common/types";
@@ -82,9 +83,10 @@ const jsonResponse = (status: number, body: unknown) => ({
   json: async () => body,
 });
 
-const processingDocument = () => ({
+const processingDocument = (overrides: Record<string, unknown> = {}) => ({
   documentId: IEP_ID,
   status: "PROCESSING",
+  ...overrides,
 });
 
 const processedDocument = () => ({
@@ -125,7 +127,9 @@ const renderPage = (language: SupportedLanguage = "en") => {
     enabledLanguages: ["en"] as SupportedLanguage[],
   };
 
-  render(
+  // Returned so a test can unmount the screen and mount it again, which is
+  // what the bottom nav does to this page.
+  return render(
     <MemoryRouter initialEntries={["/summary-and-translations"]}>
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
@@ -160,8 +164,46 @@ const clickNext = (times = 1) => {
   }
 };
 
+/** What the bar is actually DRAWN at: the eased value, off MUI's ARIA value. */
+const progressValue = () =>
+  Number(screen.getByTestId("processing-progress-bar").getAttribute("aria-valuenow"));
+
+/**
+ * What the server has CONFIRMED, which is a different number while the bar is
+ * easing between milestones. Asserting on the drawn value alone cannot tell
+ * the two apart, and the distance between them is the whole design.
+ */
+const confirmedValue = () =>
+  Number(
+    screen.getByTestId("processing-progress-bar").getAttribute("data-confirmed-percent"),
+  );
+
+/** Epoch SECONDS, as the documents endpoint normalizes updatedAt. */
+const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+/** The step line, which is also the bar's accessible name. */
+const stepLine = () => {
+  const bar = screen.getByTestId("processing-progress-bar");
+  const labelId = bar.getAttribute("aria-labelledby") as string;
+  return document.getElementById(labelId)?.textContent;
+};
+
 beforeEach(() => {
   vi.useFakeTimers();
+  // Start the frozen clock on a whole second.
+  //
+  // Not cosmetic: the progress bar eases from a milestone anchored on the
+  // document's `updatedAt`, which is epoch SECONDS, so nowSeconds() truncates
+  // up to 999ms. vi.useFakeTimers() freezes Date at whatever millisecond the
+  // test happened to start, which left "elapsed since the anchor" as a random
+  // 0-999ms and the drawn percentage one point higher on about 1% of runs.
+  //
+  // It flaked in CI rather than here, and only after the milestones were
+  // re-spaced: the summarizing gap went from 43 points to 53, which is what
+  // tipped floor(gap * 0.9 * ease(999ms)) from 0 to 1. Truncating to a whole
+  // second makes the anchor and the clock agree exactly, so elapsed is 0 and
+  // every assertion below is deterministic.
+  vi.setSystemTime(Math.floor(Date.now() / 1000) * 1000);
   Auth.getCurrentUser.mockResolvedValue({ username: "test-user", userId: "test-user" });
   Auth.fetchAuthSession.mockResolvedValue({
     tokens: { idToken: { toString: () => "id-token", payload: {} } },
@@ -355,5 +397,225 @@ describe("when the parent's profile is not finished yet", () => {
     expect(screen.getByTestId("summary-text-en")).toBeInTheDocument();
     expect(screen.queryByText(ONBOARDING_LANDING)).not.toBeInTheDocument();
     expect(screen.queryByText(PUBLIC_LANDING)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The bar and the line above it, which is the only thing on this screen that
+ * answers "is this working, and how much longer".
+ *
+ * It was MUI's indeterminate LinearProgress: the same barber-pole for the ten
+ * seconds of OCR and the four minutes of summarizing, on a screen a parent
+ * sits in front of for both. The pipeline records where it is at every
+ * milestone and the documents endpoint returns it; nothing read either field.
+ */
+describe("the progress bar", () => {
+  test("is drawn at the percentage the pipeline recorded", async () => {
+    documentPayload = processingDocument({ progress: 22, current_step: "cleanup_complete" });
+    renderPage();
+    await settle();
+
+    expect(progressValue()).toBe(22);
+    // Determinate, not indeterminate: an indeterminate MUI bar publishes no
+    // aria-valuenow at all, so the assertion above is also the assertion that
+    // the variant changed.
+    expect(screen.getByTestId("processing-progress-bar")).toHaveAttribute("aria-valuenow");
+  });
+
+  test("advances when a poll brings a new milestone", async () => {
+    // The bug this fixes: useDocumentFetch only kept a fetched payload when
+    // the status or createdAt had changed, and neither moves between 5% and
+    // 85%, so every milestone of a run was discarded and the bar sat still
+    // from upload to finish.
+    documentPayload = processingDocument({ progress: 15, current_step: "ocr_complete" });
+    renderPage();
+    await settle();
+
+    expect(progressValue()).toBe(15);
+
+    documentPayload = processingDocument({ progress: 75, current_step: "analysis_complete" });
+    await settle(POLL_INTERVAL_MS);
+
+    expect(progressValue()).toBe(75);
+  });
+
+  test("names the step in flight, and renames it as the run moves on", async () => {
+    documentPayload = processingDocument({ progress: 15, current_step: "ocr_complete" });
+    renderPage();
+    await settle();
+
+    // t() is the identity here, so these are the keys. The real wording is
+    // asserted against the dictionaries in the module's own suite.
+    expect(stepLine()).toBe("summary.processing.step.protecting");
+
+    documentPayload = processingDocument({ progress: 22, current_step: "cleanup_complete" });
+    await settle(POLL_INTERVAL_MS);
+
+    expect(stepLine()).toBe("summary.processing.step.summarizing");
+  });
+
+  test("comes back at the same place after the parent leaves the page", async () => {
+    // The bottom nav is a route change, so leaving unmounts this screen. The
+    // percentage is derived from the payload rather than held in state
+    // precisely so that it survives that.
+    documentPayload = processingDocument({
+      progress: 75,
+      current_step: "analysis_complete",
+      updatedAt: nowSeconds(),
+    });
+    const { unmount } = renderPage();
+    await settle();
+
+    expect(confirmedValue()).toBe(75);
+
+    // Long enough that the bar has eased well clear of 75, so "same place"
+    // is a real assertion and not just "both happened to be at the milestone".
+    await settle(40_000);
+    const beforeLeaving = progressValue();
+    expect(beforeLeaving).toBeGreaterThan(75);
+
+    unmount();
+    renderPage();
+    await settle();
+
+    // Rebuilt from the payload's own timestamp, which is why it survives:
+    // nothing about where the bar had got to lived in this component.
+    expect(progressValue()).toBe(beforeLeaving);
+    expect(confirmedValue()).toBe(75);
+    expect(stepLine()).toBe("summary.processing.step.translating");
+  });
+
+  test("is never empty, even before the pipeline has picked the document up", async () => {
+    // What the upload handler's own row looks like: written, not started.
+    documentPayload = processingDocument({ progress: 0, current_step: "initializing" });
+    renderPage();
+    await settle();
+
+    expect(progressValue()).toBe(5);
+    expect(stepLine()).toBe("summary.processing.step.reading");
+  });
+});
+
+/**
+ * The easing laid over the confirmed milestones.
+ *
+ * Summarizing takes 50s on average and 91s at p90 in prod, and the document
+ * is polled every 5s, so a bar pinned to confirmed milestones alone shows 22%
+ * for a minute and a half and reads as stuck. These pin the two halves of the
+ * answer: it always moves, and it never claims a milestone the server has not
+ * confirmed.
+ *
+ * The arithmetic is unit-tested in test/lambdas/summary-page. What is tested
+ * here is the wiring: that the bar re-renders between polls at all, and that
+ * a poll cannot knock it backwards.
+ */
+describe("the bar between milestones", () => {
+  const summarizing = (overrides: Record<string, unknown> = {}) =>
+    processingDocument({
+      progress: 22,
+      current_step: "cleanup_complete",
+      updatedAt: nowSeconds(),
+      ...overrides,
+    });
+
+  test("advances while nothing new arrives from the server", async () => {
+    documentPayload = summarizing();
+    renderPage();
+    await settle();
+
+    expect(progressValue()).toBe(22);
+
+    // No new payload in this window; the poller is returning the same 22%.
+    await settle(30_000);
+
+    expect(progressValue()).toBeGreaterThan(22);
+    // And the confirmed value has not budged, which is the point.
+    expect(confirmedValue()).toBe(22);
+  });
+
+  test("never draws the next milestone, however long the step runs", async () => {
+    documentPayload = summarizing();
+    renderPage();
+    await settle();
+
+    // Nine minutes: eleven times the measured p90 of this step.
+    await settle(9 * 60_000);
+
+    expect(progressValue()).toBeLessThan(PIPELINE_MILESTONES.analysis_complete);
+    expect(confirmedValue()).toBe(22);
+  });
+
+  test("the milestone landing moves it forward", async () => {
+    documentPayload = summarizing();
+    renderPage();
+    await settle();
+    await settle(60_000);
+
+    const eased = progressValue();
+    expect(eased).toBeGreaterThan(22);
+
+    documentPayload = processingDocument({
+      progress: 75,
+      current_step: "analysis_complete",
+      updatedAt: nowSeconds(),
+    });
+    await settle(POLL_INTERVAL_MS);
+
+    // The confirmed value is the exact one; the drawn value is already easing
+    // past it toward 97, so pinning it to 75 would be asserting that the
+    // easing had stopped.
+    expect(confirmedValue()).toBe(75);
+    expect(progressValue()).toBeGreaterThanOrEqual(75);
+    expect(progressValue()).toBeGreaterThan(eased);
+  });
+
+  test("a poll that only refreshes the timestamp cannot knock it backwards", async () => {
+    // Writers exist that touch `updated_at` without moving `progress`
+    // (record_failure, the S3 content migration). Re-anchoring the ease on
+    // the newer timestamp would restart it and slide the bar back toward 22,
+    // and a bar that goes backwards is worse than one that sits still.
+    documentPayload = summarizing();
+    renderPage();
+    await settle();
+    await settle(60_000);
+
+    const eased = progressValue();
+    expect(eased).toBeGreaterThan(22);
+
+    documentPayload = summarizing({ updatedAt: nowSeconds() });
+    await settle(POLL_INTERVAL_MS);
+
+    expect(progressValue()).toBeGreaterThanOrEqual(eased);
+  });
+
+  test("a document with no timestamp still moves, from when the parent arrived", async () => {
+    // PENDING_UPLOAD rows and anything written before updatedAt was
+    // normalized. The pure function refuses to guess a start time; the
+    // component supplies one.
+    documentPayload = processingDocument({ progress: 22, current_step: "cleanup_complete" });
+    renderPage();
+    await settle();
+
+    expect(progressValue()).toBe(22);
+
+    await settle(60_000);
+
+    expect(progressValue()).toBeGreaterThan(22);
+    expect(progressValue()).toBeLessThan(PIPELINE_MILESTONES.analysis_complete);
+  });
+
+  test("stops at 100 when the document is done", async () => {
+    documentPayload = {
+      ...processedDocument(),
+      progress: 100,
+      current_step: "completed",
+      updatedAt: nowSeconds(),
+    };
+    renderPage();
+    await settle();
+
+    // The takeover is gone: this is the summary, not the processing screen.
+    expect(screen.queryByTestId("processing-progress-bar")).toBeNull();
+    expect(screen.getByTestId("summary-text-en")).toBeInTheDocument();
   });
 });

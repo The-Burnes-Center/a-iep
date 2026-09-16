@@ -36,7 +36,6 @@ import {
   PROFILE_PATHS,
   accountCenterRow,
   childNameInput,
-  childSchoolCityInput,
   clearStoredUiLanguage,
   ensureProfileBaseline,
   languageSelect,
@@ -110,16 +109,18 @@ test('profile settings round-trip: parent name, child, language preference', asy
     // Nothing was saved; the restore step at the end resets the field anyway.
   });
 
-  await test.step("the child's name and school district persist", async () => {
+  await test.step("the child's name persists", async () => {
+    // The name alone now: the screen stopped asking for a school district,
+    // which was stored and never read by anything. This still covers the
+    // round trip that matters, since the name is KMS-encrypted at rest and
+    // has to come back decrypted.
     const markedChild = markedValue('E2E Child');
-    const markedCity = markedValue('E2E City');
 
     await openChildForm(page);
-    await saveChild(page, markedChild, markedCity);
+    await saveChild(page, markedChild);
 
     await openChildForm(page);
     await expect(childNameInput(page)).toHaveValue(markedChild);
-    await expect(childSchoolCityInput(page)).toHaveValue(markedCity);
   });
 
   await test.step('the language preference persists server-side and localizes the UI', async () => {

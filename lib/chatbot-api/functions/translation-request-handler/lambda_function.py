@@ -72,9 +72,17 @@ COMPLETED_STATUS = 'PROCESSED'
 MAX_TRANSLATION_ATTEMPTS = 12
 
 # Where the progress bar sits while a single language is generated. The main
-# pipeline reports 65 after analysis and 85 after translation; 70 lands inside
-# that window so a re-translation reads as "nearly done" rather than restarting.
-IN_FLIGHT_PROGRESS = 70
+# pipeline reports 75 after analysis and 97 after translation, and this lands
+# inside that window so a re-translation reads as "nearly done" rather than
+# restarting.
+#
+# It has to stay strictly BETWEEN those two. The frontend paces the bar
+# between the milestone the server confirmed and the next one above it
+# (nextMilestonePercent in pages/utils/processing-progress.mjs), so a value
+# just under the analysis milestone would leave the whole translate step --
+# the longest in the pipeline -- with a couple of points of bar to move
+# through, which is what a stalled progress bar looks like to a parent.
+IN_FLIGHT_PROGRESS = 80
 
 # Step Functions rejects execution names outside [A-Za-z0-9_-]{1,80}.
 EXECUTION_NAME_MAX_LENGTH = 80

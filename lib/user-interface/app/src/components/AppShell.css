@@ -1,0 +1,88 @@
+/* The app frame: content, then footer, filling at least the viewport.
+
+   Before this existed nothing in the app established a full-height layout —
+   `document.body` computed to `display: block` and `<html>` to
+   `min-height: 0` — so a screen with little on it left the footer floating
+   mid-page, and four pages compensated with `min-height: 100vh` on their own
+   content box. A full-viewport content box plus a footer after it is always
+   taller than the viewport, which is where the scroll on a page with nothing
+   below the fold came from. */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  /* vh first as the fallback: an engine without dvh keeps the old behaviour
+     rather than no min-height at all. */
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Takes the free space, so everything after it sits on the bottom of the
+   viewport on a short page and follows the content on a long one. `flex: 1`
+   rather than `margin-top: auto` on the footer because AIEPFooter renders more
+   than one element (the partner strip and the SMS line follow it when signed
+   out) and auto-margin would only push the first. */
+.app-shell__main {
+  flex: 1 0 auto;
+}
+
+/* A column, but only for a screen that asks to fill the frame.
+
+   `flex: 1 0 auto` above gives <main> a USED height of the free space
+   (measured 932px in a 1055px viewport), but its `height` PROPERTY is still
+   `auto`, so a child asking for `height: 100%` had no definite basis and
+   collapsed to its own content height. That is what left the processing
+   takeover 597px tall at the top of a 932px box, with a third of the screen
+   dead below it and its `align-items: center` centring inside nothing. The
+   whole chain from <html> down is min-height based, so there is no definite
+   height anywhere to hang a percentage on.
+
+   Scoped with :has() rather than applied to every screen. Most routes return
+   a fragment with several top-level children, and turning <main> into a flex
+   container everywhere would stop their margins collapsing and silently
+   respace forty screens to fix one. An engine without :has() ignores this and
+   keeps today's behaviour, which is a known layout rather than a broken one.
+
+   Column rather than a percentage so the child can take the free space AND
+   still grow past it when its own content is taller: the desktop modal starts
+   at a 700px viewport, where the free space is 577px against a 595px card. */
+.app-shell__main:has(> .processing-modal-wrapper) {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The skip link is in the tab order from the first Tab press, but off-screen
+   until it has focus. Moved with a transform rather than hidden, because
+   `display: none` and `visibility: hidden` both take it out of the tab order,
+   which is the whole feature. */
+.skip-to-content {
+  position: fixed;
+  top: 0.75rem;
+  inset-inline-start: 0.75rem;
+  /* Above the nav bars (1000) and the highest thing in the app (1080). */
+  z-index: 1100;
+  transform: translateY(-300%);
+  padding: 0.65rem 1.1rem;
+  border-radius: 0.25rem;
+  background-color: var(--aiep-green-dark);
+  color: var(--aiep-cream);
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.skip-to-content:focus,
+.skip-to-content:focus-visible {
+  transform: translateY(0);
+  color: var(--aiep-cream);
+  outline: 2px solid var(--aiep-cream);
+  outline-offset: 2px;
+}
+
+/* The transform is the only thing moving, so a parent who asked for less
+   motion still gets the link — it just appears rather than slides. */
+@media (prefers-reduced-motion: no-preference) {
+  .skip-to-content {
+    transition: transform 0.15s ease-out;
+  }
+}

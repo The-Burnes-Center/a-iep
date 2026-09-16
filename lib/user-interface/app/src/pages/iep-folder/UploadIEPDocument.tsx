@@ -1,5 +1,5 @@
 // UploadIEPDocument.tsx
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useRef, useEffect } from 'react';
 import {
   Form,
   Button,
@@ -10,22 +10,120 @@ import {
 } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
+import { ApiClient } from '../../common/api-client/api-client';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
+import { isPlaceholderChildName } from '../../common/features';
 import { FileUploader } from '../../common/file-uploader';
 import { Utils } from '../../common/utils';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faFileAlt, faTimesCircle, faUpload } from '@fortawesome/free-solid-svg-icons';
 import { useLanguage } from '../../common/language-context';
+import { isLikelyEncryptedPdf } from '../../common/pdf-encryption';
+import PdfPasswordPromptModal from '../../components/PdfPasswordPromptModal';
 import './UploadIEPDocument.css';
+
+/**
+ * Local, per-file state for the password prompt pdf-decrypt.ts drives via its
+ * requestPassword callback. Not merged into the many standalone useState
+ * calls above: these three fields only ever change together (see
+ * requestPassword/handlePasswordSubmit/handlePasswordCancel below), so one
+ * object keeps them from drifting out of sync the way three separate
+ * setters could.
+ */
+interface PasswordPromptState {
+  isOpen: boolean;
+  isWrongPassword: boolean;
+  isChecking: boolean;
+}
+
+const CLOSED_PASSWORD_PROMPT: PasswordPromptState = {
+  isOpen: false,
+  isWrongPassword: false,
+  isChecking: false,
+};
 
 // Define allowed file types and MIME types
 const fileExtensions = new Set([".doc", ".docx", ".pdf"]);
+
+/**
+ * The largest file the pipeline can actually finish.
+ *
+ * Mistral's OCR API is the pipeline's first step and it rejects anything over
+ * 50 MB (its Document AI FAQ, "Are there any limits regarding the OCR API?").
+ * This gate used to sit at 100MB, so a file in between uploaded cleanly,
+ * started the pipeline, and came back as a failure after a full wait on the
+ * processing screen -- mistral_ocr/handler.py treats the provider's 4xx as
+ * permanent and the state machine retries it zero times, correctly, because
+ * the same file would be rejected every time. The parent had no way to know
+ * the size was the problem. Refusing at the picker is the same fact, told
+ * honestly, in the second they pick the file.
+ *
+ * Decimal MB rather than 1024-based: "50 MB" in the provider's docs does not
+ * say which it means, and 50 * 1000 * 1000 is the reading that cannot admit a
+ * file they would reject. It also matches the size macOS shows next to the
+ * file, so the number in the message is the number the parent sees.
+ *
+ * The same FAQ caps documents at 1,000 pages. That is deliberately NOT checked
+ * here: counting pages means parsing the file, which costs pdfjs-dist (~1.7 MB
+ * of parser and worker) on every upload, works for PDFs only -- .doc/.docx
+ * cannot be counted in the browser at all -- and a 1,000-page document that
+ * still fits under 50 MB is not a shape a scanned IEP takes. See
+ * pdf-encryption.ts's docblock, which weighed the same parser for the same
+ * kind of check and reached the same answer.
+ *
+ * Exported so UploadIEPDocument.test.tsx can check the five dictionaries still
+ * quote this number back to the parent: the limit and the copy that announces
+ * it are in different files and different languages, and nothing else notices
+ * when only one of them moves.
+ */
+export const MAX_FILE_SIZE_BYTES = 50 * 1000 * 1000;
 
 const mimeTypes = {
   '.pdf': 'application/pdf',
   '.doc': 'application/msword',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 };
+
+/**
+ * What the OS file picker offers. Without it the picker offered every file on
+ * the device, so a parent could pick the photo they took of page one and only
+ * learn we cannot read it after the picker had closed.
+ *
+ * Both halves are listed because no single one covers every picker: macOS and
+ * Windows filter on the MIME types, Android's document providers frequently
+ * only understand the extensions, and some understand neither. Derived from
+ * fileExtensions and mimeTypes rather than written out a third time, so a
+ * format added to the gate cannot stay invisible in the picker.
+ *
+ * This is a HINT and nothing more. Every picker offers a way out of the filter,
+ * drag-and-drop ignores accept entirely, and a .jpg renamed to .pdf satisfies
+ * it. The extension check in handleFileChange is the actual gate and stays.
+ */
+const FILE_ACCEPT = [
+  ...fileExtensions,
+  ...Array.from(fileExtensions, (extension) => mimeTypes[extension]),
+].join(',');
+
+// Referenced twice each -- once on the element, once from the file input's
+// aria-describedby -- so they are named rather than repeated as literals.
+const FILE_ERROR_ID = 'fileUploadError';
+const FILE_FORMATS_ID = 'fileUploadFormats';
+const FILE_CHECKING_ID = 'fileUploadChecking';
+
+/**
+ * Which refusal is on screen, carried next to its message.
+ *
+ * The kind exists so the layout below can ask "is the format error showing?"
+ * without matching on the message text: that text is one of five translations
+ * and is meant to be rewritten freely, so a string comparison would be a gate
+ * that quietly stops holding the first time somebody improves the copy.
+ */
+type FileErrorKind = 'format' | 'size' | 'encrypted';
+
+interface FileError {
+  kind: FileErrorKind;
+  message: string;
+}
 
 export interface UploadIEPDocumentProps {
   onUploadComplete: () => void;
@@ -36,34 +134,147 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
   const appContext = useContext(AppContext);
   const apiClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
-  
+
+  // The name the design puts in a gold chip above the heading, so a parent
+  // uploading for one of several children can see which file they are about
+  // to attach to whom. Empty until the profile answers, and empty for good if
+  // it never does or if the child is still the auto-created placeholder: a
+  // chip with nothing in it would be worse than no chip.
+  const [childName, setChildName] = useState<string>('');
+
   const [file, setFile] = useState<File | null>(null);
-  const [fileError, setFileError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<FileError | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
   
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [currentFileName, setCurrentFileName] = useState<string>("");
 
+  // True while an /Encrypt-flagged PDF is being opened client-side: the
+  // silent empty-password attempt, and (if that fails) verifying whatever
+  // the parent submits in the password prompt. Shown as neutral "checking"
+  // copy rather than nothing, so a multi-page rebuild does not look like a
+  // frozen file picker -- see pdf-decrypt.ts for why this can take a moment.
+  const [isCheckingFile, setIsCheckingFile] = useState<boolean>(false);
+  const [passwordPrompt, setPasswordPrompt] = useState<PasswordPromptState>(CLOSED_PASSWORD_PROMPT);
+  // Bridges pdf-decrypt.ts's requestPassword callback to this component's
+  // modal: holds the ONE pending attempt's resolver between "the modal is
+  // shown" and "the parent submitted or cancelled it". Never holds a
+  // password itself, only the function that hands one to the caller.
+  const passwordResolverRef = useRef<((password: string | null) => void) | null>(null);
+
   const { t } = useLanguage();
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    let cancelled = false;
+    new ApiClient(appContext).profile
+      .getProfile()
+      .then((profile) => {
+        const name = profile?.children?.[0]?.name;
+        if (!cancelled && !isPlaceholderChildName(name)) setChildName(name as string);
+      })
+      .catch(() => {
+        // The badge is a courtesy, not a precondition for uploading: a profile
+        // that will not load leaves the chip off and the screen working. The
+        // failure is already reported wherever the profile actually matters.
+      });
+    return () => { cancelled = true; };
+  }, [appContext]);
+
+  /**
+   * Passed to pdf-decrypt.ts's resolveEncryptedPdf as its requestPassword
+   * callback. Opens (or updates) the modal and returns a promise that
+   * settles when the parent acts, via the ref above -- resolved by
+   * handlePasswordSubmit/handlePasswordCancel, never by this function
+   * itself, since it has no way to know when that happens.
+   */
+  const requestPassword = (isWrongPassword: boolean): Promise<string | null> => {
+    setPasswordPrompt({ isOpen: true, isWrongPassword, isChecking: false });
+    return new Promise((resolve) => {
+      passwordResolverRef.current = resolve;
+    });
+  };
+
+  const handlePasswordSubmit = (password: string) => {
+    setPasswordPrompt((prev) => ({ ...prev, isChecking: true }));
+    const resolve = passwordResolverRef.current;
+    passwordResolverRef.current = null;
+    resolve?.(password);
+  };
+
+  const handlePasswordCancel = () => {
+    setPasswordPrompt(CLOSED_PASSWORD_PROMPT);
+    const resolve = passwordResolverRef.current;
+    passwordResolverRef.current = null;
+    resolve?.(null);
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (!selectedFile) return;
-    
+
     const fileExtension = selectedFile.name.slice(selectedFile.name.lastIndexOf('.')).toLowerCase();
-    
+
+    // Still checked here, and not left to the input's accept attribute: accept
+    // filters what the picker shows, it does not constrain what arrives. A
+    // parent who switched the picker to "All Files", dragged a file in, or
+    // renamed one lands in this branch.
     if (!fileExtensions.has(fileExtension)) {
-      setFileError(t('upload.fileError.format'));
+      setFileError({ kind: 'format', message: t('upload.fileError.format') });
       setFile(null);
-    } else if (selectedFile.size > 100 * 1024 * 1024) { // 100MB
-      setFileError(t('upload.fileError.size'));
+    } else if (selectedFile.size > MAX_FILE_SIZE_BYTES) {
+      setFileError({ kind: 'size', message: t('upload.fileError.size') });
       setFile(null);
+    // Only PDFs carry the /Encrypt trailer entry this checks for; a .doc/.docx
+    // uses a different (OOXML/OLE) encryption mechanism this does not detect.
+    // isLikelyEncryptedPdf never rejects: any error reading the file resolves
+    // false, so a check that cannot run lets the upload proceed rather than
+    // blocking a parent (see pdf-encryption.ts).
+    } else if (fileExtension === '.pdf' && await isLikelyEncryptedPdf(selectedFile)) {
+      // pdf-decrypt.ts is dynamically imported here, not at module scope: it
+      // (and the pdfjs-dist/jsPDF it loads in turn) must never be fetched for
+      // the overwhelming majority of uploads that are not encrypted at all.
+      setIsCheckingFile(true);
+      try {
+        const { resolveEncryptedPdf } = await import('../../common/pdf-decrypt');
+        const outcome = await resolveEncryptedPdf(selectedFile, { requestPassword });
+        if (outcome.status === 'resolved') {
+          // Either the empty-password attempt worked (owner-restricted only,
+          // the parent never saw any of this) or a password they entered did.
+          // Either way, what lands here is a clean, already-decrypted file.
+          setFile(outcome.file);
+          setFileError(null);
+        } else if (outcome.status === 'cancelled') {
+          // The parent chose not to enter a password. Leave them exactly
+          // where a fresh file picker would: no file staged, no error either
+          // -- they backed out, they did not fail at something.
+          setFile(null);
+          setFileError(null);
+        } else {
+          // pdf.js could not be loaded, or the file could not be opened at
+          // all (corrupt, unsupported encryption). The one thing that has
+          // always worked -- save an unprotected copy -- is still true.
+          setFile(null);
+          setFileError({ kind: 'encrypted', message: t('upload.fileError.encrypted') });
+        }
+      } catch {
+        // resolveEncryptedPdf's own contract is to resolve 'failed' rather
+        // than throw for every internal error; this only catches a bug in
+        // that contract, or the dynamic import itself failing outright (the
+        // chunk could not be fetched at all). Never a silent swallow: the
+        // parent still gets an actionable message, the same one they would
+        // have gotten before this feature existed.
+        setFile(null);
+        setFileError({ kind: 'encrypted', message: t('upload.fileError.encrypted') });
+      } finally {
+        setIsCheckingFile(false);
+        setPasswordPrompt(CLOSED_PASSWORD_PROMPT);
+      }
     } else {
       setFile(selectedFile);
       setFileError(null);
     }
-    
+
     setGlobalError(null);
   };
 
@@ -134,8 +345,34 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
     }
   };
 
+  const isCheckingIndicatorShown = isCheckingFile && !passwordPrompt.isOpen;
+
+  // The format error already names the three formats we accept, so the hint
+  // line would be the same fact a second time, stacked underneath it. The size
+  // and encrypted messages say nothing about formats, so the hint stays useful
+  // next to those and keeps rendering.
+  const isSupportedFormatsHintShown = fileError?.kind !== 'format';
+
+  // Only ever names ids that are really in the DOM: which hints sit under this
+  // input changes with every file picked, and a dangling idref describes the
+  // input as nothing at all.
+  const fileInputDescribedBy = [
+    isCheckingIndicatorShown ? FILE_CHECKING_ID : '',
+    fileError ? FILE_ERROR_ID : '',
+    isSupportedFormatsHintShown ? FILE_FORMATS_ID : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
     <Container className="p-0">
+          {childName && (
+            <p className="upload-child-badge" data-testid="upload-child-badge">
+              {/* The name alone says nothing to a screen reader. */}
+              <span className="visually-hidden">{t('upload.childBadge.label')}</span>
+              <span>{childName}</span>
+            </p>
+          )}
           <h2 className="upload-iep-title">{t('upload.title')}</h2>
           <p>
           {t('upload.maxSize')}
@@ -151,8 +388,10 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
                 <input
                   type="file"
                   id="fileUpload"
+                  accept={FILE_ACCEPT}
+                  aria-describedby={fileInputDescribedBy || undefined}
                   onChange={handleFileChange}
-                  disabled={uploadStatus === 'uploading'}
+                  disabled={uploadStatus === 'uploading' || isCheckingFile || passwordPrompt.isOpen}
                 />
                 <div className={`seamless-file-container ${uploadStatus === 'uploading' ? 'disabled' : ''}`}>
                   <span className="seamless-file-button">
@@ -163,14 +402,40 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
                   </span>
                 </div>
               </div>
-              {fileError && (
-                <Form.Text className="text-danger">
-                  {fileError}
+              {isCheckingIndicatorShown && (
+                <Form.Text
+                  id={FILE_CHECKING_ID}
+                  className="upload-file-hint text-muted"
+                  data-testid="checking-file-indicator"
+                >
+                  {t('upload.checkingFile')}
                 </Form.Text>
               )}
-              <Form.Text className="text-muted">
-              {t('upload.supportedFormats')} {Array.from(fileExtensions).join(', ')}
-              </Form.Text>
+              {/* role="alert" rather than a standing aria-live region,
+                  because this element is built on demand: a live region
+                  inserted with its content already inside it is not announced
+                  by NVDA or JAWS, and only role="alert" gets that treatment
+                  (the same reasoning as CustomLogin's Turnstile region, which
+                  had to go the other way for the same reason). */}
+              {fileError && (
+                <Form.Text
+                  id={FILE_ERROR_ID}
+                  role="alert"
+                  className="upload-file-hint text-danger"
+                  data-testid="file-error"
+                >
+                  {fileError.message}
+                </Form.Text>
+              )}
+              {isSupportedFormatsHintShown && (
+                <Form.Text
+                  id={FILE_FORMATS_ID}
+                  className="upload-file-hint text-muted"
+                  data-testid="supported-formats-hint"
+                >
+                  {t('upload.supportedFormats')} {Array.from(fileExtensions).join(', ')}
+                </Form.Text>
+              )}
             </Form.Group>
             
             {file && (
@@ -228,6 +493,14 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
               </Button>
             </div>
           </Form>
+
+          <PdfPasswordPromptModal
+            show={passwordPrompt.isOpen}
+            wrongPassword={passwordPrompt.isWrongPassword}
+            checking={passwordPrompt.isChecking}
+            onSubmit={handlePasswordSubmit}
+            onCancel={handlePasswordCancel}
+          />
     </Container>
   );
 };

@@ -1,7 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from "constructs";
-import { createBucketPolicy } from './bucket-policy';
+import { addBucketPolicyStatements } from './bucket-policy';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import { getEnvironment } from '../../tags';
@@ -83,8 +83,11 @@ export class S3BucketStack extends cdk.Stack {
       `arn:aws:iam::${accountId}:root`,       
     ];
 
-    // Create and apply the bucket policy
-    createBucketPolicy(this, 'KnowledgeBucketPolicy', {
+    // Statements on the bucket's own policy, never a second BucketPolicy
+    // resource. See the docblock on addBucketPolicyStatements: this is the
+    // line that used to put a competing policy for the live IEP bucket into a
+    // sibling stack that CI does not deploy.
+    addBucketPolicyStatements({
       bucket: this.knowledgeBucket,
       allowedUsers: allowedUsers
     });

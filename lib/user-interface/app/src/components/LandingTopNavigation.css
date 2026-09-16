@@ -11,30 +11,6 @@
   padding-top: max(8px, env(safe-area-inset-top));
 }
 
-.landing-top-navigation .processing-header {
-  text-align: start;
-  color: #F5F3EE;
-  padding: 6px 12px;
-  background-color: #00682F;
-  margin-bottom: 4px;
-}
-
-.landing-top-navigation .processing-header h3 {
-  margin: 0;
-  font-size: 0.9rem;
-  font-weight: 500;
-  line-height: 1.2;
-}
-
-.landing-top-navigation .processing-line {
-  text-align: center;
-  color: #F5F3EE;
-  font-size: 0.8rem;
-  padding: 4px 0;
-  background-color: #00682F;
-  margin-bottom: 4px;
-}
-
 .landing-top-navigation .navigation-container {
   display: flex;
   justify-content: space-around;
@@ -65,7 +41,7 @@
   justify-content: center;
   background: none;
   border: none;
-  color: #7AAD8E;
+  color: var(--aiep-on-green-muted);
   cursor: pointer;
   transition: all 0.2s ease;
   padding: 6px 8px;
@@ -76,7 +52,7 @@
 }
 
 .landing-top-navigation .nav-item:hover {
-  color: #F5F3EE;
+  color: var(--aiep-cream);
   background-color: rgba(0, 64, 186, 0.05);
 }
 
@@ -85,13 +61,19 @@
 }
 
 .landing-top-navigation .nav-item:focus {
-  outline: 2px solid #F5F3EE;
+  outline: 2px solid var(--aiep-cream);
   outline-offset: 2px;
 }
 
+/* Same as the in-app bar: the active background matches the bar it sits on,
+   so the tab you are on needs a signal that is not colour (SC 1.4.1). */
 .landing-top-navigation .nav-item.active {
-  color: #F5F3EE;
-  background-color: #014620;
+  color: var(--aiep-cream);
+  background-color: var(--aiep-green-dark);
+}
+
+.landing-top-navigation .nav-item.active .nav-label {
+  font-weight: 700;
 }
 
 .landing-top-navigation .nav-item i {
@@ -130,19 +112,6 @@
   
   .landing-top-navigation .nav-label {
     font-size: 0.65rem;
-  }
-  
-  .landing-top-navigation .processing-header {
-    padding: 4px 10px;
-  }
-  
-  .landing-top-navigation .processing-header h3 {
-    font-size: 1.5rem;
-  }
-  
-  .landing-top-navigation .processing-line {
-    font-size: 0.7rem;
-    padding: 3px 0;
   }
 }
 

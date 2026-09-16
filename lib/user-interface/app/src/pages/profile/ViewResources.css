@@ -55,6 +55,12 @@
   margin-bottom: 1rem;
 }
 
+/* Sits at the foot of the card rather than directly under a description whose
+   length differs per card, so the buttons line up across a row */
+.resource-item .view-resources-button {
+  margin-top: auto;
+}
+
 @media (min-width: 992px) and (min-height: 700px) {
   .resources-list-container {
     display: grid;
@@ -62,6 +68,10 @@
     gap: 1.5rem;
     padding: 5rem 10rem;
     margin: 0 auto;
+    /* Overrides the single-column rule above, where centering is what keeps a
+       95%-wide card in the middle. Centered grid items size to their own text
+       instead of filling the row, which leaves a row of cards ragged. */
+    align-items: stretch;
   }
 
   .resource-item {

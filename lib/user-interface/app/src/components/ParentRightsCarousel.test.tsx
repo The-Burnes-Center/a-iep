@@ -465,6 +465,8 @@ describe("the processing screen's own slides", () => {
         headerGreenTitle={t("rights.header.title.green")}
         rightsIndicatorTemplate={t("carousel.rights.indicator")}
         sectionHint={t("carousel.section.hint")}
+        progressDocument={{ status: "PROCESSING", progress: 22, current_step: "cleanup_complete" }}
+        progressStepLabel={t("summary.processing.step.summarizing")}
       />,
     );
 
@@ -472,6 +474,67 @@ describe("the processing screen's own slides", () => {
     expect(container.querySelectorAll(".carousel-slide")).toHaveLength(callerDeck.length);
     expect(container.textContent).toContain("Texto del interlocutor.");
     expect(container.textContent).not.toContain(es["rights.slide1.content"]);
+  });
+});
+
+/**
+ * The dots under the deck.
+ *
+ * Ours rather than react-bootstrap's, for two reasons that both showed up on
+ * screen: theirs are absolutely positioned inside the deck, which forced every
+ * slide's text block to reserve a fixed 228px of clearance whether it needed
+ * it or not, and theirs are named "Slide N" in hardcoded English — the one
+ * English string on an otherwise translated screen.
+ */
+describe("the dots", () => {
+  const dots = () => within(screen.getByTestId("carousel-dots")).getAllByRole("button");
+
+  const activeDotIndex = () =>
+    dots().findIndex((dot) => dot.getAttribute("aria-current") === "true");
+
+  test("there is one per slide", () => {
+    renderCarousel();
+
+    expect(dots()).toHaveLength(deck.length);
+  });
+
+  test("the one for the slide on screen is the current one", () => {
+    renderCarousel();
+
+    expect(activeDotIndex()).toBe(0);
+
+    clickNext(3);
+
+    expect(activeSlideId()).toBe(deck[3].id);
+    expect(activeDotIndex()).toBe(3);
+  });
+
+  test("tapping one goes to that slide", () => {
+    renderCarousel();
+
+    fireEvent.click(dots()[6]);
+
+    expect(activeSlideId()).toBe(deck[6].id);
+    expect(activeDotIndex()).toBe(6);
+  });
+
+  test("each is named in the parent's language, not in English", () => {
+    renderCarousel({ goToSlideTemplate: "Ir a la diapositiva {number}" });
+
+    expect(dots()[0]).toHaveAccessibleName("Ir a la diapositiva 1");
+    expect(dots()[8]).toHaveAccessibleName("Ir a la diapositiva 9");
+    // react-bootstrap's own wording, which is what this replaced.
+    expect(screen.queryByRole("button", { name: "Slide 1" })).toBeNull();
+  });
+
+  test("the name is read from the dictionary when no caller passes one", () => {
+    // The standalone /rights-of-parents route mounts this component with no
+    // text props at all.
+    inLanguage("es", <ParentRightsCarousel />);
+
+    expect(
+      screen.getByRole("button", { name: es["carousel.goToSlide"].replace("{number}", "1") }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -486,7 +549,7 @@ describe("the strings this change adds", () => {
     "preferredLanguage.update.title",
     "preferredLanguage.update.description",
   ];
-  const allKeys = [...proseKeys, "carousel.rights.indicator"];
+  const allKeys = [...proseKeys, "carousel.rights.indicator", "carousel.goToSlide"];
 
   test.each(Object.keys(locales))("%s translates all of them", (code) => {
     for (const key of allKeys) {
@@ -496,6 +559,9 @@ describe("the strings this change adds", () => {
     // right's title in that language only.
     expect(locales[code]["carousel.rights.indicator"]).toContain("{number}");
     expect(locales[code]["carousel.rights.indicator"]).toContain("{title}");
+    // Same trap for the dots: a locale that dropped {number} would name all
+    // fifteen of them identically, in that language only.
+    expect(locales[code]["carousel.goToSlide"]).toContain("{number}");
   });
 
   test.each(["es", "zh", "vi", "ar"])("%s does not fall back to the English wording", (code) => {
