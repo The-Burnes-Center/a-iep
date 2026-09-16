@@ -193,6 +193,19 @@ function readStandardSecurityHandler(bytes: Buffer): StandardSecurityHandler {
  * a quiet `false`. Algorithm 2 builds the file key from the padded user
  * password, /O, /P and the first /ID element; Algorithm 4 (revision 2) then
  * defines /U as RC4(file key, the padding string).
+ *
+ * CodeQL flags the MD5 below as an insecurely hashed password
+ * (js/insufficient-password-hash) and that alert is a false positive here.
+ * The rule is about storing or verifying a user's own password; this
+ * reimplements a file-format check. Nothing is stored, the "password" is the
+ * spec's 32-byte padding constant standing in for an empty one, and the file
+ * is a fixture this process drew seconds earlier. MD5 is not a choice either:
+ * Algorithm 2 specifies it for /V 1 /R 2, so there is no stronger digest to
+ * move to, and the guard above already refuses any other revision.
+ *
+ * Do not "fix" it by dropping this function. It is the only thing that tells
+ * the two fixture shapes apart, and without it both halves of
+ * encrypted-pdf.spec.ts pass for the wrong reason. Dismiss the alert instead.
  */
 export function usesEmptyUserPassword(bytes: Buffer): boolean {
   const handler = readStandardSecurityHandler(bytes);

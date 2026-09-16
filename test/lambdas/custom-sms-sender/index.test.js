@@ -272,6 +272,20 @@ describe('the copy this sender duplicates has not drifted', () => {
     const poolSource = read('../../../lib/authorization/new-auth.ts');
     const senderSource = read('../../../lib/chatbot-api/functions/custom-sms-sender/index.js');
 
+    /**
+     * A template as it appears in a source file: a single-quoted literal with
+     * every line break written as the two characters backslash-n.
+     *
+     * replaceAll, not replace. replace() escapes only the FIRST newline, so
+     * the moment a multi-line template joined the list below this would build
+     * a literal with real line breaks still in it, find nothing, and report
+     * "found: false" -- which says the copy has drifted when what actually
+     * happened is that this helper mis-escaped it. The two SMS templates have
+     * one newline each so it never bit; four of the email templates in the
+     * same file have between 8 and 24.
+     */
+    const sourceLiteral = (template) => `'${template.replaceAll('\n', '\\n')}'`;
+
     test.each([
         ['verificationSms', VERIFICATION_SMS],
         ['authenticationSms', AUTHENTICATION_SMS],
@@ -279,12 +293,27 @@ describe('the copy this sender duplicates has not drifted', () => {
         const template = getMessages('en')[key];
         expect(template.replace('{####}', CODE)).toBe(rendered);
 
-        // Both other copies are source-level string literals, so the newline
-        // is the two characters backslash-n rather than a real line break.
-        const literal = `'${template.replace('\n', '\\n')}'`;
+        const literal = sourceLiteral(template);
         expect({ where: 'new-auth.ts', found: poolSource.includes(literal) })
             .toEqual({ where: 'new-auth.ts', found: true });
         expect({ where: 'custom-sms-sender/index.js', found: senderSource.includes(literal) })
             .toEqual({ where: 'custom-sms-sender/index.js', found: true });
+    });
+
+    test('the escaping handles a template with more than one line break', () => {
+        // Guards the helper itself rather than the copy, because the copy
+        // assertions above cannot reach this: both templates they cover have a
+        // single newline. Driven off a real multi-line template so it stays
+        // honest if the wording changes.
+        const multiLine = getMessages('en').otpLoginEmailText;
+        expect((multiLine.match(/\n/g) || []).length).toBeGreaterThan(1);
+
+        const literal = sourceLiteral(multiLine);
+
+        // No raw line break survives. With replace() every newline after the
+        // first one did.
+        expect(literal).not.toMatch(/\n/);
+        expect((literal.match(/\\n/g) || []).length)
+            .toBe((multiLine.match(/\n/g) || []).length);
     });
 });
