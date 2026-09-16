@@ -8,6 +8,26 @@
   display: none;
 }
 
+/* Fills <main>, at every width.
+
+   This used to live only in the desktop block, because on a phone the card
+   inside set its own `height: 100dvh` and the wrapper just wrapped it. That
+   was the 123px of phantom scroll (see the card's own comment in
+   IEPSummarizationAndTranslation.css): a viewport-height card plus a nav plus
+   a footer is always taller than the viewport.
+
+   Column so the single child can take the free space and still grow past it;
+   the desktop block below adds the centring on top, where the child is a
+   hugged 600px card rather than the whole screen.
+
+   AppShell.css's :has(> .processing-modal-wrapper) rule is what makes <main>
+   a flex container for this to be a flex item of. */
+.processing-modal-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+
 /* The status block: what we are doing, and how far along it is.
 
    One dark-green band owns the whole answer to "is this working?" — the
@@ -59,16 +79,13 @@
 
 /* Desktop mode: Modal dialog effect (ONLY on desktop) */
 @media (min-width: 992px) and (min-height: 700px) {
+  /* The fill comes from the base rule above; this adds the centring. With a
+     column direction, justify-content centres on the vertical axis and
+     align-items on the horizontal one. */
   .processing-modal-wrapper {
-    display: flex;
     justify-content: center;
     align-items: center;
     width: 100%;
-    /* `flex: 1` against the column <main> now is, rather than `height: 100%`
-       against a height the flex algorithm never wrote to the property. Basis
-       auto and no shrinking, so this fills the free space on a tall window
-       and still grows to its content on a short one instead of clipping. */
-    flex: 1 0 auto;
   }
 
   /* inset: 0 is load-bearing, not tidying.
@@ -93,6 +110,8 @@
 
   .processing-modal-container {
     background-color: #F5F3EE;
+    /* Hugs its card here, where the base rule has it filling the phone. */
+    flex: 0 1 auto;
     height: unset;
     max-width: 95vw;
     margin-left: auto;
@@ -107,8 +126,11 @@
     overflow: hidden;
   }
 
+  /* Same: hug, not fill. Both cards fill on a phone, where they ARE the
+     screen, and are a fixed-width panel here. */
   .processing-modal-container .processing-summary-parent-rights-card,
   .processing-modal-container .processing-summary-loader-card {
+    flex: 0 1 auto;
     /* No min-height. It was 60vh here and 50vh on the container, so on a tall
        window the modal was forced taller than its contents and the deck sat
        against the top edge with the slack underneath — the same wasted space

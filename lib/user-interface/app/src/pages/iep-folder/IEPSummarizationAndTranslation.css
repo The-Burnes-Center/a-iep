@@ -21,22 +21,34 @@
   background-color: #F5f3EE;
 }
 
+/* Fills the frame <main> gives it, rather than measuring itself against the
+   viewport.
+
+   `height: 100dvh` here stacked with the nav and the footer, so the document
+   came out 967px tall in an 844px viewport: 123px of scroll on a screen with
+   nothing below the fold, which is the phantom scrollbar AppShell.css's own
+   header says the sticky-footer layout exists to prevent. `flex` instead, so
+   the card is exactly the free space and grows only if its own content needs
+   more. The desktop block below overrides this back to a hugged 600px card. */
 .processing-summary-parent-rights-card {
   border: none;
   box-shadow: none;
   border-radius: 0;
-  height: 100dvh;
+  flex: 1 0 auto;
   background-color: #EEEBE5;
   background-size: auto;
   background-position: center;
   background-repeat: repeat;
 }
 
+/* Same as the parent-rights card above, and worse before it: `100vh` rather
+   than `100dvh`, which on a phone is taller than the visible viewport by the
+   height of the browser's own chrome. */
 .processing-summary-loader-card {
   border: none;
   box-shadow: none;
   border-radius: 0;
-  height: 100vh;
+  flex: 1 0 auto;
   background-image: url('/images/bg-your-rights.png');
   background-size: cover;
   background-position: center;
@@ -68,13 +80,29 @@
   margin: 0px;
 }
 
+/* Passes the fill from the wrapper down to the card.
+
+   Neither of these had any rules outside the desktop media query, so on a
+   phone they were plain blocks sized by their contents and the card's own
+   viewport height was the only thing establishing the screen's height. */
+.processing-modal-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+
 /* The deck takes whatever the status band leaves.
 
-   Without this the card is 100dvh on a phone, the body inside it is a plain
-   block sized to its contents, and .parent-rights-container's `height: 100%`
-   resolves against an auto height — so it stopped at its content and left a
-   screen's worth of empty cream under the dots. The column below is what
-   turns that leftover into height the container can centre inside. */
+   Without this the body is a plain block sized to its contents, and
+   .parent-rights-container's `height: 100%` resolves against an auto height
+   — so it stopped at its content and left a screen's worth of empty cream
+   under the dots. The column below is what turns that leftover into height
+   the container can centre inside.
+
+   This is the last link in the chain: <main> (AppShell.css) -> the wrapper ->
+   the container -> the card -> here. Every one of them is a flex column so
+   that the fill reaches the deck without a percentage anywhere, because
+   nothing above has a definite height to resolve one against. */
 .processing-summary-parent-rights-card .processing-summary-card-body {
   display: flex;
   flex-direction: column;
