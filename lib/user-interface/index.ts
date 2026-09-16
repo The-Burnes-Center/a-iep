@@ -225,17 +225,62 @@ export class UserInterface extends Construct {
       },
     });
 
+    // Two deployments, split by what the file's URL promises.
+    //
+    // Everything under assets/ is content-hashed by Vite, so a new build is a
+    // new URL and the old one can be cached forever. index.html and
+    // aws-exports.json are the two entry points whose URLs never change, so
+    // they are the only two a browser can serve stale -- and until this split
+    // they carried no Cache-Control at all, which meant heuristic freshness:
+    // roughly a tenth of the file's age, so the older the file, the longer a
+    // browser kept it.
+    //
+    // aws-exports.json is the one that hurt. It carries enabledFeatures and
+    // enabledLanguages, and resolveEnabledFeatures above is built on the idea
+    // that turning a feature on is "a config flip rather than a release". The
+    // flip reached CloudFront -- BucketDeployment invalidates the
+    // distribution -- and then sat behind browser caches. After the 2026-09-16
+    // promotion the previous copy was 13 days old, so a returning parent's
+    // browser treated it as fresh for over a day: the app read a config with
+    // no studentNameGate and no passwordlessAuth and rendered the old login
+    // screen and no child-name prompt, on a build that contained both. A hard
+    // reload fixed it, which is not a thing a parent knows to do.
     new s3deploy.BucketDeployment(this, "UserInterfaceDeployment", {
       prune: false,
-      sources: [asset, exportsAsset],
+      sources: [asset],
+      exclude: ["index.html"],
       destinationBucket: websiteBucket,
       distribution: distribution,
+      cacheControl: [
+        s3deploy.CacheControl.maxAge(cdk.Duration.days(365)),
+        s3deploy.CacheControl.immutable(),
+      ],
       // Versioned destination bucket + prune:false has accumulated many
       // object versions over time, so the helper Lambda's `aws s3 sync`
       // listing pass takes much longer than the 128MB / 512MB defaults
       // can handle, causing the custom resource to time out (>60min).
       // Give it more headroom so the sync completes within Lambda's 15min
       // limit and CloudFormation's 60min custom-resource cutoff.
+      memoryLimit: 1024,
+      ephemeralStorageSize: cdk.Size.gibibytes(1),
+    });
+
+    // The two unhashed entry points. no-cache is revalidate-before-use, not
+    // "never cache": the browser still stores them and still gets a 304 when
+    // nothing changed, so this costs one conditional request per load rather
+    // than a re-download. must-revalidate closes the stale-while-offline
+    // window that would otherwise let a flag flip be ignored.
+    new s3deploy.BucketDeployment(this, "UserInterfaceEntrypoints", {
+      prune: false,
+      sources: [asset, exportsAsset],
+      exclude: ["*"],
+      include: ["index.html", "aws-exports.json"],
+      destinationBucket: websiteBucket,
+      distribution: distribution,
+      cacheControl: [
+        s3deploy.CacheControl.noCache(),
+        s3deploy.CacheControl.mustRevalidate(),
+      ],
       memoryLimit: 1024,
       ephemeralStorageSize: cdk.Size.gibibytes(1),
     });

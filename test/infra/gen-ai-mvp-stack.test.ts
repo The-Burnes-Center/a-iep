@@ -2465,3 +2465,101 @@ describe('custom-certificate synth: the CloudFront TLS floor', () => {
     expect(viewerCertificate?.MinimumProtocolVersion).toBe('TLSv1.2_2021');
   });
 });
+
+/**
+ * The runtime config that carries the feature flags must not be
+ * browser-cacheable.
+ *
+ * lib/user-interface/index.ts is built on the idea that turning a feature on
+ * is "a config flip rather than a release": resolveEnabledFeatures writes
+ * enabledFeatures into aws-exports.json and the frontend reads it at runtime.
+ * That only holds if a browser actually re-reads the file.
+ *
+ * It did not. Neither entry point carried Cache-Control, so browsers applied
+ * heuristic freshness -- roughly a tenth of the file's age, so the longer a
+ * copy had been live the longer it was kept. After the 2026-09-16 promotion
+ * the previous aws-exports.json was 13 days old, and a returning browser
+ * treated its own copy as fresh for over a day: the app read a config with
+ * neither studentNameGate nor passwordlessAuth and rendered the old login
+ * screen and no child-name prompt, on a build that contained both. The
+ * CloudFront invalidation the deployment already does could not help,
+ * because the stale copy was on the device.
+ *
+ * Asserted on the synthesized template rather than left to a comment,
+ * because the failure is silent: everything deploys, the edge serves the new
+ * file, and only a parent who has visited before sees the old app.
+ */
+describe('production synth: the unhashed entry points are revalidated', () => {
+  let prodTemplate: Template;
+  let saved: string | undefined;
+
+  beforeAll(() => {
+    saved = process.env.ENVIRONMENT;
+    process.env.ENVIRONMENT = 'production';
+    jest.resetModules();
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const { GenAiMvpStack } = require('../../lib/gen-ai-mvp-stack');
+    /* eslint-enable @typescript-eslint/no-var-requires */
+    const app = new App({ context: { 'aws:cdk:bundling-stacks': [] } });
+    prodTemplate = Template.fromStack(new GenAiMvpStack(app, 'AIEPStack', {}));
+  }, 180_000);
+
+  afterAll(() => {
+    process.env.ENVIRONMENT = saved;
+    jest.resetModules();
+  });
+
+  /** Every bucket deployment in the stack, with the knobs this cares about. */
+  const deployments = () =>
+    Object.values(prodTemplate.findResources('Custom::CDKBucketDeployment'))
+      .map((r) => {
+        const p = (r as { Properties: Record<string, unknown> }).Properties;
+        return {
+          cacheControl: (p.SystemMetadata as { 'cache-control'?: string } | undefined)
+            ?.['cache-control'],
+          include: (p.Include as string[] | undefined) ?? [],
+          exclude: (p.Exclude as string[] | undefined) ?? [],
+        };
+      });
+
+  it('serves index.html and aws-exports.json with no-cache', () => {
+    const entrypoints = deployments().filter((d) =>
+      d.include.includes('aws-exports.json'));
+
+    expect(entrypoints).toHaveLength(1);
+    expect(entrypoints[0].include.sort()).toEqual(['aws-exports.json', 'index.html']);
+
+    // no-cache is revalidate-before-use, not "do not store": the browser
+    // keeps the file and gets a 304 when nothing changed, so a flag flip
+    // costs one conditional request rather than a re-download.
+    expect(entrypoints[0].cacheControl).toContain('no-cache');
+    expect(entrypoints[0].cacheControl).toContain('must-revalidate');
+  });
+
+  it('never lets a deployment cache aws-exports.json for a long time', () => {
+    // The actual regression, stated as the thing that must not be true again:
+    // no deployment may hand this file a long max-age, whether by carrying it
+    // in the long-lived bundle or by someone adding a max-age to the pair.
+    const carryingConfig = deployments().filter((d) =>
+      d.include.includes('aws-exports.json') || d.include.length === 0);
+
+    for (const d of carryingConfig) {
+      const caches = d.include.includes('aws-exports.json');
+      if (!caches) continue;
+      expect(d.cacheControl ?? '').not.toMatch(/max-age=([1-9]\d{3,})/);
+      expect(d.cacheControl ?? '').not.toContain('immutable');
+    }
+  });
+
+  it('still caches the content-hashed assets, and keeps index.html out of them', () => {
+    // The other half: assets/ filenames carry a content hash, so a new build
+    // is a new URL and the old one is safe to keep forever. Losing this would
+    // turn every page load into a full re-download of the bundle.
+    const hashed = deployments().filter((d) => d.exclude.includes('index.html'));
+
+    expect(hashed).toHaveLength(1);
+    expect(hashed[0].cacheControl).toContain('immutable');
+    expect(hashed[0].cacheControl).toMatch(/max-age=\d{7,}/);
+    expect(hashed[0].include).not.toContain('index.html');
+  });
+});
