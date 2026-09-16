@@ -64,11 +64,24 @@
     justify-content: center;
     align-items: center;
     width: 100%;
-    height: 100%;
+    /* `flex: 1` against the column <main> now is, rather than `height: 100%`
+       against a height the flex algorithm never wrote to the property. Basis
+       auto and no shrinking, so this fills the free space on a tall window
+       and still grows to its content on a short one instead of clipping. */
+    flex: 1 0 auto;
   }
 
+  /* inset: 0 is load-bearing, not tidying.
+     Without it a fixed element sits at its STATIC position, and this one's
+     static position is as a flex item of a centring parent -- so when the
+     wrapper was shorter than the viewport the scrim got centred against it
+     and hung off the top. Measured at 1245x1055: wrapper 597 tall, scrim
+     1055, top = 68 + (597 - 1055) / 2 = -161, bottom edge at 894. Everything
+     from there to the footer showed the page background instead of the
+     scrim. */
   .processing-modal-overlay {
     position: fixed;
+    inset: 0;
     width: 100%;
     height: 100%;
     background-color: #014620;

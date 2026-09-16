@@ -26,6 +26,31 @@
   flex: 1 0 auto;
 }
 
+/* A column, but only for a screen that asks to fill the frame.
+
+   `flex: 1 0 auto` above gives <main> a USED height of the free space
+   (measured 932px in a 1055px viewport), but its `height` PROPERTY is still
+   `auto`, so a child asking for `height: 100%` had no definite basis and
+   collapsed to its own content height. That is what left the processing
+   takeover 597px tall at the top of a 932px box, with a third of the screen
+   dead below it and its `align-items: center` centring inside nothing. The
+   whole chain from <html> down is min-height based, so there is no definite
+   height anywhere to hang a percentage on.
+
+   Scoped with :has() rather than applied to every screen. Most routes return
+   a fragment with several top-level children, and turning <main> into a flex
+   container everywhere would stop their margins collapsing and silently
+   respace forty screens to fix one. An engine without :has() ignores this and
+   keeps today's behaviour, which is a known layout rather than a broken one.
+
+   Column rather than a percentage so the child can take the free space AND
+   still grow past it when its own content is taller: the desktop modal starts
+   at a 700px viewport, where the free space is 577px against a 595px card. */
+.app-shell__main:has(> .processing-modal-wrapper) {
+  display: flex;
+  flex-direction: column;
+}
+
 /* The skip link is in the tab order from the first Tab press, but off-screen
    until it has focus. Moved with a transform rather than hidden, because
    `display: none` and `visibility: hidden` both take it out of the tab order,
