@@ -80,6 +80,36 @@ import { getEnvironment, getResourceName, tagResource } from '../../tags';
 const SMS_SPEND_ALARM_USD = 25;
 
 /**
+ * SNS's own words for a publish dropped at the monthly spend cap, matched as a
+ * prefix. Compared against `$.delivery.providerResponse` in the delivery log,
+ * which is the only place the REASON for a failure appears.
+ */
+const SMS_QUOTA_PROVIDER_RESPONSE = 'No quota left for account';
+
+/**
+ * Cognito's own SMS-configuration validation number, excluded from the
+ * delivery-failure metrics because it is not a parent.
+ *
+ * Calling UpdateUserPool or SetUserPoolMfaConfig makes Cognito send a test SMS
+ * to this number to check the SNS caller role, and it does not deliver. Every
+ * CloudFormation deploy that re-applies the pool's SMS settings makes both
+ * calls, so each one writes two FAILURE records that no parent ever saw.
+ *
+ * Identified, not guessed. Over the delivery log's 30-day retention this
+ * destination appears 12 times, and all 12 land on the same second as a
+ * CloudTrail UpdateUserPool or SetUserPoolMfaConfig by AWSCloudFormation,
+ * in sub-second pairs. It never appears without one. Against that, the
+ * providerResponse is useless as a tell: these records read "No quota left
+ * for account" during the 2026-09-09 cap outage and "Unknown error attempting
+ * to reach phone" outside it, exactly like a real send.
+ *
+ * If AWS changes the number this stops excluding anything and the deploy
+ * noise comes back, which is the safe direction to fail in: a filter that
+ * over-matches pages someone, a filter that under-matches hides an outage.
+ */
+const COGNITO_SMS_VALIDATION_NUMBER = '+12064350128';
+
+/**
  * How urgent this alarm is, which is the only thing that decides its colour
  * in Slack.
  *
@@ -1144,9 +1174,24 @@ export class MonitoringStack extends Construct {
    * account-level log group, one filter. Two would double-count every
    * failure, since staging and production share it.
    *
-   * Threshold is 1. A document may fail for benign reasons and a rate makes
-   * sense there; an undelivered login code has no benign volume, because
-   * every one of them is a parent who cannot get in.
+   * One metric became two, because the log conflates an outage with a phone
+   * that did not answer and only one of those is worth waking someone.
+   *
+   * `$.delivery.providerResponse` separates them. "No quota left for account"
+   * is the spend cap: it is account-wide by definition, so every parent in
+   * both environments is locked out at once and the account-level metric is
+   * exactly the right scope. That keeps threshold 1, and it is the signal the
+   * 2026-09-09 outage would have tripped on its first dropped code.
+   *
+   * Everything else ("Unknown error attempting to reach phone") is one
+   * destination the carrier took and dropped: a landline, a disconnected
+   * handset, or an abuse signup on an unroutable number (+1 997... has no
+   * such area code). That has routine benign volume, so it is medium and
+   * needs more than one.
+   *
+   * Both patterns exclude COGNITO_SMS_VALIDATION_NUMBER. See its comment: the
+   * old single filter paged critical on every deploy that re-applied the
+   * pool's SMS settings, which is how it announced itself.
    */
   private addSmsDeliveryFailureAlarm(): void {
     // The metric alarm is account-level but harmless to duplicate: unlike the
@@ -1176,37 +1221,86 @@ export class MonitoringStack extends Construct {
     }
     const stack = cdk.Stack.of(this);
     const metricNamespace = 'AI-IEP/Auth';
-    const metricName = 'SmsDeliveryFailed';
+    const logGroup = logs.LogGroup.fromLogGroupName(
+      this,
+      'SmsDeliveryFailureLogGroup',
+      `sns/${stack.region}/${stack.account}/DirectPublishToPhoneNumber/Failure`,
+    );
+    // SNS writes one JSON record per attempt; only FAILURE counts, since
+    // successes land in the sibling group at the configured sampling rate.
+    const failed = logs.FilterPattern.stringValue('$.status', '=', 'FAILURE');
+    const notValidation = logs.FilterPattern.stringValue(
+      '$.delivery.destination', '!=', COGNITO_SMS_VALIDATION_NUMBER,
+    );
 
-    new logs.MetricFilter(this, 'SmsDeliveryFailureFilter', {
-      logGroup: logs.LogGroup.fromLogGroupName(
-        this,
-        'SmsDeliveryFailureLogGroup',
-        `sns/${stack.region}/${stack.account}/DirectPublishToPhoneNumber/Failure`,
+    new logs.MetricFilter(this, 'SmsQuotaExhaustedFilter', {
+      logGroup,
+      filterPattern: logs.FilterPattern.all(
+        failed,
+        notValidation,
+        logs.FilterPattern.stringValue(
+          '$.delivery.providerResponse', '=', `${SMS_QUOTA_PROVIDER_RESPONSE}*`,
+        ),
       ),
-      // SNS writes one JSON record per attempt; only FAILURE counts, since
-      // successes land in the sibling group at the configured sampling rate.
-      filterPattern: logs.FilterPattern.stringValue('$.status', '=', 'FAILURE'),
       metricNamespace,
-      metricName,
+      metricName: 'SmsQuotaExhausted',
       metricValue: '1',
       defaultValue: 0,
     });
 
-    this.alarm('SmsDeliveryFailedAlarm', {
+    new logs.MetricFilter(this, 'SmsDeliveryFailureFilter', {
+      logGroup,
+      filterPattern: logs.FilterPattern.all(
+        failed,
+        notValidation,
+        logs.FilterPattern.stringValue(
+          '$.delivery.providerResponse', '!=', `${SMS_QUOTA_PROVIDER_RESPONSE}*`,
+        ),
+      ),
+      metricNamespace,
+      metricName: 'SmsDeliveryFailed',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
+    this.alarm('SmsQuotaExhaustedAlarm', {
       severity: 'critical',
-      name: 'login codes are being accepted and then not delivered',
+      name: 'the monthly SMS cap is reached and login codes are being binned',
       description:
-        'The SMS provider took the message and dropped it, so a parent is ' +
-        'told a code is coming and none arrives. Usually the monthly SMS ' +
-        'spend cap, which stops delivery for everyone until it is raised.',
+        'The account hit its monthly SMS spend cap, so SNS has stopped ' +
+        'delivering. No parent in EITHER environment can get a login code ' +
+        'until the limit is raised. Check for signup abuse before raising it.',
       metric: new cloudwatch.Metric({
         namespace: metricNamespace,
-        metricName,
+        metricName: 'SmsQuotaExhausted',
         statistic: 'Sum',
         period: cdk.Duration.minutes(15),
       }),
+      // One is enough: the cap is account-wide, so the first parent to hit it
+      // means every other parent is already locked out too.
       threshold: 1,
+      evaluationPeriods: 1,
+    });
+
+    this.alarm('SmsDeliveryFailedAlarm', {
+      severity: 'medium',
+      name: 'login codes are being accepted and then not delivered',
+      description:
+        'The provider took login codes and dropped them, so those parents ' +
+        'got none. A trickle is normal (landlines, dead handsets, abuse ' +
+        'signups); this is more. Counts BOTH environments, and excludes the ' +
+        'cap, which pages separately.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'SmsDeliveryFailed',
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(15),
+      }),
+      // Measured on 30 days of the real log: non-quota failures arrive in
+      // bursts of at most 2 in a quarter hour, and they are one parent
+      // retrying the same dead handset. 4 is the first count that cannot be
+      // one person having a bad afternoon.
+      threshold: 4,
       evaluationPeriods: 1,
     });
   }

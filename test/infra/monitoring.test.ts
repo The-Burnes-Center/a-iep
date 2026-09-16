@@ -779,27 +779,85 @@ describe('undelivered login codes', () => {
     }));
   });
 
-  // One undelivered code is one parent who cannot get in. Unlike a failing
-  // document, there is no benign volume of these to tolerate.
-  test('a single undelivered code is enough to alarm', () => {
-    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+  const smsAlarm = (fragment: string) =>
+    Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
       .map((r: any) => r.Properties)
-      .find((p: any) => String(p.AlarmName).includes('accepted and then not delivered'));
+      .find((p: any) => String(p.AlarmName).includes(fragment));
+
+  const smsFilterPattern = (metricName: string, environment = 'production') =>
+    Object.values(synth(environment).findResources('AWS::Logs::MetricFilter'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => JSON.stringify(p.MetricTransformations).includes(`"${metricName}"`))
+      .map((p: any) => p.FilterPattern as string);
+
+  // Threshold 1 belongs to the CAP, not to delivery failures generally. The
+  // cap is account-wide: the first parent it drops means every other parent
+  // is already locked out, so there is genuinely no benign volume here.
+  test('one code dropped at the spend cap is enough to alarm', () => {
+    const alarm = smsAlarm('monthly SMS cap is reached');
 
     expect(alarm).toBeDefined();
     expect(alarm.Threshold).toBe(1);
+    expect(alarm.AlarmDescription).toContain('[critical]');
+  });
+
+  // The counterpart. This one has routine benign volume -- landlines, dead
+  // handsets, abuse signups on unroutable numbers -- so paging on a single
+  // record made a critical alarm out of one parent's broken phone.
+  test('a lone undelivered code is counted but does not page', () => {
+    const alarm = smsAlarm('accepted and then not delivered');
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Threshold).toBeGreaterThan(1);
+    expect(alarm.AlarmDescription).not.toContain('[critical]');
+  });
+
+  // The regression test for the 2026-09-16 false page.
+  //
+  // Cognito sends a validation SMS to a fixed number on UpdateUserPool and
+  // SetUserPoolMfaConfig, and it never delivers. CloudFormation makes both
+  // calls on any deploy that re-applies the pool's SMS settings, so the
+  // single unfiltered filter turned every such deploy into two FAILURE
+  // records and a critical page. No parent was ever involved.
+  //
+  // Asserted on both patterns, because an exclusion on only one of them
+  // still pages: the quota half is the critical one.
+  test('Cognito SMS-config validation is excluded from both metrics', () => {
+    const patterns = [
+      ...smsFilterPattern('SmsQuotaExhausted'),
+      ...smsFilterPattern('SmsDeliveryFailed'),
+    ];
+
+    expect(patterns).toHaveLength(2);
+    for (const pattern of patterns) {
+      expect(pattern).toContain('$.delivery.destination != "+12064350128"');
+    }
+  });
+
+  // The two metrics must partition the failures, not overlap and not leave a
+  // gap: the same record counted twice double-pages, and a record matching
+  // neither is an outage nobody hears about. Verified against 31 real records
+  // with the CloudWatch test-metric-filter API: 13 quota, 6 delivery, 12
+  // validation, 31 total.
+  test('quota and delivery failures are split, and the split is exhaustive', () => {
+    const [quota] = smsFilterPattern('SmsQuotaExhausted');
+    const [delivery] = smsFilterPattern('SmsDeliveryFailed');
+
+    // Same field, opposite comparison, identical value: that is what makes
+    // the two exhaustive over $.status = FAILURE.
+    expect(quota).toContain('$.delivery.providerResponse = "No quota left for account*"');
+    expect(delivery).toContain('$.delivery.providerResponse != "No quota left for account*"');
+    for (const pattern of [quota, delivery]) {
+      expect(pattern).toContain('$.status = "FAILURE"');
+    }
   });
 
   // The log group is account-level and shared by both environments, so a
   // filter in each would count every failure twice.
-  test('the filter is created once, in production only', () => {
-    const countFilters = (environment: string) =>
-      Object.values(synth(environment).findResources('AWS::Logs::MetricFilter'))
-        .map((r: any) => r.Properties)
-        .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('SmsDeliveryFailed'))
-        .length;
-
-    expect(countFilters('production')).toBe(1);
-    expect(countFilters('staging')).toBe(0);
+  test('the filters are created once, in production only', () => {
+    for (const metricName of ['SmsQuotaExhausted', 'SmsDeliveryFailed']) {
+      expect(smsFilterPattern(metricName, 'production')).toHaveLength(1);
+      expect(smsFilterPattern(metricName, 'staging')).toHaveLength(0);
+    }
   });
 });
