@@ -190,6 +190,20 @@ const stepLine = () => {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // Start the frozen clock on a whole second.
+  //
+  // Not cosmetic: the progress bar eases from a milestone anchored on the
+  // document's `updatedAt`, which is epoch SECONDS, so nowSeconds() truncates
+  // up to 999ms. vi.useFakeTimers() freezes Date at whatever millisecond the
+  // test happened to start, which left "elapsed since the anchor" as a random
+  // 0-999ms and the drawn percentage one point higher on about 1% of runs.
+  //
+  // It flaked in CI rather than here, and only after the milestones were
+  // re-spaced: the summarizing gap went from 43 points to 53, which is what
+  // tipped floor(gap * 0.9 * ease(999ms)) from 0 to 1. Truncating to a whole
+  // second makes the anchor and the clock agree exactly, so elapsed is 0 and
+  // every assertion below is deterministic.
+  vi.setSystemTime(Math.floor(Date.now() / 1000) * 1000);
   Auth.getCurrentUser.mockResolvedValue({ username: "test-user", userId: "test-user" });
   Auth.fetchAuthSession.mockResolvedValue({
     tokens: { idToken: { toString: () => "id-token", payload: {} } },
