@@ -1102,13 +1102,20 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             // SMS Verification Form
             <Form onSubmit={handleSmsCodeVerification}>
               <div className="mobile-form-container">
-                <div className="sms-verification-info">
-                  <p>
-                    {t('auth.smsCodeSentTo')}<br />
-                    {/* Phone numbers must always render left-to-right, even in RTL UI */}
-                    <span className="phone-display" dir="ltr">{phoneNumber}</span>
-                  </p>
-                </div>
+                {/* First on the screen, not after the field: this is the
+                    answer to the tap a parent just made, so "code sent" and
+                    any error land where the eye already is. Matches the code
+                    step in PasswordlessAuthForm. */}
+                {/* The number is part of the notice's own sentence:
+                    auth.smsCodeSentTo said the same thing as the field's label
+                    right below it. See the code step in PasswordlessAuthForm. */}
+                <AlertMessages
+                  error={error}
+                  successMessage={successMessage}
+                  persistSuccess
+                  successDestination={phoneNumber}
+                />
+
                 <VerificationCodeInput
                   label={t('auth.verificationCodeSms')}
                   placeholder={t('auth.enterSmsCode')}
@@ -1117,9 +1124,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                   required
                   autoFocus
                 />
-                
-                <AlertMessages error={error} successMessage={successMessage} />
-                
+
                 <div className="d-grid gap-2">
                     <SubmitButton 
                       loading={loading}

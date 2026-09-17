@@ -401,13 +401,29 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
     return (
       <Form onSubmit={handleVerify}>
         <div className="mobile-form-container">
-          <div className="sms-verification-info">
-            <p>
-              {t('auth.smsCodeSentTo')}<br />
-              {/* Destinations always render left-to-right, even in RTL UI. */}
-              <span className="phone-display" dir="ltr">{auth.destination}</span>
-            </p>
-          </div>
+          {/* First on the screen, not last. This is the answer to the tap a
+              parent just made -- the code is on its way, or it is not -- and
+              it used to sit below the field and the Turnstile block, off the
+              bottom of a phone screen. Nothing above it now, so "code sent"
+              and any error land where the eye already is.
+
+              The notice is cleared wherever it stops being true (a submit, a
+              new attempt, going back), rather than filtered here, so there is
+              one rule about its lifetime instead of two. */}
+          {/* The destination is part of the notice's own sentence ("SMS code
+              sent to <number>"), not a line under it. It used to be introduced
+              by auth.smsCodeSentTo ("Enter the 6-digit code sent to"), which
+              says the same thing as the field's own label below — so a parent
+              read one instruction twice and then a number. One green box now
+              carries the whole answer to the tap they just made: a code went
+              out, and here is where it went. */}
+          <AlertMessages
+            error={formError ?? auth.error}
+            successMessage={sendNotice ? SEND_NOTICE_KEYS[auth.channel][sendNotice] : null}
+            persistSuccess
+            successDestination={auth.destination}
+          />
+
           <VerificationCodeInput
             label={t('auth.verificationCodeSms')}
             placeholder={t('auth.enterSmsCode')}
@@ -427,14 +443,6 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
             that discards the token the first send already spent.
           */}
           <TurnstileBlock key="code" t={t} turnstile={turnstile} />
-
-          {/* The notice is cleared wherever it stops being true (a submit, a
-              new attempt, going back), rather than filtered here, so there is
-              one rule about its lifetime instead of two. */}
-          <AlertMessages
-            error={formError ?? auth.error}
-            successMessage={sendNotice ? SEND_NOTICE_KEYS[auth.channel][sendNotice] : null}
-          />
 
           <div className="d-grid gap-2">
             <SubmitButton

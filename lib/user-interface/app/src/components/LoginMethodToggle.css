@@ -1,50 +1,72 @@
-/* Login method toggle buttons styling */
-.login-method-toggle-container .btn-group {
-    border-radius: 5rem;
-    overflow: hidden;
-    border: 1.75px solid #00682F;
-  }
-  
-  .login-method-toggle-container .btn-group .btn {
-    border-start-start-radius: 0.5rem;
-    border-end-start-radius: 0.5rem;
-    --bs-btn-border-width: none;
-    font-family: akzidenz-grotesk-next-conden, sans-serif;
-    font-weight: 400;
-    font-style: normal;
-    font-size: 0.9rem !important;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    border-radius: 0;
-    transition: all 0.3s ease;
-  }
+/* The two sign-in tabs: WITH PHONE / WITH EMAIL.
 
-  /* Default state for both buttons when parent is hovered */
-  .login-method-toggle-container .btn-group:hover .btn {
-    background-color: #F5F3EE;
-  }
+   Was a pill-shaped btn-group with a green border, the selected half filled
+   solid green. Now flat text tabs, the selected one green with a green rule
+   under it. */
 
-  /* The button being hovered gets dark green background */
-  .login-method-toggle-container .btn-group .btn:hover {
-    background-color: #014620 !important;
+.login-method-tabs {
+  display: flex;
+  width: 100%;
+}
+
+.login-method-tab {
+  /* Equal halves, so the rule under the selected tab is a consistent width
+     rather than as wide as whichever label is longer in this language. */
+  flex: 1;
+  padding: 0.5rem 0.25rem;
+  background-color: transparent;
+  border: none;
+  /* The rule. Transparent rather than absent on the unselected tab, so
+     selecting one does not shift both labels up by 3px. */
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  color: var(--aiep-ink);
+  font-family: akzidenz-grotesk-next-conden, sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-size: 0.9rem !important;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  /* btn-link underlines its text; the rule below is our underline. */
+  text-decoration: none;
+  transition: color 0.3s ease, border-color 0.3s ease;
+}
+
+.login-method-tab.is-selected {
+  color: var(--aiep-green);
+  border-bottom-color: var(--aiep-green);
+  font-weight: 500;
+}
+
+.login-method-tab:hover {
+  color: var(--aiep-green);
+  background-color: transparent;
+  text-decoration: none;
+  /* A hint of the rule, so hover reads as "this is the one you would get"
+     without impersonating the selected tab. */
+  border-bottom-color: var(--aiep-border);
+}
+
+.login-method-tab.is-selected:hover {
+  border-bottom-color: var(--aiep-green);
+}
+
+/* Bootstrap's own button focus ring is a box-shadow around a pill, which is
+   the wrong shape now that these are flat. Keyboard focus has to stay
+   visible: it is the only thing distinguishing the focused tab from the
+   selected one, which are not always the same tab. */
+.login-method-tab:focus {
+  box-shadow: none;
+}
+
+.login-method-tab:focus-visible {
+  outline: 2px solid var(--aiep-link);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-method-tab {
+    transition: none;
   }
-  
-  /* Mobile responsive styling */
-  @media (max-width: 767px) {
-    .login-method-toggle-container .btn-group {
-      width: 100%;
-    }
-    
-    .login-method-toggle-container .btn-group .btn {
-      flex: 1;
-      padding: 10px 8px;
-      font-size: 0.9rem;
-    }
-  }
-  
-  /* Reduced motion support */
-  @media (prefers-reduced-motion: reduce) {
-    .login-method-toggle-container .btn-group .btn {
-      transition: none;
-    }
-  }
+}
