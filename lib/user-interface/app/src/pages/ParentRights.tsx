@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react';
 import { Container, Row, Col, Card, Accordion } from 'react-bootstrap';
 import PageLoading from '../components/PageLoading';
+import LanguagePreferenceDropdown from '../components/LanguagePreferenceDropdown';
 import '../components/FrequentlyAskedQuestions.css';
-import { useLanguage } from '../common/language-context'; 
+import { useLanguage } from '../common/language-context';
 
 
 const ParentRights: React.FC = () => {
@@ -58,6 +59,7 @@ const ParentRights: React.FC = () => {
       <Container className="faqs-container mt-3 mb-3">
         <Row className="mt-2">
           <Col>
+            <LanguagePreferenceDropdown />
             <Card className="faqs-card">
               <Row className="g-0">
                 <Col md={12} className="no-padding-inherit-faq">

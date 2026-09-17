@@ -7,6 +7,7 @@ import { useLanguage } from '../../common/language-context';
 import { useAdminIdentity } from '../../common/helpers/use-admin-identity';
 import { useFeatures } from '../../common/hooks/use-features';
 import { IconArrowRight, IconLogout } from '@tabler/icons-react';
+import LanguagePreferenceDropdown from '../../components/LanguagePreferenceDropdown';
 import './AccountCenter.css';
 
 const AccountCenter: React.FC = () => {
@@ -137,6 +138,7 @@ const AccountCenter: React.FC = () => {
       <Container className="account-center-container mt-3 mb-3">
         <Row className="mt-2">
           <Col>
+            <LanguagePreferenceDropdown />
             <Card className="account-center-card">
               <Row className="g-0">
                 <Col md={12} className="no-padding-inherit-faq">

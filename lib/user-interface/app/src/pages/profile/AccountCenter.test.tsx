@@ -18,6 +18,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AccountCenter from "./AccountCenter";
 import { AuthProvider } from "../../common/auth-provider";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
@@ -58,8 +59,17 @@ const renderAccountCenter = () => {
     enabledLanguages: ["en"] as SupportedLanguage[],
   };
 
+  // AppConfigured wraps the real app in this; the page now renders a child
+  // (LanguagePreferenceDropdown) that reads the shared ['profile'] query, so
+  // the harness needs one too. Per render and with retries off, so no cache
+  // or in-flight request outlives the test that made it.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
   return render(
     <MemoryRouter initialEntries={[ACCOUNT_PATH]}>
+      <QueryClientProvider client={queryClient}>
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
           <AuthProvider>
@@ -85,6 +95,7 @@ const renderAccountCenter = () => {
           </AuthProvider>
         </LanguageContext.Provider>
       </AppContext.Provider>
+      </QueryClientProvider>
     </MemoryRouter>,
   );
 };
