@@ -26,7 +26,10 @@ const ES = {
   sendSmsCode: 'Enviar Código SMS',
   sendCode: 'Enviar código',
   smsCodeSent: 'Código SMS enviado',
-  codeSentTo: 'Ingrese el código de 6 dígitos enviado a',
+  /** The code field's label, and so the screen's most stable localized text.
+   *  Replaced codeSentTo ('Ingrese el código de 6 dígitos enviado a'), the
+   *  standalone destination line that was removed for repeating this label. */
+  codeLabel: 'Ingrese el código de 6 dígitos',
 } as const;
 
 test('login screen localizes and the OTP send carries the picked language', async ({ page }) => {
@@ -63,7 +66,7 @@ test('login screen localizes and the OTP send carries the picked language', asyn
     // No new-vs-existing alert to key on here by design (contract 2, 11);
     // the code screen itself, still localized, is the signal.
     await expect(page.getByTestId('sms-code-input')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(ES.codeSentTo)).toBeVisible();
+    await expect(page.getByText(ES.codeLabel)).toBeVisible();
   }
 
   // The stashed payload's language field is what the SMS copy would have
