@@ -44,11 +44,13 @@ const EXPECTED_ALARM_SUFFIXES = [
   'DynamoDB throttling: IEP documents',
   'DynamoDB throttling: user profiles',
   'signup flood: someone is abusing the signup form',
-  'SMS budget half spent',
   'login codes being requested for numbers we do not serve',
   'login codes are being refused: the sending limit is reached',
   'login codes are not being delivered',
-  'the SMS provider is rejecting login codes',
+  // Per environment since the classifier attributes each failure to the
+  // stack that sent it; staging has a real twin now, not a copy.
+  'login codes are being accepted and then not delivered',
+  'undelivered login codes are not being counted',
   'the pipeline cannot write to its database',
   'a failed document kept its unredacted copy',
   'a document kept text we said we would delete',
@@ -66,6 +68,20 @@ const EXPECTED_ALARM_SUFFIXES = [
   // The alerting path watching itself, both halves of it.
   'alerts are not reaching the formatter',
   'the daily health brief is failing',
+];
+
+/**
+ * Alarms on ACCOUNT-level series: SNS spend, SNS delivery failures, and the
+ * spend cap, which is account-wide by definition. Created once, in
+ * production. A staging copy watches the same series, fires at the same
+ * moment, and put the same "1 problem" into both daily briefs for three
+ * weeks, from a $25 month-to-date alarm that could not clear until the 1st.
+ */
+const PROD_ONLY_ALARM_SUFFIXES = [
+  'the SMS provider is rejecting login codes',
+  'the monthly SMS cap is reached and login codes are being binned',
+  'SMS spend is climbing fast: an abuse run may be under way',
+  'SMS spend is past 80% of the monthly cap',
 ];
 
 /**
@@ -344,7 +360,7 @@ describe.each([
   // Signup volume and SMS spend are the two leading indicators of abuse of
   // the phone-signup flow, and the harm lands on families: once SMS delivery
   // stops, no parent can receive a login code until the month rolls over.
-  // Both alarms must exist, and the spend one must sit below the ceiling.
+  // The spend alarms are pinned in 'SMS spend' below, production only.
   test('a signup flood is alarmed on, well below the SMS cap', () => {
     const surge = alarms.find(
       (a) => a.AlarmName === `${namePrefix}signup flood: someone is abusing the signup form`,
@@ -357,14 +373,18 @@ describe.each([
     expect(surge!.Threshold).toBeLessThanOrEqual(50);
   });
 
-  test('SMS spend alarms below the cap, not at it', () => {
-    const spend = alarms.find((a) => a.AlarmName === `${namePrefix}SMS budget half spent`);
-    expect(spend).toBeDefined();
-    expect(spend!.Namespace).toBe('AWS/SNS');
-    expect(spend!.MetricName).toBe('SMSMonthToDateSpentUSD');
-    // At the cap login is ALREADY down and stays down until the month rolls
-    // over, so an alarm at the cap is an alarm that reports a finished outage.
-    expect(spend!.Threshold).toBeLessThan(50);
+  test('account-level SMS alarms exist in production only', () => {
+    const names = alarms.map((a) => a.AlarmName);
+    for (const suffix of PROD_ONLY_ALARM_SUFFIXES) {
+      const count = names.filter((n) => n === `${namePrefix}${suffix}`).length;
+      expect([suffix, count]).toEqual([suffix, environment === 'production' ? 1 : 0]);
+    }
+    // And nothing in staging reads the account spend series under any name.
+    if (environment !== 'production') {
+      const spendWatchers = alarms.filter((a) =>
+        JSON.stringify(a).includes('SMSMonthToDateSpentUSD'));
+      expect(spendWatchers).toEqual([]);
+    }
   });
 
   // Every Cognito trigger gets its own alarm: an error in any of them locks
@@ -767,20 +787,15 @@ describe('undelivered login codes', () => {
     ]);
   });
 
-  // Two independent signals, kept deliberately. The metric needs no ops step
-  // and works in both environments; the log filter carries the REASON but
-  // only exists where delivery-status logging is switched on. Neither
-  // subsumes the other, and this alarm has already been wrong twice.
-  test('the delivery log is read as well as the metric', () => {
-    synth('production').hasResourceProperties('AWS::Logs::MetricFilter', Match.objectLike({
-      MetricTransformations: Match.arrayWith([
-        Match.objectLike({ MetricName: 'SmsDeliveryFailed', MetricNamespace: 'AI-IEP/Auth' }),
-      ]),
-    }));
-  });
+  const failureLogGroup = 'DirectPublishToPhoneNumber/Failure';
 
-  const smsAlarm = (fragment: string) =>
-    Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+  const subscriptionsOnFailureLog = (environment: string) =>
+    Object.values(synth(environment).findResources('AWS::Logs::SubscriptionFilter'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => JSON.stringify(p.LogGroupName).includes(failureLogGroup));
+
+  const smsAlarm = (fragment: string, environment = 'production') =>
+    Object.values(synth(environment).findResources('AWS::CloudWatch::Alarm'))
       .map((r: any) => r.Properties)
       .find((p: any) => String(p.AlarmName).includes(fragment));
 
@@ -789,6 +804,37 @@ describe('undelivered login codes', () => {
       .map((r: any) => r.Properties)
       .filter((p: any) => JSON.stringify(p.MetricTransformations).includes(`"${metricName}"`))
       .map((p: any) => p.FilterPattern as string);
+
+  // Two independent signals, kept deliberately. The metric needs no ops step;
+  // the log carries the REASON but only exists where delivery-status logging
+  // is switched on. Neither subsumes the other, and this alarm has already
+  // been wrong twice.
+  //
+  // The log is now read through a subscription, not a metric filter, because
+  // a metric filter can only count the account: it paged production for
+  // staging's codes and gave staging nothing. One per stack, so each can
+  // attribute its own.
+  test.each(['production', 'staging'])('%s subscribes its classifier to the delivery log', (environment) => {
+    const template = synth(environment);
+    const subscriptions = subscriptionsOnFailureLog(environment);
+    expect(subscriptions).toHaveLength(1);
+
+    const classifierId = Object.entries(template.findResources('AWS::Lambda::Function'))
+      .filter(([, r]: [string, any]) =>
+        String(r.Properties.Description).includes('Attributes undelivered SMS'))
+      .map(([id]) => id);
+    expect(classifierId).toHaveLength(1);
+    expect(JSON.stringify(subscriptions[0].DestinationArn)).toContain(classifierId[0]);
+  });
+
+  // The metric filter it replaced counted every account-wide failure into
+  // one series. Leaving it in place would page production on staging's codes
+  // exactly as before, next to the attributed alarm.
+  test('the account-wide delivery-failure metric filter is gone', () => {
+    for (const environment of ['production', 'staging']) {
+      expect(smsFilterPattern('SmsDeliveryFailed', environment)).toEqual([]);
+    }
+  });
 
   // Threshold 1 belongs to the CAP, not to delivery failures generally. The
   // cap is account-wide: the first parent it drops means every other parent
@@ -812,6 +858,28 @@ describe('undelivered login codes', () => {
     expect(alarm.AlarmDescription).not.toContain('[critical]');
   });
 
+  // The attribution is the dimension. An alarm on the undimensioned series
+  // reads something nothing writes any more, and one on the other stack's
+  // dimension alarms on the wrong environment's codes.
+  test.each([
+    ['production', 'prod'],
+    ['staging', 'dev'],
+  ])('%s alarms on its own undelivered codes only', (environment, envValue) => {
+    const alarm = smsAlarm('accepted and then not delivered', environment);
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Namespace).toBe('AI-IEP/Auth');
+    expect(alarm.MetricName).toBe('SmsDeliveryFailed');
+    expect(alarm.Dimensions).toEqual([{ Name: 'Environment', Value: envValue }]);
+
+    const fn = Object.values(synth(environment).findResources('AWS::Lambda::Function'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.Description).includes('Attributes undelivered SMS'));
+    // The lambda must write the value the alarm reads.
+    expect(fn.Environment.Variables.ENVIRONMENT).toBe(envValue);
+    expect(fn.Environment.Variables.METRIC_NAMESPACE).toBe('AI-IEP/Auth');
+  });
+
   // The regression test for the 2026-09-16 false page.
   //
   // Cognito sends a validation SMS to a fixed number on UpdateUserPool and
@@ -820,12 +888,12 @@ describe('undelivered login codes', () => {
   // single unfiltered filter turned every such deploy into two FAILURE
   // records and a critical page. No parent was ever involved.
   //
-  // Asserted on both patterns, because an exclusion on only one of them
-  // still pages: the quota half is the critical one.
-  test('Cognito SMS-config validation is excluded from both metrics', () => {
+  // Asserted on both paths, because an exclusion on only one of them still
+  // pages: the quota half is the critical one.
+  test('Cognito SMS-config validation is excluded from both paths', () => {
     const patterns = [
       ...smsFilterPattern('SmsQuotaExhausted'),
-      ...smsFilterPattern('SmsDeliveryFailed'),
+      ...subscriptionsOnFailureLog('production').map((p: any) => p.FilterPattern),
     ];
 
     expect(patterns).toHaveLength(2);
@@ -834,14 +902,14 @@ describe('undelivered login codes', () => {
     }
   });
 
-  // The two metrics must partition the failures, not overlap and not leave a
+  // The two paths must partition the failures, not overlap and not leave a
   // gap: the same record counted twice double-pages, and a record matching
   // neither is an outage nobody hears about. Verified against 31 real records
   // with the CloudWatch test-metric-filter API: 13 quota, 6 delivery, 12
   // validation, 31 total.
   test('quota and delivery failures are split, and the split is exhaustive', () => {
     const [quota] = smsFilterPattern('SmsQuotaExhausted');
-    const [delivery] = smsFilterPattern('SmsDeliveryFailed');
+    const [delivery] = subscriptionsOnFailureLog('production').map((p: any) => p.FilterPattern);
 
     // Same field, opposite comparison, identical value: that is what makes
     // the two exhaustive over $.status = FAILURE.
@@ -852,12 +920,191 @@ describe('undelivered login codes', () => {
     }
   });
 
-  // The log group is account-level and shared by both environments, so a
-  // filter in each would count every failure twice.
-  test('the filters are created once, in production only', () => {
-    for (const metricName of ['SmsQuotaExhausted', 'SmsDeliveryFailed']) {
-      expect(smsFilterPattern(metricName, 'production')).toHaveLength(1);
-      expect(smsFilterPattern(metricName, 'staging')).toHaveLength(0);
+  // The cap is account-wide, so its filter reads the shared group once. A
+  // filter in each stack would count every capped code twice.
+  test('the quota filter is created once, in production only', () => {
+    expect(smsFilterPattern('SmsQuotaExhausted', 'production')).toHaveLength(1);
+    expect(smsFilterPattern('SmsQuotaExhausted', 'staging')).toHaveLength(0);
+  });
+});
+
+describe('the SMS failure classifier', () => {
+  const classifierOf = (template: Template) => {
+    const [[logicalId, resource]] = Object.entries(template.findResources('AWS::Lambda::Function'))
+      .filter(([, r]: [string, any]) =>
+        String(r.Properties.Description).includes('Attributes undelivered SMS'));
+    return { logicalId, props: (resource as any).Properties };
+  };
+
+  const statementsFor = (template: Template, roleArn: any) => {
+    const roleId = roleArn['Fn::GetAtt'][0];
+    return Object.values(template.findResources('AWS::IAM::Policy'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => JSON.stringify(p.Roles).includes(roleId))
+      .flatMap((p: any) => p.PolicyDocument.Statement as any[]);
+  };
+
+  // This stack's sender log groups, by the LogRetention resources that own
+  // their names: that is what the ARNs and the env var reference.
+  const senderIds = (template: Template) =>
+    Object.keys(template.toJSON().Resources)
+      .filter((id) => /(CreateAuthChallengeFunction|CustomSmsSenderFunction)LogRetention/.test(id));
+
+  test.each(['production', 'staging'])('%s: runtime and environment', (environment) => {
+    const { props } = classifierOf(synth(environment));
+    expect(props.Runtime).toBe('python3.12');
+    expect(props.Handler).toBe('handler.lambda_handler');
+    expect(props.Environment.Variables.COGNITO_SMS_VALIDATION_NUMBER).toBe('+12064350128');
+    expect(props.Environment.Variables.SMS_QUOTA_PROVIDER_RESPONSE).toBe('No quota left for account');
+    // Bounded, so both stacks together cannot exhaust the account's shared
+    // FilterLogEvents rate during a burst.
+    expect(props.ReservedConcurrentExecutions).toBeLessThanOrEqual(2);
+  });
+
+  // Least privilege, and the property that makes per-stack attribution
+  // honest: a stack can read its own senders' logs and nothing else. A
+  // wildcard would let staging's classifier find production's ids and count
+  // them as its own.
+  test.each([
+    ['production', 1],
+    ['staging', 2],
+  ])('%s: it can search only its own senders\' logs', (environment, expectedSenders) => {
+    const template = synth(environment);
+    const { props } = classifierOf(template);
+    const statements = statementsFor(template, props.Role);
+
+    const search = statements.filter((st) =>
+      ([] as string[]).concat(st.Action).includes('logs:FilterLogEvents'));
+    const resources = search.flatMap((st) => ([] as any[]).concat(st.Resource));
+    expect(resources.length).toBe(expectedSenders);
+    for (const resource of resources) {
+      expect(resource).not.toBe('*');
+      expect(JSON.stringify(resource)).toContain('log-group:');
     }
+
+    // Every resource names one of THIS stack's sender functions.
+    const senders = senderIds(template);
+    expect(senders).toHaveLength(expectedSenders);
+    for (const sender of senders) {
+      expect(resources.some((r) => JSON.stringify(r).includes(sender))).toBe(true);
+    }
+    // The env var the lambda searches is the same set.
+    const groups = JSON.stringify(props.Environment.Variables.SENDER_LOG_GROUPS);
+    for (const sender of senders) {
+      expect(groups).toContain(sender);
+    }
+
+    // No other logs permission at all: it must not be able to read, write
+    // or delete any log group.
+    const otherLogs = statements
+      .flatMap((st) => ([] as string[]).concat(st.Action))
+      .filter((a) => a.startsWith('logs:') && a !== 'logs:FilterLogEvents');
+    expect(otherLogs).toEqual([]);
+  });
+
+  test('it can write metrics only into its own namespace', () => {
+    const template = synth('production');
+    const { props } = classifierOf(template);
+    const put = statementsFor(template, props.Role).filter((st) =>
+      ([] as string[]).concat(st.Action).includes('cloudwatch:PutMetricData'));
+
+    expect(put).toHaveLength(1);
+    expect(put[0].Condition).toEqual({
+      StringEquals: { 'cloudwatch:namespace': 'AI-IEP/Auth' },
+    });
+  });
+});
+
+describe('SMS spend', () => {
+  /* eslint-disable @typescript-eslint/no-var-requires */
+  const {
+    SMS_MONTHLY_LIMIT_USD,
+    SMS_NEAR_CAP_FRACTION,
+    SMS_SPEND_VELOCITY_ALARM_USD_PER_HOUR,
+  } = require('../../lib/chatbot-api/monitoring/monitoring');
+  /* eslint-enable @typescript-eslint/no-var-requires */
+
+  const spendAlarm = (fragment: string) =>
+    Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes(fragment));
+
+  // Velocity, not level: the series is month-cumulative, so a fixed level
+  // below the cap fires once and stays red until the 1st whatever happens.
+  test('an abuse run is caught by the rate of spend, and the alarm clears itself', () => {
+    const alarm = spendAlarm('SMS spend is climbing fast');
+    expect(alarm).toBeDefined();
+
+    const [expression] = alarm.Metrics.filter((m: any) => m.Expression);
+    const [spend] = alarm.Metrics.filter((m: any) => m.MetricStat);
+    expect(expression.Expression).toMatch(/^RATE\(\w+\) \* 3600$/);
+    expect(expression.Expression).toContain(spend.Id);
+    expect(spend.MetricStat.Metric.Namespace).toBe('AWS/SNS');
+    expect(spend.MetricStat.Metric.MetricName).toBe('SMSMonthToDateSpentUSD');
+    // No dimensions: the only series this metric has.
+    expect(spend.MetricStat.Metric.Dimensions).toBeUndefined();
+
+    expect(alarm.Threshold).toBe(SMS_SPEND_VELOCITY_ALARM_USD_PER_HOUR);
+    // Strictly greater than a positive number: the month reset drops spend
+    // to zero, which is a large NEGATIVE rate, and must not page.
+    expect(alarm.ComparisonOperator).toBe('GreaterThanThreshold');
+    expect(alarm.Threshold).toBeGreaterThan(0);
+    // Self-clearing: no data (and no new spend) reads as not breaching.
+    expect(alarm.TreatMissingData).toBe('notBreaching');
+    expect(alarm.AlarmDescription).toContain('[critical]');
+  });
+
+  // The 2026-09-09 attack ran at about $590 an hour and a normal week spends
+  // about $0.15. The threshold must sit between them with room either side.
+  test('the velocity threshold sits far between normal traffic and the attack', () => {
+    expect(SMS_SPEND_VELOCITY_ALARM_USD_PER_HOUR).toBeGreaterThanOrEqual(1);
+    expect(SMS_SPEND_VELOCITY_ALARM_USD_PER_HOUR).toBeLessThanOrEqual(10);
+  });
+
+  test('the level alarm sits at a fraction of the real cap, below it', () => {
+    const alarm = spendAlarm('of the monthly cap');
+    expect(alarm).toBeDefined();
+    expect(alarm.Namespace).toBe('AWS/SNS');
+    expect(alarm.MetricName).toBe('SMSMonthToDateSpentUSD');
+    expect(alarm.Threshold).toBe(SMS_MONTHLY_LIMIT_USD * SMS_NEAR_CAP_FRACTION);
+    // At the cap login is ALREADY down and stays down until the month rolls
+    // over, so an alarm at the cap reports a finished outage.
+    expect(alarm.Threshold).toBeLessThan(SMS_MONTHLY_LIMIT_USD);
+    expect(SMS_NEAR_CAP_FRACTION).toBeGreaterThan(0.5);
+    expect(SMS_NEAR_CAP_FRACTION).toBeLessThan(1);
+  });
+});
+
+// An event-count alarm clears when a quiet window passes, not when anything
+// is fixed. The formatter words those recoveries as "no further failures",
+// keyed on a marker in the description; pinned here so a new SMS alarm, or a
+// reworded one, cannot quietly go back to announcing "Back to normal".
+describe('failure-count alarms carry the marker the formatter reads', () => {
+  test.each([
+    'the SMS provider is rejecting login codes',
+    'the monthly SMS cap is reached',
+    'accepted and then not delivered',
+    'login codes are not being delivered',
+    'a document failed to process',
+  ])('"%s"', (fragment) => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes(fragment));
+    expect(alarm).toBeDefined();
+    expect(alarm.AlarmDescription).toMatch(/^\[(critical|medium|low)\]\[failures\] /);
+  });
+
+  // The other direction: a heartbeat or a level alarm clearing IS a
+  // recovery, and "no further failures" would be wrong under it.
+  test.each([
+    'pending-upload sweep has stopped running',
+    'of the monthly cap',
+    'SMS spend is climbing fast',
+  ])('not "%s"', (fragment) => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes(fragment));
+    expect(alarm).toBeDefined();
+    expect(alarm.AlarmDescription).not.toContain('[failures]');
   });
 });

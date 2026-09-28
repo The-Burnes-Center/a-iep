@@ -394,6 +394,7 @@ export class ChatBotApi extends Construct {
         { label: 'auth session', fn: authentication.authSessionFunction,
           purpose: 'keeps a signed-in parent signed in; runs hourly for every open app' },
       ],
+      smsSenderFunctions: authentication.smsSenderFunctions,
       apiFunctions: [
         { label: 'user profile', fn: this.lambdaFunctions.userProfileFunction, purpose: 'the account screen: name, child, languages, and account deletion' },
         { label: 'upload', fn: this.lambdaFunctions.uploadS3KnowledgeFunction, purpose: 'accepts an IEP upload from a parent' },

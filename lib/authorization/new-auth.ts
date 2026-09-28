@@ -155,6 +155,10 @@ export class NewAuthorizationStack extends Construct {
    *  an error in any of these locks families out. Label is the name a
    *  human reads in Slack. */
   public readonly authTriggerFunctions: { label: string; fn: lambda.Function; purpose: string }[] = [];
+  /** Every lambda here that texts a phone through SNS directly. Monitoring
+   *  reads their logs to attribute undelivered SMS to this environment, so a
+   *  new sender that is not added here goes uncounted. */
+  public readonly smsSenderFunctions: lambda.Function[] = [];
   public readonly userPool: UserPool;
   /** Exposed so monitoring can alarm on throttling: the service-wide SMS
    *  budget fails closed on a DynamoDB error, so throttling here stops
@@ -1016,6 +1020,8 @@ export class NewAuthorizationStack extends Construct {
       userProfilesTable.grantReadWriteData(verifyAuthChallengeFunction);
     }
 
+    this.smsSenderFunctions.push(createAuthChallengeFunction);
+
     // Collected for MonitoringStack, which alarms on each one's Errors. The
     // labels are what a human reads in Slack, so they name the effect on a
     // family where that is not obvious from the trigger name.
@@ -1145,6 +1151,8 @@ export class NewAuthorizationStack extends Construct {
       cognito.UserPoolOperation.CUSTOM_SMS_SENDER,
       customSmsSenderFunction
     );
+
+    this.smsSenderFunctions.push(customSmsSenderFunction);
 
     console.log('Staging custom SMS sender trigger configured successfully');
   }
