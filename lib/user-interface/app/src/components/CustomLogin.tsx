@@ -164,9 +164,9 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   const turnstileStatusKey = TURNSTILE_STATUS_KEYS[turnstile.status];
   const appConfig = useContext(AppContext);
   // Gates the /auth/start + /auth/verify flow in docs/AUTH_API_CONTRACT.md.
-  // On in dev/staging, off in prod until it has carried real traffic — see
-  // common/features.ts. Both backends stay live either way, so flipping this
-  // back is a full rollback with no deploy.
+  // On in every environment, and it has to be: the Amplify branch below
+  // needs sign-in flows the browser's app client no longer carries. See
+  // common/features.ts.
   const { isFeatureEnabled } = useFeatures();
   const [showMobileLogin, setShowMobileLogin] = useState(true);  
   const [mobileLoading, setMobileLoading] = useState(false);

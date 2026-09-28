@@ -59,9 +59,10 @@ export const ALL_FEATURES = ["tts", "referrals", "studentNameGate", "passwordles
 // therefore a user-visible downgrade, not a safe no-op.
 //
 // passwordlessAuth gates CustomLogin's /auth/start + /auth/verify flow
-// (docs/AUTH_API_CONTRACT.md). The old Amplify custom-auth path keeps working
-// in every environment regardless of this flag, so reverting is a config flip
-// rather than a deploy.
+// (docs/AUTH_API_CONTRACT.md), and is the only login that works: the browser's
+// Cognito app client can refresh a session but not start one, so the old
+// Amplify screen behind the flag cannot sign anybody in. Removing it here is
+// not a rollback. Pinned by test/infra/enabled-features.test.ts.
 export const PROD_FEATURES: string[] = ["referrals", "studentNameGate", "passwordlessAuth"];
 // Dark in every environment by default, staging included, until a feature's
 // rollout needs that. Empty for now: passwordlessAuth was the one entry here,

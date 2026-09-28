@@ -28,10 +28,12 @@ export type Feature =
   // CustomLogin's identifier -> /auth/start -> /auth/verify flow (see
   // docs/AUTH_API_CONTRACT.md), replacing the client-side branch that called
   // Amplify signIn first and only fell back to /auth/signup on
-  // UserNotFoundException/NotAuthorizedException. Both backends are live at
-  // once (the old Amplify custom-auth path keeps working either way), so this
-  // flag is what makes the rollout reversible: flipping it back puts every
-  // parent on today's path with no backend deploy at all.
+  // UserNotFoundException/NotAuthorizedException. Must stay ON: the browser's
+  // Cognito app client can refresh a session but no longer start one
+  // (lib/authorization/new-auth.ts), so the old Amplify screen behind this
+  // flag cannot sign anybody in. Turning it off is not a rollback; restoring
+  // the client's flows and deploying is. Pinned by
+  // test/infra/enabled-features.test.ts.
   | 'passwordlessAuth'
   // The pair of screens for a parent who only has the IEP on paper: the
   // question asking whether they have a PDF, and the guide to asking the

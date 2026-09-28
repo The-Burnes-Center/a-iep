@@ -11,8 +11,9 @@ name: Auth healthcheck (prod + staging)
 #
 # So this runs the contract checks continuously rather than only after a
 # deploy: an unknown number must still be rejected (the 2026-07 incident
-# exactly), the permanent test user must still reach the language handshake,
-# and the API must still answer and still enforce auth.
+# exactly), the permanent test user must still reach the language handshake
+# on the backend client, the browser app's client must still refuse to start
+# a sign-in, and the API must still answer and still enforce auth.
 #
 # It sends NO SMS. Round 1 of the custom-auth handshake mints no code by
 # design and the script abandons the session, so this can run every fifteen

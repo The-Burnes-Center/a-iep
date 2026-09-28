@@ -441,9 +441,12 @@ back with `enabledFeatures`
 currently `['tts', 'referrals', 'parentNameGate']`; this needs a fourth entry,
 on in `dev` and off in `prod` until it has carried real traffic.
 
-The flag is what makes the rollout reversible. Both backends are live at the
-same time (§10), so flipping it back puts every parent on the path they are on
-today with no deploy of the backend at all. Carving the old path out instead
+The flag is what made the rollout reversible while both backends were live
+at the same time (§10). That period is over: the browser's app client is now
+restricted to token refresh, so the old screen cannot sign anyone in and
+turning the flag off is no longer a rollback. Rolling back now means restoring
+the client's auth flows in `lib/authorization/new-auth.ts` and deploying.
+Carving the old path out instead
 forks the tree, forces deleting the tests that cover it, and turns the
 promotion into hand surgery.
 
