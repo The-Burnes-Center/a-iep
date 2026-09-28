@@ -3,6 +3,7 @@ import { Form, Alert, Button } from 'react-bootstrap';
 import { AuthChannel } from '../common/auth/passwordless-auth';
 import { usePasswordlessAuth } from '../common/hooks/use-passwordless-auth';
 import { TurnstileStatus } from '../common/hooks/use-turnstile';
+import { formatUsPhoneDisplay, readUsPhone } from '../common/us-phone';
 import FormLabel from './FormLabel';
 /* The email field is spelled out below rather than rendered through
  * EmailInput: it needs aria-invalid, aria-describedby and a ref of its own to
@@ -75,17 +76,6 @@ interface PasswordlessAuthFormProps {
   onSignedIn: () => void;
 }
 
-/** +1 (xxx) xxx-xxxx as the parent types, same formatting CustomLogin's own phone field uses. */
-const formatUsPhoneDisplay = (input: string): string => {
-  if (input.length < 3) return '+1 ';
-  const withoutPrefix = input.startsWith('+1 ') ? input.slice(3) : input;
-  const digits = withoutPrefix.replace(/\D/g, '');
-  if (digits.length === 0) return '+1 ';
-  if (digits.length <= 3) return `+1 (${digits}`;
-  if (digits.length <= 6) return `+1 (${digits.slice(0, 3)}) ${digits.slice(3)}`;
-  return `+1 (${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
-};
-
 /** Which of the two identifier fields a validation message belongs under. */
 type IdentifierField = 'phone' | 'email';
 
@@ -102,21 +92,6 @@ type StartTarget = { destination: string } | { error: FieldError };
 const PHONE_ERROR_ID = 'phone-error';
 const EMAIL_ERROR_ID = 'email-error';
 
-/** A US national significant number, i.e. what is left after the +1. */
-const US_PHONE_DIGITS = 10;
-
-/**
- * The digits a parent actually typed, with the fixed '+1 ' prefix the field is
- * seeded with taken off first.
- *
- * Everything about an empty phone field turns on this. The value is never '',
- * so the field's `required` never fires, and counting digits across the whole
- * value reads the country code's own 1 as something the parent entered — which
- * is how a blank field used to be reported as a badly formatted number.
- */
-const typedPhoneDigits = (value: string): string =>
-  (value.startsWith('+1 ') ? value.slice(3) : value).replace(/\D/g, '');
-
 /**
  * Deliberately loose: one @, something either side of it, a dot in the domain,
  * no whitespace anywhere. It is here to catch the typo a parent can still fix
@@ -127,10 +102,10 @@ const typedPhoneDigits = (value: string): string =>
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const readPhone = (value: string): StartTarget => {
-  const digits = typedPhoneDigits(value);
-  if (digits.length === 0) return { error: { field: 'phone', messageKey: 'auth.errorPhoneRequired' } };
-  if (digits.length < US_PHONE_DIGITS) return { error: { field: 'phone', messageKey: 'auth.errorPhoneFormat' } };
-  return { destination: `+1${digits.slice(-US_PHONE_DIGITS)}` };
+  const reading = readUsPhone(value);
+  return 'messageKey' in reading
+    ? { error: { field: 'phone', messageKey: reading.messageKey } }
+    : { destination: reading.e164 };
 };
 
 const readEmail = (value: string): StartTarget => {

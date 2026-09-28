@@ -48,8 +48,8 @@ vi.mock("aws-amplify/auth", () => Auth);
 const HTTP_ENDPOINT = "https://api.example.test/";
 const SITE_KEY = "test-site-key";
 const WITH_PASSWORDLESS = ["tts", "referrals", "passwordlessAuth"];
-const PHONE = "5551234567";
-const E164 = "+15551234567";
+const PHONE = "6175551234";
+const E164 = "+16175551234";
 /** Real wording, per language, for the blocks that opt into it. */
 const dictionaries: Record<string, Record<string, string>> = {
   en: en as Record<string, string>,
@@ -288,6 +288,51 @@ describe("a destination the form cannot use", () => {
     expect(await screen.findByText("auth.errorPhoneFormat")).toBeInTheDocument();
     expect(screen.queryByText("auth.errorPhoneRequired")).not.toBeInTheDocument();
     expect(authFetch.countOf("start")).toBe(0);
+  });
+
+  test.each([
+    // The production signup that prompted this: an area code starting 0.
+    ["0185551234", "an area code starting 0"],
+    ["9115551234", "a 911 area code"],
+    ["2020551234", "an exchange starting 0"],
+  ])("%s (%s) is not a real number: told so under the field, nothing sent", async (typed) => {
+    const { user } = renderLogin();
+    fillPhone(typed);
+
+    await sendCode(user);
+
+    const message = await screen.findByText("auth.errorPhoneNotReal");
+    expect(phoneField().parentElement).toContainElement(message);
+    // Ten digits were typed, so "enter a 10-digit number" would be wrong.
+    expect(screen.queryByText("auth.errorPhoneFormat")).not.toBeInTheDocument();
+    expect(phoneField()).toHaveAttribute("aria-invalid", "true");
+    expect(authFetch.countOf("start")).toBe(0);
+    expect(onCodeScreen()).toBe(false);
+  });
+
+  test("a pasted number that repeats the country code still reaches the endpoint as itself", async () => {
+    // "+1 16175551234" once formatted as (161) 755-5123. No area code starts
+    // with 1, so a leading 1 is always the country code typed twice.
+    authFetch.queue("start", { status: 200, body: { ok: true, challenge: "c1", channel: "sms", expiresIn: 300 } });
+    const { user } = renderLogin();
+    fillPhone(`1${PHONE}`);
+
+    expect(phoneField().value).toBe("+1 (617) 555-1234");
+    await sendCode(user);
+
+    expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
+    expect(authFetch.callsTo("start")[0]).toMatchObject({ destination: E164 });
+  });
+
+  test("the E2E numbers are real-shaped and are sent", async () => {
+    authFetch.queue("start", { status: 200, body: { ok: true, challenge: "c1", channel: "sms", expiresIn: 300 } });
+    const { user } = renderLogin();
+    fillPhone("5555550111");
+
+    await sendCode(user);
+
+    expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
+    expect(authFetch.callsTo("start")[0]).toMatchObject({ destination: "+15555550111" });
   });
 
   test.each([

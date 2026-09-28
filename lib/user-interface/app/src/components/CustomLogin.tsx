@@ -42,6 +42,7 @@ import LanguageDropdown from './LanguageDropdown';
 import LoginMethodToggle from './LoginMethodToggle';
 import FormLabel from './FormLabel';
 import VerificationCodeInput from './VerificationCodeInput';
+import { formatUsPhoneDisplay, readUsPhone } from '../common/us-phone';
 
 /**
  * Drop any session still held locally, before starting a new sign-in.
@@ -330,16 +331,15 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     setError('');
     setSuccessMessage(null);
 
-    // Extract only digits and format properly to E.164
-    const digits = phoneNumber.replace(/\D/g, '');
-    if (digits.length < 10) {
-      setError('auth.errorPhoneFormat');
+    // E.164 for a US number, and only if it is one a parent could have: an
+    // impossible area code is told so here, before any request is made.
+    const reading = readUsPhone(phoneNumber);
+    if ('messageKey' in reading) {
+      setError(reading.messageKey);
       setMobileLoading(false);
       return;
     }
-    
-    // Format as +1XXXXXXXXXX (E.164 format for US numbers)
-    const formattedPhone = `+1${digits.slice(-10)}`;
+    const formattedPhone = reading.e164;
 
     try {
       // console.log('Starting phone authentication for:', formattedPhone);
@@ -1167,48 +1167,9 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                     type="tel"
                     placeholder="(xxx) xxx-xxxx"
                     value={phoneNumber}
-                    onChange={(e) => {
-                      const input = e.target.value;
-                      
-                      // If input is shorter than "+1 ", reset to "+1 "
-                      if (input.length < 3) {
-                        setPhoneNumber('+1 ');
-                        return;
-                      }
-                      
-                      // Always keep +1 prefix
-                      if (!input.startsWith('+1 ')) {
-                        // Extract only digits from input
-                        const digits = input.replace(/\D/g, '');
-                        // Format as +1 (xxx) xxx-xxxx
-                        let formatted = '+1 ';
-                        if (digits.length > 0) {
-                          if (digits.length <= 3) {
-                            formatted += `(${digits}`;
-                          } else if (digits.length <= 6) {
-                            formatted += `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
-                          } else {
-                            formatted += `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
-                          }
-                        }
-                        setPhoneNumber(formatted);
-                      } else {
-                        // Handle input that already has +1 prefix
-                        const withoutPrefix = input.slice(3);
-                        const digits = withoutPrefix.replace(/\D/g, '');
-                        let formatted = '+1 ';
-                        if (digits.length > 0) {
-                          if (digits.length <= 3) {
-                            formatted += `(${digits}`;
-                          } else if (digits.length <= 6) {
-                            formatted += `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
-                          } else {
-                            formatted += `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
-                          }
-                        }
-                        setPhoneNumber(formatted);
-                      }
-                    }}
+                    // Always keeps the +1 prefix; same formatter as the
+                    // passwordless form (common/us-phone.ts).
+                    onChange={(e) => setPhoneNumber(formatUsPhoneDisplay(e.target.value))}
                     onKeyDown={(e) => {
                       // Prevent cursor movement before "+1 "
                       const target = e.target as HTMLInputElement;
