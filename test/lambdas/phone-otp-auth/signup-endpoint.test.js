@@ -49,7 +49,7 @@ jest.mock('@aws-sdk/client-ssm', () => ({
     },
 }), { virtual: true });
 
-const PHONE = '+15551234567';
+const PHONE = '+16175551234';
 
 const request = (body = {}, sourceIp = '203.0.113.10') => ({
     body: JSON.stringify({ phoneNumber: PHONE, turnstileToken: 'tok', ...body }),
@@ -124,6 +124,41 @@ describe('signup endpoint', () => {
         expect(mockDdbSend).not.toHaveBeenCalled();
         expect(global.fetch).not.toHaveBeenCalled();
         expect(mockCognitoSend).not.toHaveBeenCalled();
+    });
+
+    // E.164 accepted every one of these. The first is the production signup
+    // that created a confirmed account and spent a text on a number no carrier
+    // can route.
+    test.each([
+        ['an area code starting 0', '+10185551234', 'nanp-area-code'],
+        ['an area code starting 1', '+11175551234', 'nanp-area-code'],
+        ['a 911 area code', '+19115551234', 'nanp-service-code'],
+        ['an exchange starting 0', '+12020551234', 'nanp-exchange'],
+        ['nine national digits', '+1617555123', 'nanp-length'],
+        ['eleven national digits', '+161755512345', 'nanp-length'],
+    ])('a +1 number that cannot exist (%s) creates no account', async (_label, phoneNumber, reason) => {
+        const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+        const response = await load()(request({ phoneNumber }));
+
+        expect(response.statusCode).toBe(400);
+        // Generic, and the same sentence a malformed number gets.
+        expect(JSON.parse(response.body)).toEqual({ error: 'Enter a valid phone number.' });
+        expect(mockCognitoSend).not.toHaveBeenCalled();
+        expect(mockDdbSend).not.toHaveBeenCalled();
+        expect(global.fetch).not.toHaveBeenCalled();
+        // Logged with the rule it broke, and never with the number.
+        const messages = logged.mock.calls.map((args) => args.join(' ')).join('\n');
+        expect(messages).toContain(`SIGNUP_REFUSED reason=${reason}`);
+        expect(messages).not.toContain(phoneNumber.slice(2));
+        logged.mockRestore();
+    });
+
+    test('the E2E numbers still sign up: 555 is an ordinary area code and exchange', async () => {
+        const response = await load()(request({ phoneNumber: '+15555550120' }));
+
+        expect(response.statusCode).toBe(200);
+        expect(commandsOfKind('create')).toHaveLength(1);
     });
 
     test('a destination we do not serve is refused', async () => {
@@ -375,7 +410,7 @@ describe('the staging-only Turnstile bypass', () => {
         });
 
         const response = await load()({
-            body: JSON.stringify({ phoneNumber: '+15551234567', turnstileToken: BYPASS }),
+            body: JSON.stringify({ phoneNumber: '+16175551234', turnstileToken: BYPASS }),
             requestContext: { http: { sourceIp: '203.0.113.10' } },
         });
 

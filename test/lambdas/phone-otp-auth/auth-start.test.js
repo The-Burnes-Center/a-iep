@@ -38,7 +38,7 @@ jest.mock('@aws-sdk/client-lambda', () => ({
     InvokeCommand: class { constructor(input) { this.input = input; } },
 }), { virtual: true });
 
-const PHONE = '+15551234567';
+const PHONE = '+16175551234';
 const EMAIL = 'parent@example.com';
 
 const request = (body = {}, sourceIp = '203.0.113.10') => ({
@@ -192,6 +192,25 @@ describe('auth start', () => {
         expect(bodyOf(response).code).toBe('invalid_destination');
         expect(mockDdbSend).not.toHaveBeenCalled();
         expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    test.each([
+        ['an area code starting 0', '+10185551234', 'nanp-area-code'],
+        ['a 911 area code', '+19115551234', 'nanp-service-code'],
+        ['an exchange starting 0', '+12020551234', 'nanp-exchange'],
+        ['eleven national digits', '+161755512345', 'nanp-length'],
+    ])('a +1 number that cannot exist (%s) queues no send', async (_label, destination, reason) => {
+        const response = await load()(request({ destination }));
+
+        expect(response.statusCode).toBe(400);
+        expect(bodyOf(response).code).toBe('invalid_destination');
+        expect(mockDdbSend).not.toHaveBeenCalled();
+        expect(global.fetch).not.toHaveBeenCalled();
+        expect(mockLambdaSend).not.toHaveBeenCalled();
+        const logged = errors.join('\n');
+        expect(logged).toContain('AUTH_START_REFUSED');
+        expect(logged).toContain(reason);
+        expect(logged).not.toContain(destination.slice(2));
     });
 
     test('an unsupported destination is refused before any datastore call', async () => {

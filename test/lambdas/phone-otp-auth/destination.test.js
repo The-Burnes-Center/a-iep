@@ -8,8 +8,94 @@ const {
     classifyDestination,
     destinationKey,
     isTestAddress,
+    phoneNumberProblem,
     FICTIONAL_TEST_EMAIL,
 } = require('../../../lib/chatbot-api/functions/phone-otp-auth/destination');
+
+/**
+ * A +1 number has to be one the North American Numbering Plan could assign:
+ * ten digits, NXX-NXX-XXXX, N being 2-9, and no N11 service code as the area
+ * code. E.164 alone let an area code starting 0 create a confirmed account in
+ * production and spend a text on it.
+ */
+describe('phoneNumberProblem: the NANP rule for +1 numbers', () => {
+    beforeEach(() => {
+        delete process.env.AUTH_ALLOWED_COUNTRY_CODES;
+    });
+
+    test.each([
+        ['an ordinary Boston number', '+16175551234'],
+        ['the lowest possible area code and exchange', '+12002000000'],
+        ['the highest possible area code and exchange', '+19999999999'],
+        // 555 is an ordinary NXX in both positions. The E2E and smoke numbers
+        // live here, so if this ever fails the staging suite goes with it.
+        ['the E2E login user', '+15555550111'],
+        ['the staging smoke user', '+15555550101'],
+        ['the production smoke user', '+15555550102'],
+        ['the smoke test unknown-number probe', '+15555550123'],
+        ['the delete/re-signup pool', '+15555550129'],
+        // N11 is only refused as an AREA code, where it is a service code.
+        ['an exchange of 411', '+16174111234'],
+    ])('%s is a number (%s)', (_label, value) => {
+        expect(phoneNumberProblem(value)).toBeNull();
+    });
+
+    test.each([
+        // The production signup that prompted this rule.
+        ['an area code starting 0', '+10185551234', 'nanp-area-code'],
+        ['an area code starting 1', '+11175551234', 'nanp-area-code'],
+        ['the 911 area code', '+19115551234', 'nanp-service-code'],
+        ['the 411 area code', '+14115551234', 'nanp-service-code'],
+        ['the 211 area code', '+12115551234', 'nanp-service-code'],
+        ['an exchange starting 0', '+12020551234', 'nanp-exchange'],
+        ['an exchange starting 1', '+12021551234', 'nanp-exchange'],
+        ['nine national digits', '+1617555123', 'nanp-length'],
+        ['eleven national digits', '+161755512345', 'nanp-length'],
+        ['a doubled country code', '+116175551234', 'nanp-length'],
+    ])('%s is refused (%s)', (_label, value, reason) => {
+        expect(phoneNumberProblem(value)).toBe(reason);
+    });
+
+    test.each([
+        ['no leading plus', '16175551234'],
+        ['letters', '+1617555abcd'],
+        ['a leading zero country code', '+06175551234'],
+        ['not a string', 16175551234],
+        ['undefined', undefined],
+    ])('%s is not E.164 at all', (_label, value) => {
+        expect(phoneNumberProblem(value)).toBe('bad-phone-format');
+    });
+
+    test('a non-+1 number is judged as E.164 only; the allowlist refuses it', () => {
+        // Outside NANP there is no fixed length to hold a number to, so this
+        // rule stays out of the way and the country-code allowlist decides.
+        expect(phoneNumberProblem('+442071234567')).toBeNull();
+        expect(classifyDestination('+442071234567').code).toBe('unsupported_destination');
+    });
+
+    test('the reason marker never carries a digit of the number', () => {
+        for (const value of ['+10185551234', '+19115551234', '+12020551234', '+1617555123']) {
+            expect(phoneNumberProblem(value)).not.toMatch(/\d/);
+        }
+    });
+
+    test('classifyDestination refuses an impossible +1 number as invalid_destination', () => {
+        // invalid, not unsupported: the country is served, the number is not a
+        // number. The caller sees the same generic sentence either way.
+        expect(classifyDestination('+10185551234')).toEqual({
+            ok: false, code: 'invalid_destination', detail: 'nanp-area-code',
+        });
+        expect(classifyDestination(' +12020551234 ')).toEqual({
+            ok: false, code: 'invalid_destination', detail: 'nanp-exchange',
+        });
+    });
+
+    test('the E2E numbers still classify as SMS destinations', () => {
+        for (const value of ['+15555550111', '+15555550120', '+15555550123']) {
+            expect(classifyDestination(value)).toEqual({ ok: true, channel: 'sms', value });
+        }
+    });
+});
 
 describe('classifyDestination', () => {
     beforeEach(() => {
@@ -18,11 +104,11 @@ describe('classifyDestination', () => {
     });
 
     test.each([
-        ['+15551234567'],
-        [' +15551234567 '],
+        ['+16175551234'],
+        [' +16175551234 '],
     ])('a US number in E.164 is an SMS destination (%s)', (input) => {
         expect(classifyDestination(input)).toEqual({
-            ok: true, channel: 'sms', value: '+15551234567',
+            ok: true, channel: 'sms', value: '+16175551234',
         });
     });
 
@@ -80,7 +166,7 @@ describe('classifyDestination', () => {
     test('an unset allowlist fails CLOSED to +1, it does not allow everything', () => {
         delete process.env.AUTH_ALLOWED_COUNTRY_CODES;
         expect(classifyDestination('+441632960001').code).toBe('unsupported_destination');
-        expect(classifyDestination('+15551234567').ok).toBe(true);
+        expect(classifyDestination('+16175551234').ok).toBe(true);
     });
 
     test('a reserved TLD is refused: mail to it always hard-bounces', () => {
@@ -151,9 +237,9 @@ describe('the staging E2E email allowlist', () => {
 
 describe('destinationKey', () => {
     test('is a sha256, so no raw destination is ever stored in a counter row', () => {
-        const key = destinationKey('+15551234567');
+        const key = destinationKey('+16175551234');
         expect(key).toMatch(/^[0-9a-f]{64}$/);
-        expect(key).not.toContain('5551234567');
+        expect(key).not.toContain('6175551234');
     });
 
     test('is computable from the destination alone, account or no account', () => {
