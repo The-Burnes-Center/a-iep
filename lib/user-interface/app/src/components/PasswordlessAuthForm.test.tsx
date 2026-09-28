@@ -183,7 +183,7 @@ const fillPhone = (digits = PHONE) => {
 };
 
 /** The destinations the helpers below sign in with, as a notice renders them. */
-const PHONE_DISPLAY = "+1-555-123-4567";
+const PHONE_DISPLAY = "+1-617-555-1234";
 const EMAIL = "parent@example.com";
 
 /**
@@ -761,7 +761,7 @@ describe("telling a parent a code went out", () => {
     // catch a typo in the one they just entered. Grouped rather than E.164,
     // because twelve unbroken digits is where a transposed pair hides.
     const notice = await screen.findByTestId("alert-success");
-    expect(notice).toHaveTextContent("SMS code sent to +1-555-123-4567");
+    expect(notice).toHaveTextContent("SMS code sent to +1-617-555-1234");
   });
 
   test("the first code by email is confirmed in email wording, never the SMS copy", async () => {
