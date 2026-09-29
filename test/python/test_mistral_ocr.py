@@ -69,6 +69,14 @@ class _RecordingRequests:
     def get(self, url, **kwargs):
         return self._next('GET', url, **kwargs)
 
+    def delete(self, url, **kwargs):
+        # The cleanup DELETE always comes last. Unless a test scripts its
+        # answer, it succeeds, so the suites written before it existed keep
+        # scripting just the three calls they are about.
+        if not self._responses:
+            self._responses.append(_FakeResponse({'id': 'file-1', 'deleted': True}))
+        return self._next('DELETE', url, **kwargs)
+
 
 SUCCESSFUL_SEQUENCE = [
     _FakeResponse({'id': 'file-1'}),                       # upload
@@ -104,7 +112,8 @@ def test_every_request_call_carries_an_explicit_timeout(mistral_ocr_module, monk
         result = mistral_ocr_module.process_document_with_mistral_ocr(BUCKET, KEY)
 
     assert 'error' not in result
-    assert len(fake_requests.calls) == 3
+    # upload, signed URL, OCR, and the cleanup DELETE of the uploaded file
+    assert [c['method'] for c in fake_requests.calls] == ['POST', 'GET', 'POST', 'DELETE']
     for call in fake_requests.calls:
         timeout = call['kwargs'].get('timeout')
         assert timeout is not None, f"{call['method']} {call['url']} had no timeout"
@@ -625,3 +634,87 @@ def test_the_handler_saves_and_counts_the_reduced_result(handler_module, monkeyp
     saved = lambda_client.payloads[0]['params']['ocr_data']
     assert all(set(page) == {'index', 'markdown', 'dimensions'} for page in saved['pages'])
     assert json.dumps(saved).count(SENTINEL) == 2
+
+
+# ---------------------------------------------------------------------------
+# The uploaded original is deleted from Mistral's file storage. It is the
+# unredacted IEP, the Files API is outside Mistral's zero-data-retention
+# scope, and nothing used to delete it: the account held 190 such files when
+# this was written.
+# ---------------------------------------------------------------------------
+
+FILE_URL = 'https://api.mistral.ai/v1/files/file-1'
+
+
+def _deletes(fake):
+    return [c for c in fake.calls if c['method'] == 'DELETE']
+
+
+def _run_with(module, monkeypatch, responses):
+    fake = _RecordingRequests(responses)
+    monkeypatch.setattr(module, 'requests', fake)
+    with mock_aws():
+        _wire_s3_object()
+        result = module.process_document_with_mistral_ocr(BUCKET, KEY)
+    return fake, result
+
+
+def test_the_uploaded_file_is_deleted_after_a_successful_ocr(mistral_ocr_module, monkeypatch):
+    fake, result = _run_with(mistral_ocr_module, monkeypatch, list(SUCCESSFUL_SEQUENCE))
+
+    assert 'error' not in result
+    deletes = _deletes(fake)
+    assert [d['url'] for d in deletes] == [FILE_URL]
+    assert deletes[0]['kwargs']['headers']['Authorization'] == 'Bearer test-mistral-key'
+    assert fake.calls[-1]['method'] == 'DELETE'  # only once the OCR has answered
+
+
+@pytest.mark.parametrize('failure', [
+    [_FakeResponse({}, status_code=500)],                               # signed URL
+    [_FakeResponse({'url': 'https://signed.example/x'}),
+     _FakeResponse({}, status_code=400)],                               # OCR rejects
+    [_FakeResponse({'url': 'https://signed.example/x'}),
+     requests.exceptions.ReadTimeout('Mistral did not respond in time')],  # OCR hangs
+])
+def test_the_uploaded_file_is_deleted_when_ocr_fails_too(mistral_ocr_module, monkeypatch, failure):
+    fake, result = _run_with(
+        mistral_ocr_module, monkeypatch, [_FakeResponse({'id': 'file-1'}), *failure])
+
+    assert 'error' in result
+    assert [d['url'] for d in _deletes(fake)] == [FILE_URL]
+
+
+def test_the_ocr_error_is_still_what_the_handler_sees_after_cleanup(mistral_ocr_module, monkeypatch):
+    # The finally must not swallow or replace the status code that decides
+    # whether Step Functions retries (handler.py's OcrClientError).
+    _fake, result = _run_with(mistral_ocr_module, monkeypatch, [
+        _FakeResponse({'id': 'file-1'}),
+        _FakeResponse({'url': 'https://signed.example/x'}),
+        _FakeResponse({}, status_code=422),
+    ])
+
+    assert result['status_code'] == 422
+
+
+@pytest.mark.parametrize('delete_answer', [
+    _FakeResponse({}, status_code=500),
+    requests.exceptions.ConnectTimeout('no connection'),
+])
+def test_a_failed_delete_is_logged_and_does_not_fail_the_document(
+        mistral_ocr_module, monkeypatch, caplog, delete_answer):
+    with caplog.at_level(logging.INFO):
+        fake, result = _run_with(
+            mistral_ocr_module, monkeypatch, [*SUCCESSFUL_SEQUENCE, delete_answer])
+
+    assert result == {'pages': [{'index': 0, 'markdown': 'hi'}]}
+    assert len(_deletes(fake)) == 1
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert any('Could not delete uploaded file file-1' in m for m in errors), errors
+    assert STUDENT_NAME not in caplog.text
+
+
+def test_nothing_is_deleted_when_the_upload_itself_failed(mistral_ocr_module, monkeypatch):
+    fake, result = _run_with(mistral_ocr_module, monkeypatch, [_FakeResponse({}, status_code=413)])
+
+    assert result['status_code'] == 413
+    assert _deletes(fake) == []

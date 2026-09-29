@@ -276,7 +276,44 @@ def process_document_with_mistral_ocr(bucket, key):
     except Exception as e:
         logger.error(f"Error uploading file to Mistral: {str(e)}")
         return {"error": f"Error uploading file to Mistral: {str(e)}", "status_code": _http_status_code(e)}
-    
+
+    try:
+        return _ocr_uploaded_file(file_id, headers, api_key)
+    finally:
+        _delete_uploaded_file(file_id, headers)
+
+
+def _delete_uploaded_file(file_id, headers):
+    """Remove the parent's original document from Mistral's file storage.
+
+    The upload is the original, unredacted IEP. Mistral's zero-data-retention
+    terms cover the stateless /v1/ocr call but say the Files API "stores
+    uploaded files and is outside the scope of ZDR"
+    (https://docs.mistral.ai/admin/monitor-comply/zero-data-retention), and
+    nothing else ever deleted it, so every upload stayed there indefinitely:
+    the copy DeleteOriginal cannot reach. Runs on success and on failure
+    alike, since a failed OCR leaves the same file behind and a retry uploads
+    a fresh one.
+
+    Best effort: the OCR result is already in hand, and failing the document
+    over a cleanup call would make the parent upload it again, leaving a
+    second copy. A failure is logged loudly with the id and status only.
+    """
+    try:
+        response = requests.delete(
+            f"https://api.mistral.ai/v1/files/{file_id}",
+            headers=headers,
+            timeout=(CONNECT_TIMEOUT_SECONDS, METADATA_READ_TIMEOUT_SECONDS)
+        )
+        response.raise_for_status()
+        logger.info(f"Deleted uploaded file from Mistral: {file_id}")
+    except Exception as e:
+        logger.error(f"Could not delete uploaded file {file_id} from Mistral: "
+                     f"{type(e).__name__} status={_http_status_code(e)}")
+
+
+def _ocr_uploaded_file(file_id, headers, api_key):
+    """Sign the uploaded file's URL and run OCR on it (steps 2 and 3)."""
     # Step 2: Get a signed URL for the uploaded file
     try:
         logger.info(f"Getting signed URL for file ID: {file_id}")
