@@ -26,6 +26,20 @@ UPLOAD_READ_TIMEOUT_SECONDS = 60
 METADATA_READ_TIMEOUT_SECONDS = 30
 OCR_READ_TIMEOUT_SECONDS = 300
 
+# A dated model id, never the `mistral-ocr-latest` alias. Mistral repoints
+# the alias on its own schedule, so an alias means production changes models
+# with no deploy, no review and no release note. It did exactly that twice in
+# 2026: to OCR 4 (`mistral-ocr-4-0`) on June 23, which also added a `blocks`
+# array carrying a second copy of every page's text, and to OCR 4.1 on July 16.
+# The per-page price doubled from OCR 3's along the way. Moving to a newer model
+# is a code change here, evaluated on the synthetic fixtures first.
+#
+# 4.1 is what the alias resolved to when this was pinned (2026-09-29): its
+# output on the synthetic fixtures was byte-identical to the alias's, so the
+# pin itself changes nothing a parent sees. Model list and retirement dates:
+# https://docs.mistral.ai/getting-started/models/models_overview/
+MISTRAL_OCR_MODEL = 'mistral-ocr-4-1'
+
 # Global cache for API key (reused across Lambda invocations)
 _cached_mistral_api_key = None
 
@@ -297,7 +311,7 @@ def process_document_with_mistral_ocr(bucket, key):
         # want it. 0 says "extract none", which is the same answer
         # include_image_base64 False already gives for a PDF.
         ocr_payload = {
-            "model": "mistral-ocr-latest",
+            "model": MISTRAL_OCR_MODEL,
             "document": {
                 "type": "document_url",
                 "document_url": signed_url

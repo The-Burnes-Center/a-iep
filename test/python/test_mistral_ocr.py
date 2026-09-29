@@ -475,3 +475,32 @@ def test_the_ocr_call_asks_for_no_images_so_a_word_document_is_accepted(
     # The pipeline reads text only, and a base64-inlined image would put
     # document content somewhere we do not want it.
     assert payload['include_image_base64'] is False, payload
+
+
+# ---------------------------------------------------------------------------
+# The OCR model is a dated id, never an alias. `mistral-ocr-latest` moved to
+# OCR 4 on 2026-06-23 and to OCR 4.1 on 2026-07-16 with no deploy on our side,
+# which changed the response shape (a new `blocks` array) and the price under
+# a production pipeline nobody had reviewed against either.
+# ---------------------------------------------------------------------------
+
+def _ocr_payload_sent(module, monkeypatch):
+    fake = _RecordingRequests(list(SUCCESSFUL_SEQUENCE))
+    monkeypatch.setattr(module, 'requests', fake)
+    with mock_aws():
+        _wire_s3_object()
+        module.process_document_with_mistral_ocr(BUCKET, KEY)
+    ocr_calls = [c for c in fake.calls if c['url'].endswith('/v1/ocr')]
+    assert len(ocr_calls) == 1, fake.calls
+    return ocr_calls[0]['kwargs']['json']
+
+
+def test_the_ocr_call_names_a_pinned_model_not_an_alias(mistral_ocr_module, monkeypatch):
+    payload = _ocr_payload_sent(mistral_ocr_module, monkeypatch)
+
+    assert payload['model'] == 'mistral-ocr-4-1'
+    assert payload['model'] == mistral_ocr_module.MISTRAL_OCR_MODEL
+    # Any alias Mistral can repoint: `-latest`, or the bare major version
+    # (`mistral-ocr-4` follows 4.x the same way `-latest` does).
+    assert not payload['model'].endswith('-latest')
+    assert re.fullmatch(r'mistral-ocr-(\d{4}|\d+-\d+)', payload['model']), payload['model']
