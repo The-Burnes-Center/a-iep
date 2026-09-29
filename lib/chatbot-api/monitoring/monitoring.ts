@@ -5,6 +5,7 @@ import * as actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as logsDestinations from 'aws-cdk-lib/aws-logs-destinations';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as stepfunctions from 'aws-cdk-lib/aws-stepfunctions';
 import * as events from 'aws-cdk-lib/aws-events';
@@ -73,11 +74,74 @@ import { getEnvironment, getResourceName, tagResource } from '../../tags';
  * which is what the test/infra pin exists to force.
  */
 /**
- * Deliberately a fraction of the account's SMS spend ceiling rather than the
- * ceiling itself: at the ceiling, login is already down, so an alarm there
- * reports an outage instead of preventing one.
+ * The account's SNS MonthlySpendLimit, in dollars. Mirrors an account setting
+ * CDK does not own (raised from 50 to 60 after the 2026-09-09 outage), so a
+ * change to the limit has to be made here as well or the near-cap alarm
+ * below drifts to the wrong fraction.
  */
-const SMS_SPEND_ALARM_USD = 25;
+export const SMS_MONTHLY_LIMIT_USD = 60;
+
+/**
+ * The near-cap alarm fires at this fraction of the limit: at the limit itself
+ * login is already down, so an alarm there reports an outage instead of
+ * preventing one. 0.8 leaves $12 of headroom, which is roughly a thousand
+ * codes: time to decide whether to raise the limit before anyone is locked
+ * out.
+ *
+ * It replaces a fixed $25 alarm on the same month-to-date series. That one
+ * could only ever fire once a month and then stay red until the 1st, so from
+ * 2026-09-10 it read as "1 problem" in every daily brief of both
+ * environments while nothing was happening.
+ */
+export const SMS_NEAR_CAP_FRACTION = 0.8;
+
+/**
+ * Spend velocity, in dollars per hour, that counts as an abuse run.
+ *
+ * Measured, not guessed. A normal week is about 12 codes at about $0.012
+ * each, so ordinary traffic spends cents per DAY and the busiest real hour
+ * is a parent retrying a code three times ($0.04). The 2026-09-09 attack
+ * spent $49 inside one five-minute datapoint, about $590 an hour.
+ *
+ * $2 an hour is roughly 170 codes an hour, or 14 inside one five-minute
+ * datapoint: fifty times the busiest real hour, and three hundred times
+ * below the attack. A drip slower than this is what the near-cap alarm is
+ * for; at exactly this rate the $60 cap is still 30 hours away.
+ */
+export const SMS_SPEND_VELOCITY_ALARM_USD_PER_HOUR = 2;
+
+/**
+ * SNS's own words for a publish dropped at the monthly spend cap, matched as a
+ * prefix. Compared against `$.delivery.providerResponse` in the delivery log,
+ * which is the only place the REASON for a failure appears.
+ */
+const SMS_QUOTA_PROVIDER_RESPONSE = 'No quota left for account';
+
+/** Where every SMS-path metric in this file lives. */
+const SMS_METRIC_NAMESPACE = 'AI-IEP/Auth';
+
+/**
+ * Cognito's own SMS-configuration validation number, excluded from the
+ * delivery-failure metrics because it is not a parent.
+ *
+ * Calling UpdateUserPool or SetUserPoolMfaConfig makes Cognito send a test SMS
+ * to this number to check the SNS caller role, and it does not deliver. Every
+ * CloudFormation deploy that re-applies the pool's SMS settings makes both
+ * calls, so each one writes two FAILURE records that no parent ever saw.
+ *
+ * Identified, not guessed. Over the delivery log's 30-day retention this
+ * destination appears 12 times, and all 12 land on the same second as a
+ * CloudTrail UpdateUserPool or SetUserPoolMfaConfig by AWSCloudFormation,
+ * in sub-second pairs. It never appears without one. Against that, the
+ * providerResponse is useless as a tell: these records read "No quota left
+ * for account" during the 2026-09-09 cap outage and "Unknown error attempting
+ * to reach phone" outside it, exactly like a real send.
+ *
+ * If AWS changes the number this stops excluding anything and the deploy
+ * noise comes back, which is the safe direction to fail in: a filter that
+ * over-matches pages someone, a filter that under-matches hides an outage.
+ */
+const COGNITO_SMS_VALIDATION_NUMBER = '+12064350128';
 
 /**
  * How urgent this alarm is, which is the only thing that decides its colour
@@ -192,6 +256,13 @@ export interface MonitoringProps {
    * something a generic capacity alarm would understate.
    */
   readonly authEndpointFunctions: MonitoredFunction[];
+  /**
+   * Every lambda in this environment that texts a phone directly, each of
+   * which logs the MessageId SNS returns. Undelivered SMS are attributed to
+   * this environment by finding their id in these log groups, so a sender
+   * missing from this list makes its failures invisible here.
+   */
+  readonly smsSenderFunctions: lambda.Function[];
   /** Request-path lambdas behind the HTTP API. */
   readonly apiFunctions: MonitoredFunction[];
   /** The lambda that runs record_failure, whose log group is filtered. */
@@ -266,7 +337,8 @@ export class MonitoringStack extends Construct {
     this.addTableThrottleAlarms(props.tables);
     this.addAbuseAlarms(props.authTriggerFunctions);
     this.addSmsPathAlarms(props.authTriggerFunctions);
-    this.addSmsDeliveryFailureAlarm();
+    const smsFailureClassifier = this.addSmsDeliveryFailureAlarm(
+      props.smsSenderFunctions, props.kmsKey);
     this.addSignupPathAlarms(props.signupFunction);
     this.addAuthEndpointAlarms(props.authEndpointFunctions);
     this.addDeletionAlarms(props.apiFunctions);
@@ -277,6 +349,11 @@ export class MonitoringStack extends Construct {
       ...props.authEndpointFunctions,
       ...props.apiFunctions,
       props.signupFunction,
+      {
+        label: 'SMS failure attribution',
+        fn: smsFailureClassifier,
+        purpose: 'works out which environment sent each undelivered login code; runs only when one fails',
+      },
     ].map(({ label, fn, purpose }) => ({
       label,
       functionName: fn.functionName,
@@ -512,13 +589,27 @@ export class MonitoringStack extends Construct {
       /** Defaults to alarmTopic (via the formatter). Only the formatter's own
        *  alarm overrides this, to bypass the component it is reporting on. */
       topic?: sns.Topic;
+      /**
+       * This alarm counts discrete failures, so its OK means "none lately",
+       * not "fixed". Set it and the formatter words the recovery as "no
+       * further failures in the last N minutes" instead of "back to normal".
+       *
+       * An SMS delivery alarm clears 15 minutes after the last dropped code
+       * whether or not anything changed, and "Back to normal" under it read
+       * as a claim that codes were arriving again. Opt-in rather than
+       * inferred: a heartbeat or a level alarm clearing IS a recovery.
+       */
+      countsFailures?: boolean;
     },
   ): cloudwatch.Alarm {
     const alarm = new cloudwatch.Alarm(this, id, {
       // Named for a human reading Slack at 2am, not for the metric.
       alarmName: `${getResourceName('a-iep')} ${opts.name}`,
-      // The marker the formatter reads and strips; see Severity.
-      alarmDescription: `[${opts.severity}] ${opts.description}`,
+      // The markers the formatter reads and strips; see Severity. The
+      // description is the only field CloudWatch carries into the alarm
+      // payload that we control, which is why the flag travels there too.
+      alarmDescription:
+        `[${opts.severity}]${opts.countsFailures ? '[failures]' : ''} ${opts.description}`,
       metric: opts.metric,
       threshold: opts.threshold,
       evaluationPeriods: opts.evaluationPeriods,
@@ -702,6 +793,9 @@ export class MonitoringStack extends Construct {
       }),
       threshold: DOCUMENT_FAILURE_ALARM_THRESHOLD,
       evaluationPeriods: 1,
+      // One failed document clears 15 minutes later on its own; that parent
+      // still has no summary.
+      countsFailures: true,
     });
   }
 
@@ -1028,8 +1122,8 @@ export class MonitoringStack extends Construct {
    * - Signup surge. Cognito triggers are not retried, so one invocation is
    *   one real attempt, and the threshold sits far above anything organic
    *   for this service.
-   * - SMS spend. Alarmed at a fraction of the ceiling, which leaves room to
-   *   react while codes are still being delivered.
+   * - SMS spend. Alarmed on velocity and near the ceiling, in production
+   *   only, by addSmsSpendAlarms.
    */
   /**
    * The SMS send path, watched through the markers create-auth-challenge
@@ -1106,6 +1200,7 @@ export class MonitoringStack extends Construct {
       metric: markerMetric('SmsSendFailedFilter', 'SMS_SEND_FAILED', 'SmsSendFailed'),
       threshold: 1,
       evaluationPeriods: 1,
+      countsFailures: true,
     });
 
     // The provider-side failure alarm lives in addSmsDeliveryFailureAlarm,
@@ -1140,18 +1235,68 @@ export class MonitoringStack extends Construct {
    *
    * The log group only exists once delivery status logging is switched on,
    * which is an account-level SNS setting and a deliberate ops step. It is
-   * created in production only, for the same reason as the role: one
-   * account-level log group, one filter. Two would double-count every
-   * failure, since staging and production share it.
+   * shared by both environments (and anything else in the account that
+   * texts), which decides the scope of each signal below.
    *
-   * Threshold is 1. A document may fail for benign reasons and a rate makes
-   * sense there; an undelivered login code has no benign volume, because
-   * every one of them is a parent who cannot get in.
+   * `$.delivery.providerResponse` separates a spend cap from a phone that
+   * did not answer, and only one of those is worth waking someone.
+   *
+   * "No quota left for account" is the spend cap: account-wide by
+   * definition, so every parent in both environments is locked out at once
+   * and the account-level scope is exactly right. It stays a metric filter,
+   * in production only (one account-level group, one filter; two would
+   * double-count), at threshold 1: the 2026-09-09 outage would have tripped
+   * it on its first dropped code. Deliberately NOT attributed to an
+   * environment. Once the cap is hit it does not matter whose code hit it,
+   * and a cap outage is hundreds of records an hour, which would spend the
+   * account's FilterLogEvents rate on lookups whose answer changes nothing.
+   *
+   * Everything else ("Unknown error attempting to reach phone") is one
+   * destination the carrier took and dropped: a landline, a disconnected
+   * handset, or an abuse signup on an unroutable number (+1 997... has no
+   * such area code). That is per-environment, and until this change it was
+   * counted account-wide by a production filter, so a staging test number
+   * or another project's SMS could page production and staging never saw
+   * its own. It now goes through addSmsFailureClassifier, which attributes
+   * each record to the environment that sent it.
+   *
+   * Both paths exclude COGNITO_SMS_VALIDATION_NUMBER. See its comment: the
+   * old single filter paged critical on every deploy that re-applied the
+   * pool's SMS settings, which is how it announced itself.
    */
-  private addSmsDeliveryFailureAlarm(): void {
-    // The metric alarm is account-level but harmless to duplicate: unlike the
-    // log filter it creates no shared resource, and both environments benefit
-    // from seeing it. Staging alarms are informational by design.
+  private addSmsDeliveryFailureAlarm(
+    smsSenders: lambda.Function[],
+    kmsKey: kms.IKey,
+  ): lambda.Function {
+    const stack = cdk.Stack.of(this);
+    const logGroup = logs.LogGroup.fromLogGroupName(
+      this,
+      'SmsDeliveryFailureLogGroup',
+      `sns/${stack.region}/${stack.account}/DirectPublishToPhoneNumber/Failure`,
+    );
+    // SNS writes one JSON record per attempt; only FAILURE counts, since
+    // successes land in the sibling group at the configured sampling rate.
+    const failed = logs.FilterPattern.stringValue('$.status', '=', 'FAILURE');
+    const notValidation = logs.FilterPattern.stringValue(
+      '$.delivery.destination', '!=', COGNITO_SMS_VALIDATION_NUMBER,
+    );
+    const quota = `${SMS_QUOTA_PROVIDER_RESPONSE}*`;
+
+    // Per environment: each stack attributes and alarms on its own codes.
+    const classifier = this.addSmsFailureClassifier(smsSenders, kmsKey, logGroup,
+      logs.FilterPattern.all(
+        failed,
+        notValidation,
+        logs.FilterPattern.stringValue('$.delivery.providerResponse', '!=', quota),
+      ));
+
+    // Everything below is account-level, so it exists once, in production.
+    // A staging copy watches the same account series, fires at the same
+    // moment, and put the same problem in both daily briefs.
+    if (this.env !== 'prod') {
+      return classifier;
+    }
+
     this.alarm('SmsNotificationsFailedAlarm', {
       severity: 'critical',
       name: 'the SMS provider is rejecting login codes',
@@ -1169,44 +1314,241 @@ export class MonitoringStack extends Construct {
       }),
       threshold: 1,
       evaluationPeriods: 1,
+      countsFailures: true,
     });
 
-    if (this.env !== 'prod') {
-      return;
-    }
-    const stack = cdk.Stack.of(this);
-    const metricNamespace = 'AI-IEP/Auth';
-    const metricName = 'SmsDeliveryFailed';
-
-    new logs.MetricFilter(this, 'SmsDeliveryFailureFilter', {
-      logGroup: logs.LogGroup.fromLogGroupName(
-        this,
-        'SmsDeliveryFailureLogGroup',
-        `sns/${stack.region}/${stack.account}/DirectPublishToPhoneNumber/Failure`,
+    new logs.MetricFilter(this, 'SmsQuotaExhaustedFilter', {
+      logGroup,
+      filterPattern: logs.FilterPattern.all(
+        failed,
+        notValidation,
+        logs.FilterPattern.stringValue('$.delivery.providerResponse', '=', quota),
       ),
-      // SNS writes one JSON record per attempt; only FAILURE counts, since
-      // successes land in the sibling group at the configured sampling rate.
-      filterPattern: logs.FilterPattern.stringValue('$.status', '=', 'FAILURE'),
-      metricNamespace,
-      metricName,
+      metricNamespace: SMS_METRIC_NAMESPACE,
+      metricName: 'SmsQuotaExhausted',
       metricValue: '1',
       defaultValue: 0,
     });
 
-    this.alarm('SmsDeliveryFailedAlarm', {
+    this.alarm('SmsQuotaExhaustedAlarm', {
       severity: 'critical',
-      name: 'login codes are being accepted and then not delivered',
+      name: 'the monthly SMS cap is reached and login codes are being binned',
       description:
-        'The SMS provider took the message and dropped it, so a parent is ' +
-        'told a code is coming and none arrives. Usually the monthly SMS ' +
-        'spend cap, which stops delivery for everyone until it is raised.',
+        'The account hit its monthly SMS spend cap, so SNS has stopped ' +
+        'delivering. No parent in EITHER environment can get a login code ' +
+        'until the limit is raised. Check for signup abuse before raising it.',
       metric: new cloudwatch.Metric({
-        namespace: metricNamespace,
-        metricName,
+        namespace: SMS_METRIC_NAMESPACE,
+        metricName: 'SmsQuotaExhausted',
         statistic: 'Sum',
         period: cdk.Duration.minutes(15),
       }),
+      // One is enough: the cap is account-wide, so the first parent to hit it
+      // means every other parent is already locked out too.
       threshold: 1,
+      evaluationPeriods: 1,
+      // Quiet for 15 minutes can just mean nobody tried to sign in. The cap
+      // is only lifted by raising the limit or by the month rolling over.
+      countsFailures: true,
+    });
+
+    this.addSmsSpendAlarms();
+    return classifier;
+  }
+
+  /**
+   * Which environment sent each undelivered code, so each one alarms on its
+   * own.
+   *
+   *   Failure log group -> subscription filter -> this lambda -> metric
+   *
+   * The delivery log carries `notification.messageId` and no sender. Both of
+   * this service's senders (create-auth-challenge, and staging's
+   * custom-sms-sender) log the MessageId SNS returned, so the lambda looks
+   * each failed id up in THIS stack's sender log groups and counts only the
+   * ones it finds. Staging gets a real twin alarm on its own codes, and
+   * production stops paging for a staging test number or another project's
+   * SMS in this shared account.
+   *
+   * One per stack rather than one production classifier attributing both.
+   * The sender log groups have CloudFormation-generated names, so production
+   * cannot name staging's without a cross-stack lookup, and it would need
+   * read access to staging's logs to do it. Per stack, each lambda can read
+   * only its own environment's sender logs.
+   *
+   * **This uses both of the log group's subscription filter slots.** AWS
+   * allows two per log group, and the account had none before this
+   * (checked 2026-09-28). Anything else in the account that wants to
+   * subscribe to this group, or a third environment in this account, will
+   * fail to deploy until one of these moves to a shared destination.
+   */
+  private addSmsFailureClassifier(
+    smsSenders: lambda.Function[],
+    kmsKey: kms.IKey,
+    failureLogGroup: logs.ILogGroup,
+    filterPattern: logs.IFilterPattern,
+  ): lambda.Function {
+    const classifier = new lambda.Function(this, 'SmsFailureClassifierFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'handler.lambda_handler',
+      code: lambda.Code.fromAsset(
+        path.join(__dirname, '../functions/sms-failure-classifier'),
+        { assetHashType: cdk.AssetHashType.SOURCE, exclude: ['__pycache__'] },
+      ),
+      // A cap outage delivers hundreds of records an hour. Lookups are
+      // batched, but FilterLogEvents is rate-limited account-wide and the
+      // client backs off, so give it room rather than time out mid-batch.
+      timeout: cdk.Duration.minutes(1),
+      // Caps how hard both stacks together can hit that shared rate limit.
+      // A throttled asynchronous invoke is retried by Lambda, not dropped.
+      reservedConcurrentExecutions: 2,
+      environment: {
+        ENVIRONMENT: this.env,
+        SENDER_LOG_GROUPS: smsSenders.map((fn) => fn.logGroup.logGroupName).join(','),
+        METRIC_NAMESPACE: SMS_METRIC_NAMESPACE,
+        COGNITO_SMS_VALIDATION_NUMBER,
+        SMS_QUOTA_PROVIDER_RESPONSE,
+      },
+      description: 'Attributes undelivered SMS to the environment that sent them',
+      logRetention: logs.RetentionDays.ONE_MONTH,
+      environmentEncryption: kmsKey,
+    });
+    tagResource(classifier, { Resource: 'Lambda', Function: 'SmsFailureClassifier' });
+
+    // Read on this environment's senders only: never the other stack's
+    // logs, and never a wildcard over /aws/lambda.
+    for (const sender of smsSenders) {
+      sender.logGroup.grant(classifier, 'logs:FilterLogEvents');
+    }
+    classifier.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['cloudwatch:PutMetricData'],
+      // PutMetricData has no resource-level scoping; the namespace condition
+      // is the only narrowing IAM offers.
+      resources: ['*'],
+      conditions: { StringEquals: { 'cloudwatch:namespace': SMS_METRIC_NAMESPACE } },
+    }));
+
+    // The pattern drops the cap and the validation number before the lambda
+    // is ever invoked, so it only runs for records it could count.
+    new logs.SubscriptionFilter(this, 'SmsFailureClassifierSubscription', {
+      logGroup: failureLogGroup,
+      destination: new logsDestinations.LambdaDestination(classifier),
+      filterPattern,
+    });
+
+    this.alarm('SmsDeliveryFailedAlarm', {
+      severity: 'medium',
+      name: 'login codes are being accepted and then not delivered',
+      description:
+        'The provider took login codes and dropped them, so those parents ' +
+        'got none. A trickle is normal (landlines, dead handsets, abuse ' +
+        'signups); this is more. Counts this environment only, and excludes ' +
+        'the cap, which pages separately.',
+      metric: new cloudwatch.Metric({
+        namespace: SMS_METRIC_NAMESPACE,
+        metricName: 'SmsDeliveryFailed',
+        // The dimension IS the attribution. Without it this would read a
+        // series nothing writes.
+        dimensionsMap: { Environment: this.env },
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(15),
+      }),
+      // Measured on 30 days of the real log: non-quota failures arrive in
+      // bursts of at most 2 in a quarter hour, and they are one parent
+      // retrying the same dead handset. 4 is the first count that cannot be
+      // one person having a bad afternoon. That was measured across both
+      // environments, so per environment it is, if anything, generous.
+      threshold: 4,
+      evaluationPeriods: 1,
+      countsFailures: true,
+    });
+
+    // It catches lookup failures and counts the record anyway (see the
+    // handler), so Errors here means it could not publish the count at all:
+    // undelivered codes are going uncounted and the alarm above is blind.
+    this.alarm('SmsFailureClassifierFailingAlarm', {
+      severity: 'medium',
+      name: 'undelivered login codes are not being counted',
+      description:
+        'The check that counts undelivered login codes is failing, so the ' +
+        'alarm for codes that never arrive cannot fire. Nothing is broken ' +
+        'for families by this alone.',
+      metric: classifier.metricErrors({ period: cdk.Duration.minutes(15), statistic: 'Sum' }),
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+
+    return classifier;
+  }
+
+  /**
+   * SMS spend, watched two ways. Production only: SMSMonthToDateSpentUSD is
+   * an account metric with no dimensions, so a staging copy is the same
+   * alarm twice.
+   *
+   * Neither alarms on a fixed dollar figure below the cap. The series is
+   * month-cumulative, so a fixed threshold can fire at most once a month and
+   * then stays red until the 1st whatever happens next. The $25 alarm this
+   * replaces went red on 2026-09-10 and would have stayed there until
+   * 2026-10-01, a permanent "1 problem" in both briefs that trained everyone
+   * to read past it.
+   *
+   * - Velocity catches an abuse run while it is happening, and clears on its
+   *   own once spend stops climbing.
+   * - Near-cap catches everything slower than that, while there is still
+   *   room to raise the limit before anyone is locked out.
+   */
+  private addSmsSpendAlarms(): void {
+    // SNS publishes this every five minutes. Maximum, because within a
+    // period it only ever goes up (except across the month boundary).
+    const spend = (period: cdk.Duration) => new cloudwatch.Metric({
+      namespace: 'AWS/SNS',
+      metricName: 'SMSMonthToDateSpentUSD',
+      statistic: 'Maximum',
+      period,
+    });
+
+    this.alarm('SmsSpendVelocityAlarm', {
+      severity: 'critical',
+      name: 'SMS spend is climbing fast: an abuse run may be under way',
+      description:
+        `SMS spend is rising faster than $${SMS_SPEND_VELOCITY_ALARM_USD_PER_HOUR} an hour, ` +
+        'far above what real login codes cost. If it continues the monthly ' +
+        'cap is hit and no parent can get a code. Check for signup abuse.',
+      metric: new cloudwatch.MathExpression({
+        // RATE is the change between consecutive datapoints divided by the
+        // seconds between them, so a gap in the series stretches the divisor
+        // rather than inventing a spike. At the month reset spend drops to
+        // zero, RATE goes negative, and a greater-than alarm cannot trip on
+        // it.
+        expression: 'RATE(spend) * 3600',
+        usingMetrics: { spend: spend(cdk.Duration.minutes(5)) },
+        // Five minutes, not an hour: the 2026-09-09 attack spent $49 inside
+        // a single five-minute datapoint, and an hourly period would report
+        // it after the hour closed.
+        period: cdk.Duration.minutes(5),
+        label: 'SMS spend, dollars per hour',
+      }),
+      threshold: SMS_SPEND_VELOCITY_ALARM_USD_PER_HOUR,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      // Any one breaching point in the last 15 minutes holds it in ALARM, so
+      // it clears after a quarter hour of normal spend rather than flapping
+      // between the bursts of one run.
+      evaluationPeriods: 3,
+      datapointsToAlarm: 1,
+    });
+
+    const nearCapUsd = SMS_MONTHLY_LIMIT_USD * SMS_NEAR_CAP_FRACTION;
+    this.alarm('SmsSpendNearCapAlarm', {
+      severity: 'medium',
+      name: `SMS spend is past ${Math.round(SMS_NEAR_CAP_FRACTION * 100)}% of the monthly cap`,
+      description:
+        `Monthly SMS spend has passed $${nearCapUsd} of the $${SMS_MONTHLY_LIMIT_USD} cap. At ` +
+        'the cap SNS stops sending and NO parent can get a login code until ' +
+        'the month rolls over. Check for abuse, then raise the limit.',
+      metric: spend(cdk.Duration.minutes(15)),
+      threshold: nearCapUsd,
       evaluationPeriods: 1,
     });
   }
@@ -1473,22 +1815,8 @@ export class MonitoringStack extends Construct {
       });
     }
 
-    this.alarm('SmsSpendAlarm', {
-      severity: 'medium',
-      name: 'SMS budget half spent',
-      description:
-        'Monthly SMS spend has passed half the cap. At the cap, SNS stops ' +
-        'sending and NO parent can receive a login code until the calendar ' +
-        'month rolls over. Check for signup abuse before raising the limit.',
-      metric: new cloudwatch.Metric({
-        namespace: 'AWS/SNS',
-        metricName: 'SMSMonthToDateSpentUSD',
-        statistic: 'Maximum',
-        period: cdk.Duration.minutes(15),
-      }),
-      threshold: SMS_SPEND_ALARM_USD,
-      evaluationPeriods: 1,
-    });
+    // SMS spend is alarmed in addSmsSpendAlarms: it is an account metric, so
+    // it is created once, in production only.
   }
 
   private addTableThrottleAlarms(

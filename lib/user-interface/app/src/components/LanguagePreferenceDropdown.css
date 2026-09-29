@@ -1,0 +1,62 @@
+/* The language pill, styled to match the one in the summary toolbar.
+
+   Deliberately a copy of the .button-container .dropdown rules in
+   pages/iep-folder/IEPSummarizationAndTranslation.css rather than a shared
+   class: those are scoped to that page's toolbar, and widening their selector
+   would restyle a control on the summary screen every time this one changed.
+   If a third caller appears, promote both to one class instead of copying
+   again. */
+
+.language-preference-bar {
+  padding: 0 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.language-preference-dropdown .dropdown-toggle {
+  background-color: #f5f3ee;
+  border: 1px solid var(--aiep-border);
+  border-radius: 30px;
+  color: #1e1e1e;
+  min-width: 100px;
+  padding: 0.5rem 1.5rem;
+  font-weight: 500;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  letter-spacing: 0.05em;
+}
+
+.language-preference-dropdown .dropdown-toggle:hover,
+.language-preference-dropdown .dropdown-toggle:focus {
+  background-color: #f5f3ee;
+  border-color: #1e1e1e;
+  color: #1e1e1e;
+  box-shadow: 0 0 0 0.2rem rgba(30, 30, 30, 0.25);
+}
+
+.language-preference-dropdown .dropdown-toggle:active,
+.language-preference-dropdown .dropdown-toggle.active {
+  background-color: #f5f3ee;
+  border-color: #1e1e1e;
+  color: #1e1e1e;
+}
+
+.language-preference-dropdown .dropdown-menu {
+  border: 1px solid #1e1e1e;
+  border-radius: 10px;
+  background-color: #f5f3ee;
+  min-width: 120px;
+}
+
+.language-preference-dropdown .dropdown-item {
+  color: #1e1e1e;
+}
+
+.language-preference-dropdown .dropdown-item:hover,
+.language-preference-dropdown .dropdown-item:focus {
+  background-color: rgba(30, 30, 30, 0.1);
+  color: #1e1e1e;
+}
+
+.language-preference-dropdown .dropdown-item.active {
+  background-color: rgba(30, 30, 30, 0.2);
+  color: #1e1e1e;
+}

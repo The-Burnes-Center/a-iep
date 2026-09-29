@@ -155,6 +155,10 @@ export class NewAuthorizationStack extends Construct {
    *  an error in any of these locks families out. Label is the name a
    *  human reads in Slack. */
   public readonly authTriggerFunctions: { label: string; fn: lambda.Function; purpose: string }[] = [];
+  /** Every lambda here that texts a phone through SNS directly. Monitoring
+   *  reads their logs to attribute undelivered SMS to this environment, so a
+   *  new sender that is not added here goes uncounted. */
+  public readonly smsSenderFunctions: lambda.Function[] = [];
   public readonly userPool: UserPool;
   /** Exposed so monitoring can alarm on throttling: the service-wide SMS
    *  budget fails closed on a DynamoDB error, so throttling here stops
@@ -164,8 +168,8 @@ export class NewAuthorizationStack extends Construct {
    *  signup. Exposed so ChatbotAPI can put an unauthenticated route on it:
    *  there is no token to authorize with before an account exists. */
   public signupFunction!: lambda.Function;
-  /** The client the BROWSER holds. Still carries ALLOW_CUSTOM_AUTH; see the
-   *  rollout note beside it. */
+  /** The client the BROWSER holds. Token refresh only: it cannot start a
+   *  sign-in. See the note beside it. */
   public readonly userPoolClient: UserPoolClient;
   /** The client only this backend holds, with a client secret. Its id is an
    *  extra audience on the API's JWT authorizer, because tokens minted through
@@ -375,30 +379,37 @@ export class NewAuthorizationStack extends Construct {
     
     // ── The client the BROWSER holds ──────────────────────────────────────
     //
-    // TODO(rollout step 2a): REMOVE `custom: true` from this client once the
-    // frontend posts to /auth/start and /auth/verify instead of calling
-    // InitiateAuth itself.
+    // Restricted to the flows the browser app actually uses, which is token
+    // refresh and nothing else. Every sign-in goes through /auth/start and
+    // /auth/verify (the `passwordlessAuth` feature, on in every environment),
+    // and those run on the backend client below. The only thing this client
+    // still does is refresh the Amplify sessions of parents who signed in
+    // before that, until those tokens expire on their own.
     //
-    // That removal is the change that actually closes the hole. The app client
-    // id necessarily ships in the browser bundle and InitiateAuth is a public,
-    // unauthenticated API, so while ALLOW_CUSTOM_AUTH is on this client anyone
-    // who knows a registered number can loop it and A-IEP will text that
-    // number, with no bot check anywhere in the path. Closing self-service
-    // SignUp stopped an attacker CREATING accounts; it does nothing about
-    // making us SEND to the 221 that already exist.
+    // Consequence worth knowing before touching `passwordlessAuth`: the
+    // legacy Amplify sign-in screen behind that flag cannot sign anyone in
+    // against this client, so turning the flag off is no longer a rollback.
+    // Rolling back means putting the flows back here AND deploying.
     //
-    // It is deliberately NOT removed in the same change that adds the new
-    // endpoints. The deployed frontend calls InitiateAuth directly, so taking
-    // it away now would break sign-in for every parent the moment it landed.
-    // Both paths run side by side until the frontend has switched.
-    // test/infra/gen-ai-mvp-stack.test.ts pins the current state and names
-    // this as the follow-up.
+    // Every flag is written out as false rather than omitted. CDK drops
+    // ExplicitAuthFlows from the template entirely when `authFlows` is
+    // missing or `{}`, and Cognito's default for a client with no
+    // ExplicitAuthFlows includes ALLOW_CUSTOM_AUTH and ALLOW_USER_SRP_AUTH,
+    // i.e. the opposite of what this block means. With at least one key
+    // present CDK renders exactly ['ALLOW_REFRESH_TOKEN_AUTH'].
+    //
+    // Changing ExplicitAuthFlows is an in-place update (no replacement), so
+    // the client id the deployed frontend holds does not change. Pinned, both
+    // the exact flow list and the logical id, in
+    // test/infra/gen-ai-mvp-stack.test.ts.
     const userPoolClient = new UserPoolClient(this, 'NewUserPoolClient', {
       userPool,
       authFlows: {
-        userPassword: true,
-        userSrp: true,
-        custom: true,  // Enable CUSTOM_AUTH flow for Phone OTP
+        userPassword: false,
+        userSrp: false,
+        custom: false,
+        adminUserPassword: false,
+        user: false,
       },
       // The whole custom-auth flow (language handshake + OTP rounds) must
       // finish inside this window. Align it with the 5-minute validity the
@@ -439,10 +450,11 @@ export class NewAuthorizationStack extends Construct {
     // ── The client only the BACKEND holds ────────────────────────────────
     //
     // A confidential client, with a secret. This is what makes "there is one
-    // door" true rather than nearly true: once the browser's client loses
-    // ALLOW_CUSTOM_AUTH, InitiateAuth from a browser fails at Cognito no
+    // door" true rather than nearly true: the browser's client carries no
+    // ALLOW_CUSTOM_AUTH, so InitiateAuth from a browser fails at Cognito no
     // matter what the caller knows, and Turnstile is genuinely in front of
-    // every code A-IEP sends rather than in front of account creation only.
+    // every sign-in code A-IEP sends rather than in front of account creation
+    // only.
     //
     // The secret is NEVER read by CDK. Referencing
     // `client.userPoolClientSecret` would make CDK add an AwsCustomResource
@@ -1008,6 +1020,8 @@ export class NewAuthorizationStack extends Construct {
       userProfilesTable.grantReadWriteData(verifyAuthChallengeFunction);
     }
 
+    this.smsSenderFunctions.push(createAuthChallengeFunction);
+
     // Collected for MonitoringStack, which alarms on each one's Errors. The
     // labels are what a human reads in Slack, so they name the effect on a
     // family where that is not obvious from the trigger name.
@@ -1137,6 +1151,8 @@ export class NewAuthorizationStack extends Construct {
       cognito.UserPoolOperation.CUSTOM_SMS_SENDER,
       customSmsSenderFunction
     );
+
+    this.smsSenderFunctions.push(customSmsSenderFunction);
 
     console.log('Staging custom SMS sender trigger configured successfully');
   }

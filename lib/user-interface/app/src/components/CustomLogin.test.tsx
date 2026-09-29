@@ -137,7 +137,7 @@ const renderLogin = (opts: { language?: SupportedLanguage; flagOn?: boolean; rea
   return { ...view, user: userEvent.setup() };
 };
 
-const fillPhone = (digits = "5551234567") => {
+const fillPhone = (digits = "6175551234") => {
   const input = screen.getByPlaceholderText("(xxx) xxx-xxxx") as HTMLInputElement;
   // Single change event: the field reformats on every keystroke, so
   // per-character typing tests the formatter's caret handling, not the flow.
@@ -165,7 +165,7 @@ describe("passwordless flow: identifier screen (flag on)", () => {
     await user.click(screen.getByRole("button", { name: "auth.sendCode" }));
 
     expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
-    expect(authFetch.callsTo("start")[0]).toEqual({ destination: "+15551234567", language: "es" });
+    expect(authFetch.callsTo("start")[0]).toEqual({ destination: "+16175551234", language: "es" });
   });
 
   test("a short phone number is rejected locally: no request is made at all", async () => {
@@ -175,6 +175,17 @@ describe("passwordless flow: identifier screen (flag on)", () => {
     await user.click(screen.getByRole("button", { name: "auth.sendCode" }));
 
     expect(await screen.findByText("auth.errorPhoneFormat")).toBeInTheDocument();
+    expect(authFetch.countOf("start")).toBe(0);
+    expect(onCodeScreen()).toBe(false);
+  });
+
+  test("a number with an impossible area code is rejected locally: no request is made at all", async () => {
+    const { user } = renderLogin();
+
+    fillPhone("0185551234");
+    await user.click(screen.getByRole("button", { name: "auth.sendCode" }));
+
+    expect(await screen.findByText("auth.errorPhoneNotReal")).toBeInTheDocument();
     expect(authFetch.countOf("start")).toBe(0);
     expect(onCodeScreen()).toBe(false);
   });
@@ -454,7 +465,7 @@ describe("passwordless flow: leaving and returning mid-flow", () => {
 
   test("an expired persisted challenge is not resumed: a stale code screen never traps a parent", async () => {
     const { persistChallenge } = await import("../common/auth/passwordless-auth");
-    persistChallenge({ challenge: "stale", destination: "+15551234567", channel: "sms", expiresAt: Date.now() - 1000 });
+    persistChallenge({ challenge: "stale", destination: "+16175551234", channel: "sms", expiresAt: Date.now() - 1000 });
 
     renderLogin();
 
@@ -507,6 +518,26 @@ describe("legacy Amplify flow still renders when the flag is off", () => {
       expect.stringContaining("auth/signup"),
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  test.each([
+    ["0185551234", "an area code starting 0"],
+    ["9115551234", "a 911 area code"],
+    ["2021551234", "an exchange starting 1"],
+  ])("%s (%s) never reaches Cognito or /auth/signup", async (typed) => {
+    // The legacy path used to accept any ten digits, and an unknown number
+    // falls through to /auth/signup, which is how an impossible number became
+    // a confirmed account.
+    signupFetchAsLegacy();
+    const { user } = renderLogin({ flagOn: false });
+
+    fillPhone(typed);
+    await user.click(screen.getByRole("button", { name: "auth.sendSmsCode" }));
+
+    expect(await screen.findByText("auth.errorPhoneNotReal")).toBeInTheDocument();
+    expect(Auth.signIn).not.toHaveBeenCalled();
+    expect(authFetch.fn).not.toHaveBeenCalledWith(expect.stringContaining("auth/signup"), expect.anything());
+    expect(onCodeScreen()).toBe(false);
   });
 
   test("the email tab still shows the legacy password form, not the new identifier-only one", async () => {

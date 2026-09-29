@@ -70,15 +70,55 @@ _CLEARED_ICON = ':white_check_mark:'
 # The marker MonitoringStack prefixes onto every alarm description. Stripped
 # here so no reader ever sees it, and defaulted rather than required: an alarm
 # created outside that construct must still format, just without a tier.
-_SEVERITY_PATTERN = re.compile(r'^\s*\[(critical|medium|low)\]\s*')
+#
+# The optional second marker, [failures], says the alarm counts discrete
+# failures. Its OK only means none arrived lately, so the recovery is worded
+# as exactly that; see _quiet_description.
+_SEVERITY_PATTERN = re.compile(r'^\s*\[(critical|medium|low)\](\[failures\])?\s*')
+
+# A quiet event-count alarm is not a fixed one, so it does not get the tick.
+_QUIET_ICON = ':white_circle:'
 
 
-def _severity_and_text(description):
-    """Split '[critical] Nobody can sign in.' into ('critical', the sentence)."""
+def _markers_and_text(description):
+    """Split '[critical][failures] Nobody can sign in.' into its parts.
+
+    Returns (severity, counts_failures, the sentence).
+    """
     match = _SEVERITY_PATTERN.match(description or '')
     if not match:
-        return 'medium', (description or '').strip()
-    return match.group(1), _SEVERITY_PATTERN.sub('', description).strip()
+        return 'medium', False, (description or '').strip()
+    text = _SEVERITY_PATTERN.sub('', description).strip()
+    return match.group(1), bool(match.group(2)), text
+
+
+def _quiet_window_minutes(alarm):
+    """How long the alarm has been quiet when it clears, or None.
+
+    Period x EvaluationPeriods is the window that has to be clean for an
+    event-count alarm to leave ALARM. Metric-math alarms carry no top-level
+    Period, so they get no number rather than a wrong one.
+    """
+    trigger = alarm.get('Trigger') or {}
+    period = trigger.get('Period')
+    periods = trigger.get('EvaluationPeriods') or 1
+    if not isinstance(period, (int, float)) or period <= 0:
+        return None
+    return int(period * periods // 60) or None
+
+
+def _quiet_description(alarm, headline):
+    """The recovery line for an alarm that counts failures.
+
+    "Back to normal" was wrong for these. An SMS delivery alarm clears 15
+    minutes after the last dropped code whether or not anything changed, and
+    read as "codes are arriving again" when the truth was only that nobody
+    had been dropped since.
+    """
+    minutes = _quiet_window_minutes(alarm)
+    window = f'in the last {minutes} minutes' if minutes else 'since it fired'
+    return (f'The "{headline}" alert has gone quiet: no further failures {window}. '
+            'That is not proof the cause is fixed.')
 
 
 # No @channel, @here or any all-member mention, ever, in either environment.
@@ -218,9 +258,15 @@ def build_notification(alarm):
     # question and it should not need a click to answer.
     env_label = 'prod' if IS_PROD else 'staging'
     description = (alarm.get('AlarmDescription') or '').strip()
-    severity, description = _severity_and_text(description)
+    severity, counts_failures, description = _markers_and_text(description)
+    quiet = recovered and counts_failures
     icons = _SEVERITY_ICON if IS_PROD else _STAGING_ICON
-    icon = _CLEARED_ICON if recovered else icons.get(severity, ':large_yellow_circle:')
+    if quiet:
+        icon = _QUIET_ICON
+    elif recovered:
+        icon = _CLEARED_ICON
+    else:
+        icon = icons.get(severity, ':large_yellow_circle:')
     # Alarm names are present-tense problem statements, which is right when
     # one fires and wrong in every recovery: "Cleared · login codes are not
     # being delivered" still reads as a claim that codes are not arriving.
@@ -229,15 +275,19 @@ def build_notification(alarm):
     # description, in quotes. The quotes are what stop it being read as a
     # sentence: it becomes the name of an alert rather than an assertion
     # about right now.
-    title = (
-        f'{icon} Back to normal · {env_label}' if recovered
-        else f'{icon} {headline} · {env_label}'
-    )
+    if quiet:
+        title = f'{icon} No further failures · {env_label}'
+    elif recovered:
+        title = f'{icon} Back to normal · {env_label}'
+    else:
+        title = f'{icon} {headline} · {env_label}'
 
     # The description is written as the impact statement, so it is used as-is
     # rather than wrapped in more words. Already stripped of its tier above.
     observed = _observed_phrase(alarm)
-    if recovered:
+    if quiet:
+        description = _quiet_description(alarm, headline)
+    elif recovered:
         description = f'The "{headline}" alert has cleared. No action needed.'
 
     trigger = alarm.get('Trigger') or {}

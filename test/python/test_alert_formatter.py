@@ -361,6 +361,82 @@ def test_recovery_is_quiet_and_asks_for_nothing(formatter):
     assert 'No action needed' in content['description']
 
 
+_SMS_FAILURES = dict(
+    AlarmName='a-iep login codes are being accepted and then not delivered',
+    AlarmDescription='[medium][failures] The provider took login codes and dropped them.',
+    Trigger={
+        'Namespace': 'AI-IEP/Auth',
+        'MetricName': 'SmsDeliveryFailed',
+        'Threshold': 4.0,
+        'ComparisonOperator': 'GreaterThanOrEqualToThreshold',
+        'Period': 900,
+        'EvaluationPeriods': 1,
+        'Dimensions': [{'name': 'Environment', 'value': 'prod'}],
+    },
+)
+
+
+def test_a_failure_count_going_quiet_is_not_called_back_to_normal(prod_formatter):
+    """The delivery alarm clears 15 minutes after the last dropped code.
+
+    That says nothing about whether codes are arriving: nobody may have
+    tried. "Back to normal" read as "fixed", so these say what is known.
+    """
+    content = prod_formatter.build_notification(
+        _alarm(NewStateValue='OK', OldStateValue='ALARM', **_SMS_FAILURES),
+    )['content']
+
+    assert content['title'] == ':white_circle: No further failures · prod'
+    assert ('"login codes are being accepted and then not delivered" alert has gone quiet: '
+            'no further failures in the last 15 minutes') in content['description']
+    assert 'not proof the cause is fixed' in content['description']
+    # None of the "it is fine now" vocabulary.
+    for claim in ('Back to normal', 'No action needed', ':white_check_mark:', 'cleared'):
+        assert claim not in json.dumps(content)
+    assert 'nextSteps' not in content
+
+
+def test_the_quiet_window_is_the_whole_evaluation_window(prod_formatter):
+    trigger = dict(_SMS_FAILURES['Trigger'], Period=300, EvaluationPeriods=3)
+    content = prod_formatter.build_notification(
+        _alarm(NewStateValue='OK', OldStateValue='ALARM', **dict(_SMS_FAILURES, Trigger=trigger)),
+    )['content']
+
+    assert 'in the last 15 minutes' in content['description']
+
+
+def test_a_quiet_alarm_with_no_period_claims_no_window(prod_formatter):
+    """Metric-math alarms carry no top-level Period: say less, not wrong."""
+    trigger = {k: v for k, v in _SMS_FAILURES['Trigger'].items() if k != 'Period'}
+    content = prod_formatter.build_notification(
+        _alarm(NewStateValue='OK', OldStateValue='ALARM', **dict(_SMS_FAILURES, Trigger=trigger)),
+    )['content']
+
+    assert 'no further failures since it fired' in content['description']
+    assert 'minutes' not in content['description']
+
+
+def test_the_failures_marker_changes_nothing_while_firing(prod_formatter):
+    content = prod_formatter.build_notification(_alarm(**_SMS_FAILURES))['content']
+
+    assert content['title'] == (':large_yellow_circle: login codes are being accepted '
+                                'and then not delivered · prod')
+    assert content['description'].startswith('The provider took login codes and dropped them.')
+    # Plumbing, like the tier: neither marker reaches a reader.
+    assert '[failures]' not in json.dumps(content)
+    assert '[medium]' not in json.dumps(content)
+
+
+def test_an_alarm_without_the_marker_still_recovers_as_before(prod_formatter):
+    """A heartbeat or a level alarm clearing IS a recovery."""
+    content = prod_formatter.build_notification(
+        _alarm(NewStateValue='OK', OldStateValue='ALARM',
+               AlarmDescription='[medium] The daily health brief did not go out.'),
+    )['content']
+
+    assert content['title'] == ':white_check_mark: Back to normal · prod'
+
+
 def test_an_alarm_coming_online_is_not_announced_as_a_recovery(formatter):
     """A new alarm goes INSUFFICIENT_DATA -> OK the moment it has data.
 

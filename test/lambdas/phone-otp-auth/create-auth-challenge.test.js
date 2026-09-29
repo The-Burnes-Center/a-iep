@@ -794,6 +794,30 @@ describe('create-auth-challenge', () => {
             logged.mockRestore();
         });
 
+        // Accounts created before the NANP rule can carry numbers like these
+        // (one did, in production), so the send path refuses them itself
+        // rather than trusting that the front door always ran.
+        test.each([
+            ['an area code starting 0', '+10185551234', 'nanp-area-code'],
+            ['a 911 area code', '+19115551234', 'nanp-service-code'],
+            ['an exchange starting 1', '+12021551234', 'nanp-exchange'],
+            ['nine national digits', '+1617555123', 'nanp-length'],
+        ])('a stored +1 number that cannot exist (%s) is never texted', async (_label, value, reason) => {
+            const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const event = await handler(eventTo(value));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(updateCalls()).toHaveLength(0);
+            expect(event.response.publicChallengeParameters).toEqual(UNSUPPORTED_SHAPE);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+            const messages = logged.mock.calls.map((args) => args.join(' ')).join('\n');
+            expect(messages).toContain(`SMS_REFUSED_DESTINATION reason=unreadable shape=${reason}`);
+            expect(messages).not.toContain(value.slice(2));
+            expect(messages).not.toContain('SMS_SEND_FAILED');
+            logged.mockRestore();
+        });
+
         test('the language handshake round is unaffected: it sends nothing anyway', async () => {
             const event = await handler(eventTo(TANZANIA, []));
 
@@ -851,13 +875,13 @@ describe('create-auth-challenge', () => {
         test('an allowlisted but NON-fictional number is still texted (the regex is the second lock)', async () => {
             // A lying/compromised allowlist must never divert a real
             // subscriber's OTP into Parameter Store.
-            process.env.TEST_PHONE_NUMBERS = '+15551234567';
+            process.env.TEST_PHONE_NUMBERS = '+16175551234';
             process.env.TEST_OTP_PARAM_PREFIX = PARAM_PREFIX;
-            const event = await handler(eventFor('+15551234567'));
+            const event = await handler(eventFor('+16175551234'));
 
             expect(mockSsmSend).not.toHaveBeenCalled();
             expect(mockSnsSend).toHaveBeenCalledTimes(1);
-            expect(mockSnsSend.mock.calls[0][0].input.PhoneNumber).toBe('+15551234567');
+            expect(mockSnsSend.mock.calls[0][0].input.PhoneNumber).toBe('+16175551234');
             // The real send pays the SMS budget as usual: the per-phone
             // counter, plus the two global windows.
             expect(perPhoneUpdates()).toHaveLength(1);

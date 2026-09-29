@@ -33,11 +33,16 @@ export const EN = {
   sendSmsCode: 'Send SMS Code',
   verifySmsCode: 'Verify Code',
   backToLogin: 'Back to Login',
-  smsCodeSentExisting: 'SMS code sent. Please enter the verification code.',
+  // Both of these are now the LEADING part of a sentence that ends in the
+  // destination ("... sent to +1-555-123-4567"), so they are prefixes rather
+  // than whole messages. Note that the existing-user one is a substring of
+  // the new-user one: anything telling the two apart has to say so itself,
+  // which waitForLegacyExistingUserAlert below does.
+  smsCodeSentExisting: 'SMS code sent to',
   // The new-account message. Note it is NOT evidence of the single-SMS flow:
   // CustomLogin shows the same key on its two-code fallback, so proving "one
   // text" needs the send-count assertions in resignup.spec.ts.
-  smsCodeSentNewUser: 'Account created and SMS code sent!',
+  smsCodeSentNewUser: 'Account created. SMS code sent to',
   wrongCodeInSession: 'An error occurred. Please try again.',
   sessionFailed: 'Invalid verification code. Please try again.',
   preferEnglish: 'I prefer English',
@@ -59,7 +64,16 @@ export const EN = {
 export const EN_PASSWORDLESS = {
   sendCode: 'Send code',
   verify: 'Verify',
-  codeSentTo: 'Enter the 6-digit code sent to',
+  /**
+   * The code screen's send notice, up to the destination it ends with.
+   *
+   * Replaced `codeSentTo` ('Enter the 6-digit code sent to'), which was a
+   * standalone line above the field until it was removed for saying the same
+   * thing as the field's own label; the notice carries the destination now.
+   */
+  codeSent: 'SMS code sent to',
+  /** The code field's label, and so the screen's most stable localized text. */
+  codeLabel: 'Enter the 6-digit code',
   badCode: 'That code did not work. Check the code and try again, or ask for a new one.',
   sessionExpired: 'Session expired. Please start over.',
   /** {minutes} is not substituted here; assert with a regex or .replace() it yourself. */
@@ -250,13 +264,17 @@ export async function loginWithOtp(page: Page, phone: string): Promise<void> {
 
 /**
  * Known-user path only, legacy screen only. Seeing the sign-up fallback here
- * ('Account created and SMS code sent!') would mean the account evaporated;
- * the exact-message assertion makes that failure mode legible.
+ * ('Account created. SMS code sent to ...') would mean the account
+ * evaporated; the assertions below make that failure mode legible.
  */
 async function waitForLegacyExistingUserAlert(page: Page): Promise<void> {
-  await expect(
-    page.getByRole('alert').filter({ hasText: EN.smsCodeSentExisting })
-  ).toBeVisible({ timeout: 30_000 });
+  const alert = page.getByRole('alert').filter({ hasText: EN.smsCodeSentExisting });
+  await expect(alert).toBeVisible({ timeout: 30_000 });
+  // Since both messages gained the destination, the existing-user sentence is
+  // a substring of the new-user one ("Account created. SMS code sent to ...")
+  // and the filter above matches either. Without this the helper would pass
+  // on exactly the failure its docblock exists to catch.
+  await expect(alert).not.toContainText(EN.smsCodeSentNewUser);
 }
 
 /**

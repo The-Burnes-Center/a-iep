@@ -21,9 +21,10 @@ function resolveEnabledLanguages(): string[] {
 }
 
 // Optional features offered in the UI, same mechanism as the languages above.
-// Defaults to every feature on dev/local; prod runs referrals only, with TTS,
-// the student-name gate, the parent-name gate and passwordlessAuth shipping
-// as code but staying dark.
+// Defaults to every feature on dev/local; prod runs PROD_FEATURES below.
+// passwordlessAuth must stay on everywhere: the browser's Cognito app client
+// can no longer start a sign-in, so the login screen it replaces cannot sign
+// anybody in.
 // An explicit ENABLED_FEATURES env var (comma-separated names) overrides both.
 // Kept in sync with the deploy-time logic in lib/user-interface/index.ts
 // (asserted by test/infra/enabled-features.test.ts), and with

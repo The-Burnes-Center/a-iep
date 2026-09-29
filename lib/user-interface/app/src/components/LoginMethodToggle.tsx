@@ -18,19 +18,30 @@ const LoginMethodToggle: React.FC<LoginMethodToggleProps> = ({
   emailLoginText
 }) => {
   return (
-    <div className="login-method-toggle-container d-grid gap-2 mb-4">
-      <div className="btn-group" role="group">
+    <div className="login-method-toggle-container mb-4">
+      <div className="login-method-tabs" role="group">
+        {/*
+          variant="link" for the flat base: it is the one variant that brings
+          no fill and no border of its own to override. These stay <button>s
+          rather than becoming role="tab", because there are no tabpanels to
+          point at — the form below is one region that rewrites itself.
+
+          aria-pressed carries the selection, which is otherwise only a colour
+          and an underline. A screen reader says "with phone, pressed".
+        */}
         <Button
-          variant='secondary'
+          variant='link'
           onClick={onMobileLoginClick}
-          className={`button-text ${showMobileLogin ? 'selected-login-method' : 'unselected-login-method'}` }
+          className={`login-method-tab${showMobileLogin ? ' is-selected' : ''}`}
+          aria-pressed={showMobileLogin}
         >
           {mobileLoginText}
         </Button>
         <Button
-          variant='secondary'
+          variant='link'
           onClick={onEmailLoginClick}
-          className={`button-text ${!showMobileLogin ? 'selected-login-method' : 'unselected-login-method'}` }
+          className={`login-method-tab${!showMobileLogin ? ' is-selected' : ''}`}
+          aria-pressed={!showMobileLogin}
         >
           {emailLoginText}
         </Button>

@@ -30,7 +30,7 @@
  *
  * Any one of those failing means the parent is back to two texts. The message
  * on screen cannot carry this weight: CustomLogin shows the same "Account
- * created and SMS code sent!" copy on both branches.
+ * created. SMS code sent to ..." copy on both branches.
  *
  * The journey:
  *
@@ -225,7 +225,9 @@ test('deleted account signs up again and is sent exactly one code', async ({ pag
     // design (see the docblock above): reaching the code screen for a
     // destination that was just deleted, with its own (equally generic)
     // code-sent copy, is the closest equivalent milestone.
-    await expect(page.getByText(EN_PASSWORDLESS.codeSentTo)).toBeVisible();
+    await expect(
+      page.getByRole('alert').filter({ hasText: EN_PASSWORDLESS.codeSent })
+    ).toBeVisible();
   }
 
   // ---- Act 3: one text, and it is the login OTP -------------------------

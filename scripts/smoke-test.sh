@@ -6,8 +6,8 @@
 #          smoke-test.sh AIEPStack production
 #
 # Every check is read-only and SMS-free. All endpoints and IDs are resolved
-# from CloudFormation stack outputs at runtime, so nothing here goes stale
-# when the stacks change. Checks run to completion and report together; any
+# from CloudFormation stack outputs (and the backend client from its fixed
+# name) at runtime, so nothing here goes stale when the stacks change. Checks run to completion and report together; any
 # failure exits 1 so the deploy workflow goes red. Network probes retry up
 # to 3 times, ~10s apart, so a single CloudFront/API propagation blip right
 # after a deploy does not fail the run; every retry is logged.
@@ -16,7 +16,12 @@
 # phone number must be rejected with NotAuthorizedException. Before the fix
 # it received a CUSTOM_CHALLENGE whose ChallengeParameters carried an error
 # string, the frontend never read it, and signup was silently broken for a
-# month.
+# month. Checks 1 and 2 run on the backend app client, the only one that can
+# start a sign-in; check 0 pins that the browser's client cannot.
+#
+# Needs, beyond read access to the stack and SSM: cognito-idp
+# ListUserPoolClients, DescribeUserPoolClient (for the backend client's
+# secret, which is never printed) and AdminInitiateAuth on the pool.
 set -uo pipefail
 
 STACK_NAME="${1:?usage: smoke-test.sh <stack-name> <environment>}"
@@ -67,31 +72,127 @@ output_like() {
         '[.[] | select(.OutputKey | test($pattern))][0].OutputValue // empty' <<<"$outputs"
 }
 
+# The browser app's client (its id ships in aws-exports.json) and the client
+# only the backend holds. Sign-in runs on the second; the first may only
+# refresh. The backend client's name is fixed in lib/authorization/new-auth.ts
+# and pinned by test/infra, so it is looked up by name rather than needing a
+# stack output of its own.
 CLIENT_ID=$(output_like 'UserPoolClientID')
+POOL_ID=$(output_like 'NewUserPoolID')
+BACKEND_CLIENT_NAME="a-iep-backend-auth"
 API_ENDPOINT=$(output_like 'HTTPAPIapiEndpoint')
 SITE_URL=$(output_like 'UserInterfaceDomainName')
 
+BACKEND_CLIENT_ID=""
+BACKEND_CLIENT_SECRET=""
+if [ -n "$POOL_ID" ]; then
+    BACKEND_CLIENT_ID=$(aws cognito-idp list-user-pool-clients --user-pool-id "$POOL_ID" \
+        --max-results 60 --output json 2>/dev/null \
+        | jq -r --arg name "$BACKEND_CLIENT_NAME" \
+            '[.UserPoolClients[] | select(.ClientName == $name)] | if length == 1 then .[0].ClientId else empty end')
+fi
+if [ -n "$BACKEND_CLIENT_ID" ]; then
+    BACKEND_CLIENT_SECRET=$(aws cognito-idp describe-user-pool-client --user-pool-id "$POOL_ID" \
+        --client-id "$BACKEND_CLIENT_ID" --query 'UserPoolClient.ClientSecret' --output text 2>/dev/null || true)
+    [ "$BACKEND_CLIENT_SECRET" = "None" ] && BACKEND_CLIENT_SECRET=""
+    # Never printed. Masked as well, so a future debugging echo on a GitHub
+    # runner cannot put it in a public log.
+    if [ -n "$BACKEND_CLIENT_SECRET" ] && [ -n "${GITHUB_ACTIONS:-}" ]; then
+        echo "::add-mask::$BACKEND_CLIENT_SECRET"
+    fi
+fi
+
 echo "Stack: $STACK_NAME ($ENV_NAME)"
-echo "  client id:    ${CLIENT_ID:-<missing>}"
-echo "  api endpoint: ${API_ENDPOINT:-<missing>}"
-echo "  site url:     ${SITE_URL:-<missing>}"
+echo "  pool id:           ${POOL_ID:-<missing>}"
+echo "  browser client id: ${CLIENT_ID:-<missing>}"
+echo "  backend client id: ${BACKEND_CLIENT_ID:-<missing>}"
+echo "  api endpoint:      ${API_ENDPOINT:-<missing>}"
+echo "  site url:          ${SITE_URL:-<missing>}"
 echo
+
+# SECRET_HASH for the backend client: base64(HMAC-SHA256(secret, username +
+# client id)). Computed in python so the secret goes through the environment
+# rather than a command line.
+secret_hash() {
+    SH_USERNAME="$1" SH_CLIENT_ID="$BACKEND_CLIENT_ID" SH_SECRET="$BACKEND_CLIENT_SECRET" python3 -c '
+import base64, hashlib, hmac, os
+message = (os.environ["SH_USERNAME"] + os.environ["SH_CLIENT_ID"]).encode()
+digest = hmac.new(os.environ["SH_SECRET"].encode(), message, hashlib.sha256).digest()
+print(base64.b64encode(digest).decode())'
+}
+
+# admin-initiate-auth CUSTOM_AUTH on the backend client, round 1 only. Round 1
+# is the language handshake, which by design sends nothing; the session is
+# abandoned there. Auth parameters go as JSON: a SECRET_HASH can contain '='
+# and '/', which the CLI's shorthand syntax does not survive.
+backend_initiate() {
+    local username="$1" params
+    params=$(jq -cn --arg u "$username" --arg h "$(secret_hash "$username")" \
+        '{USERNAME: $u, SECRET_HASH: $h}')
+    aws cognito-idp admin-initiate-auth \
+        --user-pool-id "$POOL_ID" \
+        --client-id "$BACKEND_CLIENT_ID" \
+        --auth-flow CUSTOM_AUTH \
+        --auth-parameters "$params" 2>&1
+}
+
+# --- 0. The browser's client cannot start a sign-in --------------------------
+# Only the fictional unknown number is ever used here, so even a client that
+# wrongly still allowed the flow would answer NotAuthorizedException and send
+# nothing. Settled outcomes: InvalidParameterException saying the flow is not
+# enabled (healthy), NotAuthorizedException or a challenge (the flow is still
+# on). Anything else may be a blip, so retry.
+attempt_browser_flow() {
+    local flow="$1"
+    shift
+    browser_out=$(aws cognito-idp initiate-auth \
+        --auth-flow "$flow" \
+        --client-id "$CLIENT_ID" \
+        --auth-parameters "$@" 2>&1)
+    browser_status=$?
+    [ "$browser_status" -eq 0 ] && return 0
+    grep -qE "InvalidParameterException|NotAuthorizedException" <<<"$browser_out"
+}
+check_browser_flow_refused() {
+    local flow="$1"
+    shift
+    retry "browser-client $flow" attempt_browser_flow "$flow" "$@"
+    if [ "$browser_status" -ne 0 ] && grep -q "InvalidParameterException" <<<"$browser_out" \
+        && grep -qi "not enabled" <<<"$browser_out"; then
+        pass "browser client refuses $flow"
+    elif [ "$browser_status" -eq 0 ] || grep -q "NotAuthorizedException" <<<"$browser_out"; then
+        fail "browser client still accepts $flow (expected: flow not enabled for this client)"
+    else
+        fail "browser client $flow got an unexpected error: $browser_out"
+    fi
+}
+if [ -z "$CLIENT_ID" ]; then
+    fail "browser client checks: no UserPoolClientID output on $STACK_NAME"
+else
+    check_browser_flow_refused CUSTOM_AUTH USERNAME="$UNKNOWN_NUMBER"
+    check_browser_flow_refused USER_PASSWORD_AUTH USERNAME="$UNKNOWN_NUMBER",PASSWORD="not-a-real-password-0"
+fi
 
 # --- 1. Unknown number must be rejected, not challenged ----------------------
 # Settled outcomes: an auth challenge (exit 0, the regression) or the expected
 # NotAuthorizedException. Any other error may be a transient blip, so retry.
 attempt_unknown_auth() {
-    unknown_out=$(aws cognito-idp initiate-auth \
-        --auth-flow CUSTOM_AUTH \
-        --client-id "$CLIENT_ID" \
-        --auth-parameters USERNAME="$UNKNOWN_NUMBER" 2>&1)
+    unknown_out=$(backend_initiate "$UNKNOWN_NUMBER")
     unknown_status=$?
     [ "$unknown_status" -eq 0 ] && return 0
     grep -q "NotAuthorizedException" <<<"$unknown_out"
 }
-if [ -z "$CLIENT_ID" ]; then
-    fail "auth checks: no UserPoolClientID output on $STACK_NAME"
+BACKEND_READY=""
+if [ -z "$POOL_ID" ]; then
+    fail "auth checks: no NewUserPoolID output on $STACK_NAME"
+elif [ -z "$BACKEND_CLIENT_ID" ]; then
+    fail "auth checks: no single app client named $BACKEND_CLIENT_NAME in $POOL_ID"
+elif [ -z "$BACKEND_CLIENT_SECRET" ]; then
+    fail "auth checks: could not read the secret of $BACKEND_CLIENT_NAME (needs cognito-idp:DescribeUserPoolClient)"
 else
+    BACKEND_READY=1
+fi
+if [ -n "$BACKEND_READY" ]; then
     retry "unknown-number initiate-auth" attempt_unknown_auth
 
     if [ "$unknown_status" -eq 0 ]; then
@@ -109,10 +210,7 @@ fi
 # 1, which by design sends no SMS (so retrying is SMS-free too). A wrong
 # challenge is a settled failure; only transport errors are retried.
 attempt_known_auth() {
-    known_out=$(aws cognito-idp initiate-auth \
-        --auth-flow CUSTOM_AUTH \
-        --client-id "$CLIENT_ID" \
-        --auth-parameters USERNAME="$TEST_PHONE" 2>&1)
+    known_out=$(backend_initiate "$TEST_PHONE")
     known_status=$?
     return "$known_status"
 }
@@ -120,7 +218,7 @@ TEST_PHONE=$(aws ssm get-parameter --name "/a-iep/${ENV_NAME}/smoke-test-phone" 
     --query 'Parameter.Value' --output text 2>/dev/null || true)
 if [ -z "${TEST_PHONE:-}" ] || [ "$TEST_PHONE" = "None" ]; then
     fail "test-user handshake: SSM parameter /a-iep/${ENV_NAME}/smoke-test-phone is missing. Permanent smoke-test users exist in both envs (staging +15555550101, production +15555550102, created 2026-07-27), so a missing parameter means the user or parameter was deleted; restore it instead of skipping this check"
-elif [ -n "$CLIENT_ID" ]; then
+elif [ -n "$BACKEND_READY" ]; then
     retry "test-user initiate-auth" attempt_known_auth
 
     if [ "$known_status" -ne 0 ]; then

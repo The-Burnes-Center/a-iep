@@ -42,6 +42,7 @@ import LanguageDropdown from './LanguageDropdown';
 import LoginMethodToggle from './LoginMethodToggle';
 import FormLabel from './FormLabel';
 import VerificationCodeInput from './VerificationCodeInput';
+import { formatUsPhoneDisplay, readUsPhone } from '../common/us-phone';
 
 /**
  * Drop any session still held locally, before starting a new sign-in.
@@ -163,9 +164,9 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   const turnstileStatusKey = TURNSTILE_STATUS_KEYS[turnstile.status];
   const appConfig = useContext(AppContext);
   // Gates the /auth/start + /auth/verify flow in docs/AUTH_API_CONTRACT.md.
-  // On in dev/staging, off in prod until it has carried real traffic — see
-  // common/features.ts. Both backends stay live either way, so flipping this
-  // back is a full rollback with no deploy.
+  // On in every environment, and it has to be: the Amplify branch below
+  // needs sign-in flows the browser's app client no longer carries. See
+  // common/features.ts.
   const { isFeatureEnabled } = useFeatures();
   const [showMobileLogin, setShowMobileLogin] = useState(true);  
   const [mobileLoading, setMobileLoading] = useState(false);
@@ -330,16 +331,15 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     setError('');
     setSuccessMessage(null);
 
-    // Extract only digits and format properly to E.164
-    const digits = phoneNumber.replace(/\D/g, '');
-    if (digits.length < 10) {
-      setError('auth.errorPhoneFormat');
+    // E.164 for a US number, and only if it is one a parent could have: an
+    // impossible area code is told so here, before any request is made.
+    const reading = readUsPhone(phoneNumber);
+    if ('messageKey' in reading) {
+      setError(reading.messageKey);
       setMobileLoading(false);
       return;
     }
-    
-    // Format as +1XXXXXXXXXX (E.164 format for US numbers)
-    const formattedPhone = `+1${digits.slice(-10)}`;
+    const formattedPhone = reading.e164;
 
     try {
       // console.log('Starting phone authentication for:', formattedPhone);
@@ -1102,13 +1102,20 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             // SMS Verification Form
             <Form onSubmit={handleSmsCodeVerification}>
               <div className="mobile-form-container">
-                <div className="sms-verification-info">
-                  <p>
-                    {t('auth.smsCodeSentTo')}<br />
-                    {/* Phone numbers must always render left-to-right, even in RTL UI */}
-                    <span className="phone-display" dir="ltr">{phoneNumber}</span>
-                  </p>
-                </div>
+                {/* First on the screen, not after the field: this is the
+                    answer to the tap a parent just made, so "code sent" and
+                    any error land where the eye already is. Matches the code
+                    step in PasswordlessAuthForm. */}
+                {/* The number is part of the notice's own sentence:
+                    auth.smsCodeSentTo said the same thing as the field's label
+                    right below it. See the code step in PasswordlessAuthForm. */}
+                <AlertMessages
+                  error={error}
+                  successMessage={successMessage}
+                  persistSuccess
+                  successDestination={phoneNumber}
+                />
+
                 <VerificationCodeInput
                   label={t('auth.verificationCodeSms')}
                   placeholder={t('auth.enterSmsCode')}
@@ -1117,9 +1124,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                   required
                   autoFocus
                 />
-                
-                <AlertMessages error={error} successMessage={successMessage} />
-                
+
                 <div className="d-grid gap-2">
                     <SubmitButton 
                       loading={loading}
@@ -1162,48 +1167,9 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                     type="tel"
                     placeholder="(xxx) xxx-xxxx"
                     value={phoneNumber}
-                    onChange={(e) => {
-                      const input = e.target.value;
-                      
-                      // If input is shorter than "+1 ", reset to "+1 "
-                      if (input.length < 3) {
-                        setPhoneNumber('+1 ');
-                        return;
-                      }
-                      
-                      // Always keep +1 prefix
-                      if (!input.startsWith('+1 ')) {
-                        // Extract only digits from input
-                        const digits = input.replace(/\D/g, '');
-                        // Format as +1 (xxx) xxx-xxxx
-                        let formatted = '+1 ';
-                        if (digits.length > 0) {
-                          if (digits.length <= 3) {
-                            formatted += `(${digits}`;
-                          } else if (digits.length <= 6) {
-                            formatted += `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
-                          } else {
-                            formatted += `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
-                          }
-                        }
-                        setPhoneNumber(formatted);
-                      } else {
-                        // Handle input that already has +1 prefix
-                        const withoutPrefix = input.slice(3);
-                        const digits = withoutPrefix.replace(/\D/g, '');
-                        let formatted = '+1 ';
-                        if (digits.length > 0) {
-                          if (digits.length <= 3) {
-                            formatted += `(${digits}`;
-                          } else if (digits.length <= 6) {
-                            formatted += `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
-                          } else {
-                            formatted += `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
-                          }
-                        }
-                        setPhoneNumber(formatted);
-                      }
-                    }}
+                    // Always keeps the +1 prefix; same formatter as the
+                    // passwordless form (common/us-phone.ts).
+                    onChange={(e) => setPhoneNumber(formatUsPhoneDisplay(e.target.value))}
                     onKeyDown={(e) => {
                       // Prevent cursor movement before "+1 "
                       const target = e.target as HTMLInputElement;

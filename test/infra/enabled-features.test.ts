@@ -120,6 +120,18 @@ describe('enabled features per environment', () => {
     expect(readArrayLiteral(viteSource, 'DARK_EVERYWHERE')).toEqual(CDK_DARK_EVERYWHERE);
   });
 
+  it('keeps the passwordless login on in every environment, because it is the only one', () => {
+    // The browser's Cognito app client can refresh a session but cannot start
+    // one (lib/authorization/new-auth.ts, pinned in gen-ai-mvp-stack.test.ts),
+    // so the legacy Amplify screen this flag replaces cannot sign anybody in.
+    // Dropping the flag from either list is therefore not a rollback: it puts
+    // every parent on a login screen that fails. Rolling back means restoring
+    // the client's flows in new-auth.ts and deploying, together with this.
+    expect(CDK_PROD_FEATURES).toContain('passwordlessAuth');
+    expect(CDK_ALL_FEATURES).toContain('passwordlessAuth');
+    expect(CDK_DARK_EVERYWHERE).not.toContain('passwordlessAuth');
+  });
+
   it('never lets a dark feature reach an environment through the default list', () => {
     for (const feature of CDK_DARK_EVERYWHERE) {
       expect(CDK_PROD_FEATURES).not.toContain(feature);

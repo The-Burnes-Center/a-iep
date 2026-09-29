@@ -48,8 +48,8 @@ vi.mock("aws-amplify/auth", () => Auth);
 const HTTP_ENDPOINT = "https://api.example.test/";
 const SITE_KEY = "test-site-key";
 const WITH_PASSWORDLESS = ["tts", "referrals", "passwordlessAuth"];
-const PHONE = "5551234567";
-const E164 = "+15551234567";
+const PHONE = "6175551234";
+const E164 = "+16175551234";
 /** Real wording, per language, for the blocks that opt into it. */
 const dictionaries: Record<string, Record<string, string>> = {
   en: en as Record<string, string>,
@@ -182,6 +182,20 @@ const fillPhone = (digits = PHONE) => {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 };
 
+/** The destinations the helpers below sign in with, as a notice renders them. */
+const PHONE_DISPLAY = "+1-617-555-1234";
+const EMAIL = "parent@example.com";
+
+/**
+ * A send notice as a parent sees it: the translated string with its
+ * {destination} placeholder resolved.
+ *
+ * Asserting on the raw dictionary value would also pass against a screen that
+ * printed "{destination}" literally, which is the way this can actually break.
+ */
+const noticeText = (key: string, destination: string) =>
+  dictionary[key].replace("{destination}", destination);
+
 const resendButton = () => screen.getByTestId("resend-code");
 const onCodeScreen = () => screen.queryByTestId("sms-code-input") !== null;
 const onIdentifierScreen = () => screen.queryByPlaceholderText("(xxx) xxx-xxxx") !== null;
@@ -274,6 +288,51 @@ describe("a destination the form cannot use", () => {
     expect(await screen.findByText("auth.errorPhoneFormat")).toBeInTheDocument();
     expect(screen.queryByText("auth.errorPhoneRequired")).not.toBeInTheDocument();
     expect(authFetch.countOf("start")).toBe(0);
+  });
+
+  test.each([
+    // The production signup that prompted this: an area code starting 0.
+    ["0185551234", "an area code starting 0"],
+    ["9115551234", "a 911 area code"],
+    ["2020551234", "an exchange starting 0"],
+  ])("%s (%s) is not a real number: told so under the field, nothing sent", async (typed) => {
+    const { user } = renderLogin();
+    fillPhone(typed);
+
+    await sendCode(user);
+
+    const message = await screen.findByText("auth.errorPhoneNotReal");
+    expect(phoneField().parentElement).toContainElement(message);
+    // Ten digits were typed, so "enter a 10-digit number" would be wrong.
+    expect(screen.queryByText("auth.errorPhoneFormat")).not.toBeInTheDocument();
+    expect(phoneField()).toHaveAttribute("aria-invalid", "true");
+    expect(authFetch.countOf("start")).toBe(0);
+    expect(onCodeScreen()).toBe(false);
+  });
+
+  test("a pasted number that repeats the country code still reaches the endpoint as itself", async () => {
+    // "+1 16175551234" once formatted as (161) 755-5123. No area code starts
+    // with 1, so a leading 1 is always the country code typed twice.
+    authFetch.queue("start", { status: 200, body: { ok: true, challenge: "c1", channel: "sms", expiresIn: 300 } });
+    const { user } = renderLogin();
+    fillPhone(`1${PHONE}`);
+
+    expect(phoneField().value).toBe("+1 (617) 555-1234");
+    await sendCode(user);
+
+    expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
+    expect(authFetch.callsTo("start")[0]).toMatchObject({ destination: E164 });
+  });
+
+  test("the E2E numbers are real-shaped and are sent", async () => {
+    authFetch.queue("start", { status: 200, body: { ok: true, challenge: "c1", channel: "sms", expiresIn: 300 } });
+    const { user } = renderLogin();
+    fillPhone("5555550111");
+
+    await sendCode(user);
+
+    expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
+    expect(authFetch.callsTo("start")[0]).toMatchObject({ destination: "+15555550111" });
   });
 
   test.each([
@@ -687,7 +746,22 @@ describe("telling a parent a code went out", () => {
     const { user } = renderLogin({ realTranslations: true });
     await startPhoneFlow(user, { send: dictionary["auth.sendCode"] });
 
-    expect(await screen.findByText(dictionary["auth.smsCodeSent"])).toBeInTheDocument();
+    expect(await screen.findByTestId("alert-success")).toHaveTextContent(
+      noticeText("auth.smsCodeSent", PHONE_DISPLAY),
+    );
+  });
+
+  test("the notice names the destination, because nothing else on the screen does now", async () => {
+    const { user } = renderLogin({ realTranslations: true });
+    await startPhoneFlow(user, { send: dictionary["auth.sendCode"] });
+
+    // The standalone "sent to <number>" line was removed as a third copy of
+    // the field's own label, which left this alert as the only thing telling
+    // a parent which number the code went to -- and so their only way to
+    // catch a typo in the one they just entered. Grouped rather than E.164,
+    // because twelve unbroken digits is where a transposed pair hides.
+    const notice = await screen.findByTestId("alert-success");
+    expect(notice).toHaveTextContent("SMS code sent to +1-617-555-1234");
   });
 
   test("the first code by email is confirmed in email wording, never the SMS copy", async () => {
@@ -699,8 +773,9 @@ describe("telling a parent a code went out", () => {
     await user.click(screen.getByRole("button", { name: dictionary["auth.sendCode"] }));
     await screen.findByTestId("sms-code-input");
 
-    expect(await screen.findByText(dictionary["auth.verificationCodeSent"])).toBeInTheDocument();
-    expect(screen.queryByText(dictionary["auth.smsCodeSent"])).not.toBeInTheDocument();
+    const notice = await screen.findByTestId("alert-success");
+    expect(notice).toHaveTextContent(noticeText("auth.verificationCodeSent", EMAIL));
+    expect(notice).not.toHaveTextContent(noticeText("auth.smsCodeSent", EMAIL));
   });
 
   test("a resent code says it is a new one, and says it per channel", async () => {
@@ -711,9 +786,12 @@ describe("telling a parent a code went out", () => {
     authFetch.queue("start", started("sms", "c2"));
     await user.click(resendButton());
 
-    expect(await screen.findByText(dictionary["auth.smsCodeResent"])).toBeInTheDocument();
+    const notice = await screen.findByTestId("alert-success");
+    await waitFor(() =>
+      expect(notice).toHaveTextContent(noticeText("auth.smsCodeResent", PHONE_DISPLAY)),
+    );
     // The email wording is for the email channel only.
-    expect(screen.queryByText(dictionary["auth.successCodeResent"])).not.toBeInTheDocument();
+    expect(notice).not.toHaveTextContent(noticeText("auth.successCodeResent", PHONE_DISPLAY));
   });
 
   test("a resent code on the email channel uses the email wording", async () => {
@@ -729,21 +807,24 @@ describe("telling a parent a code went out", () => {
     authFetch.queue("start", started("email", "c2"));
     await user.click(resendButton());
 
-    expect(await screen.findByText(dictionary["auth.successCodeResent"])).toBeInTheDocument();
-    expect(screen.queryByText(dictionary["auth.smsCodeResent"])).not.toBeInTheDocument();
+    const notice = await screen.findByTestId("alert-success");
+    await waitFor(() =>
+      expect(notice).toHaveTextContent(noticeText("auth.successCodeResent", EMAIL)),
+    );
+    expect(notice).not.toHaveTextContent(noticeText("auth.smsCodeResent", EMAIL));
   });
 
   test("it does not outlive the answer: a wrong code replaces it, it does not sit beside it", async () => {
     const { user } = renderLogin({ realTranslations: true });
     await startPhoneFlow(user, { send: dictionary["auth.sendCode"] });
-    await screen.findByText(dictionary["auth.smsCodeSent"]);
+    await screen.findByTestId("alert-success");
 
     authFetch.queue("verify", { status: 401, body: { ok: false, code: "bad_code", message: "nope" } });
     await user.type(screen.getByTestId("sms-code-input"), "123456");
     await user.click(screen.getByRole("button", { name: dictionary["auth.verify"] }));
 
     expect(await screen.findByText(dictionary["auth.error.badCode"])).toBeInTheDocument();
-    expect(screen.queryByText(dictionary["auth.smsCodeSent"])).not.toBeInTheDocument();
+    expect(screen.queryByTestId("alert-success")).not.toBeInTheDocument();
   });
 
   test("going back to the destination step leaves nothing from the last attempt behind", async () => {

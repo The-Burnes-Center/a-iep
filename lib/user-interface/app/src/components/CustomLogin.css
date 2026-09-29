@@ -44,43 +44,10 @@
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
-.selected-login-method {
-  background-color: #00682F !important;
-  border-color: #1E1E1E !important;
-  color: #F5F3EE !important;
-}
-
-.selected-login-method:hover {
-  background-color: #00682F !important;
-  border-color: #00682F !important;
-  color: #F5F3EE !important;
-}
-
-.unselected-login-method {
-  color: #00682F;
-  background-color: transparent;
-}
-
 /* Form control focus */
 .form-control:focus {
   border-color: #0040BA;
   box-shadow: 0 0 0 0.25rem rgba(0, 64, 186, 0.25);
-}
-
-/* Login method toggle buttons styling */
-.btn-group .btn {
-  border-radius: 0.375rem;
-  transition: all 0.3s ease;
-}
-
-.btn-group .btn:first-child {
-  border-start-end-radius: 0 !important;
-  border-end-end-radius: 0 !important;
-}
-
-.btn-group .btn:last-child {
-  border-start-start-radius: 0 !important;
-  border-end-start-radius: 0 !important;
 }
 
 .btn-outline-primary {
@@ -140,22 +107,6 @@ input[type="tel"]:focus {
   padding: 0 10px;
 }
 
-/* SMS verification info text */
-.sms-verification-info {
-  font-family: 'akzidenz-grotesk-next-pro' sans-serif;
-  font-weight: 400;
-  font-size: 0.8rem;
-  color: var(--aiep-muted);
-  text-align: center;
-  margin-bottom: 1rem;
-}
-
-/* Phone number display in verification */
-.phone-display {
-  font-weight: 600;
-  color: #0040BA;
-}
-
 /* Enhanced button styling for mobile login */
 .btn-primary[type="submit"] {
   padding: 12px 20px;
@@ -206,16 +157,6 @@ input[type="tel"]:focus {
   .email-form-container {
     width: 90%;
     padding: 0 10px;
-  }
-  
-  .btn-group {
-    width: 100%;
-  }
-  
-  .btn-group .btn {
-    flex: 1;
-    padding: 10px 8px;
-    font-size: 0.9rem;
   }
   
   .mobile-consent-text {

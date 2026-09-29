@@ -98,6 +98,11 @@ describe('pre-sign-up', () => {
             ['letters', '+1555555phone'],
             ['too short', '+1555'],
             ['leading zero after the plus', '+05555550111'],
+            // E.164, but not a NANP number: nothing could ever text it.
+            ['a +1 area code starting 0', '+10185551234'],
+            ['a +1 N11 area code', '+19115551234'],
+            ['a +1 exchange starting 0', '+12020551234'],
+            ['a +1 number one digit short', '+1617555123'],
             ['blank', '   '],
         ])('a phone number that is %s is not auto-confirmed', async (_label, phone_number) => {
             const event = await handler(signUpEvent({ phone_number }));
