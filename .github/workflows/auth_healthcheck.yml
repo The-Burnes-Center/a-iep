@@ -44,8 +44,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout code
+      # Each environment is checked with the smoke script from the branch that
+      # deployed it. Scheduled runs only ever start from main, so one checkout
+      # would check staging with main's script, and every contract change
+      # staging ships ahead of a promotion would read as staging being broken.
+      - name: Checkout main (checks production)
         uses: actions/checkout@v4
+        with:
+          ref: main
+          path: prod-src
+
+      - name: Checkout staging (checks staging)
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          path: staging-src
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -60,12 +73,15 @@ jobs:
           set -uo pipefail
           report=""
           failed=""
-          for pair in "AIEPStack production" "AIEPStagingStack staging"; do
-            set -- $pair
-            stack="$1"; env="$2"
+          for triple in "AIEPStack production prod-src" "AIEPStagingStack staging staging-src"; do
+            set -- $triple
+            stack="$1"; env="$2"; src="$3"
             echo "::group::$env"
-            out=$(bash scripts/smoke-test.sh "$stack" "$env" 2>&1)
-            rc=$?
+            # `|| rc=$?`, not a bare assignment: the step shell is `bash -e`,
+            # which aborted the whole step on the first failing environment,
+            # before the report was written or the next environment checked.
+            rc=0
+            out=$(bash "$src/scripts/smoke-test.sh" "$stack" "$env" 2>&1) || rc=$?
             echo "$out"
             echo "::endgroup::"
 
