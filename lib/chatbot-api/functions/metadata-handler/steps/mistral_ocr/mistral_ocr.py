@@ -77,6 +77,32 @@ def _content_type_for(filename):
     return _CONTENT_TYPE_BY_EXTENSION.get(f'.{extension}'.lower(), _DEFAULT_CONTENT_TYPE)
 
 
+# What the rest of the pipeline is allowed to see of Mistral's response. An
+# allowlist, because the response is not ours to keep stable: since OCR 4 every
+# page also carries `blocks`, whose `content` fields repeat the page's text a
+# second time, and there are `header`, `footer`, `tables` and
+# `document_annotation` fields that carry text whenever Mistral's defaults or
+# our request options put it there. RedactOCR rewrites `markdown` and nothing
+# else, so any other text field would reach redacted_ocr_result -- the store
+# every later step treats as safe -- with the student's name still in it.
+# `markdown` is the only page text anything downstream reads (ParsingAgent's
+# _get_page_markdown); `index` and `dimensions` carry no document text.
+_PAGE_FIELDS = ('index', 'markdown', 'dimensions')
+_RESULT_FIELDS = ('model', 'usage_info')
+
+
+def _pipeline_fields(ocr_result):
+    """The OCR response reduced to the fields the pipeline reads and redacts."""
+    pages = ocr_result.get('pages') or []
+    return {
+        **{field: ocr_result[field] for field in _RESULT_FIELDS if field in ocr_result},
+        'pages': [
+            {field: page[field] for field in _PAGE_FIELDS if field in page}
+            for page in pages
+        ],
+    }
+
+
 def _http_status_code(exc):
     """The provider's HTTP status code, if this exception carries one.
 
@@ -329,9 +355,9 @@ def process_document_with_mistral_ocr(bucket, key):
         
         ocr_response.raise_for_status()
         ocr_result = ocr_response.json()
-        
+
         logger.info(f"Successfully processed document with Mistral OCR API")
-        return ocr_result
+        return _pipeline_fields(ocr_result)
     except Exception as e:
         logger.error(f"Error calling Mistral OCR API: {str(e)}")
         return {"error": str(e), "status_code": _http_status_code(e)}

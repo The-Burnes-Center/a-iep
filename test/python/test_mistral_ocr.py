@@ -504,3 +504,124 @@ def test_the_ocr_call_names_a_pinned_model_not_an_alias(mistral_ocr_module, monk
     # (`mistral-ocr-4` follows 4.x the same way `-latest` does).
     assert not payload['model'].endswith('-latest')
     assert re.fullmatch(r'mistral-ocr-(\d{4}|\d+-\d+)', payload['model']), payload['model']
+
+
+# ---------------------------------------------------------------------------
+# Only `markdown` leaves this step as page text. The shape below is what
+# `mistral-ocr-4-1` returned for e2e/fixtures/synthetic-iep.pdf on 2026-09-29
+# with the lambda's own request options (text replaced): `blocks` is populated
+# even though the request never asks for it (include_blocks is unset), and each
+# block's `content` repeats the page text. RedactOCR rewrites `markdown` only,
+# so a second copy anywhere else would be stored as "redacted" with the
+# student's name intact.
+# ---------------------------------------------------------------------------
+
+def _ocr_4_page(index, text):
+    return {
+        'index': index,
+        'markdown': f'# Present Levels\n\n{text}',
+        'images': [],
+        'tables': [{'id': f'tbl-{index}.md', 'content': f'| {text} |'}],
+        'hyperlinks': [],
+        'header': f'Header {text}',
+        'footer': f'Footer {text}',
+        'dimensions': {'dpi': 93, 'height': 1023, 'width': 791},
+        'confidence_scores': None,
+        'blocks': [{
+            'top_left_x': 67, 'top_left_y': 36, 'bottom_right_x': 466, 'bottom_right_y': 56,
+            'content': text, 'confidence_scores': None, 'type': 'text',
+        }],
+    }
+
+
+def _ocr_4_response(text=SENTINEL):
+    return {
+        'pages': [_ocr_4_page(0, text), _ocr_4_page(1, text)],
+        'model': 'mistral-ocr-4-1',
+        'document_annotation': f'Annotation {text}',
+        'usage_info': {'pages_processed': 2, 'doc_size_bytes': 8563},
+    }
+
+
+def _ocr_sequence(ocr_body):
+    return [
+        _FakeResponse({'id': 'file-1'}),
+        _FakeResponse({'url': 'https://signed.example/x'}),
+        _FakeResponse(ocr_body),
+    ]
+
+
+def _run_ocr_returning(module, monkeypatch, ocr_body):
+    monkeypatch.setattr(module, 'requests', _RecordingRequests(_ocr_sequence(ocr_body)))
+    with mock_aws():
+        _wire_s3_object()
+        return module.process_document_with_mistral_ocr(BUCKET, KEY)
+
+
+def test_page_text_leaves_the_ocr_step_only_as_markdown(mistral_ocr_module, monkeypatch):
+    result = _run_ocr_returning(mistral_ocr_module, monkeypatch, _ocr_4_response())
+
+    for page in result['pages']:
+        assert set(page) == {'index', 'markdown', 'dimensions'}, page
+    assert 'document_annotation' not in result
+    # The one copy per page that is kept is exactly the copy RedactOCR redacts.
+    assert json.dumps(result).count(SENTINEL) == len(result['pages'])
+    assert all(SENTINEL in page['markdown'] for page in result['pages'])
+
+
+def test_the_fields_downstream_steps_read_survive_unchanged(mistral_ocr_module, monkeypatch):
+    response = _ocr_4_response(text='Alex reads 52 words per minute.')
+    result = _run_ocr_returning(mistral_ocr_module, monkeypatch, response)
+
+    assert [p['index'] for p in result['pages']] == [0, 1]
+    assert [p['markdown'] for p in result['pages']] == [p['markdown'] for p in response['pages']]
+    assert result['pages'][0]['dimensions'] == {'dpi': 93, 'height': 1023, 'width': 791}
+    assert result['model'] == 'mistral-ocr-4-1'
+    assert result['usage_info'] == {'pages_processed': 2, 'doc_size_bytes': 8563}
+
+
+def test_an_ocr_3_shaped_response_passes_through_the_same_way(mistral_ocr_module, monkeypatch):
+    # The pre-OCR-4 shape (no blocks) must not trip the reduction.
+    dimensions = {'dpi': 200, 'height': 2200, 'width': 1700}
+    response = {'pages': [{'index': 0, 'markdown': 'hi', 'images': [], 'dimensions': dimensions}],
+                'model': 'mistral-ocr-2512', 'usage_info': {'pages_processed': 1}}
+    result = _run_ocr_returning(mistral_ocr_module, monkeypatch, response)
+
+    assert result['pages'] == [{'index': 0, 'markdown': 'hi', 'dimensions': dimensions}]
+
+
+class _SavingLambdaClient:
+    """Records the payload the handler sends to the DDB service and answers 200."""
+
+    def __init__(self):
+        self.payloads = []
+
+    def invoke(self, FunctionName, InvocationType, Payload):
+        self.payloads.append(json.loads(Payload))
+        body = json.dumps({'statusCode': 200}).encode()
+        return {'Payload': SimpleNamespace(read=lambda: body)}
+
+
+def test_the_handler_saves_and_counts_the_reduced_result(handler_module, monkeypatch):
+    # The handler's own copy of the OCR module, not the mistral_ocr_module
+    # fixture's: patch the globals the function it imported actually uses.
+    ocr_globals = handler_module.process_document_with_mistral_ocr.__globals__
+    monkeypatch.setitem(ocr_globals, 'requests', _RecordingRequests(_ocr_sequence(_ocr_4_response())))
+    monkeypatch.setenv('MISTRAL_API_KEY', 'test-mistral-key')
+    lambda_client = _SavingLambdaClient()
+    real_client = boto3.client
+
+    def _client(service, *args, **kwargs):
+        return lambda_client if service == 'lambda' else real_client(service, *args, **kwargs)
+
+    event = {'iep_id': 'iep-1', 'user_id': 'user-1', 'child_id': 'child-1',
+             's3_bucket': BUCKET, 's3_key': KEY}
+    with mock_aws():
+        _wire_s3_object()
+        monkeypatch.setattr(handler_module.boto3, 'client', _client)
+        result = handler_module.lambda_handler(event, None)
+
+    assert result['page_count'] == 2
+    saved = lambda_client.payloads[0]['params']['ocr_data']
+    assert all(set(page) == {'index', 'markdown', 'dimensions'} for page in saved['pages'])
+    assert json.dumps(saved).count(SENTINEL) == 2
