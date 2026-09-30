@@ -127,3 +127,7 @@ output2.json
 # where a secret lives. Hand it to the team directly.
 /docs/HANDOFF.md
 .venv-test/
+
+# OCR evaluation harness: local venv and model caches (results and fixtures ARE committed)
+evals/ocr/.venv/
+evals/ocr/.cache/
