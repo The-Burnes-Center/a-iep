@@ -69,6 +69,14 @@ class _RecordingRequests:
     def get(self, url, **kwargs):
         return self._next('GET', url, **kwargs)
 
+    def delete(self, url, **kwargs):
+        # The cleanup DELETE always comes last. Unless a test scripts its
+        # answer, it succeeds, so the suites written before it existed keep
+        # scripting just the three calls they are about.
+        if not self._responses:
+            self._responses.append(_FakeResponse({'id': 'file-1', 'deleted': True}))
+        return self._next('DELETE', url, **kwargs)
+
 
 SUCCESSFUL_SEQUENCE = [
     _FakeResponse({'id': 'file-1'}),                       # upload
@@ -104,7 +112,8 @@ def test_every_request_call_carries_an_explicit_timeout(mistral_ocr_module, monk
         result = mistral_ocr_module.process_document_with_mistral_ocr(BUCKET, KEY)
 
     assert 'error' not in result
-    assert len(fake_requests.calls) == 3
+    # upload, signed URL, OCR, and the cleanup DELETE of the uploaded file
+    assert [c['method'] for c in fake_requests.calls] == ['POST', 'GET', 'POST', 'DELETE']
     for call in fake_requests.calls:
         timeout = call['kwargs'].get('timeout')
         assert timeout is not None, f"{call['method']} {call['url']} had no timeout"
@@ -475,3 +484,237 @@ def test_the_ocr_call_asks_for_no_images_so_a_word_document_is_accepted(
     # The pipeline reads text only, and a base64-inlined image would put
     # document content somewhere we do not want it.
     assert payload['include_image_base64'] is False, payload
+
+
+# ---------------------------------------------------------------------------
+# The OCR model is a dated id, never an alias. `mistral-ocr-latest` moved to
+# OCR 4 on 2026-06-23 and to OCR 4.1 on 2026-07-16 with no deploy on our side,
+# which changed the response shape (a new `blocks` array) and the price under
+# a production pipeline nobody had reviewed against either.
+# ---------------------------------------------------------------------------
+
+def _ocr_payload_sent(module, monkeypatch):
+    fake = _RecordingRequests(list(SUCCESSFUL_SEQUENCE))
+    monkeypatch.setattr(module, 'requests', fake)
+    with mock_aws():
+        _wire_s3_object()
+        module.process_document_with_mistral_ocr(BUCKET, KEY)
+    ocr_calls = [c for c in fake.calls if c['url'].endswith('/v1/ocr')]
+    assert len(ocr_calls) == 1, fake.calls
+    return ocr_calls[0]['kwargs']['json']
+
+
+def test_the_ocr_call_names_a_pinned_model_not_an_alias(mistral_ocr_module, monkeypatch):
+    payload = _ocr_payload_sent(mistral_ocr_module, monkeypatch)
+
+    assert payload['model'] == 'mistral-ocr-4-1'
+    assert payload['model'] == mistral_ocr_module.MISTRAL_OCR_MODEL
+    # Any alias Mistral can repoint: `-latest`, or the bare major version
+    # (`mistral-ocr-4` follows 4.x the same way `-latest` does).
+    assert not payload['model'].endswith('-latest')
+    assert re.fullmatch(r'mistral-ocr-(\d{4}|\d+-\d+)', payload['model']), payload['model']
+
+
+# ---------------------------------------------------------------------------
+# Only `markdown` leaves this step as page text. The shape below is what
+# `mistral-ocr-4-1` returned for e2e/fixtures/synthetic-iep.pdf on 2026-09-29
+# with the lambda's own request options (text replaced): `blocks` is populated
+# even though the request never asks for it (include_blocks is unset), and each
+# block's `content` repeats the page text. RedactOCR rewrites `markdown` only,
+# so a second copy anywhere else would be stored as "redacted" with the
+# student's name intact.
+# ---------------------------------------------------------------------------
+
+def _ocr_4_page(index, text):
+    return {
+        'index': index,
+        'markdown': f'# Present Levels\n\n{text}',
+        'images': [],
+        'tables': [{'id': f'tbl-{index}.md', 'content': f'| {text} |'}],
+        'hyperlinks': [],
+        'header': f'Header {text}',
+        'footer': f'Footer {text}',
+        'dimensions': {'dpi': 93, 'height': 1023, 'width': 791},
+        'confidence_scores': None,
+        'blocks': [{
+            'top_left_x': 67, 'top_left_y': 36, 'bottom_right_x': 466, 'bottom_right_y': 56,
+            'content': text, 'confidence_scores': None, 'type': 'text',
+        }],
+    }
+
+
+def _ocr_4_response(text=SENTINEL):
+    return {
+        'pages': [_ocr_4_page(0, text), _ocr_4_page(1, text)],
+        'model': 'mistral-ocr-4-1',
+        'document_annotation': f'Annotation {text}',
+        'usage_info': {'pages_processed': 2, 'doc_size_bytes': 8563},
+    }
+
+
+def _ocr_sequence(ocr_body):
+    return [
+        _FakeResponse({'id': 'file-1'}),
+        _FakeResponse({'url': 'https://signed.example/x'}),
+        _FakeResponse(ocr_body),
+    ]
+
+
+def _run_ocr_returning(module, monkeypatch, ocr_body):
+    monkeypatch.setattr(module, 'requests', _RecordingRequests(_ocr_sequence(ocr_body)))
+    with mock_aws():
+        _wire_s3_object()
+        return module.process_document_with_mistral_ocr(BUCKET, KEY)
+
+
+def test_page_text_leaves_the_ocr_step_only_as_markdown(mistral_ocr_module, monkeypatch):
+    result = _run_ocr_returning(mistral_ocr_module, monkeypatch, _ocr_4_response())
+
+    for page in result['pages']:
+        assert set(page) == {'index', 'markdown', 'dimensions'}, page
+    assert 'document_annotation' not in result
+    # The one copy per page that is kept is exactly the copy RedactOCR redacts.
+    assert json.dumps(result).count(SENTINEL) == len(result['pages'])
+    assert all(SENTINEL in page['markdown'] for page in result['pages'])
+
+
+def test_the_fields_downstream_steps_read_survive_unchanged(mistral_ocr_module, monkeypatch):
+    response = _ocr_4_response(text='Alex reads 52 words per minute.')
+    result = _run_ocr_returning(mistral_ocr_module, monkeypatch, response)
+
+    assert [p['index'] for p in result['pages']] == [0, 1]
+    assert [p['markdown'] for p in result['pages']] == [p['markdown'] for p in response['pages']]
+    assert result['pages'][0]['dimensions'] == {'dpi': 93, 'height': 1023, 'width': 791}
+    assert result['model'] == 'mistral-ocr-4-1'
+    assert result['usage_info'] == {'pages_processed': 2, 'doc_size_bytes': 8563}
+
+
+def test_an_ocr_3_shaped_response_passes_through_the_same_way(mistral_ocr_module, monkeypatch):
+    # The pre-OCR-4 shape (no blocks) must not trip the reduction.
+    dimensions = {'dpi': 200, 'height': 2200, 'width': 1700}
+    response = {'pages': [{'index': 0, 'markdown': 'hi', 'images': [], 'dimensions': dimensions}],
+                'model': 'mistral-ocr-2512', 'usage_info': {'pages_processed': 1}}
+    result = _run_ocr_returning(mistral_ocr_module, monkeypatch, response)
+
+    assert result['pages'] == [{'index': 0, 'markdown': 'hi', 'dimensions': dimensions}]
+
+
+class _SavingLambdaClient:
+    """Records the payload the handler sends to the DDB service and answers 200."""
+
+    def __init__(self):
+        self.payloads = []
+
+    def invoke(self, FunctionName, InvocationType, Payload):
+        self.payloads.append(json.loads(Payload))
+        body = json.dumps({'statusCode': 200}).encode()
+        return {'Payload': SimpleNamespace(read=lambda: body)}
+
+
+def test_the_handler_saves_and_counts_the_reduced_result(handler_module, monkeypatch):
+    # The handler's own copy of the OCR module, not the mistral_ocr_module
+    # fixture's: patch the globals the function it imported actually uses.
+    ocr_globals = handler_module.process_document_with_mistral_ocr.__globals__
+    monkeypatch.setitem(ocr_globals, 'requests', _RecordingRequests(_ocr_sequence(_ocr_4_response())))
+    monkeypatch.setenv('MISTRAL_API_KEY', 'test-mistral-key')
+    lambda_client = _SavingLambdaClient()
+    real_client = boto3.client
+
+    def _client(service, *args, **kwargs):
+        return lambda_client if service == 'lambda' else real_client(service, *args, **kwargs)
+
+    event = {'iep_id': 'iep-1', 'user_id': 'user-1', 'child_id': 'child-1',
+             's3_bucket': BUCKET, 's3_key': KEY}
+    with mock_aws():
+        _wire_s3_object()
+        monkeypatch.setattr(handler_module.boto3, 'client', _client)
+        result = handler_module.lambda_handler(event, None)
+
+    assert result['page_count'] == 2
+    saved = lambda_client.payloads[0]['params']['ocr_data']
+    assert all(set(page) == {'index', 'markdown', 'dimensions'} for page in saved['pages'])
+    assert json.dumps(saved).count(SENTINEL) == 2
+
+
+# ---------------------------------------------------------------------------
+# The uploaded original is deleted from Mistral's file storage. It is the
+# unredacted IEP, the Files API is outside Mistral's zero-data-retention
+# scope, and nothing used to delete it: the account held 190 such files when
+# this was written.
+# ---------------------------------------------------------------------------
+
+FILE_URL = 'https://api.mistral.ai/v1/files/file-1'
+
+
+def _deletes(fake):
+    return [c for c in fake.calls if c['method'] == 'DELETE']
+
+
+def _run_with(module, monkeypatch, responses):
+    fake = _RecordingRequests(responses)
+    monkeypatch.setattr(module, 'requests', fake)
+    with mock_aws():
+        _wire_s3_object()
+        result = module.process_document_with_mistral_ocr(BUCKET, KEY)
+    return fake, result
+
+
+def test_the_uploaded_file_is_deleted_after_a_successful_ocr(mistral_ocr_module, monkeypatch):
+    fake, result = _run_with(mistral_ocr_module, monkeypatch, list(SUCCESSFUL_SEQUENCE))
+
+    assert 'error' not in result
+    deletes = _deletes(fake)
+    assert [d['url'] for d in deletes] == [FILE_URL]
+    assert deletes[0]['kwargs']['headers']['Authorization'] == 'Bearer test-mistral-key'
+    assert fake.calls[-1]['method'] == 'DELETE'  # only once the OCR has answered
+
+
+@pytest.mark.parametrize('failure', [
+    [_FakeResponse({}, status_code=500)],                               # signed URL
+    [_FakeResponse({'url': 'https://signed.example/x'}),
+     _FakeResponse({}, status_code=400)],                               # OCR rejects
+    [_FakeResponse({'url': 'https://signed.example/x'}),
+     requests.exceptions.ReadTimeout('Mistral did not respond in time')],  # OCR hangs
+])
+def test_the_uploaded_file_is_deleted_when_ocr_fails_too(mistral_ocr_module, monkeypatch, failure):
+    fake, result = _run_with(
+        mistral_ocr_module, monkeypatch, [_FakeResponse({'id': 'file-1'}), *failure])
+
+    assert 'error' in result
+    assert [d['url'] for d in _deletes(fake)] == [FILE_URL]
+
+
+def test_the_ocr_error_is_still_what_the_handler_sees_after_cleanup(mistral_ocr_module, monkeypatch):
+    # The finally must not swallow or replace the status code that decides
+    # whether Step Functions retries (handler.py's OcrClientError).
+    _fake, result = _run_with(mistral_ocr_module, monkeypatch, [
+        _FakeResponse({'id': 'file-1'}),
+        _FakeResponse({'url': 'https://signed.example/x'}),
+        _FakeResponse({}, status_code=422),
+    ])
+
+    assert result['status_code'] == 422
+
+
+@pytest.mark.parametrize('delete_answer', [
+    _FakeResponse({}, status_code=500),
+    requests.exceptions.ConnectTimeout('no connection'),
+])
+def test_a_failed_delete_is_logged_and_does_not_fail_the_document(
+        mistral_ocr_module, monkeypatch, caplog, delete_answer):
+    with caplog.at_level(logging.INFO):
+        fake, result = _run_with(
+            mistral_ocr_module, monkeypatch, [*SUCCESSFUL_SEQUENCE, delete_answer])
+
+    assert result == {'pages': [{'index': 0, 'markdown': 'hi'}]}
+    assert len(_deletes(fake)) == 1
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert any('Could not delete uploaded file file-1' in m for m in errors), errors
+    assert STUDENT_NAME not in caplog.text
+
+
+def test_nothing_is_deleted_when_the_upload_itself_failed(mistral_ocr_module, monkeypatch):
+    fake, result = _run_with(mistral_ocr_module, monkeypatch, [_FakeResponse({}, status_code=413)])
+
+    assert result['status_code'] == 413
+    assert _deletes(fake) == []

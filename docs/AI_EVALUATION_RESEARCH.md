@@ -43,7 +43,7 @@ Document processing is a linear Step Functions state machine ([iep-processing.as
 ```
 Upload (presigned PUT, upload-s3/index.mjs)
   → InitializeProcessing (5%)
-  → MistralOCR (15%)              steps/mistral_ocr/          "mistral-ocr-latest"
+  → MistralOCR (15%)              steps/mistral_ocr/          "mistral-ocr-4-1"
   → RedactOCR (20%)               steps/redact_ocr/           AWS Comprehend PII
   → DeleteOriginal (22%)          steps/delete_original/      purge raw upload
   → ParallelWork (65%)

@@ -26,6 +26,20 @@ UPLOAD_READ_TIMEOUT_SECONDS = 60
 METADATA_READ_TIMEOUT_SECONDS = 30
 OCR_READ_TIMEOUT_SECONDS = 300
 
+# A dated model id, never the `mistral-ocr-latest` alias. Mistral repoints
+# the alias on its own schedule, so an alias means production changes models
+# with no deploy, no review and no release note. It did exactly that twice in
+# 2026: to OCR 4 (`mistral-ocr-4-0`) on June 23, which also added a `blocks`
+# array carrying a second copy of every page's text, and to OCR 4.1 on July 16.
+# The per-page price doubled from OCR 3's along the way. Moving to a newer model
+# is a code change here, evaluated on the synthetic fixtures first.
+#
+# 4.1 is what the alias resolved to when this was pinned (2026-09-29): its
+# output on the synthetic fixtures was byte-identical to the alias's, so the
+# pin itself changes nothing a parent sees. Model list and retirement dates:
+# https://docs.mistral.ai/getting-started/models/models_overview/
+MISTRAL_OCR_MODEL = 'mistral-ocr-4-1'
+
 # Global cache for API key (reused across Lambda invocations)
 _cached_mistral_api_key = None
 
@@ -61,6 +75,32 @@ def _content_type_for(filename):
     """The MIME type to declare for `filename` when posting it to Mistral."""
     _stem, _dot, extension = str(filename).rpartition('.')
     return _CONTENT_TYPE_BY_EXTENSION.get(f'.{extension}'.lower(), _DEFAULT_CONTENT_TYPE)
+
+
+# What the rest of the pipeline is allowed to see of Mistral's response. An
+# allowlist, because the response is not ours to keep stable: since OCR 4 every
+# page also carries `blocks`, whose `content` fields repeat the page's text a
+# second time, and there are `header`, `footer`, `tables` and
+# `document_annotation` fields that carry text whenever Mistral's defaults or
+# our request options put it there. RedactOCR rewrites `markdown` and nothing
+# else, so any other text field would reach redacted_ocr_result -- the store
+# every later step treats as safe -- with the student's name still in it.
+# `markdown` is the only page text anything downstream reads (ParsingAgent's
+# _get_page_markdown); `index` and `dimensions` carry no document text.
+_PAGE_FIELDS = ('index', 'markdown', 'dimensions')
+_RESULT_FIELDS = ('model', 'usage_info')
+
+
+def _pipeline_fields(ocr_result):
+    """The OCR response reduced to the fields the pipeline reads and redacts."""
+    pages = ocr_result.get('pages') or []
+    return {
+        **{field: ocr_result[field] for field in _RESULT_FIELDS if field in ocr_result},
+        'pages': [
+            {field: page[field] for field in _PAGE_FIELDS if field in page}
+            for page in pages
+        ],
+    }
 
 
 def _http_status_code(exc):
@@ -236,7 +276,44 @@ def process_document_with_mistral_ocr(bucket, key):
     except Exception as e:
         logger.error(f"Error uploading file to Mistral: {str(e)}")
         return {"error": f"Error uploading file to Mistral: {str(e)}", "status_code": _http_status_code(e)}
-    
+
+    try:
+        return _ocr_uploaded_file(file_id, headers, api_key)
+    finally:
+        _delete_uploaded_file(file_id, headers)
+
+
+def _delete_uploaded_file(file_id, headers):
+    """Remove the parent's original document from Mistral's file storage.
+
+    The upload is the original, unredacted IEP. Mistral's zero-data-retention
+    terms cover the stateless /v1/ocr call but say the Files API "stores
+    uploaded files and is outside the scope of ZDR"
+    (https://docs.mistral.ai/admin/monitor-comply/zero-data-retention), and
+    nothing else ever deleted it, so every upload stayed there indefinitely:
+    the copy DeleteOriginal cannot reach. Runs on success and on failure
+    alike, since a failed OCR leaves the same file behind and a retry uploads
+    a fresh one.
+
+    Best effort: the OCR result is already in hand, and failing the document
+    over a cleanup call would make the parent upload it again, leaving a
+    second copy. A failure is logged loudly with the id and status only.
+    """
+    try:
+        response = requests.delete(
+            f"https://api.mistral.ai/v1/files/{file_id}",
+            headers=headers,
+            timeout=(CONNECT_TIMEOUT_SECONDS, METADATA_READ_TIMEOUT_SECONDS)
+        )
+        response.raise_for_status()
+        logger.info(f"Deleted uploaded file from Mistral: {file_id}")
+    except Exception as e:
+        logger.error(f"Could not delete uploaded file {file_id} from Mistral: "
+                     f"{type(e).__name__} status={_http_status_code(e)}")
+
+
+def _ocr_uploaded_file(file_id, headers, api_key):
+    """Sign the uploaded file's URL and run OCR on it (steps 2 and 3)."""
     # Step 2: Get a signed URL for the uploaded file
     try:
         logger.info(f"Getting signed URL for file ID: {file_id}")
@@ -297,7 +374,7 @@ def process_document_with_mistral_ocr(bucket, key):
         # want it. 0 says "extract none", which is the same answer
         # include_image_base64 False already gives for a PDF.
         ocr_payload = {
-            "model": "mistral-ocr-latest",
+            "model": MISTRAL_OCR_MODEL,
             "document": {
                 "type": "document_url",
                 "document_url": signed_url
@@ -315,9 +392,9 @@ def process_document_with_mistral_ocr(bucket, key):
         
         ocr_response.raise_for_status()
         ocr_result = ocr_response.json()
-        
+
         logger.info(f"Successfully processed document with Mistral OCR API")
-        return ocr_result
+        return _pipeline_fields(ocr_result)
     except Exception as e:
         logger.error(f"Error calling Mistral OCR API: {str(e)}")
         return {"error": str(e), "status_code": _http_status_code(e)}
