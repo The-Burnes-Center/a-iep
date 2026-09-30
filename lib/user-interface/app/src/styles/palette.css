@@ -108,6 +108,13 @@
      patterns-blue.jpg 2.49; this puts them at 3.99 and 5.55. */
   --aiep-image-scrim-soft: rgba(30, 30, 30, 0.45);
 
+  /* Each card pattern's average colour (16x16 sample of the JPG), painted
+     under the pattern so a card waiting on its 1 MB image shows its own colour
+     under the scrim rather than the scrim over nothing, which read as grey. */
+  --aiep-pattern-green-base: #004d21;
+  --aiep-pattern-pink-base: #ff919b;
+  --aiep-pattern-blue-base: #0085da;
+
   /* ---- Accents on the page --------------------------------------------- */
   /* The gold chip that carries the child's name above the upload heading. Ink
      on it is 7.84, so the 0.9rem label clears AA with room; against the cream

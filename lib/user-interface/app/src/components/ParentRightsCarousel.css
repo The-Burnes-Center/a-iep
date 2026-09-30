@@ -89,12 +89,21 @@
   border: 1px solid #1E1E1E;
 }
 
-/* Modifier classes for different background images */
+/* Modifier classes for different background images.
+
+   Each background-color is its pattern's average colour (a 16x16 sample of
+   the JPG). The patterns are 0.6-1 MB and only start loading when their card
+   first renders, so without it the card showed the scrim alone over nothing,
+   a grey frame, before snapping to its colour. The scrim sits over this colour
+   too, so the card looks the same before and after the image arrives.
+   ParentRightsCarousel also preloads all three on mount. */
 .parent-rights-card--pink {
+  background-color: var(--aiep-pattern-pink-base);
   background-image: linear-gradient(var(--aiep-image-scrim-soft), var(--aiep-image-scrim-soft)), url('/images/patterns-pink.jpg');
 }
 
 .parent-rights-card--green {
+  background-color: var(--aiep-pattern-green-base);
   background-image: linear-gradient(var(--aiep-image-scrim-soft), var(--aiep-image-scrim-soft)), url('/images/patterns-dark-green.jpg');
 }
 
@@ -103,6 +112,7 @@
    own -- bare, its brightest pixel puts the cream h1 at 2.49:1, under the 3:1
    AA asks for at 40px. --aiep-image-scrim-soft is what carries it (5.55:1). */
 .parent-rights-card--blue {
+  background-color: var(--aiep-pattern-blue-base);
   background-image: linear-gradient(var(--aiep-image-scrim-soft), var(--aiep-image-scrim-soft)), url('/images/patterns-blue.jpg');
 }
 
@@ -253,9 +263,16 @@
 /* A divider's text block stays exactly as tall as every other slide's, even
    though it only carries the hint. Anything shorter and the whole slide
    shrinks, which moves the controls under the parent's thumb as they swipe
-   past each of the three dividers. It inherits the min-height above, so this
-   class is now only a hook: the suite asserts a divider renders no body copy
-   through it. */
+   past each of the three dividers. It inherits the min-height above; the suite
+   asserts a divider renders no body copy through it.
+
+   The hint is centred, not start-aligned like body copy: it is the only line
+   in the block, under a centred title, so start-aligned it floated alone at
+   the left edge of an empty panel and read as a stray caption. */
+.slide-rights-content--section {
+  align-items: center;
+  text-align: center;
+}
 
 
 /* Indicators styling.
