@@ -31,7 +31,7 @@
     "aws-amplify": "^6.15.1",
     "bootstrap": "^5.3.3",
     "bootstrap-icons": "^1.11.3",
-    "dompurify": "^3.4.2",
+    "dompurify": "^3.4.16",
     "file-saver": "^2.0.5",
     "html2pdf.js": "^0.14.0",
     "jspdf": "^4.2.1",
