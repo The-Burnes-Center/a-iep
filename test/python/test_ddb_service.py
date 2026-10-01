@@ -7,9 +7,11 @@ document must retain no unredacted artifacts.
 """
 import base64
 import json
+import sys
 from types import SimpleNamespace
 
 import boto3
+from botocore.exceptions import ClientError
 import pytest
 from moto import mock_aws
 
@@ -630,6 +632,93 @@ def test_a_surviving_unredacted_copy_is_reported_not_swallowed(service, monkeypa
     assert 'original-upload' in out
     # Ids and artifact kinds only. The exception text could quote content.
     assert 'S3 unavailable' not in out
+
+
+# A row that is already gone is not a kept copy. Re-uploading while a run is
+# still in flight deletes the previous document under it (see
+# _guarded_update), and on 2026-10-01 thirteen staging runs whose rows were
+# deleted mid-run each paged the critical "a failed document kept its
+# unredacted copy" alarm with nothing left anywhere.
+def test_a_row_deleted_before_the_failure_is_not_reported_as_retained(service, capsys):
+    upload_key = f'{USER}/{CHILD}/{IEP}/original.pdf'
+    raw_key = f'iep-data/{IEP}/{CHILD}/ocr_result.json'
+    service.s3.put_object(Bucket=BUCKET, Key=upload_key, Body=b'pdf')
+    service.s3.put_object(Bucket=BUCKET, Key=raw_key, Body=b'{"pages": ["raw"]}')
+
+    status, _ = op(service, 'record_failure', **IDS,
+                   error_message='OCR provider exploded', failed_step='mistral_ocr')
+
+    assert status == 200
+    assert 'UNREDACTED_ARTIFACTS_RETAINED' not in capsys.readouterr().out
+    # With no row to read, both are still found and deleted by name.
+    assert not s3_keys(service, upload_key)
+    assert not s3_keys(service, raw_key)
+    # And no phantom row was written in its place.
+    assert item(service) is None
+
+
+def test_a_row_deleted_before_the_failure_still_reports_a_real_survivor(service, monkeypatch, capsys):
+    # The other half: a missing row must not become a way to stay quiet. The
+    # replace-on-upload path logs and carries on when its own S3 delete fails,
+    # so a missing row can sit next to a surviving upload.
+    service.s3.put_object(Bucket=BUCKET, Key=f'{USER}/{CHILD}/{IEP}/original.pdf', Body=b'pdf')
+    real_client = service.module.boto3.client
+
+    def client(name, *args, **kwargs):
+        made = real_client(name, *args, **kwargs)
+        if name == 's3':
+            def refuse(**_kwargs):
+                raise ClientError({'Error': {'Code': 'AccessDenied', 'Message': 'no'}}, 'DeleteObject')
+            made.delete_object = refuse
+        return made
+
+    monkeypatch.setattr(service.module.boto3, 'client', client)
+
+    op(service, 'record_failure', **IDS, error_message='OCR provider exploded', failed_step='mistral_ocr')
+
+    out = capsys.readouterr().out
+    assert 'UNREDACTED_ARTIFACTS_RETAINED' in out
+    assert 'original-upload' in out
+    assert s3_keys(service, f'{USER}/{CHILD}/{IEP}/')
+
+
+def test_a_failed_s3_delete_is_reported_even_though_the_helper_returns_false(service, monkeypatch, capsys):
+    # delete_content_from_s3 catches every S3 error and returns False. The
+    # purge used to wrap it in try/except, which could therefore never fire: a
+    # real failed delete kept a child's raw OCR and printed no marker. Failing
+    # at the S3 client, not by making the helper raise, is the real contract.
+    seed_document(service)
+    op(service, 'save_ocr_data', **IDS, ocr_data={'pages': ['raw']})
+    content_handler = sys.modules['s3_content_handler']
+
+    def refuse(**_kwargs):
+        raise ClientError({'Error': {'Code': 'AccessDenied', 'Message': 'no'}}, 'DeleteObject')
+
+    monkeypatch.setattr(content_handler.s3_client, 'delete_object', refuse)
+
+    op(service, 'record_failure', **IDS, error_message='OCR provider exploded', failed_step='mistral_ocr')
+
+    out = capsys.readouterr().out
+    assert 'UNREDACTED_ARTIFACTS_RETAINED' in out
+    assert 'raw-ocr-object' in out
+    assert s3_keys(service, f'iep-data/{IEP}/{CHILD}/ocr_result.json')
+
+
+def test_a_row_deleted_during_cleanup_is_not_reported_as_retained(service, monkeypatch, capsys):
+    seed_document(service)
+    op(service, 'save_ocr_data', **IDS, ocr_data={'pages': ['raw']})
+
+    def row_already_gone(**_kwargs):
+        raise service.module.DocumentDeleted('row deleted mid-run')
+
+    monkeypatch.setattr(service.module, '_guarded_update', row_already_gone)
+
+    status, _ = op(service, 'record_failure', **IDS,
+                   error_message='OCR provider exploded', failed_step='mistral_ocr')
+
+    assert status == 200
+    assert 'UNREDACTED_ARTIFACTS_RETAINED' not in capsys.readouterr().out
+    assert not s3_keys(service, f'iep-data/{IEP}/{CHILD}/ocr_result.json')
 
 
 def test_one_artifact_failing_does_not_abandon_the_others(service, monkeypatch, capsys):

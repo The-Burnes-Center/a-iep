@@ -22,6 +22,7 @@ from types import SimpleNamespace
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 from moto import mock_aws
 
 from conftest import FakeLambdaClient, ScopedBoto3, load_lambda_module, unload
@@ -323,9 +324,9 @@ def test_unredacted_artifacts_are_purged_exactly_once(rig, monkeypatch):
     real_cleanup = rig.ddb_service._cleanup_unredacted_artifacts
     calls = []
 
-    def counting_cleanup(iep_id, child_id):
+    def counting_cleanup(iep_id, child_id, user_id):
         calls.append((iep_id, child_id))
-        return real_cleanup(iep_id, child_id)
+        return real_cleanup(iep_id, child_id, user_id)
 
     monkeypatch.setattr(rig.ddb_service, '_cleanup_unredacted_artifacts', counting_cleanup)
 
@@ -337,15 +338,31 @@ def test_unredacted_artifacts_are_purged_exactly_once(rig, monkeypatch):
     assert 'ocr_result' not in rig.documents.get_item(Key=KEY)['Item']
 
 
-def test_a_retained_artifact_is_reported_once_not_once_per_attempt(rig, capsys):
+def test_a_retained_artifact_is_reported_once_not_once_per_attempt(rig, monkeypatch, capsys):
     # UNREDACTED_ARTIFACTS_RETAINED has its own critical alarm at a threshold
-    # of one, so the double-write inflated that count too. Deleting the row
-    # first is the loudest retention case there is: the purge can no longer
-    # read documentUrl to find the original upload, and the REMOVE of the raw
-    # OCR attribute trips _guarded_update, so a child's unredacted upload stays
-    # in S3 and the marker is the only thing that says so.
+    # of one, so the double-write inflated that count too. The retention here
+    # is a real one: the row is gone (so the purge has to find the upload by
+    # its userId/childId/iepId/ prefix) and S3 refuses the delete, so a child's
+    # unredacted upload stays and the marker is the only thing that says so.
+    #
+    # This used to delete the row and nothing else, on the theory that a
+    # missing row meant an unreachable upload. Since the purge now deletes by
+    # prefix, a missing row on its own keeps nothing, and reporting it was the
+    # false page of 2026-10-01 (see test_ddb_service's deleted-row tests).
     seed(rig)
     rig.documents.delete_item(Key=KEY)
+    real_client = rig.ddb_service.boto3.client
+
+    def client(name, *args, **kwargs):
+        made = real_client(name, *args, **kwargs)
+        if name == 's3':
+            def refuse(**_kwargs):
+                raise ClientError({'Error': {'Code': 'AccessDenied', 'Message': 'no'}}, 'DeleteObject')
+            made.delete_object = refuse
+        return made
+
+    monkeypatch.setattr(rig.ddb_service.boto3, 'client', client)
+    monkeypatch.setenv('BUCKET', UPLOADS_BUCKET)  # deployed stacks: BUCKET is the upload bucket
 
     run_every_attempt(rig)
     run_the_catch(rig)

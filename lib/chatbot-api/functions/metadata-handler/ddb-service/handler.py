@@ -274,7 +274,7 @@ def update_progress(params):
         }, default=str)
     }
 
-def _cleanup_unredacted_artifacts(iep_id, child_id):
+def _cleanup_unredacted_artifacts(iep_id, child_id, user_id):
     """Delete the original uploaded document and raw OCR for a document.
 
     Data-retention policy: only redacted content may persist. On the happy
@@ -296,12 +296,15 @@ def _cleanup_unredacted_artifacts(iep_id, child_id):
     retained = []
     try:
         response = table.get_item(Key={'iepId': iep_id, 'childId': child_id})
-        item = response.get('Item', {})
+        item = response.get('Item')
     except Exception as error:  # noqa: BLE001 - reported, see docstring
         # Without the row the artifacts cannot even be named, let alone
         # deleted. That is the worst case, not a reason to continue quietly.
         print(f'Unredacted cleanup could not read the document record: {type(error).__name__}')
         return ['document-record-unreadable']
+
+    if item is None:
+        return _cleanup_after_row_deleted(iep_id, child_id, user_id)
 
     # Original uploaded file (documentUrl = s3://bucket/key)
     document_url = item.get('documentUrl') or ''
@@ -309,7 +312,7 @@ def _cleanup_unredacted_artifacts(iep_id, child_id):
         bucket, _, key = document_url[len('s3://'):].partition('/')
         if bucket and key:
             try:
-                delete_content_from_s3(key, bucket)
+                _delete_or_raise(key, bucket)
             except Exception as error:  # noqa: BLE001 - reported, see docstring
                 print(f'Unredacted cleanup left the original upload: {type(error).__name__}')
                 retained.append('original-upload')
@@ -318,7 +321,7 @@ def _cleanup_unredacted_artifacts(iep_id, child_id):
     s3_ref = item.get('ocr_result_s3_ref')
     if s3_ref:
         try:
-            delete_content_from_s3(s3_ref['s3Key'], s3_ref['bucket'])
+            _delete_or_raise(s3_ref['s3Key'], s3_ref['bucket'])
         except Exception as error:  # noqa: BLE001 - reported, see docstring
             print(f'Unredacted cleanup left the raw OCR object: {type(error).__name__}')
             retained.append('raw-ocr-object')
@@ -328,10 +331,69 @@ def _cleanup_unredacted_artifacts(iep_id, child_id):
             Key={'iepId': iep_id, 'childId': child_id},
             UpdateExpression="REMOVE ocr_result, ocr_result_s3_ref"
         )
+    except DocumentDeleted:
+        # The row went between the read above and this write, taking the
+        # attribute with it. Nothing is left on it to remove.
+        pass
     except Exception as error:  # noqa: BLE001 - reported, see docstring
         print(f'Unredacted cleanup left the raw OCR attribute: {type(error).__name__}')
         retained.append('raw-ocr-attribute')
 
+    return retained
+
+
+class S3DeleteFailed(Exception):
+    """delete_content_from_s3 reported a failure by returning False."""
+
+
+def _delete_or_raise(key, bucket):
+    """delete_content_from_s3, but a failure raises instead of returning False.
+
+    delete_content_from_s3 catches every S3 error and returns False, so the
+    try/except around each purge below could never see one: a delete that
+    really failed kept a child's unredacted record and reported nothing. The
+    tests that covered the reporting only passed because they made the helper
+    raise, which the real one never does.
+    """
+    if delete_content_from_s3(key, bucket) is False:
+        raise S3DeleteFailed()
+
+
+def _cleanup_after_row_deleted(iep_id, child_id, user_id):
+    """The cleanup for a document whose row is already gone.
+
+    Re-uploading mid-run deletes the previous document (see _guarded_update),
+    so this is routine. With no row there is no documentUrl to read, but the
+    names are still known: the original upload lives under the
+    userId/childId/iepId/ prefix the orchestrator requires of every upload,
+    and the raw OCR at its fixed key. Both are deleted by name, so a missing
+    row reports a kept copy only when one really is kept. Before this, every
+    deleted row reported one (thirteen pages on 2026-10-01 with nothing left
+    anywhere), while a real survivor was indistinguishable from that noise.
+
+    BUCKET is the upload bucket in every deployed stack (it is the bucket
+    whose ObjectCreated events start the orchestrator).
+    """
+    bucket = os.environ.get('BUCKET', '')
+    retained = []
+    if not user_id:
+        print('Unredacted cleanup cannot name the original upload: no user id')
+        retained.append('original-upload')
+    else:
+        try:
+            s3 = boto3.client('s3')
+            prefix = f'{user_id}/{child_id}/{iep_id}/'
+            for page in s3.get_paginator('list_objects_v2').paginate(Bucket=bucket, Prefix=prefix):
+                for obj in page.get('Contents', []):
+                    s3.delete_object(Bucket=bucket, Key=obj['Key'])
+        except Exception as error:  # noqa: BLE001 - reported, see _cleanup_unredacted_artifacts
+            print(f'Unredacted cleanup left the original upload: {type(error).__name__}')
+            retained.append('original-upload')
+    try:
+        _delete_or_raise(get_ocr_s3_key(iep_id, child_id, 'ocr_result'), bucket)
+    except Exception as error:  # noqa: BLE001 - reported, see _cleanup_unredacted_artifacts
+        print(f'Unredacted cleanup left the raw OCR object: {type(error).__name__}')
+        retained.append('raw-ocr-object')
     return retained
 
 
@@ -359,7 +421,7 @@ def record_failure(params):
     # indefinitely with the document marked FAILED, and nothing anywhere said
     # so. The marker below is watched by an alarm.
     try:
-        retained = _cleanup_unredacted_artifacts(iep_id, child_id)
+        retained = _cleanup_unredacted_artifacts(iep_id, child_id, user_id)
     except Exception as cleanup_error:  # noqa: BLE001 - the failure record wins
         print(f"Cleanup of unredacted artifacts after failure did not complete: "
               f"{type(cleanup_error).__name__}")
