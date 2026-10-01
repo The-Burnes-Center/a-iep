@@ -4,6 +4,26 @@ import os
 
 dynamodb = boto3.resource('dynamodb')
 
+# Keys under these prefixes are built from ids alone (iep-data/<iepId>/<childId>/
+# content.json and the like), so they are safe to log whole.
+_ID_ONLY_PREFIXES = ('iep-data/', 'iep-audio/')
+
+
+def _safe_key(key):
+    """An S3 key fit for CloudWatch: an upload's filename removed.
+
+    An original upload is userId/childId/iepId/<filename>, and parents
+    routinely name the file after their child, so the filename is student
+    data. Mirrors _safe_key in metadata-handler/orchestrator.py, extended to
+    keep the ids-only derived keys readable.
+    """
+    if not isinstance(key, str):
+        return '<no key>'
+    if key.startswith(_ID_ONLY_PREFIXES):
+        return key
+    head, sep, _filename = key.rpartition('/')
+    return f'{head}/...' if sep else '...'
+
 
 def _cors_response(status_code, message, extra=None):
     body = {'message': message}
@@ -43,7 +63,7 @@ def _delete_prefix(s3, bucket, prefix):
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for obj in page.get('Contents', []):
             s3.delete_object(Bucket=bucket, Key=obj['Key'])
-            print(f"Deleted S3 object: {obj['Key']}")
+            print(f"Deleted S3 object: {_safe_key(obj['Key'])}")
             deleted += 1
     return deleted
 
@@ -103,7 +123,7 @@ def lambda_handler(event, context):
     # including path-traversal-style attempts (e.g. `userId/../other/...`).
     expected_prefix = f"{user_id}/"
     if not key.startswith(expected_prefix) or '..' in key.split('/'):
-        print(f"Access denied: user {user_id} attempted to delete key {key}")
+        print(f"Access denied: user {user_id} attempted to delete key {_safe_key(key)}")
         return _cors_response(403, 'Access denied: cannot delete files belonging to other users')
 
     # childId and iepId come from the caller, so they are not trusted until the
@@ -156,9 +176,9 @@ def lambda_handler(event, context):
     try:
         s3.delete_object(Bucket=bucket, Key=key)
         objects_deleted += 1
-        print(f"Deleted S3 object: {key}")
+        print(f"Deleted S3 object: {_safe_key(key)}")
     except Exception as e:
-        print(f"Error deleting S3 object {key}: {str(e)}")
+        print(f"Error deleting S3 object {_safe_key(key)}: {type(e).__name__}")
         survived.append('raw-upload')
 
     if doc:

@@ -1510,3 +1510,19 @@ def test_add_child_capitalises_the_same_way_as_update(api):
                      body={'name': 'dhruv', 'schoolCity': 'Boston'})
     assert status in (200, 201), status
     assert _stored_child_name(api) == 'Dhruv'
+
+
+# Deleting a child or an account empties userId/childId/ in S3, which holds
+# the original uploads. Their filenames usually name the child, so the log
+# must carry the ids and never the filename.
+def test_deleting_uploads_never_logs_their_filenames(api, capsys):
+    key = f'{USER}/child-1/iep-1/Sofia Ejemplo IEP 2025.pdf'
+    api.s3.put_object(Bucket=BUCKET, Key=key, Body=b'pdf')
+
+    assert api.module._delete_prefix(api.s3, BUCKET, f'{USER}/child-1/') == 1
+    api.s3.put_object(Bucket=BUCKET, Key=key, Body=b'pdf')
+    assert api.module._delete_object_if_present(api.s3, BUCKET, key) == 1
+
+    out = capsys.readouterr().out
+    assert 'Sofia' not in out
+    assert f'{USER}/child-1/iep-1/...' in out

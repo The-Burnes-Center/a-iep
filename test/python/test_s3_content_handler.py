@@ -156,3 +156,25 @@ def test_migration_does_not_mistake_content_for_a_type_descriptor(s3_content_han
         IEP, CHILD, item, _RecordingTable())
 
     assert _stored_content(s3_content_handler.s3)['sections']['en'] == [{'content': 'Body'}]
+
+
+def test_deleting_an_upload_never_logs_its_filename(s3_content_handler, capsys):
+    # The failure purge deletes the original upload through this helper. Its
+    # key ends in the parent's filename, which usually names the child.
+    key = 'user-1/child-1/iep-1/Sofia Ejemplo IEP 2025.pdf'
+    s3_content_handler.s3.put_object(Bucket=BUCKET, Key=key, Body=b'pdf')
+
+    assert s3_content_handler.module.delete_content_from_s3(key, BUCKET) is True
+
+    out = capsys.readouterr().out
+    assert 'Sofia' not in out
+    assert 'user-1/child-1/iep-1/...' in out
+
+
+def test_ids_only_keys_stay_readable_in_the_log(s3_content_handler, capsys):
+    key = f'iep-data/{IEP}/{CHILD}/ocr_result.json'
+    s3_content_handler.s3.put_object(Bucket=BUCKET, Key=key, Body=b'{}')
+
+    s3_content_handler.module.delete_content_from_s3(key, BUCKET)
+
+    assert key in capsys.readouterr().out

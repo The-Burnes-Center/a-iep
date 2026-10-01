@@ -1042,10 +1042,30 @@ def _delete_object_if_present(s3, bucket: str, key: str) -> int:
         # from a missing ListBucket grant is indistinguishable from absent, and
         # swallowing it would report a clean purge while FERPA content stayed
         # in the bucket. Say so in the log, then delete anyway.
-        print(f"head_object on {key} failed ({code}); attempting delete anyway")
+        print(f"head_object on {_safe_key(key)} failed ({code}); attempting delete anyway")
     s3.delete_object(Bucket=bucket, Key=key)
-    print(f"Deleted S3 object: {key}")
+    print(f"Deleted S3 object: {_safe_key(key)}")
     return 1
+
+# Keys under these prefixes are built from ids alone (iep-data/<iepId>/<childId>/
+# content.json and the like), so they are safe to log whole.
+_ID_ONLY_PREFIXES = ('iep-data/', 'iep-audio/')
+
+
+def _safe_key(key):
+    """An S3 key fit for CloudWatch: an upload's filename removed.
+
+    An original upload is userId/childId/iepId/<filename>, and parents
+    routinely name the file after their child, so the filename is student
+    data. Mirrors _safe_key in metadata-handler/orchestrator.py, extended to
+    keep the ids-only derived keys readable.
+    """
+    if not isinstance(key, str):
+        return '<no key>'
+    if key.startswith(_ID_ONLY_PREFIXES):
+        return key
+    head, sep, _filename = key.rpartition('/')
+    return f'{head}/...' if sep else '...'
 
 
 def _delete_prefix(s3, bucket: str, prefix: str) -> int:
@@ -1055,7 +1075,7 @@ def _delete_prefix(s3, bucket: str, prefix: str) -> int:
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for obj in page.get('Contents', []):
             s3.delete_object(Bucket=bucket, Key=obj['Key'])
-            print(f"Deleted S3 object: {obj['Key']}")
+            print(f"Deleted S3 object: {_safe_key(obj['Key'])}")
             deleted += 1
     return deleted
 

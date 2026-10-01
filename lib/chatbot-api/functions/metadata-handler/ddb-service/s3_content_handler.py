@@ -11,6 +11,27 @@ from typing import Dict, Optional
 s3_client = boto3.client('s3')
 BUCKET_NAME = os.environ.get('BUCKET', '')
 
+# Keys under these prefixes are built from ids alone (iep-data/<iepId>/<childId>/
+# content.json and the like), so they are safe to log whole.
+_ID_ONLY_PREFIXES = ('iep-data/', 'iep-audio/')
+
+
+def _safe_key(key):
+    """An S3 key fit for CloudWatch: an upload's filename removed.
+
+    An original upload is userId/childId/iepId/<filename>, and parents
+    routinely name the file after their child, so the filename is student
+    data. Mirrors _safe_key in metadata-handler/orchestrator.py, extended to
+    keep the ids-only derived keys readable.
+    """
+    if not isinstance(key, str):
+        return '<no key>'
+    if key.startswith(_ID_ONLY_PREFIXES):
+        return key
+    head, sep, _filename = key.rpartition('/')
+    return f'{head}/...' if sep else '...'
+
+
 def get_s3_key(iep_id: str, child_id: str) -> str:
     """Generate S3 key for IEP content"""
     return f"iep-data/{iep_id}/{child_id}/content.json"
@@ -31,7 +52,7 @@ def save_content_to_s3(iep_id: str, child_id: str, content: Dict) -> Dict:
     content_json = json.dumps(content, default=str, ensure_ascii=False)
     content_bytes = content_json.encode('utf-8')
     
-    print(f"Saving content to S3: {s3_key} (size: {len(content_bytes)} bytes)")
+    print(f"Saving content to S3: {_safe_key(s3_key)} (size: {len(content_bytes)} bytes)")
     
     s3_client.put_object(
         Bucket=BUCKET_NAME,
@@ -64,7 +85,7 @@ def save_ocr_to_s3(iep_id: str, child_id: str, data_type: str, ocr_data) -> Dict
     s3_key = get_ocr_s3_key(iep_id, child_id, data_type)
     body = json.dumps(ocr_data, default=str, ensure_ascii=False).encode('utf-8')
 
-    print(f"Saving {data_type} to S3: {s3_key} (size: {len(body)} bytes)")
+    print(f"Saving {data_type} to S3: {_safe_key(s3_key)} (size: {len(body)} bytes)")
 
     s3_client.put_object(
         Bucket=BUCKET_NAME,
@@ -93,17 +114,17 @@ def get_content_from_s3(s3_key: str, bucket: str) -> Optional[Dict]:
         Content dictionary or None if error
     """
     try:
-        print(f"Retrieving content from S3: {bucket}/{s3_key}")
+        print(f"Retrieving content from S3: {bucket}/{_safe_key(s3_key)}")
         response = s3_client.get_object(Bucket=bucket, Key=s3_key)
         content_json = response['Body'].read().decode('utf-8')
         content = json.loads(content_json)
         print(f"Successfully retrieved content from S3 (size: {len(content_json)} bytes)")
         return content
     except s3_client.exceptions.NoSuchKey:
-        print(f"Content not found in S3: {s3_key}")
+        print(f"Content not found in S3: {_safe_key(s3_key)}")
         return None
     except Exception as e:
-        print(f"Error retrieving content from S3: {str(e)}")
+        print(f"Error retrieving content from S3: {type(e).__name__}")
         return None
 
 def delete_content_from_s3(s3_key: str, bucket: str) -> bool:
@@ -118,12 +139,12 @@ def delete_content_from_s3(s3_key: str, bucket: str) -> bool:
         True if successful, False otherwise
     """
     try:
-        print(f"Deleting content from S3: {bucket}/{s3_key}")
+        print(f"Deleting content from S3: {bucket}/{_safe_key(s3_key)}")
         s3_client.delete_object(Bucket=bucket, Key=s3_key)
         print(f"Successfully deleted content from S3")
         return True
     except Exception as e:
-        print(f"Error deleting content from S3: {str(e)}")
+        print(f"Error deleting content from S3: {type(e).__name__}")
         return False
 
 def clean_dynamodb_json(data):

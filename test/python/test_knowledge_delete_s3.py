@@ -218,3 +218,29 @@ def test_fails_closed_when_the_documents_table_is_not_configured(delete_s3, monk
     assert call(delete_s3, key=doc.raw_key)[0] == 500
     assert key_exists(delete_s3, doc.raw_key) is True, 'deleted anyway, then reported failure'
     assert 'DELETION_INCOMPLETE' in capsys.readouterr().out
+
+
+# A parent's filename is student data: families name the file after the
+# child. Every log line here must carry the ids and never the filename.
+NAMED_FILE = 'Sofia Ejemplo IEP 2025.pdf'
+
+
+def test_deleting_a_document_never_logs_its_filename(delete_s3, capsys):
+    key = f'{USER}/child-1/iep-1/{NAMED_FILE}'
+    delete_s3.s3.put_object(Bucket=BUCKET, Key=key, Body=b'pdf')
+
+    status, _ = call(delete_s3, key=key)
+
+    out = capsys.readouterr().out
+    assert status == 200
+    assert 'Sofia' not in out
+    assert f'{USER}/child-1/iep-1/...' in out
+
+
+def test_a_refused_key_is_logged_without_its_filename(delete_s3, capsys):
+    status, _ = call(delete_s3, key=f'someone-else/child-1/iep-1/{NAMED_FILE}')
+
+    out = capsys.readouterr().out
+    assert status == 403
+    assert 'Sofia' not in out
+    assert 'someone-else/child-1/iep-1/...' in out
