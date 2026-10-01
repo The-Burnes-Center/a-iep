@@ -3,7 +3,7 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import * as kms from 'aws-cdk-lib/aws-kms';
-import { getEnvironment } from '../../tags';
+import { getEnvironment, getMetricNamespace } from '../../tags';
 
 export interface LogEvent {
   timestamp: string;
@@ -106,7 +106,7 @@ export class LoggingStack extends Construct {
     this.logGroup.addMetricFilter('PIIAccessFilter', {
       filterPattern: logs.FilterPattern.stringValue('$.compliance.dataClassification', '=', 'PII'),
       metricName: 'PIIAccessCount',
-      metricNamespace: 'AI-IEP/Logs',
+      metricNamespace: getMetricNamespace('Logs'),
       metricValue: '1'
     });
 
@@ -114,7 +114,7 @@ export class LoggingStack extends Construct {
     this.logGroup.addMetricFilter('DocumentAccessFilter', {
       filterPattern: logs.FilterPattern.stringValue('$.resourceType', '=', 'DOCUMENT'),
       metricName: 'DocumentAccessCount',
-      metricNamespace: 'AI-IEP/Logs',
+      metricNamespace: getMetricNamespace('Logs'),
       metricValue: '1'
     });
 
@@ -122,7 +122,7 @@ export class LoggingStack extends Construct {
     this.logGroup.addMetricFilter('AuthFailureFilter', {
       filterPattern: logs.FilterPattern.stringValue('$.eventType', '=', 'AUTH_FAILURE'),
       metricName: 'AuthFailureCount',
-      metricNamespace: 'AI-IEP/Logs',
+      metricNamespace: getMetricNamespace('Logs'),
       metricValue: '1'
     });
   }

@@ -11,7 +11,7 @@ import * as ses from 'aws-cdk-lib/aws-ses';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as path from 'path';
-import { getEnvironment, getResourceName, tagResource } from '../../tags';
+import { getEnvironment, getMetricNamespace, getResourceName, tagResource } from '../../tags';
 import { createIepDataDenyStatement } from '../security';
 import type { Severity } from '../monitoring/monitoring';
 
@@ -433,7 +433,7 @@ export class EmailIdentityStack extends Construct {
    * place. That is the reason wireSender exists.
    */
   private addSendPathAlarms(fn: lambda.Function): void {
-    const metricNamespace = 'AI-IEP/Email';
+    const metricNamespace = getMetricNamespace('Email');
 
     const markerMetric = (id: string, marker: string, metricName: string) => {
       new logs.MetricFilter(this, id, {
@@ -721,7 +721,7 @@ export class EmailIdentityStack extends Construct {
    * only discovered later, as a suspension.
    */
   private addHandlerAlarms(alarmTopic: sns.ITopic): void {
-    const metricNamespace = 'AI-IEP/Email';
+    const metricNamespace = getMetricNamespace('Email');
 
     // Marker, not prose. A metric filter reads this exact string, so
     // rewording the log line disarms the alarm without failing anything;

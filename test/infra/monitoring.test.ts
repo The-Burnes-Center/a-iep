@@ -130,6 +130,15 @@ function synth(environment: string): Template {
   }
 }
 
+/**
+ * The namespace an environment's custom metrics must live in. Spelled out
+ * here rather than imported from lib/tags.ts, so a change to the helper that
+ * put staging back on prod's series fails this file instead of agreeing with it.
+ */
+function ns(environment: string, area: 'Auth' | 'Email' | 'Logs' | 'Pipeline'): string {
+  return environment === 'production' ? `AI-IEP/${area}` : `AI-IEP/${area}/staging`;
+}
+
 /** All alarms in the template as plain property objects. */
 function alarmsOf(template: Template): Record<string, any>[] {
   return Object.values(template.findResources('AWS::CloudWatch::Alarm')).map(
@@ -316,7 +325,7 @@ describe.each([
       MetricTransformations: Match.arrayWith([
         Match.objectLike({
           MetricName: 'DocumentFailures',
-          MetricNamespace: 'AI-IEP/Pipeline',
+          MetricNamespace: ns(environment, 'Pipeline'),
         }),
       ]),
     });
@@ -488,7 +497,7 @@ describe('OCR text that should have been deleted and was not', () => {
         MetricTransformations: Match.arrayWith([
           Match.objectLike({
             MetricName: 'OcrPurgeFailed',
-            MetricNamespace: 'AI-IEP/Pipeline',
+            MetricNamespace: ns(environment, 'Pipeline'),
           }),
         ]),
       });
@@ -522,7 +531,7 @@ describe('unredacted copies surviving a failed document', () => {
         MetricTransformations: Match.arrayWith([
           Match.objectLike({
             MetricName: 'UnredactedArtifactsRetained',
-            MetricNamespace: 'AI-IEP/Pipeline',
+            MetricNamespace: ns(environment, 'Pipeline'),
           }),
         ]),
       });
@@ -552,7 +561,7 @@ describe('the signup endpoint is watched at all', () => {
       synth(environment).hasResourceProperties('AWS::Logs::MetricFilter', {
         FilterPattern: marker,
         MetricTransformations: Match.arrayWith([
-          Match.objectLike({ MetricName: metricName, MetricNamespace: 'AI-IEP/Auth' }),
+          Match.objectLike({ MetricName: metricName, MetricNamespace: ns(environment, 'Auth') }),
         ]),
       });
     }
@@ -590,7 +599,7 @@ describe('the SMS send path is watched through log markers', () => {
       template.hasResourceProperties('AWS::Logs::MetricFilter', {
         FilterPattern: marker,
         MetricTransformations: Match.arrayWith([
-          Match.objectLike({ MetricName: metricName, MetricNamespace: 'AI-IEP/Auth' }),
+          Match.objectLike({ MetricName: metricName, MetricNamespace: ns(environment, 'Auth') }),
         ]),
       });
     }
@@ -868,7 +877,7 @@ describe('undelivered login codes', () => {
     const alarm = smsAlarm('accepted and then not delivered', environment);
 
     expect(alarm).toBeDefined();
-    expect(alarm.Namespace).toBe('AI-IEP/Auth');
+    expect(alarm.Namespace).toBe(ns(environment, 'Auth'));
     expect(alarm.MetricName).toBe('SmsDeliveryFailed');
     expect(alarm.Dimensions).toEqual([{ Name: 'Environment', Value: envValue }]);
 
@@ -877,7 +886,7 @@ describe('undelivered login codes', () => {
       .find((p: any) => String(p.Description).includes('Attributes undelivered SMS'));
     // The lambda must write the value the alarm reads.
     expect(fn.Environment.Variables.ENVIRONMENT).toBe(envValue);
-    expect(fn.Environment.Variables.METRIC_NAMESPACE).toBe('AI-IEP/Auth');
+    expect(fn.Environment.Variables.METRIC_NAMESPACE).toBe(ns(environment, 'Auth'));
   });
 
   // The regression test for the 2026-09-16 false page.
@@ -1106,5 +1115,37 @@ describe('failure-count alarms carry the marker the formatter reads', () => {
       .find((p: any) => String(p.AlarmName).includes(fragment));
     expect(alarm).toBeDefined();
     expect(alarm.AlarmDescription).not.toContain('[failures]');
+  });
+});
+
+// Staging and prod share one account and region. A log metric filter cannot
+// stamp a literal Environment dimension, so the only separation is the
+// namespace. On 2026-10-01 both stacks wrote AI-IEP/Pipeline, and thirteen
+// staging test runs paged prod's "a failed document kept its unredacted copy"
+// (and two more prod alarms) with nothing wrong in prod. 20 of the 21 prod
+// alarms on our own metrics read a series staging also wrote.
+describe('staging cannot page prod', () => {
+  const seriesWrittenByFilters = (template: Template): Set<string> =>
+    new Set(Object.values(template.findResources('AWS::Logs::MetricFilter')).flatMap((r: any) =>
+      r.Properties.MetricTransformations.map(
+        (m: any) => `${m.MetricNamespace} ${m.MetricName}`)));
+
+  test('no metric series is written by both environments', () => {
+    const prod = seriesWrittenByFilters(synth('production'));
+    const staging = seriesWrittenByFilters(synth('staging'));
+
+    expect(prod.size).toBeGreaterThan(20);
+    expect(staging.size).toBeGreaterThan(20);
+    expect([...staging].filter((series) => prod.has(series))).toEqual([]);
+  });
+
+  test('no prod alarm reads a series a staging filter writes', () => {
+    const staging = seriesWrittenByFilters(synth('staging'));
+    const prodAlarms = alarmsOf(synth('production'))
+      .filter((a) => String(a.Namespace ?? '').startsWith('AI-IEP/'));
+
+    expect(prodAlarms.length).toBeGreaterThan(20);
+    expect(prodAlarms.filter((a) => staging.has(`${a.Namespace} ${a.MetricName}`))
+      .map((a) => a.MetricName)).toEqual([]);
   });
 });
