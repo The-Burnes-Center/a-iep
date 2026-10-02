@@ -6,7 +6,13 @@ import os
 import boto3
 import traceback
 from translation_agent import OptimizedTranslationAgent, _safe_error_summary
-from student_token import count_tokens, verify_token_survived
+from student_token import check_token, count_tokens
+
+# Model runs per language before a translation that keeps losing the student
+# placeholder is left out. A fresh run usually keeps it; the step used to fail
+# the whole document instead, English included, after Step Functions retried
+# every language four times (2026-10-02: one family, Spanish, 11 of 12 kept).
+STUDENT_TOKEN_ATTEMPTS = 2
 
 # Only non-sensitive metadata is safe to log. These events can carry
 # FERPA-protected document content (OCR text, parsed sections, translated
@@ -185,26 +191,41 @@ def lambda_handler(event, context):
         expected_student_tokens = count_tokens(source_result)
         print(f"Student placeholders in source content: {expected_student_tokens}")
 
+        # Languages left out because every attempt lost the student placeholder.
+        # Reported separately from a model error: the state machine delivers
+        # English for these (the parent is offered "Translate it now" for the
+        # missing language), whereas no language at all for any other reason
+        # still fails the document.
+        skipped = []
+
         for lang in target_languages:
             print(f"Translating {content_type} to {lang} using optimized agent framework")
-            
-            # Use optimized agent-based translation for better quality and tool usage
-            translated_content = optimized_agent.translate_content_with_agent(
-                source_result, 
-                lang, 
-                content_type=content_type
-            )
-            
+
+            for attempt in range(1, STUDENT_TOKEN_ATTEMPTS + 1):
+                # Use optimized agent-based translation for better quality and tool usage
+                translated_content = optimized_agent.translate_content_with_agent(
+                    source_result,
+                    lang,
+                    content_type=content_type
+                )
+                if "error" in translated_content:
+                    break
+                # A run that lost the placeholder is never stored: it is a
+                # summary that calls the child by no name or an invented one.
+                survived, found, mangled = check_token(expected_student_tokens, translated_content)
+                if survived:
+                    break
+                # Counts and the language only, never the translated text.
+                print(f"STUDENT_TOKEN_LOST lang={lang} attempt={attempt}/{STUDENT_TOKEN_ATTEMPTS} "
+                      f"expected={expected_student_tokens} found={found} mangled={mangled}")
+            else:
+                print(f"TRANSLATION_SKIPPED lang={lang} reason=student_token")
+                skipped.append(lang)
+                continue
+
             if "error" in translated_content:
                 print(f"Translation to {lang} failed: {translated_content['error']}")
                 continue
-
-            # Raises, so a run that lost the placeholder is never stored. Not
-            # treated like the model error above (skip the language, carry on):
-            # a skipped language is missing, which the state machine can see,
-            # while a translation with the placeholder gone is a summary that
-            # silently calls the child by no name or an invented one.
-            verify_token_survived(expected_student_tokens, translated_content, lang)
 
             translations[lang] = translated_content
             print(f"Translation to {lang} completed successfully using optimized agent framework")
@@ -330,7 +351,8 @@ def lambda_handler(event, context):
             **event_copy,
             result_key: translations,
             f'{content_type}_translation_completed': bool(translations),
-            'languages_processed': list(translations.keys())
+            'languages_processed': list(translations.keys()),
+            'languages_skipped': skipped,
         }
         
     except Exception as e:

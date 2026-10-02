@@ -326,6 +326,7 @@ export class MonitoringStack extends Construct {
 
     this.addDocumentFailureAlarm(props.ddbServiceFunction);
     this.addPipelineStepAlarms(props.pipelineFunctions);
+    this.addTranslationSkippedAlarm(props.pipelineFunctions);
     this.addAuthAlarms(props.authTriggerFunctions);
     this.addAuthDurationAlarms(props.authTriggerFunctions);
     this.addApiAlarms(props.apiFunctions, props.httpApi);
@@ -793,6 +794,51 @@ export class MonitoringStack extends Construct {
       // One failed document clears 15 minutes later on its own; that parent
       // still has no summary.
       countsFailures: true,
+    });
+  }
+
+  /**
+   * A requested language left out of a finished document.
+   *
+   * translate_content leaves a language out when every attempt lost the
+   * student placeholder, and the document still finishes in English: the app
+   * offers the parent "Translate it now" for the missing language. That is
+   * the right outcome for the family, and it is also invisible to every other
+   * alarm here (the step succeeds, the run succeeds), so this marker is the
+   * only way the team learns a family did not get the language they asked for.
+   */
+  private addTranslationSkippedAlarm(fns: MonitoredFunction[]): void {
+    const translation = fns.find(({ label }) => label === 'translation');
+    if (!translation) return;
+    const metricNamespace = getMetricNamespace('Pipeline');
+
+    new logs.MetricFilter(this, 'TranslationSkippedFilter', {
+      logGroup: translation.fn.logGroup,
+      // "TRANSLATION_SKIPPED lang=<code> reason=student_token". Language code
+      // only, never content.
+      filterPattern: logs.FilterPattern.literal('TRANSLATION_SKIPPED'),
+      metricNamespace,
+      metricName: 'TranslationSkipped',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
+    this.alarm('TranslationSkippedAlarm', {
+      severity: 'medium',
+      name: 'a family got English only: a requested translation was left out',
+      description:
+        'A translation kept losing the child\'s name placeholder, so it was ' +
+        'not saved. The family has the English summary and is offered ' +
+        '"Translate it now"; if they do not use it, they never get their language.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'TranslationSkipped',
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(15),
+      }),
+      // One family is enough to want to know about.
+      threshold: 1,
+      evaluationPeriods: 1,
     });
   }
 

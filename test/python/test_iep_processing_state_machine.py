@@ -47,8 +47,12 @@ def test_translate_parsing_result_narrows_to_languages_processed_only(states):
     # FERPA-protected document content in the console. Only the one field the
     # guard needs is kept, mirroring single-language-translation.asl.json's
     # TranslateRequestedLanguage state.
+    #
+    # languages_skipped (2026-10-02) is the second field kept: like the
+    # first, it is a list of language codes, never content.
     task = states['TranslateParsingResult']
-    assert task['ResultSelector'] == {'languages_processed.$': '$.languages_processed'}
+    assert task['ResultSelector'] == {'languages_processed.$': '$.languages_processed',
+                                      'languages_skipped.$': '$.languages_skipped'}
 
 
 def test_translate_parsing_result_routes_through_the_verification_gate(states):
@@ -64,10 +68,16 @@ def test_verify_language_produced_gate_exists_and_is_wired_correctly(states):
     assert gate['Type'] == 'Choice'
 
     choices = gate['Choices']
-    assert len(choices) == 1
+    assert len(choices) == 2
     assert choices[0]['Variable'] == '$.translation_result.languages_processed[0]'
     assert choices[0]['IsPresent'] is True
     assert choices[0]['Next'] == 'UpdateTranslationProgress'
+    # A language left out because it kept losing the student placeholder
+    # still delivers English (the app offers "Translate it now"); that is the
+    # only other way through. A model error leaves both lists empty.
+    assert choices[1]['Variable'] == '$.translation_result.languages_skipped[0]'
+    assert choices[1]['IsPresent'] is True
+    assert choices[1]['Next'] == 'UpdateTranslationProgress'
 
     # A total failure must route to record_failure, not quietly proceed.
     assert gate['Default'] != 'UpdateTranslationProgress'
@@ -300,3 +310,34 @@ def test_the_no_translation_branch_still_reaches_the_end(states):
     assert len(translating) == 1
     assert translating[0]['BooleanEquals'] is True
     assert translating[0]['Next'] == 'TranslateParsingResult'
+
+
+def test_only_processed_or_skipped_languages_open_the_gate(states):
+    # The gate's whole contract, evaluated the way Step Functions would: one
+    # of the two lists must have a first element, or the run fails.
+    gate = states['VerifyLanguageProduced']
+
+    def route(translation_result):
+        for choice in gate['Choices']:
+            field = choice['Variable'].removeprefix('$.translation_result.').removesuffix('[0]')
+            if translation_result.get(field):
+                return choice['Next']
+        return gate['Default']
+
+    assert route({'languages_processed': ['es'], 'languages_skipped': []}) == 'UpdateTranslationProgress'
+    assert route({'languages_processed': [], 'languages_skipped': ['es']}) == 'UpdateTranslationProgress'
+    assert route({'languages_processed': [], 'languages_skipped': []}) == 'NoLanguageProducedForTranslateParsingResult'
+
+
+def test_the_on_demand_machine_still_fails_a_skipped_language(states):
+    # "Translate it now" is the parent's retry. There a skipped language must
+    # surface as a failed request they can try again, so that machine keeps
+    # reading languages_processed only.
+    import json, os
+    path = os.path.join(os.path.dirname(__file__), '..', '..', 'lib', 'chatbot-api',
+                        'state-machines', 'single-language-translation.asl.json')
+    single = json.load(open(path))['States']
+    assert single['TranslateRequestedLanguage']['ResultSelector'] == {
+        'languages_processed.$': '$.languages_processed'}
+    assert [c['Variable'] for c in single['VerifyLanguageProduced']['Choices']] == [
+        '$.translation_result.languages_processed[0]']

@@ -55,6 +55,7 @@ const EXPECTED_ALARM_SUFFIXES = [
   'a failed document kept its unredacted copy',
   'a document kept text we said we would delete',
   'a parent asked us to delete their records and we did not',
+  'a family got English only: a requested translation was left out',
   // The signup endpoint. It is the ONLY way to create an account, because
   // Cognito's public SignUp API is closed, and for its first day it had no
   // alarm of any kind: not in pipelineFunctions, not in authTriggerFunctions,
@@ -1147,5 +1148,29 @@ describe('staging cannot page prod', () => {
     expect(prodAlarms.length).toBeGreaterThan(20);
     expect(prodAlarms.filter((a) => staging.has(`${a.Namespace} ${a.MetricName}`))
       .map((a) => a.MetricName)).toEqual([]);
+  });
+});
+
+
+// A language left out of a finished document is invisible to every other
+// alarm: the step and the run both succeed, and the family has English. The
+// marker is the only signal, so the filter must read the translation lambda
+// and the alarm must fire on a single occurrence.
+describe('a requested translation left out of a finished document', () => {
+  test.each(['production', 'staging'])('%s counts TRANSLATION_SKIPPED from the translation lambda and pages on one', (environment) => {
+    const template = synth(environment);
+    const filters = Object.values(template.findResources('AWS::Logs::MetricFilter'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => p.FilterPattern === 'TRANSLATION_SKIPPED');
+    expect(filters).toHaveLength(1);
+    expect(filters[0].MetricTransformations).toEqual([
+      expect.objectContaining({ MetricName: 'TranslationSkipped', MetricNamespace: ns(environment, 'Pipeline') }),
+    ]);
+    expect(JSON.stringify(filters[0].LogGroupName)).toMatch(/TranslateContent/);
+
+    const alarm = alarmsOf(template).find((a) => a.MetricName === 'TranslationSkipped');
+    expect(alarm).toBeDefined();
+    expect(alarm!.Namespace).toBe(ns(environment, 'Pipeline'));
+    expect(alarm!.Threshold).toBe(1);
   });
 });

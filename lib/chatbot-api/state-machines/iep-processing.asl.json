@@ -502,7 +502,8 @@
         "content_type": "parsing_result"
       },
       "ResultSelector": {
-        "languages_processed.$": "$.languages_processed"
+        "languages_processed.$": "$.languages_processed",
+        "languages_skipped.$": "$.languages_skipped"
       },
       "ResultPath": "$.translation_result",
       "Retry": [
@@ -528,10 +529,15 @@
     },
     "VerifyLanguageProduced": {
       "Type": "Choice",
-      "Comment": "translate_content swallows a per-language translation error (it logs and continues), then saves whatever succeeded and returns languages_processed: []. Without this check the document would be marked PROCESSED with every requested language missing and no failure recorded anywhere. Mirrors single-language-translation.asl.json's state of the same name; that machine's own comment describes this exact defect. Only total failure is caught here: a partial failure (some but not all requested languages) still passes, same as the single-language precedent.",
+      "Comment": "translate_content swallows a per-language translation error (it logs and continues), then saves whatever succeeded and returns languages_processed: []. Without this check the document would be marked PROCESSED with every requested language missing and no failure recorded anywhere. Mirrors single-language-translation.asl.json's state of the same name; that machine's own comment describes this exact defect. Only total failure is caught here: a partial failure (some but not all requested languages) still passes, same as the single-language precedent. A language listed in languages_skipped is one whose every attempt lost the student placeholder; it is not stored, and the document still finishes in English, where the app offers the parent \"Translate it now\" for the missing language and TRANSLATION_SKIPPED pages. No language for any other reason (a model error) still fails the document, as before.",
       "Choices": [
         {
           "Variable": "$.translation_result.languages_processed[0]",
+          "IsPresent": true,
+          "Next": "UpdateTranslationProgress"
+        },
+        {
+          "Variable": "$.translation_result.languages_skipped[0]",
           "IsPresent": true,
           "Next": "UpdateTranslationProgress"
         }
