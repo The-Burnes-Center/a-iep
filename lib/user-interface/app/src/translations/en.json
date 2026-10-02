@@ -288,6 +288,7 @@
     "auth.errorSessionExpired": "Session expired. Please start over.",
     "auth.errorPhoneFormat": "Please enter a valid 10-digit US phone number",
     "auth.errorPhoneNotReal": "That doesn't look like a real US phone number. Please check the area code and number.",
+    "auth.errorPhoneNotUs": "A-IEP can only send codes to US phone numbers. You can sign in with your email address instead.",
     "auth.errorPhoneRequired": "Enter your phone number to get a code.",
     "auth.errorEmailRequired": "Enter your email address to get a code.",
     "auth.errorEmailFormat": "Enter a valid email address, like name@example.com.",
