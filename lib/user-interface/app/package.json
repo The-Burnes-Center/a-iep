@@ -31,7 +31,7 @@
     "aws-amplify": "^6.15.1",
     "bootstrap": "^5.3.3",
     "bootstrap-icons": "^1.11.3",
-    "dompurify": "^3.4.2",
+    "dompurify": "^3.4.16",
     "file-saver": "^2.0.5",
     "html2pdf.js": "^0.14.0",
     "jspdf": "^4.2.1",
@@ -96,6 +96,9 @@
       "ajv": "^6.12.6"
     },
     "picomatch": "^2.3.2",
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^9.0.7"
+    },
     "rollup": "^4.59.0",
     "yaml": "^2.8.1"
   }
