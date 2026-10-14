@@ -14,8 +14,8 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from conftest import (FakeLambdaClient, ScopedBoto3, load_lambda_module,
-                      unload)
+from conftest import (FakeLambdaClient, ScopedBoto3, create_versioned_bucket,
+                      load_lambda_module, retrievable_versions, unload)
 
 PROFILES_TABLE = 'profiles-test'
 DOCUMENTS_TABLE = 'documents-test'
@@ -79,7 +79,7 @@ def api(monkeypatch):
             BillingMode='PAY_PER_REQUEST',
         )
         s3 = boto3.client('s3', region_name='us-east-1')
-        s3.create_bucket(Bucket=BUCKET)
+        create_versioned_bucket(s3, BUCKET)
         kms = boto3.client('kms', region_name='us-east-1')
         key_id = kms.create_key()['KeyMetadata']['KeyId']
         kms.create_alias(AliasName=KMS_ALIAS, TargetKeyId=key_id)
@@ -1510,3 +1510,47 @@ def test_add_child_capitalises_the_same_way_as_update(api):
                      body={'name': 'dhruv', 'schoolCity': 'Boston'})
     assert status in (200, 201), status
     assert _stored_child_name(api) == 'Dhruv'
+
+
+# Deleting a child or an account empties userId/childId/ in S3, which holds
+# the original uploads. Their filenames usually name the child, so the log
+# must carry the ids and never the filename.
+def test_deleting_uploads_never_logs_their_filenames(api, capsys):
+    key = f'{USER}/child-1/iep-1/Sofia Ejemplo IEP 2025.pdf'
+    api.s3.put_object(Bucket=BUCKET, Key=key, Body=b'pdf')
+
+    assert api.module._delete_prefix(api.s3, BUCKET, f'{USER}/child-1/') == 1
+    api.s3.put_object(Bucket=BUCKET, Key=key, Body=b'pdf')
+    assert api.module._delete_object_if_present(api.s3, BUCKET, key) == 1
+
+    out = capsys.readouterr().out
+    assert 'Sofia' not in out
+    assert f'{USER}/child-1/iep-1/...' in out
+
+
+# Account and child deletion must leave nothing retrievable by version id.
+# The bucket is versioned, so the old plain deletes left every original,
+# summary and mp3 behind a delete marker for 1 to 3 more days.
+def _seed_everything(api):
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'S'}})
+    put_audio(api)
+    api.s3.put_object(Bucket=BUCKET, Key=f'{USER}/child-1/iep-1/original.pdf', Body=b'pdf')
+    api.s3.put_object(Bucket=BUCKET, Key='iep-data/iep-1/child-1/redacted_ocr_result.json',
+                      Body=b'{"redacted": "text"}')
+
+
+def test_account_deletion_leaves_no_retrievable_version(api):
+    _seed_everything(api)
+
+    assert call(api, '/profile', 'DELETE')[0] == 200
+
+    assert retrievable_versions(api.s3, BUCKET) == set()
+
+
+def test_child_deletion_leaves_no_retrievable_version(api):
+    _seed_everything(api)
+
+    assert call(api, '/profile/children/child-1/documents', 'DELETE')[0] == 200
+
+    assert retrievable_versions(api.s3, BUCKET) == set()

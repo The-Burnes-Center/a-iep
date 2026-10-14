@@ -53,6 +53,13 @@ def count_mangled_tokens(content):
                for text in _strings(content))
 
 
+def check_token(expected, translated_content):
+    """(survived, found, mangled) for one translation. Counts only, never text."""
+    found = count_tokens(translated_content)
+    mangled = count_mangled_tokens(translated_content)
+    return (not expected) or (found >= expected and not mangled), found, mangled
+
+
 def verify_token_survived(expected, translated_content, target_language):
     """Raise unless this translation kept every student placeholder intact.
 
@@ -61,11 +68,8 @@ def verify_token_survived(expected, translated_content, target_language):
     a fresh model run, which usually is enough), and persistent failure routes
     to RecordFailure rather than storing the run.
     """
-    if not expected:
-        return
-    found = count_tokens(translated_content)
-    mangled = count_mangled_tokens(translated_content)
-    if found >= expected and not mangled:
+    survived, found, mangled = check_token(expected, translated_content)
+    if survived:
         return
     # Counts and the language only. The values these counts came from are a
     # translated summary of a child's IEP.

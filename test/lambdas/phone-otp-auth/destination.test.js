@@ -4,12 +4,15 @@
  * destination A-IEP will not send to has to be stopped: it is the only check
  * that costs nothing, and every later one costs a round trip.
  */
+const fs = require('fs');
+const path = require('path');
 const {
     classifyDestination,
     destinationKey,
     isTestAddress,
     phoneNumberProblem,
     FICTIONAL_TEST_EMAIL,
+    NANP_OUTSIDE_US,
 } = require('../../../lib/chatbot-api/functions/phone-otp-auth/destination');
 
 /**
@@ -94,6 +97,79 @@ describe('phoneNumberProblem: the NANP rule for +1 numbers', () => {
         for (const value of ['+15555550111', '+15555550120', '+15555550123']) {
             expect(classifyDestination(value)).toEqual({ ok: true, channel: 'sms', value });
         }
+    });
+});
+
+/**
+ * A-IEP texts US numbers only. +1 also covers Canada and the Caribbean, so the
+ * area code decides, and US territories must keep working.
+ */
+describe('phoneNumberProblem: +1 numbers outside the United States', () => {
+    beforeEach(() => {
+        delete process.env.AUTH_ALLOWED_COUNTRY_CODES;
+    });
+
+    test.each([
+        ['Jamaica', '+18765551234'],
+        ['Trinidad and Tobago', '+18685551234'],
+        ['Saint Lucia', '+17585551234'],
+        ['the Bahamas', '+12425551234'],
+        ['the Dominican Republic', '+18095551234'],
+        ['Bermuda', '+14415551234'],
+        ['Toronto', '+14165551234'],
+        ['Vancouver', '+16045551234'],
+        ['a Canadian non-geographic code', '+16005551234'],
+    ])('%s is refused (%s)', (_label, value) => {
+        expect(phoneNumberProblem(value)).toBe('nanp-outside-us');
+    });
+
+    test.each([
+        ['Puerto Rico', '+17875551234'],
+        ['Puerto Rico overlay', '+19395551234'],
+        ['the US Virgin Islands', '+13405551234'],
+        ['Guam', '+16715551234'],
+        ['the Northern Mariana Islands', '+16705551234'],
+        ['American Samoa', '+16845551234'],
+        ['Boston', '+16175551234'],
+        ['Washington, DC', '+12025551234'],
+    ])('%s is a US number (%s)', (_label, value) => {
+        expect(phoneNumberProblem(value)).toBeNull();
+        expect(classifyDestination(value)).toEqual({ ok: true, channel: 'sms', value });
+    });
+
+    test('no US territory is on the refused list', () => {
+        for (const code of ['787', '939', '340', '671', '670', '684']) {
+            expect(NANP_OUTSIDE_US.has(code)).toBe(false);
+        }
+    });
+
+    test('the frontend refuses exactly the same area codes', () => {
+        // us-phone.ts mirrors this list so a parent is told on the sign-in
+        // screen. If the two drift, a parent is either refused locally for a
+        // number the service would text, or sent to a server error instead.
+        const source = fs.readFileSync(path.join(__dirname, '../../../lib/user-interface/app/src/common/us-phone.ts'), 'utf8');
+        const literal = source.match(/NANP_OUTSIDE_US[^=]*=\s*new Set\(\[([\s\S]*?)\]\)/);
+        expect(literal).not.toBeNull();
+        const frontend = literal[1].match(/'(\d{3})'/g).map((code) => code.slice(1, -1));
+        expect(frontend).toHaveLength(new Set(frontend).size);
+        expect([...frontend].sort()).toEqual([...NANP_OUTSIDE_US].sort());
+    });
+
+    test('every refused code is a well-formed area code', () => {
+        for (const code of NANP_OUTSIDE_US) {
+            expect(code).toMatch(/^[2-9]\d{2}$/);
+            expect(code).not.toMatch(/^[2-9]11$/);
+        }
+    });
+
+    test('classifyDestination calls it unsupported, not invalid: the number is real', () => {
+        expect(classifyDestination('+18765551234')).toEqual({
+            ok: false, code: 'unsupported_destination', detail: 'nanp-outside-us',
+        });
+    });
+
+    test('the reason marker never carries a digit of the number', () => {
+        expect(phoneNumberProblem('+18765551234')).not.toMatch(/\d/);
     });
 });
 

@@ -77,3 +77,30 @@ describe('pdf-generator shipped lockfile', () => {
         );
     });
 });
+
+/**
+ * sanitize-html is the pdf-generator's HTML sanitizer, so it is a direct,
+ * exact pin rather than an override. content-safety.test.js exercises the
+ * ROOT devDependency copy, so the two pins must stay equal or that suite is
+ * testing a sanitizer the lambda does not ship.
+ *
+ * 2.17.6+ depends on htmlparser2 12, which is ESM-only; sanitize-html still
+ * require()s it, so jest cannot load it. Moving past 2.17.5 needs that solved
+ * first, not this floor lowered.
+ */
+describe('pdf-generator sanitize-html', () => {
+    const SANITIZE_HTML_FLOOR = '2.17.5';
+    const rootManifest = JSON.parse(
+        fs.readFileSync(path.join(__dirname, '../../../package.json'), 'utf8'),
+    );
+
+    test(`every shipped copy is >= ${SANITIZE_HTML_FLOOR}`, () => {
+        const copies = installedCopies('sanitize-html');
+        expect(copies.length).toBeGreaterThan(0);
+        expect(copies.filter(({ version }) => !isAtLeast(version, SANITIZE_HTML_FLOOR))).toEqual([]);
+    });
+
+    test('the root devDependency the content-safety suite loads matches the lambda pin', () => {
+        expect(rootManifest.devDependencies['sanitize-html']).toBe(manifest.dependencies['sanitize-html']);
+    });
+});

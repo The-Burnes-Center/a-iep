@@ -13,7 +13,7 @@ import { jest } from '@jest/globals';
 import { mockClient } from 'aws-sdk-client-mock';
 import {
     S3Client,
-    ListObjectsV2Command,
+    ListObjectVersionsCommand,
     DeleteObjectCommand,
     GetObjectCommand,
 } from '@aws-sdk/client-s3';
@@ -37,6 +37,12 @@ process.env.AWS_ACCESS_KEY_ID = 'testing';
 process.env.AWS_SECRET_ACCESS_KEY = 'testing';
 
 const s3Mock = mockClient(S3Client);
+
+// The bucket is versioned, so the replace flow lists versions, not objects.
+// A current object is a version with IsLatest.
+const current = (...keys) => ({
+    Versions: keys.map((Key) => ({ Key, VersionId: `v-${Key}`, IsLatest: true })),
+});
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
 // Import AFTER env + mocks: the module builds its clients and reads the
@@ -64,7 +70,7 @@ const call = async (body) => {
 beforeEach(() => {
     s3Mock.reset();
     ddbMock.reset();
-    s3Mock.on(ListObjectsV2Command).resolves({ Contents: [] });
+    s3Mock.on(ListObjectVersionsCommand).resolves({});
     ddbMock.on(QueryCommand).resolves({ Items: [] });
     ddbMock.on(PutCommand).resolves({});
     ddbMock.on(DeleteCommand).resolves({});
@@ -217,10 +223,8 @@ describe('upload', () => {
         // Prefix-aware: the replace path sweeps three different prefixes (raw
         // upload, iep-data, iep-audio), so a mock that answers every prefix
         // with the same object would claim deletions that never happened.
-        s3Mock.on(ListObjectsV2Command).resolves({ Contents: [] });
-        s3Mock.on(ListObjectsV2Command, { Prefix: `${USER}/child-1/` }).resolves({
-            Contents: [{ Key: `${USER}/child-1/iep-old/old.pdf` }],
-        });
+        s3Mock.on(ListObjectVersionsCommand).resolves({});
+        s3Mock.on(ListObjectVersionsCommand, { Prefix: `${USER}/child-1/` }).resolves(current(`${USER}/child-1/iep-old/old.pdf`));
         ddbMock.on(QueryCommand, { TableName: DOCUMENTS_TABLE }).resolves({
             Items: [
                 { iepId: 'iep-old', childId: 'child-1', userId: USER },
@@ -246,22 +250,75 @@ describe('upload', () => {
         expect(ordered.indexOf('DeleteCommand')).toBeLessThan(ordered.indexOf('PutCommand'));
     });
 
+    // The bucket is versioned: a DeleteObject without a VersionId writes a
+    // delete marker and the previous original stays retrievable by version id
+    // for another 1 to 3 days. Every version and every marker must go, each by
+    // its own id, and a key that only shares the prefix must not.
+    test("deletes every version of the replaced original, not just the current one", async () => {
+        const oldKey = `${USER}/child-1/iep-old/old.pdf`;
+        ddbMock.on(QueryCommand).resolves({ Items: [] });
+        s3Mock.on(ListObjectVersionsCommand, { Prefix: `${USER}/child-1/` }).resolves({
+            Versions: [
+                { Key: oldKey, VersionId: 'v-current', IsLatest: true },
+                { Key: oldKey, VersionId: 'v-older', IsLatest: false },
+            ],
+            DeleteMarkers: [{ Key: oldKey, VersionId: 'm-1', IsLatest: false }],
+        });
+
+        expect((await call(GOOD_UPLOAD)).status).toBe(200);
+
+        const deleted = s3Mock.commandCalls(DeleteObjectCommand).map((c) => c.args[0].input);
+        expect(deleted.map((d) => d.VersionId).sort()).toEqual(['m-1', 'v-current', 'v-older']);
+        expect(deleted.every((d) => d.Key === oldKey)).toBe(true);
+    });
+
+    test('follows the version listing past its first page', async () => {
+        const prefix = `${USER}/child-1/`;
+        ddbMock.on(QueryCommand).resolves({ Items: [] });
+        s3Mock.on(ListObjectVersionsCommand, { Prefix: prefix })
+            .resolvesOnce({
+                Versions: [{ Key: `${prefix}a/a.pdf`, VersionId: 'v1', IsLatest: true }],
+                IsTruncated: true, NextKeyMarker: `${prefix}a/a.pdf`, NextVersionIdMarker: 'v1',
+            })
+            .resolves({ Versions: [{ Key: `${prefix}b/b.pdf`, VersionId: 'v2', IsLatest: true }] });
+
+        expect((await call(GOOD_UPLOAD)).status).toBe(200);
+
+        expect(s3Mock.commandCalls(DeleteObjectCommand).map((c) => c.args[0].input.VersionId))
+            .toEqual(['v1', 'v2']);
+        const second = s3Mock.commandCalls(ListObjectVersionsCommand)
+            .map((c) => c.args[0].input).filter((i) => i.Prefix === prefix)[1];
+        expect(second).toMatchObject({ KeyMarker: `${prefix}a/a.pdf`, VersionIdMarker: 'v1' });
+    });
+
+    // The raw upload's filename is typed by a parent and routinely names the
+    // child. The replace flow used to log the whole key on every upload.
+    test("never logs the replaced original's filename", async () => {
+        const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+        try {
+            ddbMock.on(QueryCommand).resolves({ Items: [] });
+            s3Mock.on(ListObjectVersionsCommand, { Prefix: `${USER}/child-1/` })
+                .resolves(current(`${USER}/child-1/iep-old/Sofia Ejemplo IEP.pdf`));
+
+            expect((await call(GOOD_UPLOAD)).status).toBe(200);
+
+            const logged = log.mock.calls.flat().join('\n');
+            expect(logged).not.toContain('Sofia');
+            expect(logged).toContain(`${USER}/child-1/iep-old/...`);
+        } finally {
+            log.mockRestore();
+        }
+    });
+
     // Every upload replaces the child's previous IEP, so this is the most
     // travelled delete path in the app. It used to sweep only the raw-upload
     // prefix, stranding the previous document's redacted summary and cached
     // audio: 40 content and 18 audio directories in staging, 20 in prod, with
     // no row pointing at any of them.
     test('purges the replaced document\'s summary and cached audio', async () => {
-        s3Mock.on(ListObjectsV2Command).resolves({ Contents: [] });
-        s3Mock.on(ListObjectsV2Command, { Prefix: 'iep-data/iep-old/child-1/' }).resolves({
-            Contents: [{ Key: 'iep-data/iep-old/child-1/content.json' }],
-        });
-        s3Mock.on(ListObjectsV2Command, { Prefix: 'iep-audio/iep-old/child-1/' }).resolves({
-            Contents: [
-                { Key: 'iep-audio/iep-old/child-1/en/summary-abc.mp3' },
-                { Key: 'iep-audio/iep-old/child-1/es/summary-def.mp3' },
-            ],
-        });
+        s3Mock.on(ListObjectVersionsCommand).resolves({});
+        s3Mock.on(ListObjectVersionsCommand, { Prefix: 'iep-data/iep-old/child-1/' }).resolves(current('iep-data/iep-old/child-1/content.json'));
+        s3Mock.on(ListObjectVersionsCommand, { Prefix: 'iep-audio/iep-old/child-1/' }).resolves(current('iep-audio/iep-old/child-1/en/summary-abc.mp3', 'iep-audio/iep-old/child-1/es/summary-def.mp3'));
         ddbMock.on(QueryCommand, { TableName: DOCUMENTS_TABLE }).resolves({
             Items: [{
                 iepId: 'iep-old', childId: 'child-1', userId: USER,
@@ -285,10 +342,8 @@ describe('upload', () => {
         // deletes land on different mocks, so record a single interleaved
         // order log rather than comparing per-mock indexes.
         const order = [];
-        s3Mock.on(ListObjectsV2Command).resolves({ Contents: [] });
-        s3Mock.on(ListObjectsV2Command, { Prefix: 'iep-data/iep-old/child-1/' }).resolves({
-            Contents: [{ Key: 'iep-data/iep-old/child-1/content.json' }],
-        });
+        s3Mock.on(ListObjectVersionsCommand).resolves({});
+        s3Mock.on(ListObjectVersionsCommand, { Prefix: 'iep-data/iep-old/child-1/' }).resolves(current('iep-data/iep-old/child-1/content.json'));
         s3Mock.on(DeleteObjectCommand).callsFake((input) => {
             order.push(`s3:${input.Key}`);
             return {};
@@ -312,10 +367,8 @@ describe('upload', () => {
     });
 
     test('purges documents past the first query page', async () => {
-        s3Mock.on(ListObjectsV2Command).resolves({ Contents: [] });
-        s3Mock.on(ListObjectsV2Command, { Prefix: 'iep-data/iep-page2/child-1/' }).resolves({
-            Contents: [{ Key: 'iep-data/iep-page2/child-1/content.json' }],
-        });
+        s3Mock.on(ListObjectVersionsCommand).resolves({});
+        s3Mock.on(ListObjectVersionsCommand, { Prefix: 'iep-data/iep-page2/child-1/' }).resolves(current('iep-data/iep-page2/child-1/content.json'));
         ddbMock.on(QueryCommand, { TableName: DOCUMENTS_TABLE })
             .resolvesOnce({
                 Items: [{ iepId: 'iep-page1', childId: 'child-1', userId: USER }],

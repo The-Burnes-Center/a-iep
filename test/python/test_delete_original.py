@@ -14,7 +14,8 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from conftest import FakeLambdaClient, ScopedBoto3, load_lambda_module, unload
+from conftest import (FakeLambdaClient, ScopedBoto3, create_versioned_bucket,
+                      load_lambda_module, retrievable_versions, unload)
 
 DOCUMENTS_TABLE = 'documents-test'
 PROFILES_TABLE = 'profiles-test'
@@ -52,8 +53,8 @@ def step(monkeypatch):
             BillingMode='PAY_PER_REQUEST',
         )
         s3 = boto3.client('s3', region_name='us-east-1')
-        s3.create_bucket(Bucket=METADATA_BUCKET)
-        s3.create_bucket(Bucket=UPLOADS_BUCKET)
+        create_versioned_bucket(s3, METADATA_BUCKET)
+        create_versioned_bucket(s3, UPLOADS_BUCKET)
 
         monkeypatch.setenv('IEP_DOCUMENTS_TABLE', DOCUMENTS_TABLE)
         monkeypatch.setenv('USER_PROFILES_TABLE', PROFILES_TABLE)
@@ -191,3 +192,32 @@ def test_outer_catch_all_never_logs_the_rejected_value(step, monkeypatch, capsys
     assert SENTINEL not in logged
     assert 'Traceback (most recent call last)' not in logged
     assert 'Exception' in logged  # the class name survives
+
+
+# The bucket is versioned, so a plain DeleteObject only writes a delete
+# marker: the unredacted original stays retrievable by version id until the
+# 1-day noncurrent lifecycle rule reaches it, which measured 1 to 3 days on
+# staging (2026-10-14). "Not listed" was never "gone".
+def test_the_original_and_raw_ocr_are_unrecoverable_not_just_hidden(step):
+    seed(step)
+    # A second upload of the same key leaves an older version behind too.
+    step.s3.put_object(Bucket=UPLOADS_BUCKET, Key=UPLOAD_KEY, Body=b'%PDF-1.4 again')
+
+    step.module.lambda_handler(event(), None)
+
+    assert retrievable_versions(step.s3, UPLOADS_BUCKET) == set()
+    assert retrievable_versions(step.s3, METADATA_BUCKET, RAW_OCR_KEY) == set()
+    # The redacted OCR is what every later step reads; it must survive.
+    assert bucket_keys(step, METADATA_BUCKET) == {REDACTED_OCR_KEY}
+
+
+def test_a_key_that_merely_starts_with_the_original_survives(step):
+    # Version listing is by prefix, so report.pdf also matches report.pdf2.
+    # Deleting by prefix here would destroy a document this step never owned.
+    seed(step)
+    neighbour = UPLOAD_KEY + '2'
+    step.s3.put_object(Bucket=UPLOADS_BUCKET, Key=neighbour, Body=b'other')
+
+    step.module.lambda_handler(event(), None)
+
+    assert bucket_keys(step, UPLOADS_BUCKET) == {neighbour}

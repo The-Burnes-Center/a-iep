@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Carousel } from 'react-bootstrap';
 import { useLanguage } from '../common/language-context';
 import './ParentRightsCarousel.css';
@@ -203,6 +203,18 @@ const DEFAULT_RIGHTS_INDICATOR_TEMPLATE = '{number}. {title}';
 
 const DEFAULT_SECTION_HINT = 'Swipe or tap the arrows to learn more';
 
+/**
+ * The card patterns ParentRightsCarousel.css paints the header cards with.
+ * The browser only fetches a CSS background when an element using it renders,
+ * so the pink and blue dividers used to start their 1 MB download the moment a
+ * parent reached them. Fetched on mount instead, they are cached by then.
+ */
+export const CARD_PATTERN_URLS = [
+  '/images/patterns-dark-green.jpg',
+  '/images/patterns-pink.jpg',
+  '/images/patterns-blue.jpg',
+] as const;
+
 const DEFAULT_HEADER_PINK_TITLE = 'Your rights as a parent';
 
 const DEFAULT_HEADER_GREEN_TITLE = 'Your data is safe with us';
@@ -266,6 +278,13 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
 
   const { t } = useLanguage();
   const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    for (const url of CARD_PATTERN_URLS) {
+      const image = new Image();
+      image.src = url;
+    }
+  }, []);
 
   // The standalone /rights-of-parents route passes nothing, so the component
   // has to translate its own deck. ProcessingModal passes one already

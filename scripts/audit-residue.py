@@ -55,9 +55,13 @@ IN_FLIGHT = ('PROCESSING', 'PROCESSING_TRANSLATIONS')
 # ~10 minutes on a big scan, and the ASL allows 4 attempts. 45 minutes means
 # something is wedged, not slow.
 STUCK_AFTER_MIN = 45
-# The lifecycle rule is NoncurrentVersionExpiration: 1 day. S3 sweeps
-# asynchronously, so allow generous slack before calling it a failure.
-NONCURRENT_GRACE_DAYS = 3
+# Every delete path purges an original's versions by id, so a deleted
+# original has no version left at all, seconds after its run. Anything still
+# retrievable an hour later means a path deleted it with a plain DeleteObject
+# and left the bytes behind a marker. The 1-day lifecycle rule is only a
+# backstop: it measured 1 to 3 days on staging (2026-10-14), which is why this
+# no longer waits for it.
+NONCURRENT_GRACE_MIN = 60
 # Long enough that a healthy row has certainly been given a status.
 STATUSLESS_AFTER_MIN = 15
 RECENT_FAILURE_HOURS = 24
@@ -200,7 +204,7 @@ def stamp_of(value):
 
 
 def check_stale_noncurrent_originals(versions, markers, findings, reference=None):
-    """Deleted originals whose bytes outlived the 1-day expiry rule.
+    """Deleted originals whose bytes are still retrievable by version id.
 
     The clock starts when the version became NONCURRENT, not when it was
     uploaded. Measuring from the version's own LastModified reports a
@@ -223,15 +227,15 @@ def check_stale_noncurrent_originals(versions, markers, findings, reference=None
         # (superseded by a newer upload rather than deleted).
         became_noncurrent = newest_marker.get(v['Key']) or stamp_of(v['LastModified'])
         age = age_minutes(became_noncurrent, reference)
-        if age is not None and age > NONCURRENT_GRACE_DAYS * 24 * 60:
-            stale.append(round(age / 1440, 1))
+        if age is not None and age > NONCURRENT_GRACE_MIN:
+            stale.append(round(age / 60, 1))
     findings.append({
         'check': 'stale_noncurrent_originals',
         'level': ERROR if stale else None,
         'count': len(stale),
         'detail': sorted(stale, reverse=True)[:10],
         'message': (f"{len(stale)} deleted original(s) still retrievable past the "
-                    f"{NONCURRENT_GRACE_DAYS}-day grace (ages in days)"
+                    f"{NONCURRENT_GRACE_MIN}-minute grace (ages in hours)"
                     if stale else 'no overdue noncurrent originals'),
     })
 

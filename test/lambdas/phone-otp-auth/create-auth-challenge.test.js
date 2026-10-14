@@ -818,6 +818,32 @@ describe('create-auth-challenge', () => {
             logged.mockRestore();
         });
 
+        // The front door refuses these too; the send path does not trust that
+        // every account went through it.
+        test.each([
+            ['Jamaica', '+18765551234'],
+            ['Toronto', '+14165551234'],
+        ])('a stored +1 number outside the United States (%s) is never texted', async (_label, value) => {
+            const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const event = await handler(eventTo(value));
+
+            expect(mockSnsSend).not.toHaveBeenCalled();
+            expect(updateCalls()).toHaveLength(0);
+            expect(event.response.privateChallengeParameters.secretLoginCode).toBe('ERROR');
+            const messages = logged.mock.calls.map((args) => args.join(' ')).join('\n');
+            expect(messages).toContain('SMS_REFUSED_DESTINATION reason=country-code area=nanp-outside-us');
+            expect(messages).not.toContain(value.slice(2));
+            expect(messages).not.toContain('SMS_SEND_FAILED');
+            logged.mockRestore();
+        });
+
+        test('a stored US territory number is still texted', async () => {
+            await handler(eventTo('+17875551234'));
+
+            expect(mockSnsSend).toHaveBeenCalledTimes(1);
+        });
+
         test('the language handshake round is unaffected: it sends nothing anyway', async () => {
             const event = await handler(eventTo(TANZANIA, []));
 

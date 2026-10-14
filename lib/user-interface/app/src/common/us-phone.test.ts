@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { formatUsPhoneDisplay, isPossibleUsNumber, readUsPhone, typedUsPhoneDigits } from './us-phone';
+import { formatUsPhoneDisplay, isOutsideUs, isPossibleUsNumber, readUsPhone, typedUsPhoneDigits } from './us-phone';
 
 /**
  * The same NANP rule the backend enforces in phone-otp-auth/destination.js,
@@ -34,6 +34,36 @@ describe('isPossibleUsNumber', () => {
   });
 });
 
+/** Same cases as destination.test.js: +1 covers more than the United States. */
+describe('isOutsideUs', () => {
+  test.each([
+    ['8765551234', 'Jamaica'],
+    ['8685551234', 'Trinidad and Tobago'],
+    ['7585551234', 'Saint Lucia'],
+    ['2425551234', 'the Bahamas'],
+    ['8095551234', 'the Dominican Republic'],
+    ['4415551234', 'Bermuda'],
+    ['4165551234', 'Toronto'],
+    ['6045551234', 'Vancouver'],
+  ])('%s (%s) is outside the US', (digits) => {
+    expect(isOutsideUs(digits)).toBe(true);
+  });
+
+  test.each([
+    ['7875551234', 'Puerto Rico'],
+    ['9395551234', 'Puerto Rico overlay'],
+    ['3405551234', 'the US Virgin Islands'],
+    ['6715551234', 'Guam'],
+    ['6705551234', 'the Northern Mariana Islands'],
+    ['6845551234', 'American Samoa'],
+    ['6175551234', 'Boston'],
+    ['5555550111', 'the E2E login user'],
+  ])('%s (%s) is a US number', (digits) => {
+    expect(isOutsideUs(digits)).toBe(false);
+    expect(readUsPhone(digits)).toEqual({ e164: `+1${digits}` });
+  });
+});
+
 describe('readUsPhone', () => {
   test('the seeded prefix alone is blank, not badly formatted', () => {
     expect(readUsPhone('+1 ')).toEqual({ messageKey: 'auth.errorPhoneRequired' });
@@ -52,6 +82,11 @@ describe('readUsPhone', () => {
     expect(readUsPhone('+1 (018) 555-1234')).toEqual({ messageKey: 'auth.errorPhoneNotReal' });
     expect(readUsPhone('+1 (911) 555-1234')).toEqual({ messageKey: 'auth.errorPhoneNotReal' });
     expect(readUsPhone('+1 (202) 055-1234')).toEqual({ messageKey: 'auth.errorPhoneNotReal' });
+  });
+
+  test('a real number outside the US says so, rather than calling it fake', () => {
+    expect(readUsPhone('+1 (876) 555-1234')).toEqual({ messageKey: 'auth.errorPhoneNotUs' });
+    expect(readUsPhone('+1 (416) 555-1234')).toEqual({ messageKey: 'auth.errorPhoneNotUs' });
   });
 
   test.each([

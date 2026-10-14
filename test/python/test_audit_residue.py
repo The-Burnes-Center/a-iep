@@ -98,8 +98,8 @@ def test_overdue_noncurrent_original_is_an_error(audit_mod):
 def test_recent_noncurrent_and_derived_versions_are_ignored(audit_mod):
     findings = []
     audit_mod.check_stale_noncurrent_originals([
-        # inside the grace window: the lifecycle sweep is asynchronous
-        {'Key': 'u/c/iep-1/f.pdf', 'IsLatest': False, 'LastModified': iso(days_ago=1)},
+        # inside the grace window: its run may still be finishing
+        {'Key': 'u/c/iep-1/f.pdf', 'IsLatest': False, 'LastModified': iso(minutes_ago=10)},
         # a derived artifact, not an unredacted original
         {'Key': 'iep-data/iep-2/c/content.json', 'IsLatest': False,
          'LastModified': iso(days_ago=99)},
@@ -107,6 +107,24 @@ def test_recent_noncurrent_and_derived_versions_are_ignored(audit_mod):
         {'Key': 'u/c/iep-3/f.pdf', 'IsLatest': True, 'LastModified': iso(days_ago=99)},
     ], [], findings, reference=NOW)
     assert only(findings, 'stale_noncurrent_originals')['level'] is None
+
+
+def test_an_original_left_behind_a_delete_marker_is_an_error_within_a_day(audit_mod):
+    """The lifecycle rule is a backstop, not the deletion.
+
+    Every delete path now purges versions by id, so a day-old noncurrent
+    original means one of them fell back to a plain DeleteObject. The old
+    3-day grace waited out the lifecycle sweep instead, so a regression like
+    that stayed invisible for days.
+    """
+    findings = []
+    audit_mod.check_stale_noncurrent_originals(
+        [{'Key': 'u/c/iep-1/f.pdf', 'IsLatest': False, 'LastModified': iso(days_ago=1)}],
+        [{'Key': 'u/c/iep-1/f.pdf', 'LastModified': iso(minutes_ago=90)}],
+        findings, reference=NOW)
+    f = only(findings, 'stale_noncurrent_originals')
+    assert f['level'] == 'error' and f['detail'] == [1.5]
+    assert '60-minute grace' in f['message']
 
 
 def test_a_just_deleted_old_original_is_not_reported_as_overdue(audit_mod):

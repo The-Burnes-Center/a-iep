@@ -286,6 +286,7 @@
     "auth.errorSessionExpired": "La sesión ha expirado. Por favor, comience de nuevo.",
     "auth.errorPhoneFormat": "Por favor, introduzca un número de teléfono válido de EE. UU. de 10 dígitos",
     "auth.errorPhoneNotReal": "Ese no parece un número de teléfono real de EE. UU. Revise el código de área y el número.",
+    "auth.errorPhoneNotUs": "A-IEP solo puede enviar códigos a números de teléfono de EE. UU. Puede iniciar sesión con su correo electrónico.",
     "auth.errorPhoneRequired": "Escriba su número de teléfono para recibir un código.",
     "auth.errorEmailRequired": "Escriba su correo electrónico para recibir un código.",
     "auth.errorEmailFormat": "Escriba un correo electrónico válido, como nombre@ejemplo.com.",

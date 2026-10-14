@@ -186,3 +186,28 @@ class ScopedBoto3:
 
     def __getattr__(self, name):
         return getattr(boto3, name)
+
+
+def create_versioned_bucket(s3, name):
+    """A bucket configured like the real knowledge-source bucket: versioned.
+
+    On an unversioned bucket a plain DeleteObject really does remove the
+    bytes, so a suite built on one cannot tell a permanent delete from a
+    delete marker that leaves the document retrievable by version id.
+    """
+    s3.create_bucket(Bucket=name)
+    s3.put_bucket_versioning(Bucket=name,
+                             VersioningConfiguration={'Status': 'Enabled'})
+
+
+def retrievable_versions(s3, bucket, prefix=''):
+    """Every key under prefix with ANY version or delete marker left.
+
+    list_objects_v2 hides a deleted object even while its bytes are still
+    retrievable by version id, so "not listed" is not "gone". This is.
+    """
+    keys = set()
+    for page in s3.get_paginator('list_object_versions').paginate(Bucket=bucket, Prefix=prefix):
+        for entry in page.get('Versions', []) + page.get('DeleteMarkers', []):
+            keys.add(entry['Key'])
+    return keys

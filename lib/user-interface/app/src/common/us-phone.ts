@@ -22,6 +22,25 @@ const NANP_NUMBER = /^[2-9]\d{2}[2-9]\d{6}$/;
 const NANP_SERVICE_AREA_CODE = /^[2-9]11/;
 
 /**
+ * Area codes behind +1 that are not in the United States: Canada and the
+ * Caribbean and Atlantic countries that share the plan. A-IEP only texts US
+ * numbers; US territories (787, 939, 340, 671, 670, 684) are deliberately
+ * absent. Kept identical to NANP_OUTSIDE_US in destination.js.
+ */
+export const NANP_OUTSIDE_US: ReadonlySet<string> = new Set([
+  // Canada
+  '204', '226', '236', '249', '250', '257', '263', '273', '289', '306', '343',
+  '354', '365', '367', '368', '382', '403', '416', '418', '428', '431', '437',
+  '438', '450', '468', '474', '506', '514', '519', '548', '579', '581', '584',
+  '587', '600', '604', '613', '622', '633', '639', '647', '672', '683', '705',
+  '709', '742', '753', '778', '780', '782', '807', '819', '825', '867', '873',
+  '879', '902', '905', '942',
+  // The Caribbean and Bermuda
+  '242', '246', '264', '268', '284', '345', '441', '473', '649', '658', '664',
+  '721', '758', '767', '784', '809', '829', '849', '868', '869', '876',
+]);
+
+/**
  * The digits a parent actually typed, with the fixed '+1 ' prefix the field is
  * seeded with taken off first.
  *
@@ -59,6 +78,9 @@ export const formatUsPhoneDisplay = (input: string): string => {
 export const isPossibleUsNumber = (digits: string): boolean =>
   NANP_NUMBER.test(digits) && !NANP_SERVICE_AREA_CODE.test(digits);
 
+/** Is a possible NANP number's area code one outside the United States? */
+export const isOutsideUs = (digits: string): boolean => NANP_OUTSIDE_US.has(digits.slice(0, 3));
+
 /**
  * What a phone field's value means, or which message to show under it. Told
  * apart with `'messageKey' in reading`: this app compiles without
@@ -66,7 +88,13 @@ export const isPossibleUsNumber = (digits: string): boolean =>
  */
 export type UsPhoneReading =
   | { e164: string }
-  | { messageKey: 'auth.errorPhoneRequired' | 'auth.errorPhoneFormat' | 'auth.errorPhoneNotReal' };
+  | {
+      messageKey:
+        | 'auth.errorPhoneRequired'
+        | 'auth.errorPhoneFormat'
+        | 'auth.errorPhoneNotReal'
+        | 'auth.errorPhoneNotUs';
+    };
 
 /**
  * Read a phone field. Too few or too many digits is a formatting slip the
@@ -78,5 +106,6 @@ export const readUsPhone = (value: string): UsPhoneReading => {
   if (digits.length === 0) return { messageKey: 'auth.errorPhoneRequired' };
   if (digits.length !== US_PHONE_DIGITS) return { messageKey: 'auth.errorPhoneFormat' };
   if (!isPossibleUsNumber(digits)) return { messageKey: 'auth.errorPhoneNotReal' };
+  if (isOutsideUs(digits)) return { messageKey: 'auth.errorPhoneNotUs' };
   return { e164: `+1${digits}` };
 };

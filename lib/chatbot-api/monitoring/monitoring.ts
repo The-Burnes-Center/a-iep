@@ -16,7 +16,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as path from 'path';
 import * as kms from 'aws-cdk-lib/aws-kms';
-import { getEnvironment, getResourceName, tagResource } from '../../tags';
+import { getEnvironment, getMetricNamespace, getResourceName, tagResource } from '../../tags';
 
 /**
  * Outage alerting:
@@ -116,9 +116,6 @@ export const SMS_SPEND_VELOCITY_ALARM_USD_PER_HOUR = 2;
  * which is the only place the REASON for a failure appears.
  */
 const SMS_QUOTA_PROVIDER_RESPONSE = 'No quota left for account';
-
-/** Where every SMS-path metric in this file lives. */
-const SMS_METRIC_NAMESPACE = 'AI-IEP/Auth';
 
 /**
  * Cognito's own SMS-configuration validation number, excluded from the
@@ -329,6 +326,7 @@ export class MonitoringStack extends Construct {
 
     this.addDocumentFailureAlarm(props.ddbServiceFunction);
     this.addPipelineStepAlarms(props.pipelineFunctions);
+    this.addTranslationSkippedAlarm(props.pipelineFunctions);
     this.addAuthAlarms(props.authTriggerFunctions);
     this.addAuthDurationAlarms(props.authTriggerFunctions);
     this.addApiAlarms(props.apiFunctions, props.httpApi);
@@ -652,7 +650,7 @@ export class MonitoringStack extends Construct {
    * would never be the thing that pages anyone.
    */
   private addDocumentFailureAlarm(ddbServiceFunction: lambda.Function): void {
-    const metricNamespace = 'AI-IEP/Pipeline';
+    const metricNamespace = getMetricNamespace('Pipeline');
     const metricName = 'DocumentFailures';
 
     new logs.MetricFilter(this, 'DocumentFailureFilter', {
@@ -800,6 +798,51 @@ export class MonitoringStack extends Construct {
   }
 
   /**
+   * A requested language left out of a finished document.
+   *
+   * translate_content leaves a language out when every attempt lost the
+   * student placeholder, and the document still finishes in English: the app
+   * offers the parent "Translate it now" for the missing language. That is
+   * the right outcome for the family, and it is also invisible to every other
+   * alarm here (the step succeeds, the run succeeds), so this marker is the
+   * only way the team learns a family did not get the language they asked for.
+   */
+  private addTranslationSkippedAlarm(fns: MonitoredFunction[]): void {
+    const translation = fns.find(({ label }) => label === 'translation');
+    if (!translation) return;
+    const metricNamespace = getMetricNamespace('Pipeline');
+
+    new logs.MetricFilter(this, 'TranslationSkippedFilter', {
+      logGroup: translation.fn.logGroup,
+      // "TRANSLATION_SKIPPED lang=<code> reason=student_token". Language code
+      // only, never content.
+      filterPattern: logs.FilterPattern.literal('TRANSLATION_SKIPPED'),
+      metricNamespace,
+      metricName: 'TranslationSkipped',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
+    this.alarm('TranslationSkippedAlarm', {
+      severity: 'medium',
+      name: 'a family got English only: a requested translation was left out',
+      description:
+        'A translation kept losing the child\'s name placeholder, so it was ' +
+        'not saved. The family has the English summary and is offered ' +
+        '"Translate it now"; if they do not use it, they never get their language.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'TranslationSkipped',
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(15),
+      }),
+      // One family is enough to want to know about.
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+  }
+
+  /**
    * Per-step lambda errors. A step lambda raises to trigger the state
    * machine's Catch, so Errors is exactly "this stage crashed", and having one
    * alarm per step means the alarm name alone identifies the failing stage.
@@ -926,7 +969,7 @@ export class MonitoringStack extends Construct {
    * challenge row, and returns. The markers are the only signal there is.
    */
   private addAuthEndpointAlarms(fns: MonitoredFunction[]): void {
-    const metricNamespace = 'AI-IEP/Auth';
+    const metricNamespace = getMetricNamespace('Auth');
     const id = (label: string) => label.replace(/[^A-Za-z0-9]/g, '');
 
     for (const { label, fn } of fns) {
@@ -1142,7 +1185,7 @@ export class MonitoringStack extends Construct {
     if (!createAuth) {
       return;
     }
-    const metricNamespace = 'AI-IEP/Auth';
+    const metricNamespace = getMetricNamespace('Auth');
 
     const markerMetric = (id: string, marker: string, metricName: string) => {
       new logs.MetricFilter(this, id, {
@@ -1324,7 +1367,7 @@ export class MonitoringStack extends Construct {
         notValidation,
         logs.FilterPattern.stringValue('$.delivery.providerResponse', '=', quota),
       ),
-      metricNamespace: SMS_METRIC_NAMESPACE,
+      metricNamespace: getMetricNamespace('Auth'),
       metricName: 'SmsQuotaExhausted',
       metricValue: '1',
       defaultValue: 0,
@@ -1338,7 +1381,7 @@ export class MonitoringStack extends Construct {
         'delivering. No parent in EITHER environment can get a login code ' +
         'until the limit is raised. Check for signup abuse before raising it.',
       metric: new cloudwatch.Metric({
-        namespace: SMS_METRIC_NAMESPACE,
+        namespace: getMetricNamespace('Auth'),
         metricName: 'SmsQuotaExhausted',
         statistic: 'Sum',
         period: cdk.Duration.minutes(15),
@@ -1405,7 +1448,7 @@ export class MonitoringStack extends Construct {
       environment: {
         ENVIRONMENT: this.env,
         SENDER_LOG_GROUPS: smsSenders.map((fn) => fn.logGroup.logGroupName).join(','),
-        METRIC_NAMESPACE: SMS_METRIC_NAMESPACE,
+        METRIC_NAMESPACE: getMetricNamespace('Auth'),
         COGNITO_SMS_VALIDATION_NUMBER,
         SMS_QUOTA_PROVIDER_RESPONSE,
       },
@@ -1426,7 +1469,7 @@ export class MonitoringStack extends Construct {
       // PutMetricData has no resource-level scoping; the namespace condition
       // is the only narrowing IAM offers.
       resources: ['*'],
-      conditions: { StringEquals: { 'cloudwatch:namespace': SMS_METRIC_NAMESPACE } },
+      conditions: { StringEquals: { 'cloudwatch:namespace': getMetricNamespace('Auth') } },
     }));
 
     // The pattern drops the cap and the validation number before the lambda
@@ -1446,7 +1489,7 @@ export class MonitoringStack extends Construct {
         'signups); this is more. Counts this environment only, and excludes ' +
         'the cap, which pages separately.',
       metric: new cloudwatch.Metric({
-        namespace: SMS_METRIC_NAMESPACE,
+        namespace: getMetricNamespace('Auth'),
         metricName: 'SmsDeliveryFailed',
         // The dimension IS the attribution. Without it this would read a
         // series nothing writes.
@@ -1570,7 +1613,7 @@ export class MonitoringStack extends Construct {
    * not worth waking anyone.
    */
   private addDeletionAlarms(apiFunctions: MonitoredFunction[]): void {
-    const metricNamespace = 'AI-IEP/Pipeline';
+    const metricNamespace = getMetricNamespace('Pipeline');
     const watched = apiFunctions.filter((f) =>
       f.label === 'user profile' || f.label === 'document delete');
     if (watched.length === 0) {
@@ -1626,7 +1669,7 @@ export class MonitoringStack extends Construct {
    * SUCCEEDED, so it can only see an attack that got through.
    */
   private addSignupPathAlarms(signup: MonitoredFunction): void {
-    const metricNamespace = 'AI-IEP/Auth';
+    const metricNamespace = getMetricNamespace('Auth');
 
     this.alarm('SignupEndpointErrorsAlarm', {
       severity: 'critical',

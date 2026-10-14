@@ -290,6 +290,7 @@
     "auth.errorSessionExpired": "Phiên đã hết hạn. Vui lòng bắt đầu lại.",
     "auth.errorPhoneFormat": "Vui lòng nhập số điện thoại Hoa Kỳ hợp lệ gồm 10 chữ số",
     "auth.errorPhoneNotReal": "Số này có vẻ không phải là số điện thoại Hoa Kỳ thật. Vui lòng kiểm tra mã vùng và số điện thoại.",
+    "auth.errorPhoneNotUs": "A-IEP chỉ có thể gửi mã đến số điện thoại Hoa Kỳ. Bạn có thể đăng nhập bằng địa chỉ email thay thế.",
     "auth.errorPhoneRequired": "Nhập số điện thoại của bạn để nhận mã.",
     "auth.errorEmailRequired": "Nhập địa chỉ email của bạn để nhận mã.",
     "auth.errorEmailFormat": "Nhập địa chỉ email hợp lệ, ví dụ name@example.com.",

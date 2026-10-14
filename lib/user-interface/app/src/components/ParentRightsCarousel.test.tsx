@@ -12,9 +12,12 @@
  * way a parent drives it.
  */
 import React from "react";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
+import { readFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import ParentRightsCarousel, { SlideData } from "./ParentRightsCarousel";
+import ParentRightsCarousel, { CARD_PATTERN_URLS, SlideData } from "./ParentRightsCarousel";
 import ProcessingModal from "./ProcessingModal";
 import { LanguageContext } from "../common/language-context";
 import type { SupportedLanguage } from "../common/languages";
@@ -577,5 +580,65 @@ describe("the strings this change adds", () => {
     for (const code of Object.keys(locales)) {
       expect(Object.keys(locales[code]).sort(), `${code} has drifted from en`).toEqual(english);
     }
+  });
+});
+
+const CSS = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "ParentRightsCarousel.css"),
+  "utf8",
+);
+
+/** The body of the first top-level `selector { ... }` rule, outside any @media. */
+function rule(selector: string): string {
+  const topLevel = CSS.slice(0, CSS.indexOf("@media"));
+  const start = topLevel.search(new RegExp(`(^|\\n)${selector.replace(/[.-]/g, (c) => `\\${c}`)}\\s*\\{`));
+  expect(start, `ParentRightsCarousel.css has no top-level ${selector} rule`).toBeGreaterThan(-1);
+  const open = topLevel.indexOf("{", start);
+  return topLevel.slice(open + 1, topLevel.indexOf("}", open));
+}
+
+describe("the divider hint", () => {
+  // jsdom lays nothing out, so this pins the rule itself: the hint is the only
+  // line in a divider's text block, under a centred title, and start-aligned it
+  // floated alone at the left edge of an empty panel.
+  test("is centred on a divider, where it is the only line", () => {
+    const body = rule(".slide-rights-content--section");
+    expect(body).toMatch(/text-align:\s*center/);
+    expect(body).toMatch(/align-items:\s*center/);
+  });
+
+  test("stays start-aligned on ordinary slides, whose body copy is paragraphs", () => {
+    expect(rule(".slide-rights-content")).toMatch(/text-align:\s*start/);
+  });
+});
+
+describe("the header card patterns", () => {
+  const realImage = globalThis.Image;
+  afterEach(() => {
+    globalThis.Image = realImage;
+  });
+
+  // A CSS background is only fetched when an element using it renders, and
+  // until it arrived the card showed the scrim over nothing: a grey frame
+  // before each divider's colour.
+  test.each(["green", "pink", "blue"])("the %s card has a solid colour under its pattern", (theme) => {
+    expect(rule(`.parent-rights-card--${theme}`)).toMatch(/background-color:\s*var\(--aiep-pattern-[a-z]+-base\)/);
+  });
+
+  test("every pattern the stylesheet uses is preloaded, so the list cannot drift", () => {
+    const used = [...CSS.matchAll(/url\(['"]?(\/images\/patterns-[^'")]+)['"]?\)/g)].map((m) => m[1]);
+    expect(used.length).toBeGreaterThan(0);
+    expect([...new Set(used)].sort()).toEqual([...CARD_PATTERN_URLS].sort());
+  });
+
+  test("all three are requested as soon as the carousel mounts, before any divider shows", () => {
+    const requested: string[] = [];
+    globalThis.Image = class {
+      set src(value: string) {
+        requested.push(value);
+      }
+    } as unknown as typeof Image;
+    renderCarousel();
+    expect(requested.sort()).toEqual([...CARD_PATTERN_URLS].sort());
   });
 });

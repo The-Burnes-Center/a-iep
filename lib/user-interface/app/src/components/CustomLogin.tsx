@@ -43,6 +43,7 @@ import LoginMethodToggle from './LoginMethodToggle';
 import FormLabel from './FormLabel';
 import VerificationCodeInput from './VerificationCodeInput';
 import { formatUsPhoneDisplay, readUsPhone } from '../common/us-phone';
+import { safeReturnPath } from '../common/safe-return-path';
 
 /**
  * Drop any session still held locally, before starting a new sign-in.
@@ -197,8 +198,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
     // console.log('User authentication successful');
     // Navigate to where user was trying to go, or default to /preferred-language
     // PreferredLanguage will handle onboarding decisions based on profile.showOnboarding
-    const from = location.state?.from?.pathname || '/preferred-language';
-    navigate(from, { replace: true });
+    navigate(safeReturnPath(location.state?.from?.pathname), { replace: true });
   };
 
   /**

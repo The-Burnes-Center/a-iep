@@ -168,10 +168,18 @@ def _wire(handler_module, monkeypatch, get_document=OK_GET_DOCUMENT, save=OK_SAV
 
 
 def _stub_translation_results(handler_module, monkeypatch, results_by_lang):
+    """A value per language, or a list of values: one per successive model run."""
+    calls = {}
+
     def fake_translate(self, content, target_language, content_type='parsing_result', model='gpt-4.1'):
-        return results_by_lang[target_language]
+        calls[target_language] = calls.get(target_language, 0) + 1
+        result = results_by_lang[target_language]
+        if isinstance(result, list):
+            return result[min(calls[target_language], len(result)) - 1]
+        return result
     monkeypatch.setattr(handler_module.OptimizedTranslationAgent,
                         'translate_content_with_agent', fake_translate)
+    return calls
 
 
 def test_when_every_language_fails_completion_is_false_and_none_are_processed(
@@ -345,17 +353,77 @@ def test_a_translation_that_kept_the_placeholder_is_stored(handler_module, monke
     '{{ S }} progresa.',         # reformatted
     '｛｛S｝｝ 进步了。',             # full-width braces, the Chinese run's version
 ])
-def test_a_translation_that_lost_the_placeholder_fails_the_step(
-        handler_module, monkeypatch, summary):
+def test_a_translation_that_keeps_losing_the_placeholder_is_left_out_not_stored(
+        handler_module, monkeypatch, capsys, summary):
+    # Changed deliberately (2026-10-02). This used to raise, which failed the
+    # whole document, English included, after Step Functions retried every
+    # language four times. Now the language is retried once and then left
+    # out, and the state machine finishes the document in English. What must
+    # not change: a run that lost the placeholder is never stored.
     fake = _wire(handler_module, monkeypatch, get_document=OK_GET_TOKENIZED)
-    _stub_translation_results(handler_module, monkeypatch, {'es': _translated(summary)})
+    calls = _stub_translation_results(handler_module, monkeypatch, {'es': _translated(summary)})
 
-    with pytest.raises(Exception):
-        handler_module.lambda_handler(
-            {**IDS, 'target_languages': ['es'], 'content_type': 'parsing_result'}, None)
+    result = handler_module.lambda_handler(
+        {**IDS, 'target_languages': ['es'], 'content_type': 'parsing_result'}, None)
 
-    # Nothing is stored: the run that produced it is the one being retried.
-    assert fake.payloads('save_content_to_s3') == []
+    assert result['languages_processed'] == []
+    assert result['languages_skipped'] == ['es']
+    assert calls['es'] == handler_module.STUDENT_TOKEN_ATTEMPTS
+    saved, = fake.payloads('save_content_to_s3')
+    assert 'es' not in saved['params']['content']['summaries']
+    out = capsys.readouterr().out
+    assert out.count('STUDENT_TOKEN_LOST lang=es') == handler_module.STUDENT_TOKEN_ATTEMPTS
+    assert 'TRANSLATION_SKIPPED lang=es reason=student_token' in out
+
+
+def test_a_placeholder_lost_once_is_retried_and_the_second_run_is_stored(
+        handler_module, monkeypatch, capsys):
+    fake = _wire(handler_module, monkeypatch, get_document=OK_GET_TOKENIZED)
+    calls = _stub_translation_results(handler_module, monkeypatch, {
+        'es': [_translated('El estudiante progresa.'), _translated('{{S}} progresa.')]})
+
+    result = handler_module.lambda_handler(
+        {**IDS, 'target_languages': ['es'], 'content_type': 'parsing_result'}, None)
+
+    assert result['languages_processed'] == ['es']
+    assert result['languages_skipped'] == []
+    assert calls['es'] == 2
+    saved, = fake.payloads('save_content_to_s3')
+    assert saved['params']['content']['summaries']['es'] == '{{S}} progresa.'
+    out = capsys.readouterr().out
+    assert 'STUDENT_TOKEN_LOST lang=es attempt=1/' in out
+    assert 'TRANSLATION_SKIPPED' not in out
+
+
+def test_one_language_left_out_does_not_hold_back_the_others(handler_module, monkeypatch):
+    fake = _wire(handler_module, monkeypatch, get_document=OK_GET_TOKENIZED)
+    _stub_translation_results(handler_module, monkeypatch, {
+        'es': _translated('El estudiante progresa.'),
+        'vi': _translated('{{S}} tien bo.'),
+    })
+
+    result = handler_module.lambda_handler(
+        {**IDS, 'target_languages': ['es', 'vi'], 'content_type': 'parsing_result'}, None)
+
+    assert result['languages_processed'] == ['vi']
+    assert result['languages_skipped'] == ['es']
+    saved, = fake.payloads('save_content_to_s3')
+    assert set(saved['params']['content']['summaries']) >= {'vi'}
+    assert 'es' not in saved['params']['content']['summaries']
+
+
+def test_a_model_error_is_not_reported_as_a_skipped_language(handler_module, monkeypatch):
+    # The state machine treats the two differently: a skipped language still
+    # delivers English, while no language because the model errored fails the
+    # document as before. Mixing them up would mark a broken run PROCESSED.
+    _wire(handler_module, monkeypatch, get_document=OK_GET_TOKENIZED)
+    _stub_translation_results(handler_module, monkeypatch, {'es': {'error': 'model timeout'}})
+
+    result = handler_module.lambda_handler(
+        {**IDS, 'target_languages': ['es'], 'content_type': 'parsing_result'}, None)
+
+    assert result['languages_processed'] == []
+    assert result['languages_skipped'] == []
 
 
 def test_the_placeholder_failure_never_logs_the_translated_text(
@@ -364,13 +432,13 @@ def test_the_placeholder_failure_never_logs_the_translated_text(
     _stub_translation_results(handler_module, monkeypatch,
                               {'es': _translated(f'{SENTINEL} progresa.')})
 
-    with pytest.raises(Exception):
-        handler_module.lambda_handler(
-            {**IDS, 'target_languages': ['es'], 'content_type': 'parsing_result'}, None)
+    handler_module.lambda_handler(
+        {**IDS, 'target_languages': ['es'], 'content_type': 'parsing_result'}, None)
 
     logged = capsys.readouterr().out
     assert SENTINEL not in logged
-    assert 'StudentTokenLost' in logged  # the class name survives for triage
+    # Counts and the language survive for triage; the text never does.
+    assert 'STUDENT_TOKEN_LOST lang=es' in logged and 'expected=' in logged
 
 
 def test_content_without_a_placeholder_translates_as_before(handler_module, monkeypatch):

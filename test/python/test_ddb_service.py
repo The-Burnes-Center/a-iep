@@ -7,13 +7,15 @@ document must retain no unredacted artifacts.
 """
 import base64
 import json
+import sys
 from types import SimpleNamespace
 
 import boto3
+from botocore.exceptions import ClientError
 import pytest
 from moto import mock_aws
 
-from conftest import load_lambda_module, unload
+from conftest import create_versioned_bucket, load_lambda_module, retrievable_versions, unload
 
 DOCUMENTS_TABLE = 'documents-test'
 PROFILES_TABLE = 'profiles-test'
@@ -46,7 +48,7 @@ def service(monkeypatch):
             BillingMode='PAY_PER_REQUEST',
         )
         s3 = boto3.client('s3', region_name='us-east-1')
-        s3.create_bucket(Bucket=BUCKET)
+        create_versioned_bucket(s3, BUCKET)
 
         monkeypatch.setenv('IEP_DOCUMENTS_TABLE', DOCUMENTS_TABLE)
         monkeypatch.setenv('USER_PROFILES_TABLE', PROFILES_TABLE)
@@ -632,6 +634,93 @@ def test_a_surviving_unredacted_copy_is_reported_not_swallowed(service, monkeypa
     assert 'S3 unavailable' not in out
 
 
+# A row that is already gone is not a kept copy. Re-uploading while a run is
+# still in flight deletes the previous document under it (see
+# _guarded_update), and on 2026-10-01 thirteen staging runs whose rows were
+# deleted mid-run each paged the critical "a failed document kept its
+# unredacted copy" alarm with nothing left anywhere.
+def test_a_row_deleted_before_the_failure_is_not_reported_as_retained(service, capsys):
+    upload_key = f'{USER}/{CHILD}/{IEP}/original.pdf'
+    raw_key = f'iep-data/{IEP}/{CHILD}/ocr_result.json'
+    service.s3.put_object(Bucket=BUCKET, Key=upload_key, Body=b'pdf')
+    service.s3.put_object(Bucket=BUCKET, Key=raw_key, Body=b'{"pages": ["raw"]}')
+
+    status, _ = op(service, 'record_failure', **IDS,
+                   error_message='OCR provider exploded', failed_step='mistral_ocr')
+
+    assert status == 200
+    assert 'UNREDACTED_ARTIFACTS_RETAINED' not in capsys.readouterr().out
+    # With no row to read, both are still found and deleted by name.
+    assert not s3_keys(service, upload_key)
+    assert not s3_keys(service, raw_key)
+    # And no phantom row was written in its place.
+    assert item(service) is None
+
+
+def test_a_row_deleted_before_the_failure_still_reports_a_real_survivor(service, monkeypatch, capsys):
+    # The other half: a missing row must not become a way to stay quiet. The
+    # replace-on-upload path logs and carries on when its own S3 delete fails,
+    # so a missing row can sit next to a surviving upload.
+    service.s3.put_object(Bucket=BUCKET, Key=f'{USER}/{CHILD}/{IEP}/original.pdf', Body=b'pdf')
+    real_client = service.module.boto3.client
+
+    def client(name, *args, **kwargs):
+        made = real_client(name, *args, **kwargs)
+        if name == 's3':
+            def refuse(**_kwargs):
+                raise ClientError({'Error': {'Code': 'AccessDenied', 'Message': 'no'}}, 'DeleteObject')
+            made.delete_object = refuse
+        return made
+
+    monkeypatch.setattr(service.module.boto3, 'client', client)
+
+    op(service, 'record_failure', **IDS, error_message='OCR provider exploded', failed_step='mistral_ocr')
+
+    out = capsys.readouterr().out
+    assert 'UNREDACTED_ARTIFACTS_RETAINED' in out
+    assert 'original-upload' in out
+    assert s3_keys(service, f'{USER}/{CHILD}/{IEP}/')
+
+
+def test_a_failed_s3_delete_is_reported_even_though_the_helper_returns_false(service, monkeypatch, capsys):
+    # delete_content_from_s3 catches every S3 error and returns False. The
+    # purge used to wrap it in try/except, which could therefore never fire: a
+    # real failed delete kept a child's raw OCR and printed no marker. Failing
+    # at the S3 client, not by making the helper raise, is the real contract.
+    seed_document(service)
+    op(service, 'save_ocr_data', **IDS, ocr_data={'pages': ['raw']})
+    content_handler = sys.modules['s3_content_handler']
+
+    def refuse(**_kwargs):
+        raise ClientError({'Error': {'Code': 'AccessDenied', 'Message': 'no'}}, 'DeleteObject')
+
+    monkeypatch.setattr(content_handler.s3_client, 'delete_object', refuse)
+
+    op(service, 'record_failure', **IDS, error_message='OCR provider exploded', failed_step='mistral_ocr')
+
+    out = capsys.readouterr().out
+    assert 'UNREDACTED_ARTIFACTS_RETAINED' in out
+    assert 'raw-ocr-object' in out
+    assert s3_keys(service, f'iep-data/{IEP}/{CHILD}/ocr_result.json')
+
+
+def test_a_row_deleted_during_cleanup_is_not_reported_as_retained(service, monkeypatch, capsys):
+    seed_document(service)
+    op(service, 'save_ocr_data', **IDS, ocr_data={'pages': ['raw']})
+
+    def row_already_gone(**_kwargs):
+        raise service.module.DocumentDeleted('row deleted mid-run')
+
+    monkeypatch.setattr(service.module, '_guarded_update', row_already_gone)
+
+    status, _ = op(service, 'record_failure', **IDS,
+                   error_message='OCR provider exploded', failed_step='mistral_ocr')
+
+    assert status == 200
+    assert 'UNREDACTED_ARTIFACTS_RETAINED' not in capsys.readouterr().out
+    assert not s3_keys(service, f'iep-data/{IEP}/{CHILD}/ocr_result.json')
+
+
 def test_one_artifact_failing_does_not_abandon_the_others(service, monkeypatch, capsys):
     # A single raise used to skip everything after it, so an S3 blip on the
     # original upload left the raw OCR behind as well. Every one of these is a
@@ -844,3 +933,39 @@ def test_an_undecryptable_name_is_no_name_rather_than_a_blob(service, monkeypatc
 
     assert (status, body['name']) == (200, '')
     assert ciphertext[:24] not in json.dumps(body)
+
+
+# Every purge below must leave nothing retrievable by version id: the bucket
+# is versioned, and a delete marker over a child's unredacted record is not a
+# deletion (see test_delete_original for the measurement).
+def test_delete_ocr_data_leaves_no_retrievable_version(service):
+    seed_document(service)
+    op(service, 'save_ocr_data', **IDS, ocr_data={'pages': ['raw text']})
+
+    assert op(service, 'delete_ocr_data', **IDS)[0] == 200
+
+    assert retrievable_versions(service.s3, BUCKET, f'iep-data/{IEP}/{CHILD}/ocr_result.json') == set()
+
+
+def test_record_failure_leaves_no_retrievable_unredacted_version(service):
+    upload_key = f'{USER}/{CHILD}/{IEP}/original.pdf'
+    service.s3.put_object(Bucket=BUCKET, Key=upload_key, Body=b'pdf')
+    seed_document(service, documentUrl=f's3://{BUCKET}/{upload_key}')
+    op(service, 'save_ocr_data', **IDS, ocr_data={'pages': ['raw']})
+
+    op(service, 'record_failure', **IDS, error_message='boom', failed_step='mistral_ocr')
+
+    assert retrievable_versions(service.s3, BUCKET, upload_key) == set()
+    assert retrievable_versions(service.s3, BUCKET, f'iep-data/{IEP}/{CHILD}/ocr_result.json') == set()
+
+
+def test_record_failure_after_the_row_is_gone_leaves_no_retrievable_version(service):
+    upload_key = f'{USER}/{CHILD}/{IEP}/original.pdf'
+    raw_key = f'iep-data/{IEP}/{CHILD}/ocr_result.json'
+    service.s3.put_object(Bucket=BUCKET, Key=upload_key, Body=b'pdf')
+    service.s3.put_object(Bucket=BUCKET, Key=raw_key, Body=b'{"pages": ["raw"]}')
+
+    op(service, 'record_failure', **IDS, error_message='boom', failed_step='mistral_ocr')
+
+    assert retrievable_versions(service.s3, BUCKET, f'{USER}/{CHILD}/{IEP}/') == set()
+    assert retrievable_versions(service.s3, BUCKET, raw_key) == set()

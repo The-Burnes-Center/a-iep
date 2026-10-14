@@ -213,6 +213,20 @@ describe('auth start', () => {
         expect(logged).not.toContain(destination.slice(2));
     });
 
+    test('a +1 number outside the United States is unsupported and queues no send', async () => {
+        const response = await load()(request({ destination: '+18765551234' }));
+
+        expect(response.statusCode).toBe(400);
+        expect(bodyOf(response).code).toBe('unsupported_destination');
+        expect(mockDdbSend).not.toHaveBeenCalled();
+        expect(global.fetch).not.toHaveBeenCalled();
+        expect(mockLambdaSend).not.toHaveBeenCalled();
+        const logged = errors.join('\n');
+        expect(logged).toContain('AUTH_START_REFUSED');
+        expect(logged).toContain('nanp-outside-us');
+        expect(logged).not.toContain('8765551234');
+    });
+
     test('an unsupported destination is refused before any datastore call', async () => {
         const response = await load()(request({ destination: '+255712345678' }));
         expect(response.statusCode).toBe(400);

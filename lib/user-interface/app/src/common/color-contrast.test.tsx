@@ -287,6 +287,13 @@ const PAIRS: Pair[] = [
   { fg: "--aiep-cream-veil", bg: "--aiep-green-dark", level: "surface", where: "1px grid texture on the modal scrim" },
   { fg: "--aiep-image-scrim", bg: "--aiep-green", level: "surface", where: "the layer over the hub card photographs; measured against the artwork in IMAGE_BACKDROPS" },
   { fg: "--aiep-image-scrim-soft", bg: "--aiep-green", level: "surface", where: "the layer over the rights card photographs; measured against the artwork in IMAGE_BACKDROPS" },
+  // Stand-ins painted under each card pattern while its JPG loads. Each is the
+  // pattern's average colour, which is never brighter than the brightest pixel
+  // IMAGE_BACKDROPS measures the 40px h1 against, so the heading's contrast
+  // under the scrim is covered there.
+  { fg: "--aiep-pattern-green-base", bg: "--aiep-cream", level: "surface", where: "under patterns-dark-green.jpg until it loads; heading measured in IMAGE_BACKDROPS" },
+  { fg: "--aiep-pattern-pink-base", bg: "--aiep-cream", level: "surface", where: "under patterns-pink.jpg until it loads; heading measured in IMAGE_BACKDROPS" },
+  { fg: "--aiep-pattern-blue-base", bg: "--aiep-cream", level: "surface", where: "under patterns-blue.jpg until it loads; heading measured in IMAGE_BACKDROPS" },
 
   // -- inactive controls: exempt from 1.4.3 and 1.4.11 --------------------
   { fg: "--aiep-disabled-border", bg: "--aiep-cream", level: "surface", where: "disabled button edge" },

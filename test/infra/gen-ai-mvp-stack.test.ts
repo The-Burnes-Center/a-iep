@@ -1291,9 +1291,47 @@ describe('S3 data protection', () => {
 
     // upload-s3 presigns a PUT and a GET, and clears the child's previous
     // document (list + delete) before writing the new one.
-    expect(s3ActionsFor('UploadS3KnowledgeFilesHandlerFunctionServiceRole')).toEqual(
-      ['s3:DeleteObject', 's3:GetObject', 's3:ListBucket', 's3:PutObject']
-    );
+    expect(s3ActionsFor('UploadS3KnowledgeFilesHandlerFunctionServiceRole')).toEqual([
+      's3:DeleteObject', 's3:DeleteObjectVersion', 's3:GetObject', 's3:ListBucket',
+      's3:ListBucketVersions', 's3:PutObject',
+    ]);
+  });
+
+  // The bucket is versioned, so DeleteObject alone writes a delete marker and
+  // leaves the bytes retrievable by version id for 1 to 3 more days. Every
+  // delete path purges each version by id, which fails AccessDenied in AWS
+  // (and nowhere in the unit suites, which run on moto) without these two
+  // actions. Pinned in both directions: each deleting function holds them,
+  // and nothing else does, because DeleteObjectVersion is the one S3 action
+  // that destroys data beyond recovery.
+  test('exactly the functions that delete documents can delete them permanently', () => {
+    const rolesHolding = (action: string): string[] => {
+      const roles = new Set<string>();
+      for (const policy of Object.values(template.findResources('AWS::IAM::Policy'))) {
+        const props = (policy as any).Properties ?? {};
+        const grants = (props.PolicyDocument?.Statement ?? []).some((statement: any) =>
+          statement.Effect === 'Allow' && [statement.Action ?? []].flat().includes(action));
+        if (!grants) continue;
+        for (const role of props.Roles ?? []) roles.add(role.Ref ?? JSON.stringify(role));
+      }
+      return [...roles].sort();
+    };
+    const deleters = [
+      'DeleteOriginalFunction',          // the original, once redaction succeeds
+      'DDBServiceFunction',              // RecordFailure's purge on any failure
+      'DeleteS3FilesHandlerFunction',    // a parent deleting one document
+      'UploadS3KnowledgeFilesHandler',   // re-upload replacing the previous one
+      'UserProfileHandlerFunction',      // child and account deletion
+    ];
+
+    for (const action of ['s3:DeleteObjectVersion', 's3:ListBucketVersions']) {
+      const roles = rolesHolding(action);
+      for (const fn of deleters) {
+        expect({ action, fn, held: roles.filter((r) => r.includes(fn)).length })
+          .toEqual({ action, fn, held: 1 });
+      }
+      expect({ action, roles: roles.length }).toEqual({ action, roles: deleters.length });
+    }
   });
 });
 

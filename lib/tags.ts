@@ -11,6 +11,24 @@ export function getEnvironment(): Environment {
 }
 
 /**
+ * The CloudWatch namespace for this environment's custom metrics.
+ *
+ * Staging and prod run in one account and region, and a log metric filter
+ * cannot stamp a fixed Environment dimension (dimension values must come from
+ * the log line). So when both stacks published `AI-IEP/Pipeline`, staging's
+ * filters fed the very series prod's alarms read: on 2026-10-01 thirteen
+ * staging test runs paged prod's "a failed document kept its unredacted copy"
+ * with nothing wrong in prod. Each environment now owns its namespace.
+ *
+ * Prod keeps the original names, so its alarms and their history are
+ * untouched; only staging moves.
+ */
+export function getMetricNamespace(area: 'Auth' | 'Email' | 'Logs' | 'Pipeline'): string {
+  const base = `AI-IEP/${area}`;
+  return getEnvironment() === 'prod' ? base : `${base}/staging`;
+}
+
+/**
  * Get environment-specific resource name
  * @param baseName The base name of the resource
  * @param resourceType Optional resource type for specific naming patterns

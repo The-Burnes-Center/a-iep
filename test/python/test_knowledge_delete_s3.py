@@ -15,7 +15,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from conftest import load_lambda_module, unload
+from conftest import create_versioned_bucket, load_lambda_module, retrievable_versions, unload
 
 BUCKET = 'kb-bucket-test'
 DOCUMENTS_TABLE = 'documents-test'
@@ -26,7 +26,7 @@ USER = 'user-sub-1'
 def delete_s3(monkeypatch):
     with mock_aws():
         s3 = boto3.client('s3', region_name='us-east-1')
-        s3.create_bucket(Bucket=BUCKET)
+        create_versioned_bucket(s3, BUCKET)
         dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
         documents = dynamodb.create_table(
             TableName=DOCUMENTS_TABLE,
@@ -218,3 +218,39 @@ def test_fails_closed_when_the_documents_table_is_not_configured(delete_s3, monk
     assert call(delete_s3, key=doc.raw_key)[0] == 500
     assert key_exists(delete_s3, doc.raw_key) is True, 'deleted anyway, then reported failure'
     assert 'DELETION_INCOMPLETE' in capsys.readouterr().out
+
+
+# A parent's filename is student data: families name the file after the
+# child. Every log line here must carry the ids and never the filename.
+NAMED_FILE = 'Sofia Ejemplo IEP 2025.pdf'
+
+
+def test_deleting_a_document_never_logs_its_filename(delete_s3, capsys):
+    key = f'{USER}/child-1/iep-1/{NAMED_FILE}'
+    delete_s3.s3.put_object(Bucket=BUCKET, Key=key, Body=b'pdf')
+
+    status, _ = call(delete_s3, key=key)
+
+    out = capsys.readouterr().out
+    assert status == 200
+    assert 'Sofia' not in out
+    assert f'{USER}/child-1/iep-1/...' in out
+
+
+def test_a_refused_key_is_logged_without_its_filename(delete_s3, capsys):
+    status, _ = call(delete_s3, key=f'someone-else/child-1/iep-1/{NAMED_FILE}')
+
+    out = capsys.readouterr().out
+    assert status == 403
+    assert 'Sofia' not in out
+    assert 'someone-else/child-1/iep-1/...' in out
+
+
+# A parent who deletes a document is owed a deletion, not a delete marker
+# over bytes that stay retrievable by version id for another 1 to 3 days.
+def test_deleting_a_document_leaves_no_retrievable_version(delete_s3):
+    doc = seed_document(delete_s3)
+
+    assert call(delete_s3, key=doc.raw_key)[0] == 200
+
+    assert retrievable_versions(delete_s3.s3, BUCKET) == set()

@@ -100,8 +100,10 @@ let authFetch: ReturnType<typeof makeAuthFetch>;
 const ALL_FLAGS_BUT_PASSWORDLESS = ["tts", "referrals"];
 const WITH_PASSWORDLESS = ["tts", "referrals", "passwordlessAuth"];
 
-const renderLogin = (opts: { language?: SupportedLanguage; flagOn?: boolean; realTranslations?: boolean } = {}) => {
-  const { language = "en", flagOn = true, realTranslations = false } = opts;
+const RETURNED_TO = "you are back on the page you asked for";
+
+const renderLogin = (opts: { language?: SupportedLanguage; flagOn?: boolean; realTranslations?: boolean; from?: string } = {}) => {
+  const { language = "en", flagOn = true, realTranslations = false, from } = opts;
   const dictionary = en as Record<string, string>;
   const languageValue = {
     language,
@@ -120,7 +122,7 @@ const renderLogin = (opts: { language?: SupportedLanguage; flagOn?: boolean; rea
   } as never;
 
   const view = render(
-    <MemoryRouter initialEntries={["/login"]}>
+    <MemoryRouter initialEntries={[from === undefined ? "/login" : { pathname: "/login", state: { from: { pathname: from } } }]}>
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
           <AuthProvider>
@@ -128,6 +130,7 @@ const renderLogin = (opts: { language?: SupportedLanguage; flagOn?: boolean; rea
             <Routes>
               <Route path="/login" element={<CustomLogin showLogo={false} />} />
               <Route path="/preferred-language" element={<div>{LANDING}</div>} />
+              <Route path="/summary" element={<div>{RETURNED_TO}</div>} />
             </Routes>
           </AuthProvider>
         </LanguageContext.Provider>
@@ -280,6 +283,31 @@ describe("passwordless flow: code screen (flag on)", () => {
 
     expect(await screen.findByText(LANDING)).toBeInTheDocument();
     expect(authFetch.countOf("verify")).toBe(2);
+  });
+
+  // ProtectedRoute remembers the page a parent asked for, and signing in
+  // returns them there. Only a path inside the app is followed.
+  test("signing in returns the parent to the in-app page they asked for", async () => {
+    authFetch.queue("verify", { status: 200, body: { ok: true, session: "sess-1", expiresIn: 2592000 } });
+    authFetch.queue("token", { status: 200, body: { ok: true, accessToken: "a1", idToken: "i1", expiresIn: 3600 } });
+    const { user } = renderLogin({ from: "/summary" });
+    await startThenAwaitCode(user);
+
+    await submitCode(user);
+
+    expect(await screen.findByText(RETURNED_TO)).toBeInTheDocument();
+  });
+
+  test("a remembered destination outside the app is not followed after signing in", async () => {
+    authFetch.queue("verify", { status: 200, body: { ok: true, session: "sess-1", expiresIn: 2592000 } });
+    authFetch.queue("token", { status: 200, body: { ok: true, accessToken: "a1", idToken: "i1", expiresIn: 3600 } });
+    const { user } = renderLogin({ from: "//example.org/summary" });
+    await startThenAwaitCode(user);
+
+    await submitCode(user);
+
+    expect(await screen.findByText(LANDING)).toBeInTheDocument();
+    expect(screen.queryByText(RETURNED_TO)).not.toBeInTheDocument();
   });
 
   test("bad_code keeps the parent on the code screen so they can retype", async () => {

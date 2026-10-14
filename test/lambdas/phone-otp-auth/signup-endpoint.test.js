@@ -154,6 +154,32 @@ describe('signup endpoint', () => {
         logged.mockRestore();
     });
 
+    test.each([
+        ['Jamaica', '+18765551234'],
+        ['Toronto', '+14165551234'],
+    ])('a +1 number outside the United States (%s) creates no account', async (_label, phoneNumber) => {
+        const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+        const response = await load()(request({ phoneNumber }));
+
+        expect(response.statusCode).toBe(400);
+        expect(JSON.parse(response.body)).toEqual({ error: 'This phone number is not supported.' });
+        expect(mockCognitoSend).not.toHaveBeenCalled();
+        expect(mockDdbSend).not.toHaveBeenCalled();
+        expect(global.fetch).not.toHaveBeenCalled();
+        const messages = logged.mock.calls.map((args) => args.join(' ')).join('\n');
+        expect(messages).toContain('SIGNUP_REFUSED reason=nanp-outside-us');
+        expect(messages).not.toContain(phoneNumber.slice(2));
+        logged.mockRestore();
+    });
+
+    test('a US territory number still signs up', async () => {
+        const response = await load()(request({ phoneNumber: '+17875551234' }));
+
+        expect(response.statusCode).toBe(200);
+        expect(commandsOfKind('create')).toHaveLength(1);
+    });
+
     test('the E2E numbers still sign up: 555 is an ordinary area code and exchange', async () => {
         const response = await load()(request({ phoneNumber: '+15555550120' }));
 
