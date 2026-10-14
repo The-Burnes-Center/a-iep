@@ -15,6 +15,7 @@ from s3_content_handler import (
     save_content_to_s3,
     get_content_from_s3,
     delete_content_from_s3,
+    delete_every_version,
     migrate_dynamodb_to_s3,
     save_ocr_to_s3,
     get_ocr_s3_key
@@ -383,9 +384,7 @@ def _cleanup_after_row_deleted(iep_id, child_id, user_id):
         try:
             s3 = boto3.client('s3')
             prefix = f'{user_id}/{child_id}/{iep_id}/'
-            for page in s3.get_paginator('list_objects_v2').paginate(Bucket=bucket, Prefix=prefix):
-                for obj in page.get('Contents', []):
-                    s3.delete_object(Bucket=bucket, Key=obj['Key'])
+            delete_every_version(s3, bucket, prefix)
         except Exception as error:  # noqa: BLE001 - reported, see _cleanup_unredacted_artifacts
             print(f'Unredacted cleanup left the original upload: {type(error).__name__}')
             retained.append('original-upload')

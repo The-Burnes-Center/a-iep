@@ -56,16 +56,40 @@ def _report_deletion_incomplete(user_id, iep_id, survived):
           f"iep={iep_id or 'unknown'} survived={','.join(sorted(set(survived)))}")
 
 
+def _delete_every_version(s3, bucket, prefix, exact=False):
+    """Permanently delete every version and delete marker under a prefix.
+
+    The bucket is versioned, so DeleteObject without a VersionId only writes a
+    delete marker: the bytes stay retrievable by version id until the 1-day
+    noncurrent lifecycle rule reaches them, which measured 1 to 3 days on
+    staging (2026-10-14). Deleting each version by id is immediate and final.
+    Duplicated in each lambda that deletes from the bucket (each folder is
+    its own asset); deleteEveryVersion in upload-s3/utils is the JS twin.
+
+    exact=True takes only the one key named by prefix. Version listing is by
+    prefix, so report.pdf would otherwise also take report.pdf2.
+
+    Returns the keys that had a current version, so callers count and log
+    real deletions rather than markers and superseded versions.
+    """
+    visible = []
+    for page in s3.get_paginator('list_object_versions').paginate(Bucket=bucket, Prefix=prefix):
+        versions = page.get('Versions', [])
+        for entry in versions + page.get('DeleteMarkers', []):
+            if exact and entry['Key'] != prefix:
+                continue
+            s3.delete_object(Bucket=bucket, Key=entry['Key'], VersionId=entry['VersionId'])
+        visible.extend(v['Key'] for v in versions
+                       if v.get('IsLatest') and (not exact or v['Key'] == prefix))
+    return visible
+
+
 def _delete_prefix(s3, bucket, prefix):
     """Delete every object under a prefix, returning the count removed."""
-    deleted = 0
-    paginator = s3.get_paginator('list_objects_v2')
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        for obj in page.get('Contents', []):
-            s3.delete_object(Bucket=bucket, Key=obj['Key'])
-            print(f"Deleted S3 object: {_safe_key(obj['Key'])}")
-            deleted += 1
-    return deleted
+    deleted = _delete_every_version(s3, bucket, prefix)
+    for key in deleted:
+        print(f"Deleted S3 object: {_safe_key(key)}")
+    return len(deleted)
 
 
 def _delete_document_artifacts(s3, bucket, doc):
@@ -87,7 +111,7 @@ def _delete_document_artifacts(s3, bucket, doc):
 
     ref = doc.get('contentS3Reference') or {}
     if ref.get('s3Key'):
-        s3.delete_object(Bucket=ref.get('bucket') or bucket, Key=ref['s3Key'])
+        _delete_every_version(s3, ref.get('bucket') or bucket, ref['s3Key'], exact=True)
         print(f"Deleted S3 object: {ref['s3Key']}")
         deleted += 1
 
@@ -174,7 +198,7 @@ def lambda_handler(event, context):
     # succeed on something already gone), so a retry converges instead of
     # failing on work the first attempt finished.
     try:
-        s3.delete_object(Bucket=bucket, Key=key)
+        _delete_every_version(s3, bucket, key, exact=True)
         objects_deleted += 1
         print(f"Deleted S3 object: {_safe_key(key)}")
     except Exception as e:

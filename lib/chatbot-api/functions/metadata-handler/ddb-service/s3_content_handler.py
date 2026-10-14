@@ -127,6 +127,34 @@ def get_content_from_s3(s3_key: str, bucket: str) -> Optional[Dict]:
         print(f"Error retrieving content from S3: {type(e).__name__}")
         return None
 
+def delete_every_version(s3, bucket, prefix, exact=False):
+    """Permanently delete every version and delete marker under a prefix.
+
+    The bucket is versioned, so DeleteObject without a VersionId only writes a
+    delete marker: the bytes stay retrievable by version id until the 1-day
+    noncurrent lifecycle rule reaches them, which measured 1 to 3 days on
+    staging (2026-10-14). Deleting each version by id is immediate and final.
+    Duplicated in each lambda that deletes from the bucket (each folder is
+    its own asset); deleteEveryVersion in upload-s3/utils is the JS twin.
+
+    exact=True takes only the one key named by prefix. Version listing is by
+    prefix, so report.pdf would otherwise also take report.pdf2.
+
+    Returns the keys that had a current version, so callers count and log
+    real deletions rather than markers and superseded versions.
+    """
+    visible = []
+    for page in s3.get_paginator('list_object_versions').paginate(Bucket=bucket, Prefix=prefix):
+        versions = page.get('Versions', [])
+        for entry in versions + page.get('DeleteMarkers', []):
+            if exact and entry['Key'] != prefix:
+                continue
+            s3.delete_object(Bucket=bucket, Key=entry['Key'], VersionId=entry['VersionId'])
+        visible.extend(v['Key'] for v in versions
+                       if v.get('IsLatest') and (not exact or v['Key'] == prefix))
+    return visible
+
+
 def delete_content_from_s3(s3_key: str, bucket: str) -> bool:
     """
     Delete IEP content from S3
@@ -140,7 +168,7 @@ def delete_content_from_s3(s3_key: str, bucket: str) -> bool:
     """
     try:
         print(f"Deleting content from S3: {bucket}/{_safe_key(s3_key)}")
-        s3_client.delete_object(Bucket=bucket, Key=s3_key)
+        delete_every_version(s3_client, bucket, s3_key, exact=True)
         print(f"Successfully deleted content from S3")
         return True
     except Exception as e:

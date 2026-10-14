@@ -1025,25 +1025,44 @@ def get_child_documents(event: Dict) -> Dict:
         print(f"Error retrieving documents: {str(e)}")
         return create_response(event, 500, {'message': 'Could not load your documents. Please try again later.'})
 
+def _delete_every_version(s3, bucket, prefix, exact=False):
+    """Permanently delete every version and delete marker under a prefix.
+
+    The bucket is versioned, so DeleteObject without a VersionId only writes a
+    delete marker: the bytes stay retrievable by version id until the 1-day
+    noncurrent lifecycle rule reaches them, which measured 1 to 3 days on
+    staging (2026-10-14). Deleting each version by id is immediate and final.
+    Duplicated in each lambda that deletes from the bucket (each folder is
+    its own asset); deleteEveryVersion in upload-s3/utils is the JS twin.
+
+    exact=True takes only the one key named by prefix. Version listing is by
+    prefix, so report.pdf would otherwise also take report.pdf2.
+
+    Returns the keys that had a current version, so callers count and log
+    real deletions rather than markers and superseded versions.
+    """
+    visible = []
+    for page in s3.get_paginator('list_object_versions').paginate(Bucket=bucket, Prefix=prefix):
+        versions = page.get('Versions', [])
+        for entry in versions + page.get('DeleteMarkers', []):
+            if exact and entry['Key'] != prefix:
+                continue
+            s3.delete_object(Bucket=bucket, Key=entry['Key'], VersionId=entry['VersionId'])
+        visible.extend(v['Key'] for v in versions
+                       if v.get('IsLatest') and (not exact or v['Key'] == prefix))
+    return visible
+
+
 def _delete_object_if_present(s3, bucket: str, key: str) -> int:
     """Delete one key, reporting whether it was actually there.
 
     S3 DeleteObject succeeds on a key that never existed, so counting every
-    call would report phantom deletions back to the client. head_object first
-    keeps the deletion summary honest.
+    call would report phantom deletions back to the client. Counting only
+    keys that had a current version keeps the deletion summary honest, and a
+    failed version listing raises rather than reading as "already gone".
     """
-    try:
-        s3.head_object(Bucket=bucket, Key=key)
-    except ClientError as e:
-        code = e.response['Error']['Code']
-        if code in ('404', 'NoSuchKey'):
-            return 0
-        # Never read an ambiguous head_object failure as "already gone". A 403
-        # from a missing ListBucket grant is indistinguishable from absent, and
-        # swallowing it would report a clean purge while FERPA content stayed
-        # in the bucket. Say so in the log, then delete anyway.
-        print(f"head_object on {_safe_key(key)} failed ({code}); attempting delete anyway")
-    s3.delete_object(Bucket=bucket, Key=key)
+    if not _delete_every_version(s3, bucket, key, exact=True):
+        return 0
     print(f"Deleted S3 object: {_safe_key(key)}")
     return 1
 
@@ -1070,14 +1089,10 @@ def _safe_key(key):
 
 def _delete_prefix(s3, bucket: str, prefix: str) -> int:
     """Delete every object under a prefix, returning the count removed."""
-    deleted = 0
-    paginator = s3.get_paginator('list_objects_v2')
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        for obj in page.get('Contents', []):
-            s3.delete_object(Bucket=bucket, Key=obj['Key'])
-            print(f"Deleted S3 object: {_safe_key(obj['Key'])}")
-            deleted += 1
-    return deleted
+    deleted = _delete_every_version(s3, bucket, prefix)
+    for key in deleted:
+        print(f"Deleted S3 object: {_safe_key(key)}")
+    return len(deleted)
 
 
 def _delete_document_artifacts(s3, bucket_name: str, doc: Dict) -> int:

@@ -21,20 +21,44 @@ def _safe_key(key):
     return f'{head}/...' if sep else '...'
 
 
+def _delete_every_version(s3, bucket, prefix, exact=False):
+    """Permanently delete every version and delete marker under a prefix.
+
+    The bucket is versioned, so DeleteObject without a VersionId only writes a
+    delete marker: the bytes stay retrievable by version id until the 1-day
+    noncurrent lifecycle rule reaches them, which measured 1 to 3 days on
+    staging (2026-10-14). Deleting each version by id is immediate and final.
+    Duplicated in each lambda that deletes from the bucket (each folder is
+    its own asset); deleteEveryVersion in upload-s3/utils is the JS twin.
+
+    exact=True takes only the one key named by prefix. Version listing is by
+    prefix, so report.pdf would otherwise also take report.pdf2.
+
+    Returns the keys that had a current version, so callers count and log
+    real deletions rather than markers and superseded versions.
+    """
+    visible = []
+    for page in s3.get_paginator('list_object_versions').paginate(Bucket=bucket, Prefix=prefix):
+        versions = page.get('Versions', [])
+        for entry in versions + page.get('DeleteMarkers', []):
+            if exact and entry['Key'] != prefix:
+                continue
+            s3.delete_object(Bucket=bucket, Key=entry['Key'], VersionId=entry['VersionId'])
+        visible.extend(v['Key'] for v in versions
+                       if v.get('IsLatest') and (not exact or v['Key'] == prefix))
+    return visible
+
+
 def delete_s3_object(bucket, key):
-    """Delete an object from S3"""
+    """Delete the original upload from S3, every version of it."""
     try:
         s3 = boto3.client('s3')
-        # Check if object exists before deleting
-        try:
-            s3.head_object(Bucket=bucket, Key=key)
-            s3.delete_object(Bucket=bucket, Key=key)
+        if _delete_every_version(s3, bucket, key, exact=True):
             print(f"Deleted S3 object: {bucket}/{_safe_key(key)}")
-        except s3.exceptions.ClientError as e:
-            if e.response['Error']['Code'] == '404':
-                print(f"S3 object does not exist, no need to delete: {bucket}/{_safe_key(key)}")
-            else:
-                raise
+        else:
+            # Absent already (a retry), or only old versions were left; either
+            # way nothing of it is retrievable now.
+            print(f"S3 object was not current, versions purged: {bucket}/{_safe_key(key)}")
     except Exception as e:
         print(f"Failed to delete S3 object: {bucket}/{_safe_key(key)} - {type(e).__name__}")
         raise

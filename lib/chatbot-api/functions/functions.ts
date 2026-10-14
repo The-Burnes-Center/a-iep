@@ -41,6 +41,32 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 // an exclude for exactly the same reason.
 const PYTHON_ASSET_EXCLUDES = ['__pycache__'];
 
+/**
+ * Let a function delete from the knowledge bucket permanently.
+ *
+ * The bucket is versioned, so DeleteObject alone only writes a delete marker:
+ * the bytes stay retrievable by version id until the 1-day noncurrent
+ * lifecycle rule reaches them, which measured 1 to 3 days on staging
+ * (2026-10-14). Every path that deletes a family's document lists the key's
+ * versions and deletes each by id, which needs these two actions on top of
+ * the DeleteObject and ListBucket each function already holds. Granted only
+ * to the functions that delete, and pinned by test/infra.
+ */
+function grantPermanentDelete(fn: lambda.IFunction, bucket: s3.IBucket): void {
+  fn.addToRolePolicy(new iam.PolicyStatement({
+    effect: iam.Effect.ALLOW,
+    actions: ['s3:DeleteObjectVersion'],
+    resources: [bucket.arnForObjects('*')],
+  }));
+  // ListObjectVersions authorizes as ListBucketVersions, a bucket-level
+  // action distinct from ListBucket.
+  fn.addToRolePolicy(new iam.PolicyStatement({
+    effect: iam.Effect.ALLOW,
+    actions: ['s3:ListBucketVersions'],
+    resources: [bucket.bucketArn],
+  }));
+}
+
 export interface LambdaFunctionStackProps {
   readonly knowledgeBucket : s3.Bucket;
   readonly userProfilesTable : Table;
@@ -137,6 +163,8 @@ export class LambdaFunctionStack extends cdk.Stack {
       resources: [props.knowledgeBucket.bucketArn]
     }));
 
+    grantPermanentDelete(deleteS3APIHandlerFunction, props.knowledgeBucket);
+
     // GetItem to read contentS3Reference and check ownership, DeleteItem to
     // drop the row once its artifacts are gone. No index: the key carries the
     // full primary key (iepId + childId).
@@ -218,6 +246,9 @@ export class LambdaFunctionStack extends cdk.Stack {
       ],
       resources: [props.knowledgeBucket.bucketArn]
     }));
+
+    // The replace flow deletes the child's previous document permanently.
+    grantPermanentDelete(uploadS3KnowledgeAPIHandlerFunction, props.knowledgeBucket);
 
     // Add DynamoDB permissions for IEP documents table
     uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
@@ -447,6 +478,12 @@ export class LambdaFunctionStack extends cdk.Stack {
 
     // Add step function policies to DDB service function (created before stepFunctionPolicies were defined)
     stepFunctionPolicies.forEach(policy => this.ddbServiceFunction.addToRolePolicy(policy));
+
+    // The two pipeline paths that delete unredacted artifacts: DeleteOriginal
+    // on success, RecordFailure's purge (in the DDB service) on failure. Not
+    // in stepFunctionPolicies, which every step lambda shares.
+    grantPermanentDelete(this.deleteOriginalFunction, props.knowledgeBucket);
+    grantPermanentDelete(this.ddbServiceFunction, props.knowledgeBucket);
 
     // Reclaim documents whose upload never reached S3: the presigned-URL
     // upload path (knowledge-management/upload-s3) writes the DynamoDB row
@@ -774,6 +811,9 @@ export class LambdaFunctionStack extends cdk.Stack {
         props.knowledgeBucket.bucketArn + "/*"
       ]
     }));
+
+    // Account and child deletion.
+    grantPermanentDelete(userProfileHandlerFunction, props.knowledgeBucket);
 
     // Add Cognito permissions for user deletion and locale attribute sync
     userProfileHandlerFunction.addToRolePolicy(new iam.PolicyStatement({

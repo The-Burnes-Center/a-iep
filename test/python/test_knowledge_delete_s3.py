@@ -15,7 +15,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from conftest import load_lambda_module, unload
+from conftest import create_versioned_bucket, load_lambda_module, retrievable_versions, unload
 
 BUCKET = 'kb-bucket-test'
 DOCUMENTS_TABLE = 'documents-test'
@@ -26,7 +26,7 @@ USER = 'user-sub-1'
 def delete_s3(monkeypatch):
     with mock_aws():
         s3 = boto3.client('s3', region_name='us-east-1')
-        s3.create_bucket(Bucket=BUCKET)
+        create_versioned_bucket(s3, BUCKET)
         dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
         documents = dynamodb.create_table(
             TableName=DOCUMENTS_TABLE,
@@ -244,3 +244,13 @@ def test_a_refused_key_is_logged_without_its_filename(delete_s3, capsys):
     assert status == 403
     assert 'Sofia' not in out
     assert 'someone-else/child-1/iep-1/...' in out
+
+
+# A parent who deletes a document is owed a deletion, not a delete marker
+# over bytes that stay retrievable by version id for another 1 to 3 days.
+def test_deleting_a_document_leaves_no_retrievable_version(delete_s3):
+    doc = seed_document(delete_s3)
+
+    assert call(delete_s3, key=doc.raw_key)[0] == 200
+
+    assert retrievable_versions(delete_s3.s3, BUCKET) == set()

@@ -15,7 +15,7 @@ from botocore.exceptions import ClientError
 import pytest
 from moto import mock_aws
 
-from conftest import load_lambda_module, unload
+from conftest import create_versioned_bucket, load_lambda_module, retrievable_versions, unload
 
 DOCUMENTS_TABLE = 'documents-test'
 PROFILES_TABLE = 'profiles-test'
@@ -48,7 +48,7 @@ def service(monkeypatch):
             BillingMode='PAY_PER_REQUEST',
         )
         s3 = boto3.client('s3', region_name='us-east-1')
-        s3.create_bucket(Bucket=BUCKET)
+        create_versioned_bucket(s3, BUCKET)
 
         monkeypatch.setenv('IEP_DOCUMENTS_TABLE', DOCUMENTS_TABLE)
         monkeypatch.setenv('USER_PROFILES_TABLE', PROFILES_TABLE)
@@ -933,3 +933,39 @@ def test_an_undecryptable_name_is_no_name_rather_than_a_blob(service, monkeypatc
 
     assert (status, body['name']) == (200, '')
     assert ciphertext[:24] not in json.dumps(body)
+
+
+# Every purge below must leave nothing retrievable by version id: the bucket
+# is versioned, and a delete marker over a child's unredacted record is not a
+# deletion (see test_delete_original for the measurement).
+def test_delete_ocr_data_leaves_no_retrievable_version(service):
+    seed_document(service)
+    op(service, 'save_ocr_data', **IDS, ocr_data={'pages': ['raw text']})
+
+    assert op(service, 'delete_ocr_data', **IDS)[0] == 200
+
+    assert retrievable_versions(service.s3, BUCKET, f'iep-data/{IEP}/{CHILD}/ocr_result.json') == set()
+
+
+def test_record_failure_leaves_no_retrievable_unredacted_version(service):
+    upload_key = f'{USER}/{CHILD}/{IEP}/original.pdf'
+    service.s3.put_object(Bucket=BUCKET, Key=upload_key, Body=b'pdf')
+    seed_document(service, documentUrl=f's3://{BUCKET}/{upload_key}')
+    op(service, 'save_ocr_data', **IDS, ocr_data={'pages': ['raw']})
+
+    op(service, 'record_failure', **IDS, error_message='boom', failed_step='mistral_ocr')
+
+    assert retrievable_versions(service.s3, BUCKET, upload_key) == set()
+    assert retrievable_versions(service.s3, BUCKET, f'iep-data/{IEP}/{CHILD}/ocr_result.json') == set()
+
+
+def test_record_failure_after_the_row_is_gone_leaves_no_retrievable_version(service):
+    upload_key = f'{USER}/{CHILD}/{IEP}/original.pdf'
+    raw_key = f'iep-data/{IEP}/{CHILD}/ocr_result.json'
+    service.s3.put_object(Bucket=BUCKET, Key=upload_key, Body=b'pdf')
+    service.s3.put_object(Bucket=BUCKET, Key=raw_key, Body=b'{"pages": ["raw"]}')
+
+    op(service, 'record_failure', **IDS, error_message='boom', failed_step='mistral_ocr')
+
+    assert retrievable_versions(service.s3, BUCKET, f'{USER}/{CHILD}/{IEP}/') == set()
+    assert retrievable_versions(service.s3, BUCKET, raw_key) == set()
