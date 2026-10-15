@@ -30,6 +30,7 @@ import {
   TRANSLATION_LANGUAGE,
   appNavButton,
   expectOnDemandTranslation,
+  expectSpanishAndDifferent,
   pickOnDemandLanguage,
 } from '../helpers/documents';
 
@@ -288,6 +289,72 @@ test.describe('the content assertion follows the language', () => {
     // automatically. Accepting its pane unchecked would green-stamp
     // untranslated English, so the missing rule has to be the failure.
     expect(() => expectOnDemandTranslation(ENGLISH_SAMPLE, 'fr')).toThrow(/TRANSLATED_SCRIPTS/);
+  });
+});
+
+/**
+ * The first 200 characters of the Spanish summary stage 5 rejected on
+ * 2026-10-15 (nightly run 38746621260), exactly as its failure message printed
+ * them. Real Spanish: it failed because the old check needed three of seven
+ * fixed words, each with a space on both sides, and this text is built on
+ * "por", "las", "y" and "su", which were not on the list. Synthetic fixture
+ * data, so safe to commit.
+ */
+const SPANISH_REJECTED_2026_10_15 =
+  'Este programa de educación individualizado (IEP, por sus siglas en inglés) resalta las ' +
+  'muchas fortalezas y áreas de crecimiento de E2E Test Child. Se reconoce a E2E Test Child ' +
+  'por su curiosidad, persi';
+
+/** A different English text, so the "not the same as English" check is not what fails. */
+const OTHER_ENGLISH =
+  'The English tab of the same summary, describing the services and supports the school ' +
+  'will provide, and the goals the team will measure during the coming school year.';
+
+test.describe('the uploaded document reads as Spanish', () => {
+  test("accepts the real Spanish summary the old check rejected", () => {
+    expectSpanishAndDifferent(SPANISH_REJECTED_2026_10_15, OTHER_ENGLISH);
+  });
+
+  test('accepts the accent-dense Spanish sample', () => {
+    expectSpanishAndDifferent(SPANISH_SAMPLE, OTHER_ENGLISH);
+  });
+
+  test('accepts Spanish whatever punctuation follows its function words', () => {
+    // "de," "en." "que:" all still count; the old check only saw a word with a
+    // space on both sides.
+    const punctuated =
+      'Resumen: la escuela dará apoyo, de lunes a viernes, en clase; con terapia, que ayuda, ' +
+      'para el progreso del estudiante y su familia, por todo el año escolar.';
+    expectSpanishAndDifferent(punctuated, OTHER_ENGLISH);
+  });
+
+  test('rejects untranslated English', () => {
+    expect(() => expectSpanishAndDifferent(ENGLISH_SAMPLE, OTHER_ENGLISH)).toThrow(
+      /does not read as Spanish/
+    );
+  });
+
+  test('rejects the other rotation languages', () => {
+    for (const language of ON_DEMAND_LANGUAGES) {
+      expect(
+        () => expectSpanishAndDifferent(SAMPLE[language], OTHER_ENGLISH),
+        `${language} prose satisfied the Spanish check`
+      ).toThrow(/does not read as Spanish/);
+    }
+  });
+
+  test('rejects English that only borrows a few Spanish words', () => {
+    // A proper noun or a quoted phrase must not carry the whole assertion.
+    const borrowed =
+      'The student attends Escuela de la Paz and joins the "Club de Lectura" on Fridays. The ' +
+      'school will provide speech therapy once a week and track progress all year.';
+    expect(() => expectSpanishAndDifferent(borrowed, OTHER_ENGLISH)).toThrow(
+      /does not read as Spanish/
+    );
+  });
+
+  test('still rejects a translated tab that repeats the English text', () => {
+    expect(() => expectSpanishAndDifferent(SPANISH_SAMPLE, SPANISH_SAMPLE)).toThrow(/SAME text/);
   });
 });
 

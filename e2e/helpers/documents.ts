@@ -44,8 +44,27 @@ export const FIXTURE_PDF = path.join(__dirname, '..', 'fixtures', 'synthetic-iep
  */
 export const TRANSLATION_LANGUAGE = 'es';
 
-/** Function words that appear in essentially any Spanish paragraph. */
-const SPANISH_MARKERS = [' de ', ' que ', ' la ', ' los ', ' para ', ' con ', ' en '];
+/**
+ * Spanish function words, matched as whole words and COUNTED.
+ *
+ * Every Spanish sentence is built on these, and English prose holds none of
+ * them (plain English has no "de", "la", "y" or "por"). Counting occurrences
+ * rather than distinct words, over a broad set, is what makes this robust: the
+ * previous check needed three of seven fixed words, each with a space on both
+ * sides, and rejected a real summary built on "por", "las", "y" and "su"
+ * (nightly 2026-10-15). Unicode letter boundaries, so "de," and "en." count
+ * and "deber" or "enseñar" do not.
+ */
+const SPANISH_FUNCTION_WORDS =
+  /(?<!\p{L})(?:de|del|la|las|el|los|lo|que|en|y|por|para|con|su|sus|se|un|una|es|al)(?!\p{L})/giu;
+
+/**
+ * A 120-character Spanish passage carries roughly one function word in every
+ * four or five words; the 2026-10-15 summary held 11 in its first 200
+ * characters. A proper noun such as "Escuela de la Paz" supplies two or three,
+ * so the floor sits above that.
+ */
+const SPANISH_FUNCTION_WORD_MINIMUM = 6;
 
 /**
  * Every language the STAGING deployment offers, in the app's display order.
@@ -568,13 +587,12 @@ export function expectSpanishAndDifferent(spanish: string, english: string): voi
     'the translated tab shows the SAME text as the English tab (translation step no-op?)'
   ).not.toBe(english);
 
-  const padded = ` ${spanish.toLowerCase()} `;
-  const hits = SPANISH_MARKERS.filter((marker) => padded.includes(marker));
+  const hits = spanish.normalize('NFC').match(SPANISH_FUNCTION_WORDS)?.length ?? 0;
   expect(
-    hits.length,
-    `the translated summary does not read as Spanish (matched ${hits.length} of the ` +
-    `common function words ${SPANISH_MARKERS.join(',')}): ${spanish.slice(0, 200)}`
-  ).toBeGreaterThanOrEqual(3);
+    hits,
+    `the translated summary does not read as Spanish (${hits} Spanish function words, ` +
+    `fewer than ${SPANISH_FUNCTION_WORD_MINIMUM}): ${spanish.slice(0, 200)}`
+  ).toBeGreaterThanOrEqual(SPANISH_FUNCTION_WORD_MINIMUM);
 }
 
 interface ScriptRule {
