@@ -1102,6 +1102,31 @@ describe('Cognito custom-auth wiring', () => {
       .toEqual(['bounce', 'complaint', 'deliveryDelay', 'reject'].sort());
   });
 
+  // /auth/token and /auth/logout count calls per source in the OTP rate-limit
+  // table, failing closed. The count is read back from UpdateItem, so write
+  // access is enough; the grant must not grow into a read of anything else.
+  test('the session function meters per-source calls on the rate-limit table, write-only', () => {
+    const fn: any = Object.values(template.findResources('AWS::Lambda::Function'))
+      .find((f: any) => f.Properties?.Handler === 'auth-session.handler');
+    expect(JSON.stringify(fn.Properties.Environment.Variables.OTP_RATE_LIMIT_TABLE))
+      .toContain('OtpRateLimitTable');
+
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .filter((p: any) => JSON.stringify(p.Properties.Roles ?? '').includes('AuthSessionFunctionServiceRole'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[])
+      .filter((st) => JSON.stringify(st.Resource ?? '').includes('OtpRateLimitTable'));
+    expect(statements.length).toBeGreaterThan(0);
+
+    const actions = statements.flatMap((st) => ([] as string[]).concat(st.Action));
+    expect(actions).toContain('dynamodb:UpdateItem');
+    for (const forbidden of ['dynamodb:Scan', 'dynamodb:Query', 'dynamodb:GetItem']) {
+      expect(actions).not.toContain(forbidden);
+    }
+    for (const st of statements) {
+      expect(JSON.stringify(st.Resource)).not.toContain('"*"');
+    }
+  });
+
   // The optional pinned origination number is read from this same subtree
   // (`<prefix>/origination-number`), so the existing grant must keep covering
   // it and must not widen beyond it to make it work.

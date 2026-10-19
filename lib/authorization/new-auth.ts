@@ -718,13 +718,25 @@ export class NewAuthorizationStack extends Construct {
       memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(assetPath),
       handler: 'auth-session.handler',
-      environment: sharedEnvironment,
+      environment: {
+        ...sharedEnvironment,
+        // The per-source limit on /auth/token and /auth/logout.
+        OTP_RATE_LIMIT_TABLE: this.otpRateLimitTable.tableName,
+        // Staging only, for the same reason as the start and signup limits:
+        // the E2E suite signs in repeatedly from one CI address.
+        ...(getEnvironment() !== 'prod' ? { MAX_AUTH_SESSION_CALLS_PER_IP_HOUR: '1200' } : {}),
+      },
       timeout: cdk.Duration.seconds(30),
       reservedConcurrentExecutions: AUTH_RESERVED_CONCURRENCY,
       logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
       description: 'Exchanges a session handle for short-lived tokens, and revokes it',
     });
     tagResource(this.authSessionFunction, { Resource: 'Lambda', Function: 'AuthSession' });
+
+    // UpdateItem is all the counter needs, and grantWriteData is the same
+    // grant /auth/start holds on this table. No read grant: the count comes
+    // back from the update itself.
+    this.otpRateLimitTable.grantWriteData(this.authSessionFunction);
 
     // AdminInitiateAuth here is REFRESH_TOKEN_AUTH only in practice, but IAM
     // cannot express "only that flow", so the narrowing that IS available is
