@@ -24,6 +24,21 @@ kms_key_alias = os.environ.get('AIEP_KMS_KEY_ALIAS', 'alias/aiep/app')
 
 print(f"KMS client initialized for region: {region}, using key alias: {kms_key_alias}")
 
+# Clients are built once per container, not once per request: constructing one
+# loads the service model from disk and costs tens of milliseconds, and a warm
+# invocation should pay none of it. dynamodb and kms are created above because
+# every request needs them. s3, lambda and cognito-idp are built on first use
+# and then kept: building them at import would add their cost to every cold
+# start, including GET /profile, which touches none of them.
+_clients = {}
+
+
+def _aws_client(service: str):
+    if service not in _clients:
+        _clients[service] = boto3.client(service)
+    return _clients[service]
+
+
 SUPPORTED_LANGUAGES = ['en', 'zh', 'es', 'vi', 'ar']
 DEFAULT_LANGUAGE = 'en'
 
@@ -603,7 +618,7 @@ def update_user_profile(event: Dict) -> Dict:
         # a failure here must not fail the profile update.
         if body.get('secondaryLanguage'):
             try:
-                cognito = boto3.client('cognito-idp')
+                cognito = _aws_client('cognito-idp')
                 cognito.admin_update_user_attributes(
                     UserPoolId=os.environ.get('USER_POOL_ID', ''),
                     Username=user_id,
@@ -941,7 +956,7 @@ def get_child_documents(event: Dict) -> Dict:
                         # New format: fetch content from S3
                         s3_ref = doc['contentS3Reference']
                         try:
-                            s3 = boto3.client('s3')
+                            s3 = _aws_client('s3')
                             response = s3.get_object(Bucket=s3_ref['bucket'], Key=s3_ref['s3Key'])
                             content_json = response['Body'].read().decode('utf-8')
                             content = json.loads(content_json)
@@ -977,7 +992,7 @@ def get_child_documents(event: Dict) -> Dict:
                         print(f"Migrating {doc['iepId']}/{doc['childId']} to S3 (lazy migration)")
                         try:
                             # Call DDB service to migrate
-                            lambda_client = boto3.client('lambda')
+                            lambda_client = _aws_client('lambda')
                             ddb_service_name = os.environ.get('DDB_SERVICE_FUNCTION_NAME', 'DDBService')
                             
                             migrate_payload = {
@@ -1364,7 +1379,7 @@ def delete_child_documents(event: Dict) -> Dict:
 
         # Delete all IEP-related data
         # Initialize clients
-        s3 = boto3.client('s3')
+        s3 = _aws_client('s3')
         bucket_name = os.environ.get('BUCKET', '')
         survived: List[str] = []
 
@@ -1548,7 +1563,7 @@ def delete_user_profile(event: Dict) -> Dict:
 
         # Hoisted: step 2 purges S3 artifacts too, so these must exist even if
         # the raw-upload sweep below raises.
-        s3 = boto3.client('s3')
+        s3 = _aws_client('s3')
         bucket_name = os.environ.get('BUCKET', '')
 
         # The five steps run data first and credentials last, and every step
@@ -1660,7 +1675,7 @@ def delete_user_profile(event: Dict) -> Dict:
             # Built outside the try: the except clause below names an
             # exception class off this client, and evaluating that clause with
             # `cognito` unbound would raise NameError over the real error.
-            cognito = boto3.client('cognito-idp')
+            cognito = _aws_client('cognito-idp')
             try:
                 user_pool_id = os.environ.get('USER_POOL_ID', '')
 

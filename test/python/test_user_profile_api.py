@@ -1632,3 +1632,60 @@ def test_child_deletion_leaves_no_retrievable_version(api):
     assert call(api, '/profile/children/child-1/documents', 'DELETE')[0] == 200
 
     assert retrievable_versions(api.s3, BUCKET) == set()
+
+
+# ---------------------------------------------------------------------------
+# Client reuse
+
+class CountingBoto3:
+    """boto3 stand-in recording every client built through it."""
+
+    def __init__(self, lambda_client=None):
+        self.built = []
+        self.lambda_client = lambda_client
+
+    def client(self, service_name, **kwargs):
+        self.built.append(service_name)
+        if service_name == 'lambda' and self.lambda_client is not None:
+            return self.lambda_client
+        return boto3.client(service_name, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(boto3, name)
+
+
+def test_s3_and_lambda_clients_are_built_once_per_container_not_per_request(api, monkeypatch):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-s3', child_id='child-1', created_at=3000,
+                 content={'summaries': {'en': 'From S3'}})
+    fake = FakeLambdaClient(lambda payload: {
+        'statusCode': 200, 'body': json.dumps({'summaries': {'en': 'migrated'}})})
+    counting = CountingBoto3(lambda_client=fake)
+    monkeypatch.setattr(api.module, 'boto3', counting)
+
+    for _ in range(3):
+        assert call(api, '/profile/children/child-1/documents', 'GET')[1]['summaries']['en'] == 'From S3'
+
+    # A second child whose latest row is legacy inline content takes the
+    # lambda branch, three times.
+    api.profiles.put_item(Item={'userId': USER, 'children': [
+        {'childId': 'child-2', 'name': 'Kid', 'schoolCity': 'Boston'}]})
+    put_document(api, iep_id='iep-legacy', child_id='child-2',
+                 summaries={'en': 'inline'})
+    for _ in range(3):
+        assert call(api, '/profile/children/child-2/documents', 'GET')[1]['summaries']['en'] == 'migrated'
+
+    assert counting.built.count('s3') == 1
+    assert counting.built.count('lambda') == 1
+    assert len(fake.invocations) == 3
+
+
+def test_the_cognito_client_is_reused_across_requests(api, monkeypatch):
+    counting = CountingBoto3()
+    monkeypatch.setattr(api.module, 'boto3', counting)
+    profile_with_child(api)
+
+    for language in ('es', 'vi'):
+        assert call(api, '/profile', 'PUT', {'secondaryLanguage': language})[0] == 200
+
+    assert counting.built.count('cognito-idp') == 1
