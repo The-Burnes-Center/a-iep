@@ -434,6 +434,57 @@ describe('auth start', () => {
     });
 });
 
+describe('auth start response headers', () => {
+    beforeEach(() => {
+        jest.resetModules();
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+        mockDdbSend.mockReset().mockResolvedValue({ Attributes: { attempts: 1 } });
+        mockSsmSend.mockReset().mockResolvedValue({ Parameter: { Value: 'real-secret' } });
+        mockLambdaSend.mockReset().mockResolvedValue({ StatusCode: 202 });
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true, status: 200, json: async () => ({ success: true }),
+        });
+        process.env.OTP_RATE_LIMIT_TABLE = 'rate-limits';
+        process.env.AUTH_SESSION_TABLE = 'auth-sessions';
+        process.env.TURNSTILE_SECRET_PARAM = '/a-iep/test/turnstile/secret';
+        process.env.AUTH_DISPATCH_FUNCTION = 'auth-dispatch';
+    });
+
+    afterEach(() => {
+        delete global.fetch;
+        jest.restoreAllMocks();
+    });
+
+    test('the challenge handle is never cacheable, and neither is a refusal', async () => {
+        const handler = load();
+        const ok = await handler(request());
+        const refused = await handler(request({ destination: 'x' }));
+
+        expect([ok.statusCode, refused.statusCode]).toEqual([200, 400]);
+        expect(ok.headers['Cache-Control']).toBe('no-store');
+        expect(refused.headers['Cache-Control']).toBe('no-store');
+    });
+
+    test.each([
+        ['per-source', () => mockDdbSend.mockResolvedValue({ Attributes: { attempts: 99 } })],
+        ['global', () => {
+            let call = 0;
+            mockDdbSend.mockImplementation(() => {
+                call += 1;
+                return Promise.resolve({ Attributes: { attempts: call === 1 ? 1 : 999 } });
+            });
+        }],
+    ])('a %s 429 carries Retry-After equal to the body figure', async (_l, arrange) => {
+        arrange();
+        const response = await load()(request());
+
+        expect(response.statusCode).toBe(429);
+        expect(bodyOf(response).retryAfterSeconds).toBe(3600);
+        expect(response.headers['Retry-After']).toBe('3600');
+    });
+});
+
 describe('the staging-only Turnstile bypass', () => {
     const BYPASS = 'bypass-token-value';
     const TEST_NUMBER = '+15555550111';
