@@ -45,6 +45,12 @@ const sampleDocument = {
 
 const event = (body) => ({ body: typeof body === 'string' ? body : JSON.stringify(body) });
 
+describe('body cap', () => {
+    test('the cap is 5 MiB, the size at which a real family\'s PDF still renders', () => {
+        expect(MAX_BODY_BYTES).toBe(5 * 1024 * 1024);
+    });
+});
+
 describe('successful render', () => {
     test('renders with setContent, returns a no-store PDF, and keeps the 2 s font wait', async () => {
         const response = await handler(event({ document: sampleDocument, preferredLanguage: 'en', fileName: 'Summary' }));
