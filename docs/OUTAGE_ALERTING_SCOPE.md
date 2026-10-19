@@ -2,6 +2,11 @@
 
 Status: scoping only, nothing built. Written 2026-09-08.
 
+Update: this is the original scope and its inventory of "what exists" is out of
+date. Alarms, the formatter lambda and the daily summary have since been built.
+For how an alert reads and what to do about one, see `docs/RUNBOOK.md`; the
+wording of every alarm is in `lib/chatbot-api/monitoring/alert-copy*.ts`.
+
 Goal: when A-IEP breaks, whether that is our API, a lambda, the document
 pipeline or a third-party service, someone finds out from Slack rather than
 from a parent.
