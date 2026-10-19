@@ -202,3 +202,53 @@ def test_synthesize_error_never_echoes_the_provider_response_body(
     assert SENTINEL not in message
     assert '400' in message
     assert 'client_error' in message
+
+
+# ---------------------------------------------------------------------------
+# A provider the network cannot reach is a retryable 503 (TTSProviderUnavailable),
+# not a raw urllib3 exception escaping the handler. A missing key is its own
+# class so the handler can answer it as a server configuration fault.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize('provider_cls,api_key_env', [
+    ('OpenAIProvider', 'OPENAI_API_KEY_PARAMETER_NAME'),
+    ('ElevenLabsProvider', 'ELEVENLABS_API_KEY_PARAMETER_NAME'),
+])
+def test_a_transport_failure_is_unavailable_and_carries_no_text(
+        providers, monkeypatch, provider_cls, api_key_env):
+    import urllib3
+
+    module = providers.module
+    arm_api_key(providers, monkeypatch, api_key_env)
+
+    class Unreachable:
+        def request(self, method, url, **kwargs):
+            raise urllib3.exceptions.TimeoutError('read timed out')
+
+    monkeypatch.setattr(module, 'http', Unreachable())
+    with pytest.raises(module.TTSProviderUnavailable) as exc_info:
+        getattr(module, provider_cls)({}).synthesize('Hi.', 'en')
+
+    message = str(exc_info.value)
+    assert 'TimeoutError' in message
+    assert 'Hi.' not in message
+    assert isinstance(exc_info.value, module.TTSProviderError)
+
+
+def test_a_provider_that_answers_with_an_error_is_not_unavailable(providers, monkeypatch):
+    module = providers.module
+    arm_api_key(providers, monkeypatch, 'OPENAI_API_KEY_PARAMETER_NAME')
+    monkeypatch.setattr(module, 'http', FakeHTTP(status=500))
+
+    with pytest.raises(module.TTSProviderError) as exc_info:
+        module.OpenAIProvider({}).synthesize('Hi.', 'en')
+
+    assert not isinstance(exc_info.value, module.TTSProviderUnavailable)
+
+
+def test_a_missing_key_is_not_configured_not_a_plain_provider_error(providers, monkeypatch):
+    module = providers.module
+    monkeypatch.setattr(module, 'http', FakeHTTP())
+
+    with pytest.raises(module.TTSProviderNotConfigured):
+        module.OpenAIProvider({}).synthesize('Hi.', 'en')
