@@ -547,7 +547,7 @@ describe('HTTP API authorization', () => {
   test('the access log format carries no path parameter, query string or user identifier', () => {
     const stages = template.findResources('AWS::ApiGatewayV2::Stage');
     const format = Object.values(stages).map((s: any) => s.Properties.AccessLogSettings?.Format)
-      .find((f: any) => typeof f === 'string');
+      .find((f: any) => typeof f === 'string') as string;
     expect(format).toBeDefined();
 
     // $context.path is the RESOLVED path (real childId/iepId/referral code/
