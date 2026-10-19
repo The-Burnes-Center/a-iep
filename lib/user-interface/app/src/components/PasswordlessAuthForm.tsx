@@ -361,6 +361,9 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
             onChange={setCode}
             required
             autoFocus
+            // Set in the same update as the step change, so the input mounts
+            // with its first key and each send or resend re-arms it.
+            webOtpKey={auth.lastCodeSentAt}
           />
 
           {/*

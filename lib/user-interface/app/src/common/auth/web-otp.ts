@@ -34,3 +34,7 @@ export const requestWebOtpCode = async (signal: AbortSignal): Promise<string | n
   const code = (credential as { code?: unknown } | null)?.code;
   return typeof code === 'string' ? code : null;
 };
+
+/** True for the rejection a request gets when its AbortController fires. */
+export const isAbortError = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError';

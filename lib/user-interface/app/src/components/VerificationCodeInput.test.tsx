@@ -50,7 +50,7 @@ const signalOf = (get: { mock: { calls: unknown[][] } }, call = 0) =>
   (get.mock.calls[call][0] as { signal: AbortSignal }).signal;
 
 /** Wraps the field the way the code step does: inside a form that a submit would reach. */
-const Harness: React.FC<{ onSubmit: () => void }> = ({ onSubmit }) => {
+const Harness: React.FC<{ onSubmit: () => void; webOtpKey?: number }> = ({ onSubmit, webOtpKey }) => {
   const [value, setValue] = React.useState("");
   return (
     <form
@@ -59,7 +59,13 @@ const Harness: React.FC<{ onSubmit: () => void }> = ({ onSubmit }) => {
         onSubmit();
       }}
     >
-      <VerificationCodeInput label="Code" placeholder="Enter code" value={value} onChange={setValue} />
+      <VerificationCodeInput
+        label="Code"
+        placeholder="Enter code"
+        value={value}
+        onChange={setValue}
+        webOtpKey={webOtpKey}
+      />
     </form>
   );
 };
@@ -142,14 +148,12 @@ describe("VerificationCodeInput WebOTP autofill", () => {
     expect(codeField()).toHaveValue("");
   });
 
-  test.each([
-    ["an AbortError", new DOMException("The operation was aborted.", "AbortError")],
-    ["a NotAllowedError", new DOMException("User declined.", "NotAllowedError")],
-  ])("%s from the request produces no error UI and no log", async (_label, error) => {
-    stubCredentialsGet(() => Promise.reject(error));
+  test("an AbortError from the request produces no error UI and no log", async () => {
+    stubCredentialsGet(() => Promise.reject(new DOMException("The operation was aborted.", "AbortError")));
     const consoleSpies = [
       vi.spyOn(console, "error").mockImplementation(() => {}),
       vi.spyOn(console, "warn").mockImplementation(() => {}),
+      vi.spyOn(console, "info").mockImplementation(() => {}),
       vi.spyOn(console, "log").mockImplementation(() => {}),
     ];
     render(<Harness onSubmit={vi.fn()} />);
@@ -160,5 +164,53 @@ describe("VerificationCodeInput WebOTP autofill", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(codeField()).toHaveValue("");
     for (const spy of consoleSpies) expect(spy).not.toHaveBeenCalled();
+  });
+
+  test("a refused request leaves the field alone, and logs only the error name", async () => {
+    stubCredentialsGet(() => Promise.reject(new DOMException("User declined.", "NotAllowedError")));
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    render(<Harness onSubmit={vi.fn()} />);
+
+    await waitFor(() => expect(info).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(codeField()).toHaveValue("");
+    expect(info.mock.calls[0]).toEqual(["WebOTP request did not complete:", "NotAllowedError"]);
+  });
+
+  test("a new webOtpKey aborts the old request and issues a fresh one", async () => {
+    const { get, pending } = stubPendingCredentialsGet();
+    const onSubmit = vi.fn();
+    const { rerender } = render(<Harness onSubmit={onSubmit} webOtpKey={1} />);
+
+    const firstSignal = signalOf(get, 0);
+    expect(get).toHaveBeenCalledTimes(1);
+
+    rerender(<Harness onSubmit={onSubmit} webOtpKey={2} />);
+
+    expect(firstSignal.aborted).toBe(true);
+    expect(get).toHaveBeenCalledTimes(2);
+    const secondSignal = signalOf(get, 1);
+    expect(secondSignal.aborted).toBe(false);
+    expect(get.mock.calls[1][0]).toMatchObject({ otp: { transport: ["sms"] } });
+
+    // The fresh request is the live one: its code fills the field.
+    await act(async () => {
+      pending[1].resolve({ code: "654321" });
+    });
+    expect(codeField()).toHaveValue("654321");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  test("a parent's typing aborts only the current request; the next key re-arms", async () => {
+    const { get } = stubPendingCredentialsGet();
+    const { rerender } = render(<Harness onSubmit={vi.fn()} webOtpKey={1} />);
+
+    await userEvent.type(codeField(), "9");
+    expect(signalOf(get, 0).aborted).toBe(true);
+    expect(get).toHaveBeenCalledTimes(1);
+
+    rerender(<Harness onSubmit={vi.fn()} webOtpKey={2} />);
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(signalOf(get, 1).aborted).toBe(false);
   });
 });

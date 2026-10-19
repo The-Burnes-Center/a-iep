@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Form } from 'react-bootstrap';
 import FormLabel from './FormLabel';
-import { isWebOtpSupported, requestWebOtpCode } from '../common/auth/web-otp';
+import { isAbortError, isWebOtpSupported, requestWebOtpCode } from '../common/auth/web-otp';
 import './VerificationCodeInput.css';
 
 /** Digits in an SMS/email one-time code. Cognito issues six. */
@@ -17,6 +17,12 @@ interface VerificationCodeInputProps {
   onChange: (value: string) => void;
   required?: boolean;
   autoFocus?: boolean;
+  /**
+   * Changes whenever a new code is sent to this field. A new key aborts the
+   * WebOTP request for the previous code and arms a fresh one, so a resent
+   * text is read the same way the first one was.
+   */
+  webOtpKey?: string | number;
 }
 
 const VerificationCodeInput: React.FC<VerificationCodeInputProps> = ({
@@ -25,7 +31,8 @@ const VerificationCodeInput: React.FC<VerificationCodeInputProps> = ({
   value,
   onChange,
   required = true,
-  autoFocus = true
+  autoFocus = true,
+  webOtpKey
 }) => {
   // Drives the caret ring on the next empty box. Tracked here rather than
   // with :focus-within, because the ring belongs to one box out of six and
@@ -54,8 +61,9 @@ const VerificationCodeInput: React.FC<VerificationCodeInputProps> = ({
   // Offer the SMS code the browser reads from the arriving message. The value
   // is filled but never submitted: the parent still presses Verify, so a
   // screen-reader user is not moved on without choosing to (WCAG 3.2.2).
-  // Failures are silent on purpose. The field works without this, and a code
-  // is a secret that lives for minutes, so nothing is logged either.
+  // Re-armed when webOtpKey changes, i.e. on every send and resend. No UI
+  // error on failure: the field works without this. The console gets the
+  // error name only, never the code or anything from the message.
   useEffect(() => {
     if (!isWebOtpSupported()) return;
     const controller = new AbortController();
@@ -65,15 +73,15 @@ const VerificationCodeInput: React.FC<VerificationCodeInputProps> = ({
         if (controller.signal.aborted || !code) return;
         commitValue(code);
       })
-      .catch(() => {
-        // Aborted, refused or failed: the field stays as it was and the parent
-        // types the code. Nothing to show and nothing to log.
+      .catch((error: unknown) => {
+        if (isAbortError(error)) return;
+        console.info('WebOTP request did not complete:', (error as { name?: unknown })?.name ?? 'unknown');
       });
     return () => {
       controller.abort();
       webOtpRef.current = null;
     };
-  }, [commitValue]);
+  }, [commitValue, webOtpKey]);
 
   // Where the next digit lands, and so where the caret shows. Clamped to the
   // last box on a full code, which keeps a ring on screen while the parent
