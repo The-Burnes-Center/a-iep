@@ -246,10 +246,20 @@ export class UserInterface extends Construct {
     // no studentNameGate and no passwordlessAuth and rendered the old login
     // screen and no child-name prompt, on a build that contained both. A hard
     // reload fixed it, which is not a thing a parent knows to do.
-    new s3deploy.BucketDeployment(this, "UserInterfaceDeployment", {
+    // The hashed bundle: assets/ only. A new build is a new URL, so the old
+    // one is safe to keep for a year.
+    //
+    // Files outside assets/ and index.html are not hashed. vendor/ (the PDF
+    // worker and the icon font) and images/ keep their names across releases,
+    // so a version bump can leave a returning browser on the old file for a
+    // year. They get the one-day policy below instead, so a stale copy is
+    // replaced within a day, and stale-while-revalidate lets a return visit
+    // paint at once while the new copy loads behind it.
+    new s3deploy.BucketDeployment(this, "UserInterfaceAssets", {
       prune: false,
       sources: [asset],
-      exclude: ["index.html"],
+      exclude: ["*"],
+      include: ["assets/*"],
       destinationBucket: websiteBucket,
       distribution: distribution,
       cacheControl: [
@@ -262,6 +272,24 @@ export class UserInterface extends Construct {
       // can handle, causing the custom resource to time out (>60min).
       // Give it more headroom so the sync completes within Lambda's 15min
       // limit and CloudFormation's 60min custom-resource cutoff.
+      memoryLimit: 1024,
+      ephemeralStorageSize: cdk.Size.gibibytes(1),
+    });
+
+    // Everything else in the build that has a stable URL: vendor/, images/ and
+    // any top-level static file. Not index.html or aws-exports.json (the two
+    // entry points, deployed below with no-cache) and not assets/ (above).
+    new s3deploy.BucketDeployment(this, "UserInterfaceStableFiles", {
+      prune: false,
+      sources: [asset],
+      exclude: ["index.html", "aws-exports.json", "assets/*"],
+      destinationBucket: websiteBucket,
+      distribution: distribution,
+      cacheControl: [
+        s3deploy.CacheControl.fromString(
+          "public, max-age=86400, stale-while-revalidate=604800"
+        ),
+      ],
       memoryLimit: 1024,
       ephemeralStorageSize: cdk.Size.gibibytes(1),
     });
