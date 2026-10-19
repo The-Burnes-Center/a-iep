@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Form } from 'react-bootstrap';
 import FormLabel from './FormLabel';
+import { isWebOtpSupported, requestWebOtpCode } from '../common/auth/web-otp';
 import './VerificationCodeInput.css';
 
 /** Digits in an SMS/email one-time code. Cognito issues six. */
 const CODE_LENGTH = 6;
+
+/** The one rule for what reaches the field, whether typed, pasted or read by WebOTP. */
+const sanitizeCode = (raw: string): string => raw.replace(/\D/g, '').slice(0, CODE_LENGTH);
 
 interface VerificationCodeInputProps {
   label: string;
@@ -28,11 +32,48 @@ const VerificationCodeInput: React.FC<VerificationCodeInputProps> = ({
   // CSS cannot tell which one is next.
   const [focused, setFocused] = useState(false);
 
+  // The WebOTP request is armed once, on mount, so it must not re-run when the
+  // parent passes a new onChange identity. The ref carries the latest one in.
+  const onChangeRef = useRef(onChange);
+  const webOtpRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  // Typed, pasted and WebOTP-read values all reach the parent through here.
+  // Stable across renders, so the mount-only WebOTP effect can depend on it.
+  const commitValue = useCallback((raw: string) => onChangeRef.current(sanitizeCode(raw)), []);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Remove non-digits and limit to 6 characters
-    const sanitizedValue = e.target.value.replace(/\D/g, '').slice(0, CODE_LENGTH);
-    onChange(sanitizedValue);
+    // The parent is entering the code by hand, so a code the browser reads
+    // later must not overwrite what they are typing.
+    webOtpRef.current?.abort();
+    commitValue(e.target.value);
   };
+
+  // Offer the SMS code the browser reads from the arriving message. The value
+  // is filled but never submitted: the parent still presses Verify, so a
+  // screen-reader user is not moved on without choosing to (WCAG 3.2.2).
+  // Failures are silent on purpose. The field works without this, and a code
+  // is a secret that lives for minutes, so nothing is logged either.
+  useEffect(() => {
+    if (!isWebOtpSupported()) return;
+    const controller = new AbortController();
+    webOtpRef.current = controller;
+    requestWebOtpCode(controller.signal)
+      .then((code) => {
+        if (controller.signal.aborted || !code) return;
+        commitValue(code);
+      })
+      .catch(() => {
+        // Aborted, refused or failed: the field stays as it was and the parent
+        // types the code. Nothing to show and nothing to log.
+      });
+    return () => {
+      controller.abort();
+      webOtpRef.current = null;
+    };
+  }, [commitValue]);
 
   // Where the next digit lands, and so where the caret shows. Clamped to the
   // last box on a full code, which keeps a ring on screen while the parent
