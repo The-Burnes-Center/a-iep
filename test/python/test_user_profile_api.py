@@ -1785,3 +1785,79 @@ def test_the_decrypts_really_overlap(api, monkeypatch):
     assert status == 200
     assert body['profile']['parentName'] == 'Jane Parent'
     assert len(set(in_flight)) > 1
+
+
+# ---------------------------------------------------------------------------
+# Routing is built once, and a request is one log line
+
+def test_the_router_is_built_once_at_import_not_per_request(api, monkeypatch):
+    profile_with_child(api)
+
+    def never(*args, **kwargs):
+        raise AssertionError('the router was rebuilt for a request')
+    monkeypatch.setattr(api.module, 'Router', never)
+    monkeypatch.setattr(api.module, 'UserProfileRouter', never)
+
+    assert call(api, '/profile', 'GET')[0] == 200
+    assert call(api, '/profile/children/child-1/documents', 'GET')[0] == 200
+    assert call(api, '/profile', 'GET')[0] == 200
+    assert api.module._router.resolve('/profile', 'GET')[0] == '/profile'
+
+
+def test_every_route_is_still_registered(api):
+    routes = {(path, method)
+              for path, methods in api.module._router.routes.items() for method in methods}
+    assert routes == {
+        ('/profile', 'GET'), ('/profile', 'PUT'), ('/profile', 'DELETE'),
+        ('/profile/children', 'POST'),
+        ('/profile/children/{childId}/documents', 'GET'),
+        ('/profile/children/{childId}/documents', 'DELETE'),
+    }
+
+
+def test_a_request_logs_its_route_template_and_status_and_nothing_of_the_event(api, capsys):
+    profile_with_child(api, child_id='child-secret-id')
+    event = api_event('/profile/children/child-secret-id/documents', 'GET')
+    event['headers'] = {'Authorization': 'Bearer live-token-123', 'Cookie': 'session=abc'}
+    event['requestContext']['authorizer']['jwt']['claims'].update(
+        email='parent@example.org', phone_number='+16175551234')
+    event['body'] = json.dumps({'name': 'A Real Kid'})
+    capsys.readouterr()
+
+    response = api.module.lambda_handler(event, None)
+    logged = capsys.readouterr().out
+
+    assert response['statusCode'] == 200
+    assert 'GET /profile/children/{childId}/documents -> 200' in logged.splitlines()
+    for secret in ('live-token-123', 'session=abc', 'parent@example.org',
+                   '+16175551234', 'A Real Kid'):
+        assert secret not in logged
+    # No route-matching chatter and no dump of the path parameters.
+    for chatter in ('Available routes', 'Attempting to match', 'Checking pattern',
+                    'Lambda handler invoked', 'Path params', 'pathParameters'):
+        assert chatter not in logged
+
+
+def test_an_unknown_route_logs_without_echoing_the_raw_path(api, capsys):
+    capsys.readouterr()
+
+    code, _ = call(api, '/profile/children/child-secret-id/unknown', 'GET')
+    logged = capsys.readouterr().out
+
+    assert code == 404
+    assert 'GET <unrouted> -> 404' in logged
+    assert 'child-secret-id' not in logged
+
+
+def test_a_crash_logs_the_failing_route_and_answers_generically(api, monkeypatch, capsys):
+    def explode(event):
+        raise RuntimeError('table profiles-test is on fire')
+    monkeypatch.setitem(api.module._router.routes['/profile'], 'GET', explode)
+    capsys.readouterr()
+
+    code, body = call(api, '/profile', 'GET')
+    logged = capsys.readouterr().out
+
+    assert code == 500
+    assert body == {'message': 'Internal server error. Please try again later.'}
+    assert 'GET /profile -> 500 unhandled RuntimeError' in logged

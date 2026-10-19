@@ -128,15 +128,11 @@ def get_origin_from_event(event: Dict) -> str:
         str: The origin header value or default localhost
     """
     headers = event.get('headers', {})
-    print("Request headers:", json.dumps(_redact_sensitive_headers(headers), indent=2))
-    
     # Case-insensitive search for origin header
-    origin_header = next(
+    return next(
         (headers[key] for key in headers if key.lower() == 'origin'),
         'http://localhost:3000'
     )
-    print("Found origin:", origin_header)
-    return origin_header
 
 def create_response(event: Dict, status_code: int, body: Dict) -> Dict:
     """
@@ -518,7 +514,6 @@ def get_user_profile(event: Dict) -> Dict:
         
     except Exception as e:
         print(f"Error in get_user_profile: {str(e)}")
-        print(f"Event data: {json.dumps(sanitize_event_for_logging(event), default=str)}")
         return create_response(event, 500, {'message': 'Could not load your profile. Please try again later.'})
 
 def update_user_profile(event: Dict) -> Dict:
@@ -1753,59 +1748,62 @@ def delete_user_profile(event: Dict) -> Dict:
         print(f"Error in delete_user_profile: {str(e)}")
         return create_response(event, 500, {'message': 'Could not delete your account. Please try again later.'})
 
+def _build_router() -> Router:
+    """The route table, from the @route-decorated methods of UserProfileRouter."""
+    router = Router()
+    profile_router = UserProfileRouter()
+    for attr_name in dir(profile_router):
+        attr = getattr(profile_router, attr_name)
+        if hasattr(attr, 'path') and hasattr(attr, 'method'):
+            router.add_route(attr.path, attr.method, attr)
+    return router
+
+
+# Built at import, not per request: the table never changes.
+_router = _build_router()
+
+
 def lambda_handler(event: Dict, context) -> Dict:
     """
     Main Lambda handler function that routes requests to appropriate handlers using the router.
-    
+
+    Writes one log line per request: method, route template and status. Never
+    the event (a bearer token, JWT claims and the body's PII travel in it) and
+    never the raw path (it carries a child's id).
+
     Args:
         event (Dict): API Gateway event object
         context: Lambda context object
-        
+
     Returns:
         Dict: API Gateway response
     """
-    print(f"Lambda handler invoked with event: {json.dumps(sanitize_event_for_logging(event), default=str)}")
-    
+    method = path = None
+    route_template = '<unrouted>'
     try:
+        method = event['requestContext']['http']['method']
+
         # Handle OPTIONS request for CORS
-        if event['requestContext']['http']['method'] == 'OPTIONS':
-            print("Handling OPTIONS request for CORS")
+        if method == 'OPTIONS':
             return handle_options(event)
 
-        # Get path and method
         path = event['rawPath']
-        method = event['requestContext']['http']['method']
-        print(f"Processing {method} request for path: {path}")
+        route_template, handler, path_params = _router.resolve(path, method)
 
-        # Initialize router
-        router = Router()
-        profile_router = UserProfileRouter()
-
-        # Register routes from UserProfileRouter
-        for attr_name in dir(profile_router):
-            attr = getattr(profile_router, attr_name)
-            if hasattr(attr, 'path') and hasattr(attr, 'method'):
-                router.add_route(attr.path, attr.method, getattr(profile_router, attr_name))
-                
-        print(f"Attempting to match route for path: {path}, method: {method}")
-        # Match and execute route
-        handler, path_params = router.match_route(path, method)
-        print(f"Route matched. Handler: {handler.__name__}, Path params: {path_params}")
-        
         # Update path parameters
         if not event.get('pathParameters'):
             event['pathParameters'] = {}
         event['pathParameters'].update(path_params)
-        
-        print(f"Invoking handler: {handler.__name__} with updated pathParameters: {event.get('pathParameters')}")
-        return handler(event)
+
+        response = handler(event)
+        print(f"{method} {route_template} -> {response['statusCode']}")
+        return response
 
     except RouteNotFoundException as e:
-        print(f"Route not found: {path} with method {method}")
+        print(f"{method} {route_template} -> 404 (no route)")
         return create_response(event, 404, {'message': str(e)})
     except Exception as e:
-        error_message = f"Error processing request: {str(e)}, Type: {type(e).__name__}"
-        print(error_message)
+        print(f"{method} {route_template} -> 500 unhandled {type(e).__name__}: {str(e)}")
         import traceback
         print(f"Traceback: {traceback.format_exc()}")
-        return create_response(event, 500, {'message': 'Internal server error. Please try again later.'}) 
+        return create_response(event, 500, {'message': 'Internal server error. Please try again later.'})
