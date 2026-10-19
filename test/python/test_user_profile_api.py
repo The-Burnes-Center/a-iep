@@ -2237,3 +2237,93 @@ def test_no_validation_rejection_is_silent(api, capsys, method, path, body, raw)
 
     assert status == 400
     assert f'Rejecting ' in logged and f'for userId {USER}' in logged
+
+
+# ---------------------------------------------------------------------------
+# GET documents: every page of the query, and only the winner's content
+
+def serve_in_pages(api, monkeypatch, per_page=1):
+    """Make the byChildId read hand back `per_page` rows at a time, oldest
+    first, with a LastEvaluatedKey until the last page. Returns the list of
+    ExclusiveStartKeys the handler passed, one entry per query call."""
+    real_query = api.documents.query
+    calls = []
+
+    def paged_query(**kwargs):
+        calls.append(kwargs.get('ExclusiveStartKey'))
+        everything = {k: v for k, v in kwargs.items() if k != 'ExclusiveStartKey'}
+        items = sorted(real_query(**everything)['Items'], key=lambda row: row['createdAt'])
+        start = kwargs.get('ExclusiveStartKey', {}).get('offset', 0)
+        page = {'Items': items[start:start + per_page]}
+        if start + per_page < len(items):
+            page['LastEvaluatedKey'] = {'offset': start + per_page}
+        return page
+    monkeypatch.setattr(api.module.iep_documents_table, 'query', paged_query)
+    return calls
+
+
+def test_the_newest_document_is_found_even_when_it_is_on_a_later_page(api, monkeypatch):
+    profile_with_child(api)
+    for n, created in enumerate((1000, 4000, 2000, 3000)):
+        put_document(api, iep_id=f'iep-{n}', created_at=created,
+                     content={'summaries': {'en': f'Summary {created}'}})
+    calls = serve_in_pages(api, monkeypatch)
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert status == 200
+    assert body['iepId'] == 'iep-1' and body['summaries']['en'] == 'Summary 4000'
+    assert len(calls) == 4, 'every page must be requested'
+    assert calls[0] is None and calls[1:] == [{'offset': 1}, {'offset': 2}, {'offset': 3}]
+
+
+def test_another_users_row_on_a_later_page_is_still_never_returned(api, monkeypatch):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-mine', created_at=1000,
+                 content={'summaries': {'en': 'Mine'}})
+    put_document(api, iep_id='iep-theirs', user=OTHER_USER, created_at=9000,
+                 content={'summaries': {'en': 'Theirs'}})
+    serve_in_pages(api, monkeypatch)
+
+    body = call(api, '/profile/children/child-1/documents', 'GET')[1]
+
+    assert body['iepId'] == 'iep-mine'
+    assert 'Theirs' not in json.dumps(body)
+
+
+def test_only_the_latest_documents_content_is_read(api, monkeypatch):
+    """Older rows used to be read from S3, or migrated through ddb-service, as
+    the loop met them on its way to the newest."""
+    profile_with_child(api)
+    put_document(api, iep_id='iep-old-s3', created_at=1000, content={'summaries': {'en': 'Old'}})
+    put_document(api, iep_id='iep-old-legacy', created_at=2000, summaries={'en': 'Legacy inline'})
+    put_document(api, iep_id='iep-new', created_at=3000, content={'summaries': {'en': 'New'}})
+    fake = fake_ddb_service(api, monkeypatch, lambda payload: {
+        'statusCode': 200, 'body': json.dumps({'summaries': {'en': 'migrated'}})})
+    s3 = api.module._aws_client('s3')
+    real_get_object = s3.get_object
+    reads = []
+
+    def counting_get_object(**kwargs):
+        reads.append(kwargs['Key'])
+        return real_get_object(**kwargs)
+    monkeypatch.setattr(s3, 'get_object', counting_get_object)
+    serve_in_pages(api, monkeypatch)  # oldest first: the worst case for the old loop
+
+    body = call(api, '/profile/children/child-1/documents', 'GET')[1]
+
+    assert body['summaries']['en'] == 'New'
+    assert reads == ['iep-data/iep-new/child-1/content.json']
+    assert fake.invocations == []
+
+
+def test_a_row_with_no_createdat_is_never_chosen_as_the_latest(api):
+    """Unchanged rule: a document has to have a creation time to be the latest."""
+    profile_with_child(api)
+    api.documents.put_item(Item={'iepId': 'iep-x', 'childId': 'child-1', 'userId': USER,
+                                 'status': 'PROCESSED'})
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert status == 200
+    assert body['documents'] == []

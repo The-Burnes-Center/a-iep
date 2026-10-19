@@ -1047,6 +1047,132 @@ def _has_inline_content(doc: Dict) -> bool:
     return any(doc.get(field) for field in CONTENT_FIELDS)
 
 
+class DocumentContentUnavailable(RuntimeError):
+    """S3 did not answer when a document's content was read."""
+
+    def __init__(self, cause: Exception):
+        super().__init__(type(cause).__name__)
+        self.cause = cause
+
+
+def _document_with_content(doc: Dict, user_id: str) -> Dict:
+    """The API shape of one document row, with its four content fields filled.
+
+    Raises DocumentContentUnavailable if S3 is not answering; every other
+    failure to read content falls back to empty or inline content, as before.
+    """
+    # PENDING_UPLOAD (and, for rows written before that status
+    # existed, no status at all) means the upload handler wrote
+    # this row but the pipeline has not started yet. Surface it
+    # as PROCESSING: that is the value the frontend already
+    # polls and renders a spinner for, and the real value stays
+    # in DynamoDB so ddb-service's pending-upload sweep can
+    # tell a stalled upload apart from real in-flight work.
+    latest_doc = {
+        'iepId': doc['iepId'],
+        'documentId': doc['iepId'],  # Also include documentId for frontend compatibility
+        'childId': doc['childId'],
+        'documentUrl': doc.get('documentUrl', f"s3://{os.environ.get('BUCKET', '')}/{doc['iepId']}"),
+        'status': 'PROCESSING' if doc.get('status') in (None, 'PENDING_UPLOAD') else doc['status'],
+        'progress': doc.get('progress', 0),
+        'current_step': doc.get('current_step', 'initializing'),
+        'createdAt': doc.get('createdAt', ''),
+        'updatedAt': _document_updated_at(doc)
+    }
+
+    # Check if content is in S3 (new format) or DynamoDB (old format)
+    if 'contentS3Reference' in doc:
+        # New format: fetch content from S3
+        s3_ref = doc['contentS3Reference']
+        try:
+            s3_response = _aws_client('s3').get_object(Bucket=s3_ref['bucket'], Key=s3_ref['s3Key'])
+            content = json.loads(s3_response['Body'].read().decode('utf-8'))
+
+            # Merge content into latest_doc
+            latest_doc.update({
+                'summaries': content.get('summaries', {}),
+                'sections': content.get('sections', {}),
+                'document_index': content.get('document_index', {}),
+                'abbreviations': content.get('abbreviations', {})
+            })
+            print(f"Successfully fetched content from S3 for {doc['iepId']}")
+        except AWS_FAULTS as e:
+            # A missing object is a fact about this document
+            # (the row outlived its content): keep the empty
+            # fallback below. Anything else is S3 not
+            # answering, and an empty summary served as if it
+            # were the document is the wrong reply to that.
+            if not (isinstance(e, ClientError)
+                    and e.response.get('Error', {}).get('Code') in S3_MISSING_CODES):
+                raise DocumentContentUnavailable(e) from e
+            print(f"Content object missing in S3 for {doc['iepId']}")
+            latest_doc.update({field: {} for field in CONTENT_FIELDS})
+        except Exception as e:
+            print(f"Error fetching content from S3 for {doc['iepId']}: {str(e)}")
+            # Fallback to empty content
+            latest_doc.update({field: {} for field in CONTENT_FIELDS})
+    elif not _has_inline_content(doc):
+        # No content anywhere yet, which is the normal state of
+        # a row in PENDING_UPLOAD or PROCESSING: the pipeline
+        # has not written any. The migration has nothing to
+        # move (ddb-service answers "no content to migrate"),
+        # so invoking it is a synchronous call to a cold
+        # lambda (~1s) that hands back the same empty content.
+        # 42% of document reads took that detour.
+        latest_doc.update({field: {} for field in CONTENT_FIELDS})
+    else:
+        # Old format: migrate to S3 (lazy migration)
+        print(f"Migrating {doc['iepId']}/{doc['childId']} to S3 (lazy migration)")
+        try:
+            # Call DDB service to migrate
+            lambda_client = _aws_client('lambda')
+            ddb_service_name = os.environ.get('DDB_SERVICE_FUNCTION_NAME', 'DDBService')
+
+            migrate_payload = {
+                'operation': 'get_document_with_content',
+                'params': {
+                    'iep_id': doc['iepId'],
+                    'child_id': doc['childId'],
+                    'user_id': user_id
+                }
+            }
+
+            migrate_response = lambda_client.invoke(
+                FunctionName=ddb_service_name,
+                InvocationType='RequestResponse',
+                Payload=json.dumps(migrate_payload)
+            )
+
+            migrate_result = json.loads(migrate_response['Payload'].read())
+
+            if migrate_result.get('statusCode') == 200:
+                migrated_doc = json.loads(migrate_result['body'])
+                # Update latest_doc with migrated content
+                latest_doc.update({
+                    'summaries': migrated_doc.get('summaries', {}),
+                    'sections': migrated_doc.get('sections', {}),
+                    'document_index': migrated_doc.get('document_index', {}),
+                    'abbreviations': migrated_doc.get('abbreviations', {})
+                })
+                print(f"Successfully migrated {doc['iepId']} to S3")
+            else:
+                # Migration failed, use old format
+                print(f"Migration failed for {doc['iepId']}, using old format")
+                latest_doc.update(_inline_content(doc))
+        except Exception as e:
+            print(f"Error migrating document {doc['iepId']}: {str(e)}")
+            # Fallback to old format
+            latest_doc.update(_inline_content(doc))
+
+    return latest_doc
+
+
+def _inline_content(doc: Dict) -> Dict:
+    """The four content fields as a row holds them inline, unwrapped from
+    DynamoDB's typed JSON."""
+    return {field: clean_dynamodb_json(doc.get(field, {})) for field in CONTENT_FIELDS}
+
+
 def get_child_documents(event: Dict) -> Dict:
     """
     Get document associated with a specific child.
@@ -1079,150 +1205,39 @@ def get_child_documents(event: Dict) -> Dict:
             print(f"Access denied: user {user_id} does not own child {child_id}")
             return not_found(event)
 
-        # Query documents by childId
+        # Every document row for the child, across query pages: one page caps
+        # at 1MB and these rows can carry inline summaries, so an unpaginated
+        # read could miss the newest document.
         try:
-            response = iep_documents_table.query(
-                IndexName='byChildId',
-                KeyConditionExpression='childId = :childId',
-                ExpressionAttributeValues={':childId': child_id}
-            )
+            documents = _query_all_documents(
+                'byChildId', 'childId = :childId', {':childId': child_id})
         except AWS_FAULTS as e:
             return service_unavailable(event, 'get_child_documents query', e)
-        
+
         # Find the latest document
-        latest_doc = None
+        latest_row = None
         latest_timestamp = 0
-        
-        for doc in response['Items']:
+        for doc in documents:
             # Strict ownership: require an explicit userId match. Documents without
             # a userId field are not returned to avoid IDOR via missing fields.
-            if doc.get('userId') == user_id:
-                # Find the document with the latest createdAt timestamp
-                created_at = doc.get('createdAt', 0)
-                if created_at > latest_timestamp:
-                    latest_timestamp = created_at
-                    
-                    # PENDING_UPLOAD (and, for rows written before that status
-                    # existed, no status at all) means the upload handler wrote
-                    # this row but the pipeline has not started yet. Surface it
-                    # as PROCESSING: that is the value the frontend already
-                    # polls and renders a spinner for, and the real value stays
-                    # in DynamoDB so ddb-service's pending-upload sweep can
-                    # tell a stalled upload apart from real in-flight work.
-                    # Construct the base document
-                    latest_doc = {
-                        'iepId': doc['iepId'],
-                        'documentId': doc['iepId'],  # Also include documentId for frontend compatibility
-                        'childId': doc['childId'],
-                        'documentUrl': doc.get('documentUrl', f"s3://{os.environ.get('BUCKET', '')}/{doc['iepId']}"),
-                        'status': 'PROCESSING' if doc.get('status') in (None, 'PENDING_UPLOAD') else doc['status'],
-                        'progress': doc.get('progress', 0),
-                        'current_step': doc.get('current_step', 'initializing'),
-                        'createdAt': doc.get('createdAt', ''),
-                        'updatedAt': _document_updated_at(doc)
-                    }
-                    
-                    # Check if content is in S3 (new format) or DynamoDB (old format)
-                    if 'contentS3Reference' in doc:
-                        # New format: fetch content from S3
-                        s3_ref = doc['contentS3Reference']
-                        try:
-                            s3 = _aws_client('s3')
-                            response = s3.get_object(Bucket=s3_ref['bucket'], Key=s3_ref['s3Key'])
-                            content_json = response['Body'].read().decode('utf-8')
-                            content = json.loads(content_json)
-                            
-                            # Merge content into latest_doc
-                            latest_doc.update({
-                                'summaries': content.get('summaries', {}),
-                                'sections': content.get('sections', {}),
-                                'document_index': content.get('document_index', {}),
-                                'abbreviations': content.get('abbreviations', {})
-                            })
-                            print(f"Successfully fetched content from S3 for {doc['iepId']}")
-                        except AWS_FAULTS as e:
-                            # A missing object is a fact about this document
-                            # (the row outlived its content): keep the empty
-                            # fallback below. Anything else is S3 not
-                            # answering, and an empty summary served as if it
-                            # were the document is the wrong reply to that.
-                            if not (isinstance(e, ClientError)
-                                    and e.response.get('Error', {}).get('Code') in S3_MISSING_CODES):
-                                return service_unavailable(event, 'get_child_documents content read', e)
-                            print(f"Content object missing in S3 for {doc['iepId']}")
-                            latest_doc.update({field: {} for field in CONTENT_FIELDS})
-                        except Exception as e:
-                            print(f"Error fetching content from S3 for {doc['iepId']}: {str(e)}")
-                            # Fallback to empty content
-                            latest_doc.update({
-                                'summaries': {},
-                                'sections': {},
-                                'document_index': {},
-                                'abbreviations': {}
-                            })
-                    elif not _has_inline_content(doc):
-                        # No content anywhere yet, which is the normal state of
-                        # a row in PENDING_UPLOAD or PROCESSING: the pipeline
-                        # has not written any. The migration has nothing to
-                        # move (ddb-service answers "no content to migrate"),
-                        # so invoking it is a synchronous call to a cold
-                        # lambda (~1s) that hands back the same empty content.
-                        # 42% of document reads took that detour.
-                        latest_doc.update({field: {} for field in CONTENT_FIELDS})
-                    else:
-                        # Old format: migrate to S3 (lazy migration)
-                        print(f"Migrating {doc['iepId']}/{doc['childId']} to S3 (lazy migration)")
-                        try:
-                            # Call DDB service to migrate
-                            lambda_client = _aws_client('lambda')
-                            ddb_service_name = os.environ.get('DDB_SERVICE_FUNCTION_NAME', 'DDBService')
-                            
-                            migrate_payload = {
-                                'operation': 'get_document_with_content',
-                                'params': {
-                                    'iep_id': doc['iepId'],
-                                    'child_id': doc['childId'],
-                                    'user_id': user_id
-                                }
-                            }
-                            
-                            migrate_response = lambda_client.invoke(
-                                FunctionName=ddb_service_name,
-                                InvocationType='RequestResponse',
-                                Payload=json.dumps(migrate_payload)
-                            )
-                            
-                            migrate_result = json.loads(migrate_response['Payload'].read())
-                            
-                            if migrate_result.get('statusCode') == 200:
-                                migrated_doc = json.loads(migrate_result['body'])
-                                # Update latest_doc with migrated content
-                                latest_doc.update({
-                                    'summaries': migrated_doc.get('summaries', {}),
-                                    'sections': migrated_doc.get('sections', {}),
-                                    'document_index': migrated_doc.get('document_index', {}),
-                                    'abbreviations': migrated_doc.get('abbreviations', {})
-                                })
-                                print(f"Successfully migrated {doc['iepId']} to S3")
-                            else:
-                                # Migration failed, use old format
-                                print(f"Migration failed for {doc['iepId']}, using old format")
-                                latest_doc.update({
-                                    'summaries': clean_dynamodb_json(doc.get('summaries', {})),
-                                    'sections': clean_dynamodb_json(doc.get('sections', {})),
-                                    'document_index': clean_dynamodb_json(doc.get('document_index', {})),
-                                    'abbreviations': clean_dynamodb_json(doc.get('abbreviations', {}))
-                                })
-                        except Exception as e:
-                            print(f"Error migrating document {doc['iepId']}: {str(e)}")
-                            # Fallback to old format
-                            latest_doc.update({
-                                'summaries': clean_dynamodb_json(doc.get('summaries', {})),
-                                'sections': clean_dynamodb_json(doc.get('sections', {})),
-                                'document_index': clean_dynamodb_json(doc.get('document_index', {})),
-                                'abbreviations': clean_dynamodb_json(doc.get('abbreviations', {}))
-                            })
-        
+            if doc.get('userId') != user_id:
+                continue
+            # Find the document with the latest createdAt timestamp
+            created_at = doc.get('createdAt', 0)
+            if created_at > latest_timestamp:
+                latest_timestamp = created_at
+                latest_row = doc
+
+        # Only the winner's content is fetched. Each newer-than-so-far row used
+        # to be read from S3 (or migrated) as the loop met it, so a child with
+        # several documents paid for every one of them to return one.
+        latest_doc = None
+        if latest_row is not None:
+            try:
+                latest_doc = _document_with_content(latest_row, user_id)
+            except DocumentContentUnavailable as e:
+                return service_unavailable(event, 'get_child_documents content read', e.cause)
+
         # If no document found
         if not latest_doc:
             return create_response(event, 200, {'documents': [], 'message': 'No document found for this child'})
