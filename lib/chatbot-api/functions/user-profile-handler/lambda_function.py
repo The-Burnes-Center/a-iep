@@ -729,6 +729,24 @@ def clean_dynamodb_json(data):
     else:
         return data
 
+def _find_child(profile: Optional[Dict], child_id: str) -> Optional[Dict]:
+    """The profile's child with this childId, or None.
+
+    None covers every way a child can be missing: no profile, no children, a
+    children attribute of the wrong type, or no match. Ownership is exactly
+    "this returns a child".
+    """
+    if not profile or not child_id:
+        return None
+    children = profile.get('children') or []
+    if not isinstance(children, list):
+        return None
+    for child in children:
+        if isinstance(child, dict) and child.get('childId') == child_id:
+            return child
+    return None
+
+
 def _user_owns_child(user_id: str, child_id: str) -> bool:
     """
     Verify the given childId belongs to the authenticated user's profile.
@@ -741,39 +759,25 @@ def _user_owns_child(user_id: str, child_id: str) -> bool:
     except Exception as e:
         print(f"Error loading profile for ownership check (user {user_id}): {str(e)}")
         return False
-
-    profile = profile_response.get('Item')
-    if not profile:
-        return False
-
-    children = profile.get('children') or []
-    if not isinstance(children, list):
-        return False
-
-    return any(
-        isinstance(child, dict) and child.get('childId') == child_id
-        for child in children
-    )
+    return _find_child(profile_response.get('Item'), child_id) is not None
 
 
-def _child_name(user_id: str, child_id: str) -> Optional[str]:
-    """The child's name from the profile, decrypted, or None.
+def _child_name(child: Optional[Dict]) -> Optional[str]:
+    """A child's name from its profile entry, decrypted, or None.
 
     None is a complete answer rather than a failure: the parent may not have
     been asked for a name yet, and the caller falls back to the neutral phrase
-    for the language being read. Nothing here raises. A profile read or a
-    decrypt that fails costs a parent the name inside their summary, which is
-    not worth a 500 on a document they could otherwise read.
+    for the language being read. Nothing here raises. A decrypt that fails
+    costs a parent the name inside their summary, which is not worth a 500 on
+    a document they could otherwise read.
 
     kms_decrypt_string hands back the ciphertext it was given when a decrypt
     fails; usable_student_name's length guard is what stops that base64 blob
     being printed to a parent as their child's name.
     """
     try:
-        profile = user_profiles_table.get_item(Key={'userId': user_id}).get('Item') or {}
-        for child in profile.get('children') or []:
-            if isinstance(child, dict) and child.get('childId') == child_id:
-                return usable_student_name(kms_decrypt_string(child.get('name')))
+        if child:
+            return usable_student_name(kms_decrypt_string(child.get('name')))
     except Exception as e:
         # Class name only: this function's result is a child's name.
         print(f"Could not read the child's name for substitution: {type(e).__name__}")
@@ -880,7 +884,15 @@ def get_child_documents(event: Dict) -> Dict:
         print(f"Getting documents for childId: {child_id}, userId: {user_id}")
 
         # Authorization: the authenticated user must own the requested child.
-        if not _user_owns_child(user_id, child_id):
+        # The profile is read once: the same item answers ownership here and
+        # supplies the child's name for the substitution below.
+        try:
+            profile = user_profiles_table.get_item(Key={'userId': user_id}).get('Item')
+        except Exception as e:
+            print(f"Error loading profile for ownership check (user {user_id}): {str(e)}")
+            profile = None
+        owned_child = _find_child(profile, child_id)
+        if owned_child is None:
             print(f"Access denied: user {user_id} does not own child {child_id}")
             return create_response(event, 403, {'message': 'Access denied'})
 
@@ -1030,7 +1042,7 @@ def get_child_documents(event: Dict) -> Dict:
         # token, and pass through unchanged.
         try:
             stored = {field: latest_doc[field] for field in CONTENT_FIELDS if field in latest_doc}
-            substituted, count = substitute_content(stored, _child_name(user_id, child_id))
+            substituted, count = substitute_content(stored, _child_name(owned_child))
             latest_doc = {**latest_doc, **substituted}
             print(f"Substituted the student token in {count} place(s) for {latest_doc['iepId']}")
         except Exception as e:

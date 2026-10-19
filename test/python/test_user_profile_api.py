@@ -822,27 +822,47 @@ def test_a_kms_failure_degrades_to_the_neutral_phrase_rather_than_a_500(api, mon
     assert '{{S}}' not in json.dumps(body)
 
 
-def test_a_profile_read_failure_degrades_to_the_neutral_phrase(api, monkeypatch):
-    """The ownership check reads the profile first and must still succeed; it
-    is the second read, the one for the name, that fails here."""
+def test_a_document_read_loads_the_profile_and_decrypts_the_name_once(api, monkeypatch):
+    """The ownership check and the child's name used to each read the profile
+    and each KMS-decrypt the name (the second read was the one a failure
+    degraded to the neutral phrase). One item now answers both."""
     profile_with_named_child(api, encrypt(api, CHILD_NAME))
     put_document(api, content=TOKEN_CONTENT)
 
     real_get_item = api.module.user_profiles_table.get_item
-    calls = []
+    real_decrypt = api.module.kms_client.decrypt
+    reads, decrypts = [], []
 
-    def flaky(**kwargs):
-        calls.append(kwargs)
-        if len(calls) > 1:
-            raise RuntimeError('ProvisionedThroughputExceededException')
+    def counting_get_item(**kwargs):
+        reads.append(kwargs)
         return real_get_item(**kwargs)
-    monkeypatch.setattr(api.module.user_profiles_table, 'get_item', flaky)
+
+    def counting_decrypt(**kwargs):
+        decrypts.append(kwargs)
+        return real_decrypt(**kwargs)
+    monkeypatch.setattr(api.module.user_profiles_table, 'get_item', counting_get_item)
+    monkeypatch.setattr(api.module.kms_client, 'decrypt', counting_decrypt)
 
     status, body = call(api, '/profile/children/child-1/documents', 'GET')
 
     assert status == 200
-    assert body['summaries']['en'] == 'your child is making progress.'
-    assert '{{S}}' not in json.dumps(body)
+    assert body['summaries']['en'] == 'Jordan Smith is making progress.'
+    assert len(reads) == 1
+    assert len(decrypts) == 1
+
+
+def test_the_name_comes_from_the_owned_child_not_another_one(api):
+    """With two children on the profile, the substituted name is the one for
+    the childId requested."""
+    api.profiles.put_item(Item={'userId': USER, 'children': [
+        {'childId': 'child-0', 'name': encrypt(api, 'Alex Other'), 'schoolCity': 'Boston'},
+        {'childId': 'child-1', 'name': encrypt(api, CHILD_NAME), 'schoolCity': 'Boston'},
+    ]})
+    put_document(api, content=TOKEN_CONTENT)
+
+    body = call(api, '/profile/children/child-1/documents', 'GET')[1]
+
+    assert body['summaries']['en'] == 'Jordan Smith is making progress.'
 
 
 @pytest.mark.parametrize('mangled', ['{{ S }}', '{ {S} }', '{S}', '{{s}}', '｛｛S｝｝'])
