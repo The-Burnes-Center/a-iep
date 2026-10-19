@@ -15,8 +15,8 @@ const mockPage = {
         throw new Error('goto must not be used: the document is rendered with setContent');
     }),
     evaluateHandle: jest.fn(async () => {}),
-    waitForTimeout: jest.fn(async () => {}),
-    pdf: jest.fn(async () => Buffer.from('%PDF-1.4 fake')),
+    // puppeteer 22+ resolves a Uint8Array, not a Buffer.
+    pdf: jest.fn(async () => new Uint8Array(Buffer.from('%PDF-1.4 fake'))),
 };
 const mockBrowser = {
     newPage: jest.fn(async () => mockPage),
@@ -53,7 +53,16 @@ describe('body cap', () => {
 
 describe('successful render', () => {
     test('renders with setContent, returns a no-store PDF, and keeps the 2 s font wait', async () => {
-        const response = await handler(event({ document: sampleDocument, preferredLanguage: 'en', fileName: 'Summary' }));
+        // Fire the font wait immediately, recording its duration.
+        const timer = jest.spyOn(global, 'setTimeout').mockImplementation((fn) => { fn(); return 0; });
+        let response;
+        let waits;
+        try {
+            response = await handler(event({ document: sampleDocument, preferredLanguage: 'en', fileName: 'Summary' }));
+        } finally {
+            waits = timer.mock.calls.map(([, ms]) => ms);
+            timer.mockRestore();
+        }
 
         expect(response.statusCode).toBe(200);
         expect(response.isBase64Encoded).toBe(true);
@@ -68,8 +77,22 @@ describe('successful render', () => {
 
         // The 2 s wait is deliberately still there: rendering in ar/zh/vi has
         // not been checked by a person yet.
-        expect(mockPage.waitForTimeout).toHaveBeenCalledWith(2000);
+        expect(waits).toContain(2000);
+        // page.pdf() hands back a Uint8Array; the body must still be base64 of its bytes.
+        expect(mockPage.pdf).toHaveBeenCalledTimes(1);
         expect(mockBrowser.close).toHaveBeenCalledTimes(1);
+    });
+
+    test('launches chrome-headless-shell with puppeteer 25 options', async () => {
+        await handler(event({ document: sampleDocument }));
+
+        const options = mockLaunch.mock.calls.at(-1)[0];
+        expect(options.headless).toBe('shell');
+        expect(options.executablePath).toBe('/fake/chromium');
+        expect(options.acceptInsecureCerts).toBe(true);
+        // Removed in puppeteer 22: passing it would be silently ignored.
+        expect(options).not.toHaveProperty('ignoreHTTPSErrors');
+        expect(options.defaultViewport).toEqual({ width: 1920, height: 1080, deviceScaleFactor: 1 });
     });
 
     test('the request guard lets only data:, about: and the font CDN through', async () => {

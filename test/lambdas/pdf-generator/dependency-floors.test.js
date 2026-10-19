@@ -64,11 +64,18 @@ describe('pdf-generator shipped lockfile', () => {
         expect(lock.lockfileVersion).toBe(3);
     });
 
-    test.each(Object.entries(SECURITY_FLOORS))('every copy of %s is >= %s', (name, floor) => {
+    // puppeteer-core 25 dropped its proxy/FTP tree (basic-ftp, socks, ip-address,
+    // follow-redirects), so a package that is no longer shipped has no copy to
+    // check. The overrides below stay, so it cannot return below its floor.
+    test.each(Object.entries(SECURITY_FLOORS))('every shipped copy of %s is >= %s', (name, floor) => {
         const copies = installedCopies(name);
-        expect(copies.length).toBeGreaterThan(0);
         const belowFloor = copies.filter(({ version }) => !isAtLeast(version, floor));
         expect(belowFloor).toEqual([]);
+    });
+
+    test('the floors are not vacuous: the packages still shipped are checked', () => {
+        const shipped = Object.keys(SECURITY_FLOORS).filter((name) => installedCopies(name).length > 0);
+        expect(shipped).toEqual(expect.arrayContaining(['ws', 'tar-fs', 'nanoid', 'postcss']));
     });
 
     test('the floors are enforced by overrides in the lambda package itself', () => {
