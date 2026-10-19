@@ -137,6 +137,7 @@ describe('create-auth-challenge', () => {
         // The backdoor must not exist unless a test opts in explicitly.
         delete process.env.TEST_PHONE_NUMBERS;
         delete process.env.TEST_OTP_PARAM_PREFIX;
+        delete process.env.OTP_SMS_DOMAIN;
     });
 
     test('round 1 is a language handshake and sends no SMS', async () => {
@@ -190,6 +191,28 @@ describe('create-auth-challenge', () => {
         const code = event.response.privateChallengeParameters.secretLoginCode;
         const expected = getMessages('en').otpLoginSms.replace('{code}', code).replace('{minutes}', 5);
         expect(mockSnsSend.mock.calls[0][0].input.Message).toBe(expected);
+    });
+
+    test('the published SMS ends with the domain-bound code line when a host is configured', async () => {
+        process.env.OTP_SMS_DOMAIN = 'dev.a-iep.org';
+        const event = await handler(baseEvent([HANDSHAKE_PASS], { clientMetadata: { language: 'es' } }));
+        const code = event.response.privateChallengeParameters.secretLoginCode;
+        const { Message } = mockSnsSend.mock.calls[0][0].input;
+
+        expect(Message.endsWith(`\n\n@dev.a-iep.org #${code}`)).toBe(true);
+        // The existing Spanish wording is still there, ahead of the line.
+        expect(Message.startsWith(
+            getMessages('es').otpLoginSms.replace('{code}', code).replace('{minutes}', 5),
+        )).toBe(true);
+    });
+
+    test('with no host configured the SMS carries no domain line', async () => {
+        const event = await handler(baseEvent([HANDSHAKE_PASS]));
+        const code = event.response.privateChallengeParameters.secretLoginCode;
+        const { Message } = mockSnsSend.mock.calls[0][0].input;
+
+        expect(Message).not.toContain('@');
+        expect(Message.split(code)).toHaveLength(2);
     });
 
     test('nothing from the profile row but the language reaches the text', async () => {

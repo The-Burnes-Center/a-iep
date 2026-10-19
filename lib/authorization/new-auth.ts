@@ -843,6 +843,11 @@ export class NewAuthorizationStack extends Construct {
         // test/infra rather than resting on the lambda default alone.
         SMS_ALLOWED_COUNTRY_CODES: SMS_ALLOWED_COUNTRY_CODES.join(','),
         SMS_POLICY_PARAM_PREFIX,
+        // The host the login SMS's last line names (`@host #code`), so a phone
+        // offers the code only to a page on that host. Chosen here, at
+        // construct time, rather than at import, because the host differs per
+        // deploy and a wrong one would silently stop the autofill working.
+        OTP_SMS_DOMAIN: getEnvironment() === 'prod' ? 'a-iep.org' : 'dev.a-iep.org',
         ...(userProfilesTable && { USER_PROFILES_TABLE: userProfilesTable.tableName })
       },
       timeout: cdk.Duration.seconds(30),

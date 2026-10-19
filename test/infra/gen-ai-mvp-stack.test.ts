@@ -1100,6 +1100,19 @@ describe('Cognito custom-auth wiring', () => {
     }
   });
 
+  // The login SMS ends in `@<host> #<code>` so a phone offers the code only to
+  // a page on that host. A wrong host does not error: the autofill just never
+  // appears, so the value is pinned. Production is pinned in its own synth
+  // below; neither stands in for the other.
+  test('staging names dev.a-iep.org in the SMS domain-bound code line', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
+      Handler: 'create-auth-challenge.handler',
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({ OTP_SMS_DOMAIN: 'dev.a-iep.org' }),
+      }),
+    }));
+  });
+
   test('create-auth-challenge lambda is wired to the rate-limit and profiles tables', () => {
     template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
       Handler: 'create-auth-challenge.handler',
@@ -2492,6 +2505,15 @@ describe('production synth: the OTP test backdoor must not exist', () => {
     for (const vars of verifiers) {
       expect(vars.TURNSTILE_EXPECTED_HOSTNAMES).toBe('a-iep.org');
     }
+  });
+
+  test('production names a-iep.org in the SMS domain-bound code line', () => {
+    prodTemplate.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
+      Handler: 'create-auth-challenge.handler',
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({ OTP_SMS_DOMAIN: 'a-iep.org' }),
+      }),
+    }));
   });
 
   // Lambda CPU scales with memory, and a cold start on the sign-in path is
