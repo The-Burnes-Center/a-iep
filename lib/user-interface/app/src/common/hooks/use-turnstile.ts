@@ -15,6 +15,7 @@ interface TurnstileApi {
   render: (element: HTMLElement, options: Record<string, unknown>) => string;
   reset: (widgetId: string) => void;
   remove: (widgetId: string) => void;
+  execute: (widgetId: string) => void;
 }
 
 declare global {
@@ -51,6 +52,22 @@ export type TurnstileStatus =
   /** It could not load or run at all. */
   | 'failed';
 
+/**
+ * What the polite live region says, keyed by where the check has got to.
+ *
+ * Only `interactive`, because the check is invisible: it runs when a parent
+ * presses send and passes without them seeing anything, so "ready", "done",
+ * "expired" and "reset" would announce a control nobody can see, about a step
+ * nobody has to take. `interactive` is the one moment a parent must act.
+ *
+ * `failed` and `timedOut` are absent on purpose: both render a visible
+ * react-bootstrap Alert, which carries role="alert" and announces itself.
+ * Listing them here too would say everything twice.
+ */
+export const TURNSTILE_STATUS_KEYS: Partial<Record<TurnstileStatus, string>> = {
+  interactive: 'auth.securityCheckInteractive',
+};
+
 interface TurnstileState {
   /** Attach to the element the widget should render into. */
   containerRef: (node: HTMLDivElement | null) => void;
@@ -62,7 +79,14 @@ interface TurnstileState {
   status: TurnstileStatus;
   /** True when the widget could not load or run at all. */
   hasFailed: boolean;
-  /** Discard the current token and ask for a fresh one. */
+  /**
+   * Run the check now and resolve with its token, or null when it could not
+   * produce one (failed, timed out, expired, or the widget went away). Call
+   * it at the moment of sending, never before. Resolves null at once when no
+   * key is configured.
+   */
+  getToken: () => Promise<string | null>;
+  /** Discard the current token so the next send runs the check again. */
   reset: () => void;
   /** Parent-initiated retry from the timeout message. Capped. */
   retry: () => void;
@@ -99,6 +123,14 @@ interface TurnstileState {
  * second signup attempt with a spent token is refused, which would look to a
  * parent like the form silently breaking.
  *
+ * **The check runs when a parent presses send, not when the page loads**
+ * (`execution: 'execute'`). The login card sits on the landing page, so an
+ * auto-running widget minted a token for every visitor, and almost none of
+ * them were ever sent to be verified. Cloudflare reads that gap as the server
+ * not calling siteverify at all, and the analytics for the widget stop meaning
+ * anything. Now a token exists only for a send that is about to happen, so
+ * every one minted is one the server checks.
+ *
  * `language` is the APP's language, not the browser's. Turnstile defaults to
  * `auto`, which follows the browser, so a parent who picked Vietnamese in
  * A-IEP on an English-locale phone was handed an English challenge — the one
@@ -113,6 +145,20 @@ export const useTurnstile = (language?: string): TurnstileState => {
   const [token, setToken] = useState<string | null>(null);
   const [status, setStatus] = useState<TurnstileStatus>('idle');
   const [retriesLeft, setRetriesLeft] = useState(MAX_RETRIES);
+  // The token, readable inside getToken without waiting for a re-render.
+  const tokenRef = useRef<string | null>(null);
+  // The send waiting on the running check, if any. One at a time: Turnstile
+  // refuses a second execute while one is in flight.
+  const pendingRef = useRef<{ promise: Promise<string | null>; settle: (token: string | null) => void } | null>(null);
+
+  /** Record the outcome of a run and hand it to whichever send is waiting. */
+  const settle = useCallback((value: string | null) => {
+    tokenRef.current = value;
+    setToken(value);
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    pending?.settle(value);
+  }, []);
 
   const renderWidget = useCallback(() => {
     if (!siteKey || !window.turnstile || !nodeRef.current || widgetIdRef.current) {
@@ -120,20 +166,24 @@ export const useTurnstile = (language?: string): TurnstileState => {
     }
     widgetIdRef.current = window.turnstile.render(nodeRef.current, {
       sitekey: siteKey,
+      // Run only when getToken asks, and stay invisible unless Cloudflare
+      // decides a person has to do something (SecurityCheck.tsx).
+      execution: 'execute',
+      appearance: 'interaction-only',
       // Without this Turnstile uses `auto`, i.e. the browser's language.
       ...(language ? { language } : {}),
       callback: (value: string) => {
-        setToken(value);
+        settle(value);
         setStatus('solved');
       },
       // A token that has expired or errored is worse than none: it would be
       // sent and refused. Clearing it lets the caller notice and reset.
       'expired-callback': () => {
-        setToken(null);
+        settle(null);
         setStatus('expired');
       },
       'error-callback': () => {
-        setToken(null);
+        settle(null);
         setStatus('failed');
       },
       // The four below were unsubscribed until 2026-09-10, which is why an
@@ -143,11 +193,11 @@ export const useTurnstile = (language?: string): TurnstileState => {
       'after-interactive-callback': () =>
         setStatus((current) => (current === 'interactive' ? 'ready' : current)),
       'timeout-callback': () => {
-        setToken(null);
+        settle(null);
         setStatus('timedOut');
       },
       'unsupported-callback': () => {
-        setToken(null);
+        settle(null);
         setStatus('failed');
       },
     });
@@ -155,7 +205,7 @@ export const useTurnstile = (language?: string): TurnstileState => {
     // attach: without it, one transient error left the warning on screen and
     // re-announced it on every switch back to the phone tab.
     setStatus('ready');
-  }, [siteKey, language]);
+  }, [siteKey, language, settle]);
 
   const containerRef = useCallback((node: HTMLDivElement | null) => {
     if (node === null) {
@@ -167,8 +217,9 @@ export const useTurnstile = (language?: string): TurnstileState => {
       }
       widgetIdRef.current = null;
       nodeRef.current = null;
-      // The token belonged to a widget that no longer exists.
-      setToken(null);
+      // The token belonged to a widget that no longer exists, and so does
+      // any run a send was waiting on.
+      settle(null);
       // Discarding it is right; doing it silently is not. A parent who had
       // passed the check, tapped WITH EMAIL and came back was unverified with
       // no notice. Only `solved` is worth saying out loud — announcing a reset
@@ -178,7 +229,7 @@ export const useTurnstile = (language?: string): TurnstileState => {
     }
     nodeRef.current = node;
     renderWidget();
-  }, [renderWidget]);
+  }, [renderWidget, settle]);
 
   useEffect(() => {
     if (!siteKey) {
@@ -222,13 +273,33 @@ export const useTurnstile = (language?: string): TurnstileState => {
     };
   }, [siteKey, renderWidget]);
 
+  const getToken = useCallback((): Promise<string | null> => {
+    if (!siteKey) return Promise.resolve(null);
+    if (tokenRef.current) return Promise.resolve(tokenRef.current);
+    if (pendingRef.current) return pendingRef.current.promise;
+    if (!window.turnstile || !widgetIdRef.current) return Promise.resolve(null);
+    let settlePending: (token: string | null) => void = () => {};
+    const promise = new Promise<string | null>((resolve) => { settlePending = resolve; });
+    pendingRef.current = { promise, settle: settlePending };
+    try {
+      window.turnstile.execute(widgetIdRef.current);
+    } catch {
+      // Turnstile throws for a widget it no longer knows. A send waiting on
+      // it would otherwise hang with the button doing nothing.
+      settle(null);
+      setStatus('failed');
+    }
+    return promise;
+  }, [siteKey, settle]);
+
   const reset = useCallback(() => {
-    setToken(null);
+    // Resetting abandons a run in flight, so its waiting send gets null.
+    settle(null);
     if (window.turnstile && widgetIdRef.current) {
       window.turnstile.reset(widgetIdRef.current);
       setStatus('ready');
     }
-  }, []);
+  }, [settle]);
 
   /**
    * The parent asked for a fresh challenge after one timed out.
@@ -254,6 +325,7 @@ export const useTurnstile = (language?: string): TurnstileState => {
     isEnabled: Boolean(siteKey),
     status,
     hasFailed: status === 'failed',
+    getToken,
     reset,
     retry,
     canRetry: retriesLeft > 0,

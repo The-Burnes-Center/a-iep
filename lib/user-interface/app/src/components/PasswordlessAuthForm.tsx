@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Form, Alert, Button } from 'react-bootstrap';
 import { AuthChannel } from '../common/auth/passwordless-auth';
 import { usePasswordlessAuth } from '../common/hooks/use-passwordless-auth';
-import { TurnstileStatus } from '../common/hooks/use-turnstile';
 import { formatUsPhoneDisplay, readUsPhone } from '../common/us-phone';
 import FormLabel from './FormLabel';
 /* The email field is spelled out below rather than rendered through
@@ -16,16 +15,8 @@ import AlertMessages from './AlertMessages';
 import SubmitButton from './SubmitButton';
 import LinkButton from './LinkButton';
 import LoginMethodToggle from './LoginMethodToggle';
-
-/** Mirrors CustomLogin's own TURNSTILE_STATUS_KEYS: what the security check
- * says to a parent who cannot see it, keyed by where the check has got to. */
-const TURNSTILE_STATUS_KEYS: Partial<Record<TurnstileStatus, string>> = {
-  ready: 'auth.securityCheckReady',
-  interactive: 'auth.securityCheckInteractive',
-  solved: 'auth.securityCheckDone',
-  expired: 'auth.securityCheckExpired',
-  reset: 'auth.securityCheckReset',
-};
+import SecurityCheck, { TurnstileProp } from './SecurityCheck';
+import { TURNSTILE_STATUS_KEYS } from '../common/hooks/use-turnstile';
 
 /**
  * How long a parent waits between code requests.
@@ -55,18 +46,6 @@ const SEND_NOTICE_KEYS: Record<AuthChannel, Record<SendNotice, string>> = {
   sms: { sent: 'auth.smsCodeSent', resent: 'auth.smsCodeResent' },
   email: { sent: 'auth.verificationCodeSent', resent: 'auth.successCodeResent' },
 };
-
-/** The slice of useTurnstile's return value this form actually needs. */
-interface TurnstileProp {
-  containerRef: (node: HTMLDivElement | null) => void;
-  token: string | null;
-  isEnabled: boolean;
-  status: TurnstileStatus;
-  hasFailed: boolean;
-  canRetry: boolean;
-  retry: () => void;
-  reset: () => void;
-}
 
 interface PasswordlessAuthFormProps {
   t: (key: string) => string;
@@ -132,64 +111,6 @@ const InlineFieldError: React.FC<{ id: string; message: string }> = ({ id, messa
   </div>
 );
 
-interface TurnstileBlockProps {
-  t: (key: string) => string;
-  turnstile: TurnstileProp;
-}
-
-/**
- * The visible half of the security check: the named group Cloudflare's widget
- * renders into, plus its own timeout/failure alerts. Markup mirrors
- * CustomLogin's legacy block so the accessibility properties hand-verified
- * there (named group, reserved slot height) carry over unchanged. Kept as its
- * own component so it can be given a distinct `key` per tab at the call site
- * (see the comment above where it is rendered) — without that, switching tabs
- * would update this element in place instead of unmounting it.
- */
-const TurnstileBlock: React.FC<TurnstileBlockProps> = ({ t, turnstile }) => {
-  if (!turnstile.isEnabled) return null;
-  return (
-    <>
-      <div
-        className="mb-3"
-        role="group"
-        aria-labelledby="turnstile-heading"
-        aria-describedby="turnstile-help"
-      >
-        <p id="turnstile-heading" className="form-label mb-1">
-          {t('auth.securityCheck')}
-        </p>
-        <p id="turnstile-help" className="text-muted small mb-2">
-          {t('auth.securityCheckHelp')}
-        </p>
-        <div className="d-flex justify-content-center" style={{ minHeight: '4.5rem' }}>
-          <div ref={turnstile.containerRef} />
-        </div>
-        {turnstile.status === 'interactive' && (
-          <p className="text-muted small mt-2 mb-0">
-            {t('auth.securityCheckInteractive')}
-          </p>
-        )}
-      </div>
-      {turnstile.status === 'timedOut' && (
-        <Alert variant="warning" className="mb-3">
-          {t('auth.securityCheckTimedOut')}{' '}
-          {turnstile.canRetry && (
-            <Button variant="link" size="sm" className="p-0 align-baseline" onClick={turnstile.retry}>
-              {t('auth.securityCheckRetry')}
-            </Button>
-          )}
-        </Alert>
-      )}
-      {turnstile.hasFailed && (
-        <Alert variant="warning" className="mb-3">
-          {t('auth.errorTurnstileUnavailable')}
-        </Alert>
-      )}
-    </>
-  );
-};
-
 /**
  * The identifier -> code flow described in docs/AUTH_API_CONTRACT.md, behind
  * the `passwordlessAuth` feature flag. Rendered by CustomLogin in place of
@@ -219,6 +140,27 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
   const [secondsUntilResend, setSecondsUntilResend] = useState(0);
   const phoneInputRef = useRef<HTMLInputElement | null>(null);
   const emailInputRef = useRef<HTMLInputElement | null>(null);
+  // True while a send waits on the security check. The check can sit on an
+  // interactive challenge for a while, and a second tap of the button in that
+  // time must not become a second send.
+  const isCheckingRef = useRef(false);
+
+  /**
+   * Run the security check for one send. Null means do not send: the check
+   * is configured and gave no token, so the request could only come back 403
+   * after spending one of the parent's hourly starts. Callers return early on
+   * isCheckingRef first, so a second tap is ignored rather than reported.
+   */
+  const tokenForSend = async (): Promise<{ token?: string } | null> => {
+    if (!turnstile.isEnabled) return {};
+    isCheckingRef.current = true;
+    try {
+      const token = await turnstile.getToken();
+      return token ? { token } : null;
+    } finally {
+      isCheckingRef.current = false;
+    }
+  };
 
   const auth = usePasswordlessAuth({ httpEndpoint, language, onSignedIn });
   const turnstileStatusKey = TURNSTILE_STATUS_KEYS[turnstile.status];
@@ -280,7 +222,15 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
     }
     setFieldError(null);
 
-    const started = await auth.start(target.destination, turnstile.token ?? undefined);
+    // Already waiting on the check for the last tap: that send is coming.
+    if (isCheckingRef.current) return;
+    const check = await tokenForSend();
+    if (!check) {
+      // The widget says why (interactive, timed out, failed) on its own.
+      setFormError('auth.securityCheckInteractive');
+      return;
+    }
+    const started = await auth.start(target.destination, check.token);
     if (!started) {
       // A spent token is refused if tried again; the parent cannot see or fix
       // that, so a failed attempt clears it same as the legacy flow does.
@@ -309,16 +259,21 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
     // /auth/start requires a token on every call (contract §2) and a token is
     // single-use, so the one the first send spent is no use here. The widget
     // above this button is a fresh one — it mounted with this step — and the
-    // spent token went with the widget that raised it. With none in hand,
-    // say so instead of posting a request that can only come back 403: that
-    // would spend one of the parent's own hourly starts to tell them nothing.
-    if (turnstile.isEnabled && !turnstile.token) {
-      const checkIsBroken = turnstile.hasFailed || turnstile.status === 'timedOut';
-      setFormError(checkIsBroken ? 'auth.resendFailed' : 'auth.securityCheckInteractive');
+    // spent token went with the widget that raised it. A check that cannot
+    // run is said so up front; one that runs and gives no token stops the
+    // send rather than posting a request that can only come back 403.
+    if (turnstile.isEnabled && (turnstile.hasFailed || turnstile.status === 'timedOut')) {
+      setFormError('auth.resendFailed');
+      return;
+    }
+    if (isCheckingRef.current) return;
+    const check = await tokenForSend();
+    if (!check) {
+      setFormError('auth.securityCheckInteractive');
       return;
     }
 
-    const sent = await auth.start(auth.destination, turnstile.token ?? undefined);
+    const sent = await auth.start(auth.destination, check.token);
     // Spent either way now: accepted by the endpoint, or refused and dead.
     turnstile.reset();
     if (!sent) {
@@ -417,7 +372,7 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
             React cannot reconcile it with one of those and skip the remount
             that discards the token the first send already spent.
           */}
-          <TurnstileBlock key="code" t={t} turnstile={turnstile} />
+          <SecurityCheck key="code" t={t} turnstile={turnstile} />
 
           <div className="d-grid gap-2">
             <SubmitButton
@@ -519,7 +474,7 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
               />
               {phoneError && <InlineFieldError id={PHONE_ERROR_ID} message={t(phoneError.messageKey)} />}
             </Form.Group>
-            <TurnstileBlock key="phone" t={t} turnstile={turnstile} />
+            <SecurityCheck key="phone" t={t} turnstile={turnstile} />
           </>
         ) : (
           <>
@@ -541,7 +496,7 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
               />
               {emailError && <InlineFieldError id={EMAIL_ERROR_ID} message={t(emailError.messageKey)} />}
             </Form.Group>
-            <TurnstileBlock key="email" t={t} turnstile={turnstile} />
+            <SecurityCheck key="email" t={t} turnstile={turnstile} />
           </>
         )}
 

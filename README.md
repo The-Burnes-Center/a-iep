@@ -254,6 +254,19 @@ cannot coexist in one environment: with an enforcing key on staging, every E2E
 signup is refused and the suite loses its account-creation journey. The rest of
 the path still runs there, so only the verdict is fixed, not the plumbing.
 
+Production also checks the hostname each token was solved on
+(`TURNSTILE_EXPECTED_HOSTNAMES` in `lib/authorization/new-auth.ts`, currently
+`a-iep.org`). **Serving the app on a new domain means adding it there and to
+the widget's hostname list in the Cloudflare dashboard**, or sign-in on it is
+refused. Staging does not check it, because the always-pass test keys answer
+with a placeholder hostname.
+
+The widget is invisible (`interaction-only`) and runs only when a parent
+presses send (`execution: 'execute'`), so a token is minted only for a request
+that is about to be verified. Running it on page load minted one for every
+visitor to the landing page, and Cloudflare reported the unverified majority as
+the server never calling siteverify.
+
 The secret's existence is the on switch. Until it exists, signups are accepted
 unverified and every request logs `TURNSTILE_NOT_CONFIGURED`, which raises the
 `the signup bot check is switched off` alarm. Enabling or disabling it needs no

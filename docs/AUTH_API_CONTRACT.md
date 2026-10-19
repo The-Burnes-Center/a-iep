@@ -89,9 +89,9 @@ copy for a code it has not seen before.
 | 400 | `invalid_request` | Body is not JSON, or `destination` is missing or empty. | `Enter your phone number or email address.` |
 | 400 | `invalid_destination` | `destination` is neither a valid E.164 phone number nor a syntactically valid email address. | `Enter a valid phone number or email address.` |
 | 400 | `unsupported_destination` | A phone number outside the allowed dialling prefixes (`+1`), or an email address on a disposable or reserved domain. | `A-IEP can only send codes to United States phone numbers and regular email addresses.` |
-| 403 | `bot_check_failed` | Turnstile rejected the token, or no token was supplied while the check is switched on. | `We could not verify this request. Please try again.` |
+| 403 | `bot_check_failed` | Turnstile rejected the token, the token was solved on a hostname production does not serve, or no token was supplied while the check is switched on. | `We could not verify this request. Please try again.` |
 | 429 | `rate_limited` | The per-source or service-wide start budget is spent. | `Too many attempts. Please try again in a little while.` |
-| 503 | `unavailable` | A fail-closed dependency is down: the rate-limit table, the Turnstile secret, or the session store. | `Sign-in is temporarily unavailable. Please try again in a little while.` |
+| 503 | `unavailable` | A fail-closed dependency is down: the rate-limit table, the Turnstile secret, Cloudflare's siteverify (after one retry), a rejected Turnstile secret, or the session store. | `Sign-in is temporarily unavailable. Please try again in a little while.` |
 
 A `429` carries one extra field, `retryAfterSeconds` (an integer). Nothing
 else does.

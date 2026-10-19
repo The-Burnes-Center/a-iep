@@ -296,6 +296,33 @@ describe('auth start', () => {
         expect(errors.join('\n')).toContain('invalid-token');
     });
 
+    test('an unreachable Cloudflare fails CLOSED as unavailable: no challenge, no send', async () => {
+        global.fetch.mockRejectedValue(new Error('network down'));
+        const response = await load()(request());
+
+        expect(response.statusCode).toBe(503);
+        expect(bodyOf(response).code).toBe('unavailable');
+        expect(putCalls()).toHaveLength(0);
+        expect(mockLambdaSend).not.toHaveBeenCalled();
+        expect(errors.join('\n')).toContain('verify-failed');
+    });
+
+    test('a token solved on a host we do not serve is refused', async () => {
+        process.env.TURNSTILE_EXPECTED_HOSTNAMES = 'a-iep.org';
+        global.fetch.mockResolvedValue({
+            ok: true, status: 200, json: async () => ({ success: true, hostname: 'elsewhere.example' }),
+        });
+        try {
+            const response = await load()(request());
+            expect(response.statusCode).toBe(403);
+            expect(bodyOf(response).code).toBe('bot_check_failed');
+            expect(mockLambdaSend).not.toHaveBeenCalled();
+            expect(errors.join('\n')).toContain('hostname-mismatch');
+        } finally {
+            delete process.env.TURNSTILE_EXPECTED_HOSTNAMES;
+        }
+    });
+
     test('a missing token is refused, not waved through', async () => {
         const response = await load()(request({ turnstileToken: undefined }));
         expect(response.statusCode).toBe(403);

@@ -966,6 +966,16 @@ describe('Cognito custom-auth wiring', () => {
   // The signup abuse control. It only works because it runs in the trigger:
   // the 2026-09-09 run never loaded the site, it called the public SignUp API
   // directly, so anything enforced in the browser was not in its path.
+  // Staging runs Cloudflare's always-pass test keys, which answer with a
+  // placeholder hostname, so a hostname check there would refuse every E2E
+  // sign-in.
+  test('no non-production lambda checks the bot-check hostname', () => {
+    const offenders = Object.entries(template.findResources('AWS::Lambda::Function'))
+      .filter(([, fn]: [string, any]) => 'TURNSTILE_EXPECTED_HOSTNAMES' in (fn.Properties?.Environment?.Variables ?? {}))
+      .map(([logicalId]) => logicalId);
+    expect(offenders).toEqual([]);
+  });
+
   test('pre-sign-up can read the Turnstile secret, and only that', () => {
     template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
       Handler: 'pre-sign-up.handler',
@@ -2469,6 +2479,19 @@ describe('production synth: the OTP test backdoor must not exist', () => {
     // IAM grant.
     expect(JSON.stringify(prodTemplate.toJSON()))
       .not.toContain('/a-iep/staging/e2e-turnstile-bypass');
+  });
+
+  // Cloudflare's server-side recommendation: check the hostname a token was
+  // solved on. Every lambda that verifies a token must carry it in
+  // production, or one of the three doors quietly skips the check.
+  test('every production lambda that verifies a bot-check token checks its hostname', () => {
+    const verifiers = Object.values(prodTemplate.findResources('AWS::Lambda::Function'))
+      .map((fn: any) => fn.Properties?.Environment?.Variables ?? {})
+      .filter((vars: Record<string, unknown>) => 'TURNSTILE_SECRET_PARAM' in vars);
+    expect(verifiers.length).toBe(3);
+    for (const vars of verifiers) {
+      expect(vars.TURNSTILE_EXPECTED_HOSTNAMES).toBe('a-iep.org');
+    }
   });
 
   // A custom SMS sender takes over ALL of a pool's SMS delivery. On staging

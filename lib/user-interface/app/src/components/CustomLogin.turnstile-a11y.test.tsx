@@ -63,6 +63,7 @@ const installTurnstile = () => {
     },
     reset: vi.fn(),
     remove: vi.fn(),
+    execute: vi.fn(),
   };
 };
 
@@ -136,21 +137,51 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("the security check is named and explained", () => {
-  test("it is a named group, with instructions, before the widget paints", async () => {
-    // No window.turnstile at all: the script has not loaded, so nothing is
-    // rendered into the container yet. The name and the instruction must
-    // already be there, because the 300x71 box and its tab stop arrive
-    // asynchronously under a parent who may be mid-form.
+describe("the security check is invisible until a parent has to act", () => {
+  // The widget is `interaction-only` and runs on send. Most parents never see
+  // it, so a heading asking them to prove they are not a robot, next to a box
+  // that is not there, would be a question with nothing to answer.
+  test("before Cloudflare asks for anything there is no heading, no group and no reserved space", async () => {
+    installTurnstile();
     const { container } = renderLogin();
+    await waitFor(() => expect(rendered).toHaveLength(1));
 
-    const group = await screen.findByRole("group", { name: translate("auth.securityCheck") });
-    expect(group).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: translate("auth.securityCheck") })).toBeNull();
+    expect(screen.queryByText(translate("auth.securityCheckHelp"))).toBeNull();
+    const slot = container.querySelector(".justify-content-center") as HTMLElement;
+    expect(slot.style.minHeight).toBe("");
+  });
 
+  test("an interactive challenge becomes a named group with instructions", async () => {
+    // Turnstile renders into a closed shadow root the page cannot name, so
+    // without this the challenge is a focusable, unnamed, mandatory gate.
+    installTurnstile();
+    const { container } = renderLogin();
+    await waitFor(() => expect(rendered).toHaveLength(1));
+
+    fire("before-interactive-callback");
+
+    const group = screen.getByRole("group", { name: translate("auth.securityCheck") });
     const describedBy = group.getAttribute("aria-describedby");
     expect(describedBy).toBeTruthy();
     const help = container.querySelector(`#${describedBy}`);
     expect(help?.textContent?.trim()).toBe(translate("auth.securityCheckHelp"));
+    // Reserved while it shows, so the box does not move the button under them.
+    const slot = group.querySelector(".justify-content-center") as HTMLElement;
+    expect(slot.style.minHeight).not.toBe("");
+  });
+
+  test("turning interactive does not remount the widget", async () => {
+    // The group appears around the container. If that remounted it, the
+    // callback ref would detach and remove the widget mid-challenge.
+    installTurnstile();
+    renderLogin();
+    await waitFor(() => expect(rendered).toHaveLength(1));
+
+    fire("before-interactive-callback");
+
+    expect(rendered).toHaveLength(1);
+    expect(window.turnstile?.remove).not.toHaveBeenCalled();
   });
 
   test("the name and the instruction are words, not raw translation keys", () => {
@@ -160,21 +191,9 @@ describe("the security check is named and explained", () => {
     expect(translate("auth.securityCheck")).not.toBe("auth.securityCheck");
     expect(translate("auth.securityCheckHelp")).not.toBe("auth.securityCheckHelp");
   });
-
-  test("the widget's slot reserves its height before the widget paints", () => {
-    // The 300x71 box arrives asynchronously. Unreserved, it shoves the submit
-    // button down under a parent already reaching for it. Asserted on the slot
-    // rather than the group because the group's height depends on how the
-    // instruction wraps, which differs across the five languages.
-    const { container } = renderLogin();
-    const group = container.querySelector('[aria-labelledby="turnstile-heading"]');
-    const slot = group?.querySelector(".justify-content-center");
-
-    expect((slot as HTMLElement).style.minHeight).not.toBe("");
-  });
 });
 
-describe("the security check announces itself", () => {
+describe("the security check announces only what a parent must act on", () => {
   test("the live region is present and EMPTY at first paint", () => {
     // A live region inserted with its content already inside it is not
     // announced by NVDA or JAWS — only role="alert" gets that treatment. So
@@ -184,13 +203,24 @@ describe("the security check announces itself", () => {
     expect(liveRegion(container).textContent).toBe("");
   });
 
-  test("the widget's arrival is announced", async () => {
+  test("an invisible widget arriving, passing, expiring or resetting says nothing", async () => {
+    // Each of these used to be announced, which was right for a visible box
+    // a parent could see change. For an invisible one it narrates a control
+    // nobody can find about a step nobody has to take.
     installTurnstile();
-    const { container } = renderLogin();
+    const { container, user } = renderLogin();
+    await waitFor(() => expect(rendered).toHaveLength(1));
+    expect(liveRegion(container).textContent).toBe("");
 
-    await waitFor(() => {
-      expect(liveRegion(container)).toHaveTextContent(translate("auth.securityCheckReady"));
-    });
+    act(() => { rendered[0].options.callback("a-token"); });
+    expect(liveRegion(container).textContent).toBe("");
+
+    fire("expired-callback");
+    expect(liveRegion(container).textContent).toBe("");
+
+    act(() => { rendered[0].options.callback("a-token"); });
+    await user.click(screen.getByRole("button", { name: translate("auth.emailLogin") }));
+    expect(liveRegion(container).textContent).toBe("");
   });
 
   test("a challenge that turns interactive is announced and shown", async () => {
@@ -209,51 +239,12 @@ describe("the security check announces itself", () => {
     expect(within(group).getByText(expected)).toBeInTheDocument();
   });
 
-  test("passing the check is announced", async () => {
-    installTurnstile();
-    const { container } = renderLogin();
-    await waitFor(() => expect(rendered).toHaveLength(1));
-
-    act(() => { rendered[0].options.callback("a-token"); });
-
-    expect(liveRegion(container)).toHaveTextContent(translate("auth.securityCheckDone"));
-  });
-
-  test("an expired token is announced rather than evaporating in silence", async () => {
-    installTurnstile();
-    const { container } = renderLogin();
-    await waitFor(() => expect(rendered).toHaveLength(1));
-    act(() => { rendered[0].options.callback("a-token"); });
-
-    fire("expired-callback");
-
-    expect(liveRegion(container)).toHaveTextContent(translate("auth.securityCheckExpired"));
-  });
-
-  test("switching to the email tab announces that the passed check was discarded", async () => {
-    // The discard is correct and is pinned in use-turnstile.test.tsx. This is
-    // the half that was missing: a parent who passed, tapped WITH EMAIL to
-    // check something and came back was unverified with no notice at all.
-    // The region lives outside the tab switch precisely so it survives it.
-    installTurnstile();
-    const { container, user } = renderLogin();
-    await waitFor(() => expect(rendered).toHaveLength(1));
-    act(() => { rendered[0].options.callback("a-token"); });
-
-    await user.click(screen.getByRole("button", { name: translate("auth.emailLogin") }));
-
-    expect(liveRegion(container)).toHaveTextContent(translate("auth.securityCheckReset"));
-  });
-
-  test("every announcement is words, not a raw translation key", () => {
+  test("every message the check can show is words, not a raw translation key", () => {
     const keys = [
-      "auth.securityCheckReady",
       "auth.securityCheckInteractive",
-      "auth.securityCheckDone",
-      "auth.securityCheckExpired",
-      "auth.securityCheckReset",
       "auth.securityCheckTimedOut",
       "auth.securityCheckRetry",
+      "auth.errorTurnstileUnavailable",
     ];
     expect(keys.filter((key) => translate(key) === key)).toEqual([]);
   });

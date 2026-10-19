@@ -238,12 +238,27 @@ describe('signup endpoint', () => {
         expect(mockCognitoSend).not.toHaveBeenCalled();
     });
 
-    test('an unreachable Cloudflare fails CLOSED', async () => {
+    test('an unreachable Cloudflare fails CLOSED, as "try again" rather than a failed check', async () => {
+        // 503, not 403: the parent did nothing wrong, and a "could not verify"
+        // answer sends them round a loop they cannot get out of.
         global.fetch = jest.fn().mockRejectedValue(new Error('network down'));
 
         const response = await load()(request());
 
-        expect(response.statusCode).toBe(403);
+        expect(response.statusCode).toBe(503);
+        expect(mockCognitoSend).not.toHaveBeenCalled();
+        // One retry, then give up.
+        expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    test('a misconfigured secret fails CLOSED as unavailable, never as the parent\'s fault', async () => {
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true, status: 200, json: async () => ({ success: false, 'error-codes': ['invalid-input-secret'] }),
+        });
+
+        const response = await load()(request());
+
+        expect(response.statusCode).toBe(503);
         expect(mockCognitoSend).not.toHaveBeenCalled();
     });
 
