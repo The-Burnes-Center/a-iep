@@ -180,7 +180,7 @@ export class LambdaFunctionStack extends cdk.Stack {
     this.deleteS3Function = deleteS3APIHandlerFunction;
 
     const getS3APIHandlerFunction = new lambda.Function(scope, 'GetS3FilesHandlerFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X, // Choose any supported Node.js runtime
+      runtime: lambda.Runtime.NODEJS_22_X, // Choose any supported Node.js runtime
       code: lambda.Code.fromAsset(path.join(__dirname, 'knowledge-management/get-s3')), // Points to the lambda directory
       handler: 'index.handler', // Points to the 'hello' file in the lambda directory
       environment: {
@@ -208,7 +208,7 @@ export class LambdaFunctionStack extends cdk.Stack {
     this.getS3KnowledgeFunction = getS3APIHandlerFunction;
 
     const uploadS3KnowledgeAPIHandlerFunction = createTaggedLambda('UploadS3KnowledgeFilesHandlerFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       code: lambda.Code.fromAsset(path.join(__dirname, 'knowledge-management/upload-s3')),
       handler: 'index.handler',
       environment: {
@@ -1092,7 +1092,7 @@ export class LambdaFunctionStack extends cdk.Stack {
 
     // PDF Generator Lambda Function
     const pdfGeneratorFunction = createTaggedLambda('PDFGeneratorFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       code: lambda.Code.fromAsset(path.join(__dirname, 'pdf-generator'), {
         assetHashType: cdk.AssetHashType.SOURCE,
         // Local node_modules stays out of the asset so the SOURCE hash is
@@ -1101,7 +1101,7 @@ export class LambdaFunctionStack extends cdk.Stack {
         // are reproducible instead of resolving ranges fresh each time.
         exclude: ['node_modules'],
         bundling: {
-          image: lambda.Runtime.NODEJS_20_X.bundlingImage,
+          image: lambda.Runtime.NODEJS_22_X.bundlingImage,
           command: [
             'bash', '-c',
             'npm --cache /tmp/.npm ci && cp -au . /asset-output'

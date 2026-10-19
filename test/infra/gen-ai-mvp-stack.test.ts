@@ -78,7 +78,12 @@ const CDK_HELPER_PREFIXES = [
   'CustomCDKBucketDeployment',
 ];
 
-const APPROVED_RUNTIMES = ['python3.12', 'nodejs20.x'];
+const APPROVED_RUNTIMES = ['python3.12', 'nodejs22.x'];
+
+// The runtime the CDK library itself gives its injected helpers. It belongs to
+// the aws-cdk-lib version, not to this repo, so those helpers keep it until the
+// library is upgraded. Nothing else may.
+const CDK_INJECTED_NODE_RUNTIME = 'nodejs20.x';
 
 // ── Durable-store retention pins ────────────────────────────────────────
 // WHY (2026-06/07 data-loss incident): e1df452 (2025-09-15) made the
@@ -600,7 +605,7 @@ describe('Cognito custom-auth wiring', () => {
     // handler; a PreSignUp wired to the wrong file would still pass it.
     template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
       Handler: 'pre-sign-up.handler',
-      Runtime: 'nodejs20.x',
+      Runtime: 'nodejs22.x',
     }));
   });
 
@@ -1845,6 +1850,37 @@ describe('encryption at rest and in transit', () => {
 
 describeDurableStoreRetention('staging', () => template);
 describeAppClientContract('staging', () => template);
+describeLambdaRuntimes('staging', () => template);
+
+/**
+ * Lambda runtimes that must hold in BOTH synthesized templates. Staging and
+ * production are separate synths, so a pin on one can drift on the other.
+ */
+function describeLambdaRuntimes(envLabel: EnvLabel, getTemplate: () => Template) {
+  describe(`lambda runtimes (${envLabel})`, () => {
+    // WHY: Node 20 is past upstream end of life, and AWS blocks updates to a
+    // deprecated runtime, so every function this repo owns moves to nodejs22.x.
+    // The only exemption is the CDK-injected helpers, which stay on the runtime
+    // their aws-cdk-lib version ships.
+    test('no function this repo owns runs nodejs20.x', () => {
+      const isInjected = (logicalId: string) => CDK_HELPER_PREFIXES.some((prefix) => logicalId.startsWith(prefix));
+      const functions = Object.entries(getTemplate().findResources('AWS::Lambda::Function'))
+        .map(([logicalId, fn]: [string, any]) => ({ logicalId, runtime: fn.Properties.Runtime }));
+      const owned = functions.filter(({ logicalId }) => !isInjected(logicalId));
+      expect(owned.length).toBeGreaterThanOrEqual(20);
+
+      // The CDK helpers resolve their runtime through a FindInMap, so it is
+      // not a literal in the in-memory template. Every owned function's is.
+      expect(owned.filter(({ runtime }) => typeof runtime !== 'string')).toEqual([]);
+      expect(owned.filter(({ runtime }) => (runtime as string).startsWith('nodejs')).length).toBeGreaterThanOrEqual(15);
+      expect(owned.filter(({ runtime }) => runtime === CDK_INJECTED_NODE_RUNTIME)).toEqual([]);
+
+      // Non-vacuity: the exemption above must match something, or it is not
+      // exempting anything and the pin is hiding nothing.
+      expect(functions.filter(({ logicalId }) => isInjected(logicalId)).length).toBeGreaterThanOrEqual(2);
+    });
+  });
+}
 
 /**
  * Parse one state machine's ASL out of the template, selected by logical ID.
@@ -2333,11 +2369,10 @@ describe('Lambda environment variables fit inside the 4KB limit', () => {
 });
 
 describe('Lambda runtimes', () => {
-  // One approved runtime per language keeps deprecation upgrades atomic and
-  // matches CI's pinned toolchains (python 3.12 in the pytest job, node 20 in
-  // the jest job) — a stray runtime means tests exercise a different VM than
-  // production runs.
-  test('all app lambdas run python3.12 or nodejs20.x', () => {
+  // One approved runtime per language keeps deprecation upgrades atomic. The
+  // Node lambdas run nodejs22.x; CI's jest job still runs node 20 (ci.yml), so
+  // the two are not the same VM, and that gap is named here rather than hidden.
+  test('all app lambdas run python3.12 or nodejs22.x', () => {
     const functions = Object.entries(template.findResources('AWS::Lambda::Function'))
       .filter(([logicalId]) => !CDK_HELPER_PREFIXES.some((prefix) => logicalId.startsWith(prefix)));
 
@@ -2752,6 +2787,7 @@ describe('production synth: the OTP test backdoor must not exist', () => {
   // were lost), and a second top-level synth would double the suite's runtime.
   describeDurableStoreRetention('production', () => prodTemplate);
   describeAppClientContract('production', () => prodTemplate);
+  describeLambdaRuntimes('production', () => prodTemplate);
 });
 
 describe('custom-certificate synth: the CloudFront TLS floor', () => {

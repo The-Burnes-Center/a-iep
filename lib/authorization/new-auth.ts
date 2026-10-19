@@ -603,7 +603,7 @@ export class NewAuthorizationStack extends Construct {
     // Only this one can call Cognito's admin APIs for account creation, and
     // it is not reachable from the internet.
     this.authDispatchFunction = new lambda.Function(this, 'AuthDispatchFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(assetPath),
       handler: 'auth-dispatch.handler',
@@ -640,7 +640,7 @@ export class NewAuthorizationStack extends Construct {
 
     // ── /auth/start ──────────────────────────────────────────────────────
     this.authStartFunction = new lambda.Function(this, 'AuthStartFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(assetPath),
       handler: 'auth-start.handler',
@@ -678,7 +678,7 @@ export class NewAuthorizationStack extends Construct {
 
     // ── /auth/verify ─────────────────────────────────────────────────────
     this.authVerifyFunction = new lambda.Function(this, 'AuthVerifyFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(assetPath),
       handler: 'auth-verify.handler',
@@ -714,7 +714,7 @@ export class NewAuthorizationStack extends Construct {
 
     // ── /auth/token and /auth/logout ─────────────────────────────────────
     this.authSessionFunction = new lambda.Function(this, 'AuthSessionFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(assetPath),
       handler: 'auth-session.handler',
@@ -785,7 +785,7 @@ export class NewAuthorizationStack extends Construct {
     // pre-sign-up.js. An auto-confirmed account whose client-chosen password
     // still worked would be an account-takeover vector.
     const preSignUpFunction = new lambda.Function(this, 'PreSignUpFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'pre-sign-up.handler',
@@ -813,7 +813,7 @@ export class NewAuthorizationStack extends Construct {
 
     // Define Auth Challenge Function
     const defineAuthChallengeFunction = new lambda.Function(this, 'DefineAuthChallengeFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'define-auth-challenge.handler',
@@ -844,7 +844,7 @@ export class NewAuthorizationStack extends Construct {
 
     // Create Auth Challenge Function
     const createAuthChallengeFunction = new lambda.Function(this, 'CreateAuthChallengeFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'create-auth-challenge.handler',
@@ -919,7 +919,7 @@ export class NewAuthorizationStack extends Construct {
     // does what PreSignUp and PostConfirmation used to do for a self-service
     // signup, in one place where it can be read.
     const signupFunction = new lambda.Function(this, 'SignupEndpointFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'signup-endpoint.handler',
@@ -1004,7 +1004,7 @@ export class NewAuthorizationStack extends Construct {
     // Custom Message Function - localizes Cognito's verification / forgot
     // password / MFA messages (SMS and email) to the user's language
     const customMessageFunction = new lambda.Function(this, 'CustomMessageFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'custom-message.handler',
@@ -1027,7 +1027,7 @@ export class NewAuthorizationStack extends Construct {
     // validationData) but NOT to create-auth-challenge, so this is the only
     // path from the login screen's language picker to the SMS.
     const preAuthenticationFunction = new lambda.Function(this, 'PreAuthenticationFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'pre-authentication.handler',
@@ -1047,7 +1047,7 @@ export class NewAuthorizationStack extends Construct {
 
     // Verify Auth Challenge Function
     const verifyAuthChallengeFunction = new lambda.Function(this, 'VerifyAuthChallengeFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'verify-auth-challenge.handler',
@@ -1143,7 +1143,7 @@ export class NewAuthorizationStack extends Construct {
    */
   private createCustomSmsSender(userPool: UserPool, customSenderKey: kms.IKey) {
     const customSmsSenderFunction = new lambda.Function(this, 'CustomSmsSenderFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       // The AWS Encryption SDK (@aws-crypto/client-node) is not in the Lambda
       // runtime, so this asset is bundled with `npm ci` at deploy time, the
       // same way pdf-generator is. node_modules stays out of the SOURCE hash
@@ -1152,7 +1152,7 @@ export class NewAuthorizationStack extends Construct {
         assetHashType: cdk.AssetHashType.SOURCE,
         exclude: ['node_modules'],
         bundling: {
-          image: lambda.Runtime.NODEJS_20_X.bundlingImage,
+          image: lambda.Runtime.NODEJS_22_X.bundlingImage,
           command: [
             'bash', '-c',
             'npm --cache /tmp/.npm ci && cp -au . /asset-output'

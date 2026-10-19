@@ -536,7 +536,7 @@ export class EmailIdentityStack extends Construct {
    */
   private addBounceHandler(kmsKey: kms.IKey): lambda.Function {
     const fn = new lambda.Function(this, 'SesBounceHandlerFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       code: lambda.Code.fromAsset(path.join(__dirname, '../functions/ses-suppression')),
       handler: 'bounce-handler.handler',
       environment: {
