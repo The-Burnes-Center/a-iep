@@ -138,6 +138,12 @@ const AUTH_RESERVED_CONCURRENCY = 20;
 // Pinned in test/infra so a refactor cannot quietly drop back to the default.
 const AUTH_LAMBDA_MEMORY_MB = 1024;
 
+// Staging only: one AUTH_TIMING line per sign-in request with per-step and
+// per-client first-call durations, and no content (see auth-timing.js). Kept off
+// production, where nobody is hunting a cold start and a line per request is
+// just log volume. Absence from the prod template is pinned in test/infra.
+const AUTH_TIMING_ENV: Record<string, string> = getEnvironment() !== 'prod' ? { AUTH_TIMING: '1' } : {};
+
 // Staging-only bypass for the signup bot check, same gate and same reasoning
 // as the OTP backdoor above. Turnstile refuses automated browsers by design,
 // so the real widget and an automated signup cannot both work; staging keeps
@@ -591,6 +597,7 @@ export class NewAuthorizationStack extends Construct {
       USER_POOL_ID: userPool.userPoolId,
       AUTH_CLIENT_ID: clientId,
       AUTH_SESSION_TABLE: this.authSessionTable.tableName,
+      ...AUTH_TIMING_ENV,
     };
 
     // No environmentEncryption on any of these, deliberately and unlike the
@@ -651,6 +658,7 @@ export class NewAuthorizationStack extends Construct {
         TURNSTILE_SECRET_PARAM,
         ...TURNSTILE_HOSTNAME_ENV,
         AUTH_DISPATCH_FUNCTION: this.authDispatchFunction.functionName,
+        ...AUTH_TIMING_ENV,
         // Staging only, and only because the E2E suite signs in repeatedly
         // from one CI address, which no rule can tell apart from abuse.
         ...(getEnvironment() !== 'prod'
