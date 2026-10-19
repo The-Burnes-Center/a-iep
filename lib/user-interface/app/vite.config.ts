@@ -102,6 +102,12 @@ export default defineConfig({
     },
     react(),
   ],
+  build: {
+    // Vite 4's default target, pinned. Vite 7 raised the default to
+    // 'baseline-widely-available' (Safari 16.4+, Chrome 107+), which would
+    // stop serving parents on older phones without anyone deciding that.
+    target: ["es2020", "edge88", "firefox78", "chrome87", "safari14"],
+  },
   server: {
     port: 3000,
   },

@@ -920,11 +920,11 @@ describe("telling a parent a code went out", () => {
  */
 describe("WebOTP on the code step", () => {
   const originalCredentials = Object.getOwnPropertyDescriptor(navigator, "credentials");
-  let otpGet: ReturnType<typeof vi.fn<[unknown?], Promise<unknown>>>;
+  let otpGet: ReturnType<typeof vi.fn<(options?: unknown) => Promise<unknown>>>;
 
   beforeEach(() => {
     Object.defineProperty(window, "OTPCredential", { configurable: true, value: class {} });
-    otpGet = vi.fn<[unknown?], Promise<unknown>>(() => new Promise(() => {}));
+    otpGet = vi.fn<(options?: unknown) => Promise<unknown>>(() => new Promise(() => {}));
     Object.defineProperty(navigator, "credentials", { configurable: true, value: { get: otpGet } });
   });
 

@@ -29,7 +29,7 @@ const stubOtpSupport = (supported: boolean) => {
 
 /** Installs navigator.credentials.get as a mock that returns `result` for each call. */
 const stubCredentialsGet = (result: () => Promise<unknown>) => {
-  const get = vi.fn<[unknown?], Promise<unknown>>(() => result());
+  const get = vi.fn<(options?: unknown) => Promise<unknown>>(() => result());
   Object.defineProperty(navigator, "credentials", { configurable: true, value: { get } });
   return get;
 };
