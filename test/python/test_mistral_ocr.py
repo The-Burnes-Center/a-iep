@@ -793,3 +793,98 @@ def test_a_misconfigured_profiles_table_fails_before_the_paid_ocr_call(handler_m
             handler_module.lambda_handler(event, None)
 
     assert fake.calls == []  # Mistral was never called, so nothing was paid for
+
+
+# ---------------------------------------------------------------------------
+# The attempt finishes inside MistralOCR's state timeout
+#
+# iep-processing.asl.json gives MistralOCR 120s. Step Functions stops waiting
+# then but does not cancel the lambda, so an attempt still running would save
+# the raw OCR text after RecordFailure had purged it. The whole attempt budgets
+# itself under the state's limit.
+# ---------------------------------------------------------------------------
+
+STATE_TIMEOUT_SECONDS = 120
+
+
+class _Clock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def monotonic(self):
+        return self.now
+
+
+class _SlowRequests(_RecordingRequests):
+    """Each call takes `durations[i]` seconds of the fake clock, then answers."""
+
+    def __init__(self, responses, clock, durations):
+        super().__init__(responses)
+        self.clock = clock
+        self.durations = list(durations)
+
+    def _next(self, method, url, **kwargs):
+        response = super()._next(method, url, **kwargs)
+        self.clock.now += self.durations.pop(0) if self.durations else 0
+        return response
+
+
+def _run_with_clock(module, monkeypatch, durations):
+    clock = _Clock()
+    monkeypatch.setattr(module, 'time', clock)
+    fake = _SlowRequests(list(SUCCESSFUL_SEQUENCE), clock, durations)
+    monkeypatch.setattr(module, 'requests', fake)
+    with mock_aws():
+        _wire_s3_object()
+        result = module.process_document_with_mistral_ocr(BUCKET, KEY)
+    return result, fake
+
+
+def test_in_the_ordinary_case_no_request_waits_longer_than_the_attempt_budget(
+        mistral_ocr_module, monkeypatch):
+    result, fake = _run_with_clock(mistral_ocr_module, monkeypatch, durations=[1, 1, 8])
+
+    assert 'error' not in result
+    reads = [call['kwargs']['timeout'][1] for call in fake.calls]
+    # The old OCR read timeout was 300s: three times the state's own limit.
+    assert max(reads) <= mistral_ocr_module.ATTEMPT_BUDGET_SECONDS
+    assert max(reads) < STATE_TIMEOUT_SECONDS
+
+
+def test_a_slow_upload_leaves_the_ocr_call_only_what_is_left_of_the_budget(
+        mistral_ocr_module, monkeypatch):
+    budget = mistral_ocr_module.ATTEMPT_BUDGET_SECONDS
+    # Upload takes 50s and the signed URL 20s: 10s of the budget remain.
+    _, fake = _run_with_clock(mistral_ocr_module, monkeypatch, durations=[50, budget - 60, 0])
+
+    ocr_read = fake.calls[2]['kwargs']['timeout'][1]
+    assert ocr_read == pytest.approx(10)
+
+
+def test_an_exhausted_budget_still_yields_a_positive_timeout_not_none_or_zero(
+        mistral_ocr_module, monkeypatch):
+    # requests treats timeout=0 as an error and None as "wait forever".
+    _, fake = _run_with_clock(mistral_ocr_module, monkeypatch, durations=[500, 500, 500])
+
+    reads = [call['kwargs']['timeout'][1] for call in fake.calls[:3]]
+    assert all(read >= mistral_ocr_module.MIN_READ_TIMEOUT_SECONDS for read in reads)
+    assert reads[1:] == [mistral_ocr_module.MIN_READ_TIMEOUT_SECONDS] * 2
+
+
+def test_the_worst_case_attempt_ends_before_the_state_gives_up(mistral_ocr_module):
+    m = mistral_ocr_module
+    # The last budgeted request can still spend its connect timeout, then the
+    # cleanup delete spends its own connect and read; the handler's save to the
+    # DDB service follows and is quick. All of it must fit under the state.
+    worst = (m.ATTEMPT_BUDGET_SECONDS + m.CONNECT_TIMEOUT_SECONDS
+             + m.DELETE_CONNECT_TIMEOUT_SECONDS + m.DELETE_READ_TIMEOUT_SECONDS)
+    assert worst <= STATE_TIMEOUT_SECONDS - 5
+
+
+def test_the_cleanup_delete_is_bounded_too(mistral_ocr_module, monkeypatch):
+    _, fake = _run_with_clock(mistral_ocr_module, monkeypatch, durations=[1, 1, 1])
+
+    delete, = [c for c in fake.calls if c['method'] == 'DELETE']
+    connect, read = delete['kwargs']['timeout']
+    assert connect <= mistral_ocr_module.DELETE_CONNECT_TIMEOUT_SECONDS
+    assert read <= mistral_ocr_module.DELETE_READ_TIMEOUT_SECONDS

@@ -3,6 +3,7 @@ import boto3
 import logging
 import requests
 import json
+import time
 import urllib.parse
 from datetime import datetime, timedelta
 
@@ -25,6 +26,24 @@ CONNECT_TIMEOUT_SECONDS = 10
 UPLOAD_READ_TIMEOUT_SECONDS = 60
 METADATA_READ_TIMEOUT_SECONDS = 30
 OCR_READ_TIMEOUT_SECONDS = 300
+
+# The whole attempt, download to cleanup, has to finish before MistralOCR's
+# state gives up (TimeoutSeconds 120 in iep-processing.asl.json). Step Functions
+# stops waiting at that mark but does NOT cancel the lambda, so an attempt that
+# kept running would save the raw OCR text AFTER RecordFailure had purged it,
+# leaving an unredacted artifact behind a document already marked FAILED. Each
+# request's read timeout above is therefore capped by what is left of this
+# budget; the 10s cleanup delete and its 5s connect fit in the margin, and the
+# per-request caps stay as they were for the ordinary case.
+ATTEMPT_BUDGET_SECONDS = 80
+DELETE_CONNECT_TIMEOUT_SECONDS = 5
+DELETE_READ_TIMEOUT_SECONDS = 10
+MIN_READ_TIMEOUT_SECONDS = 1
+
+
+def _read_timeout(limit, deadline):
+    """`limit`, or what is left of the attempt budget if that is less."""
+    return max(MIN_READ_TIMEOUT_SECONDS, min(limit, deadline - time.monotonic()))
 
 # A dated model id, never the `mistral-ocr-latest` alias. Mistral repoints
 # the alias on its own schedule, so an alias means production changes models
@@ -182,6 +201,7 @@ def process_document_with_mistral_ocr(bucket, key):
     Returns:
         dict: OCR processing results from Mistral
     """
+    deadline = time.monotonic() + ATTEMPT_BUDGET_SECONDS
     api_key = get_mistral_api_key()
     if not api_key:
         logger.error("Mistral API key not available, cannot process document")
@@ -262,7 +282,7 @@ def process_document_with_mistral_ocr(bucket, key):
             headers=headers,
             files=files,
             data=data,
-            timeout=(CONNECT_TIMEOUT_SECONDS, UPLOAD_READ_TIMEOUT_SECONDS)
+            timeout=(CONNECT_TIMEOUT_SECONDS, _read_timeout(UPLOAD_READ_TIMEOUT_SECONDS, deadline))
         )
         upload_response.raise_for_status()
         upload_result = upload_response.json()
@@ -278,7 +298,7 @@ def process_document_with_mistral_ocr(bucket, key):
         return {"error": f"Error uploading file to Mistral: {str(e)}", "status_code": _http_status_code(e)}
 
     try:
-        return _ocr_uploaded_file(file_id, headers, api_key)
+        return _ocr_uploaded_file(file_id, headers, api_key, deadline)
     finally:
         _delete_uploaded_file(file_id, headers)
 
@@ -303,7 +323,7 @@ def _delete_uploaded_file(file_id, headers):
         response = requests.delete(
             f"https://api.mistral.ai/v1/files/{file_id}",
             headers=headers,
-            timeout=(CONNECT_TIMEOUT_SECONDS, METADATA_READ_TIMEOUT_SECONDS)
+            timeout=(DELETE_CONNECT_TIMEOUT_SECONDS, DELETE_READ_TIMEOUT_SECONDS)
         )
         response.raise_for_status()
         logger.info(f"Deleted uploaded file from Mistral: {file_id}")
@@ -312,7 +332,7 @@ def _delete_uploaded_file(file_id, headers):
                      f"{type(e).__name__} status={_http_status_code(e)}")
 
 
-def _ocr_uploaded_file(file_id, headers, api_key):
+def _ocr_uploaded_file(file_id, headers, api_key, deadline):
     """Sign the uploaded file's URL and run OCR on it (steps 2 and 3)."""
     # Step 2: Get a signed URL for the uploaded file
     try:
@@ -327,7 +347,7 @@ def _ocr_uploaded_file(file_id, headers, api_key):
             signed_url_endpoint,
             headers=headers,
             params=params,
-            timeout=(CONNECT_TIMEOUT_SECONDS, METADATA_READ_TIMEOUT_SECONDS)
+            timeout=(CONNECT_TIMEOUT_SECONDS, _read_timeout(METADATA_READ_TIMEOUT_SECONDS, deadline))
         )
         signed_url_response.raise_for_status()
         signed_url_result = signed_url_response.json()
@@ -387,7 +407,7 @@ def _ocr_uploaded_file(file_id, headers, api_key):
             ocr_endpoint,
             headers=ocr_headers,
             json=ocr_payload,
-            timeout=(CONNECT_TIMEOUT_SECONDS, OCR_READ_TIMEOUT_SECONDS)
+            timeout=(CONNECT_TIMEOUT_SECONDS, _read_timeout(OCR_READ_TIMEOUT_SECONDS, deadline))
         )
         
         ocr_response.raise_for_status()
