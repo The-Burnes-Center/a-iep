@@ -24,8 +24,8 @@
  *
  * pdf.js (or pdf-lib) would parse this properly and give a fully correct
  * answer, but neither is a dependency of this app: the only PDF-adjacent
- * package here is html2pdf.js (checked package.json), and it only ever
- * GENERATES a PDF from HTML, it never reads one. Given CLAUDE.md's "simplest
+ * package here is jspdf (checked package.json), and it only ever GENERATES a
+ * PDF, it never reads one. Given CLAUDE.md's "simplest
  * thing that works" and "no abstraction until the repetition is real", and
  * that this app has never needed to parse PDF structure until now, adding a
  * multi-hundred-KB parser to answer one boolean is not justified. This reads
