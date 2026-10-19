@@ -45,9 +45,10 @@ def _guarded_update(**kwargs):
 
     DynamoDB's update_item is an upsert, so every write in this module used to
     resurrect a document that had already been deleted. That is not a rare
-    race: one active IEP per child means the upload path replaces (and deletes)
-    the previous document, so re-uploading while a run is still in flight hits
-    it directly.
+    race: one active IEP per child means a finished upload deletes the
+    child's older documents (purge_replaced_documents), and one of those can
+    still be mid-run, so a run that is overtaken by a newer upload hits it
+    directly.
 
     A resurrected row carries only the attributes of the single write that
     recreated it. It has no userId, and DynamoDB does not index items missing
@@ -884,8 +885,8 @@ def save_content_to_s3_operation(params):
         s3_ref = save_content_to_s3(iep_id, child_id, merged_content)
 
         # The object lands before the row update. If the row was deleted in
-        # between (a re-upload replaces the child's previous IEP, and a
-        # translation can still be running against it), this object would be
+        # between (a finished re-upload deletes the child's previous IEP, and
+        # a translation can still be running against it), this object would be
         # left with nothing pointing at it, which is precisely how the orphaned
         # summaries accumulated. Roll it back instead.
         # Update DynamoDB - remove old fields and add S3 reference

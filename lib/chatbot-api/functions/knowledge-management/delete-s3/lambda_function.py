@@ -89,7 +89,7 @@ def _delete_every_version(s3, bucket, prefix, exact=False):
     staging (2026-10-14). Deleting each version by id is immediate and final.
     Entries go out in DeleteObjects batches of up to 1000 keys.
     Duplicated in each lambda that deletes from the bucket (each folder is
-    its own asset); deleteEveryVersion in upload-s3/utils is the JS twin.
+    its own asset).
 
     exact=True takes only the one key named by prefix. Version listing is by
     prefix, so report.pdf would otherwise also take report.pdf2.
@@ -121,8 +121,8 @@ def _delete_document_artifacts(s3, bucket, doc):
     """Purge every S3 artifact derived from one IEP document record.
 
     Mirrors _delete_document_artifacts in user-profile-handler and
-    deleteDocumentArtifacts in upload-s3/utils/iep-document-utils.mjs: the
-    three delete paths must strip the same artifact shapes. This one used to
+    _purge_artifacts in ddb-service/replaced_documents.py: the three delete
+    paths must strip the same artifact shapes. This one used to
     delete the raw upload alone, which left the summary, the redacted OCR text
     and every cached mp3 in the bucket, plus a row pointing at an object that
     was no longer there.

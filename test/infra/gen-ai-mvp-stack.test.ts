@@ -1479,12 +1479,40 @@ describe('S3 data protection', () => {
     // get-s3 only lists a caller's own prefix.
     expect(s3ActionsFor('GetS3FilesHandlerFunctionServiceRole')).toEqual(['s3:ListBucket']);
 
-    // upload-s3 presigns a PUT and a GET, and clears the child's previous
-    // document (list + delete) before writing the new one.
+    // upload-s3 presigns a PUT and a GET and nothing else. It used to clear the
+    // child's previous document (list + delete) when the upload URL was
+    // requested, which left a family with no IEP if the upload then failed;
+    // replacing a document is now the pipeline's job once the new one has
+    // finished, so this role holds no delete or list action at all. Narrowed,
+    // not widened: the old pin listed six actions, this lists two.
     expect(s3ActionsFor('UploadS3KnowledgeFilesHandlerFunctionServiceRole')).toEqual([
-      's3:DeleteObject', 's3:DeleteObjectVersion', 's3:GetObject', 's3:ListBucket',
-      's3:ListBucketVersions', 's3:PutObject',
+      's3:GetObject', 's3:PutObject',
     ]);
+  });
+
+  // The same narrowing on the DynamoDB side. upload-s3 writes the
+  // PENDING_UPLOAD row and nothing more: no Query (the first half of a
+  // delete-the-previous-document), no DeleteItem, and no access at all to the
+  // user profiles table, which only the old replace flow touched.
+  test('upload-s3 can only put the new document row', () => {
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .filter((policy: any) =>
+        JSON.stringify(policy.Properties?.Roles ?? []).includes('UploadS3KnowledgeFilesHandlerFunctionServiceRole'))
+      .flatMap((policy: any) => policy.Properties?.PolicyDocument?.Statement ?? [])
+      .filter((statement: any) => statement.Effect === 'Allow');
+
+    const dynamoActions = statements
+      .flatMap((statement: any) => [statement.Action ?? []].flat())
+      .filter((action: unknown) => typeof action === 'string' && action.startsWith('dynamodb:'));
+    expect(dynamoActions).toEqual(['dynamodb:PutItem']);
+
+    const tables = statements
+      .filter((statement: any) => [statement.Action ?? []].flat().includes('dynamodb:PutItem'))
+      .map((statement: any) => JSON.stringify(statement.Resource));
+    expect(tables).toHaveLength(1);
+    expect(tables[0]).toContain('IepDocumentsTable');
+    expect(tables[0]).not.toContain('UserProfilesTable');
+    expect(tables[0]).not.toContain('/index/');
   });
 
   // The bucket is versioned, so DeleteObject alone writes a delete marker and
@@ -1508,11 +1536,13 @@ describe('S3 data protection', () => {
     };
     const deleters = [
       'DeleteOriginalFunction',          // the original, once redaction succeeds
-      'DDBServiceFunction',              // RecordFailure's purge on any failure
+      'DDBServiceFunction',              // RecordFailure's purge, and the previous IEP once a re-upload finishes
       'DeleteS3FilesHandlerFunction',    // a parent deleting one document
-      'UploadS3KnowledgeFilesHandler',   // re-upload replacing the previous one
       'UserProfileHandlerFunction',      // child and account deletion
     ];
+    // Not in the list, on purpose: UploadS3KnowledgeFilesHandler. It used to
+    // delete the previous document when the upload URL was requested; it now
+    // holds neither action, and the sum below fails if it ever gets them back.
 
     for (const action of ['s3:DeleteObjectVersion', 's3:ListBucketVersions']) {
       const roles = rolesHolding(action);

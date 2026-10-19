@@ -489,3 +489,14 @@ def test_every_page_of_the_childs_documents_is_considered(service):
     assert len(body['purged']) == 30
     remaining = service.documents.scan()['Items']
     assert [item['iepId'] for item in remaining] == [NEW]
+
+
+def test_a_clean_run_logs_no_filename(service, capsys):
+    seed_document(service, OLD, OLD_CREATED)
+    seed_document(service, NEW, NEW_CREATED)
+
+    purge(service)
+
+    out = capsys.readouterr().out
+    assert 'plan.pdf' not in out
+    assert 'DELETION_INCOMPLETE' not in out
