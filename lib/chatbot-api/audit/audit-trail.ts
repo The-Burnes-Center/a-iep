@@ -5,6 +5,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { getResourceName, tagResource } from '../../tags';
+import { MULTIPART_UPLOAD_ABORT_DAYS } from '../../constants';
 
 export interface AuditTrailProps {
   /** The IEP document store. Object-level reads are the point of this trail. */
@@ -53,6 +54,11 @@ export class AuditTrail extends Construct {
           // enough that storage does not grow without bound.
           id: 'expire-after-400-days',
           expiration: cdk.Duration.days(400),
+        },
+        {
+          // Aborts a failed multipart upload only. Touches no log object.
+          id: 'AbortIncompleteMultipartUploads',
+          abortIncompleteMultipartUploadAfter: cdk.Duration.days(MULTIPART_UPLOAD_ABORT_DAYS),
         },
       ],
     });

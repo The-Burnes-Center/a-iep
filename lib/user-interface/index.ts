@@ -14,7 +14,11 @@ import { ChatBotApi } from "../chatbot-api";
 import { Website } from "./generate-app"
 import { NagSuppressions } from "cdk-nag";
 import { Utils } from "../shared/utils"
-import { OIDCIntegrationName } from "../constants";
+import {
+  MULTIPART_UPLOAD_ABORT_DAYS,
+  OIDCIntegrationName,
+  WEBSITE_NONCURRENT_VERSION_DAYS,
+} from "../constants";
 import { getEnvironment } from "../tags";
 
 // Languages offered in the UI per environment. Arabic ships on dev/staging but
@@ -124,6 +128,9 @@ export class UserInterface extends Construct {
     const appPath = path.join(__dirname, "app");
     const buildPath = path.join(appPath, "dist");
 
+    // Lifecycle rules on these two buckets only abort failed multipart uploads
+    // and expire superseded website versions. Neither expires current objects,
+    // and the logs bucket's retention is left as it was pending a decision.
     const uploadLogsBucket = new s3.Bucket(this, "WebsiteLogsBucket", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -131,6 +138,10 @@ export class UserInterface extends Construct {
       enforceSSL: true,
       minimumTLSVersion: 1.2,
       versioned: true,
+      lifecycleRules: [{
+        id: "AbortIncompleteMultipartUploads",
+        abortIncompleteMultipartUploadAfter: cdk.Duration.days(MULTIPART_UPLOAD_ABORT_DAYS),
+      }],
     });
 
     const websiteBucket = new s3.Bucket(this, "WebsiteBucket", {
@@ -143,6 +154,16 @@ export class UserInterface extends Construct {
       minimumTLSVersion: 1.2,
       versioned: true,
       serverAccessLogsBucket: uploadLogsBucket,
+      lifecycleRules: [
+        {
+          id: "ExpireNoncurrentVersions",
+          noncurrentVersionExpiration: cdk.Duration.days(WEBSITE_NONCURRENT_VERSION_DAYS),
+        },
+        {
+          id: "AbortIncompleteMultipartUploads",
+          abortIncompleteMultipartUploadAfter: cdk.Duration.days(MULTIPART_UPLOAD_ABORT_DAYS),
+        },
+      ],
     });
 
     // Deploy either Private (only accessible within VPC) or Public facing website

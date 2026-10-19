@@ -1853,6 +1853,7 @@ describeAppClientContract('staging', () => template);
 describeLambdaRuntimes('staging', () => template);
 describeLogRetention('staging', () => template);
 describeStepTimeouts('staging', () => template);
+describeBucketLifecycle('staging', () => template);
 
 /**
  * Lambda runtimes that must hold in BOTH synthesized templates. Staging and
@@ -1947,6 +1948,72 @@ function describeStepTimeouts(envLabel: EnvLabel, getTemplate: () => Template) {
         expect(fns[0][1].Properties.Timeout).toBe(lambdaTimeout);
         expect(lambdaTimeout).toBeGreaterThan(stateTimeout);
       }
+    });
+  });
+}
+
+/** Lifecycle rules of the one bucket whose logical ID contains hint, keyed by rule ID. */
+function lifecycleRulesOf(t: Template, hint: string): Record<string, any> {
+  const buckets = resourcesMatching(t, 'AWS::S3::Bucket', hint);
+  expect(buckets).toHaveLength(1);
+  const rules: any[] = buckets[0][1].Properties.LifecycleConfiguration?.Rules ?? [];
+  return Object.fromEntries(rules.map((rule) => [rule.Id, rule]));
+}
+
+/**
+ * S3 lifecycle rules that must hold in BOTH synthesized templates. These only
+ * abort stalled uploads or expire superseded versions; none expires current
+ * objects.
+ */
+function describeBucketLifecycle(envLabel: EnvLabel, getTemplate: () => Template) {
+  describe(`bucket lifecycle (${envLabel})`, () => {
+    // WHY: the website bucket is versioned, so every replaced build leaves its
+    // old files behind as noncurrent versions. They are expired after a month.
+    // The rule must never reach current objects; the next test pins that.
+    test('the website bucket expires superseded versions after 30 days and aborts stalled uploads', () => {
+      const rules = lifecycleRulesOf(getTemplate(), 'WebsiteBucket');
+      expect(Object.keys(rules).sort()).toEqual(['AbortIncompleteMultipartUploads', 'ExpireNoncurrentVersions']);
+      expect(rules.ExpireNoncurrentVersions.NoncurrentVersionExpiration).toEqual({ NoncurrentDays: 30 });
+      expect(rules.AbortIncompleteMultipartUploads.AbortIncompleteMultipartUpload).toEqual({ DaysAfterInitiation: 7 });
+    });
+
+    // WHY: the document bucket's one-day noncurrent expiry is the deletion
+    // guarantee for families' IEP documents, and this change must not touch it.
+    test('the knowledge bucket keeps its one-day noncurrent expiry and aborts stalled uploads', () => {
+      const rules = lifecycleRulesOf(getTemplate(), 'KnowledgeSourceBucket');
+      expect(rules.ExpireNoncurrentVersions.NoncurrentVersionExpiration).toEqual({ NoncurrentDays: 1 });
+      expect(rules.AbortIncompleteMultipartUploads.AbortIncompleteMultipartUpload).toEqual({ DaysAfterInitiation: 7 });
+    });
+
+    // WHY: a versioned bucket keeps every part of a failed upload as billed
+    // storage until something aborts it. Only the rule that aborts is added
+    // here; it touches no object.
+    test('every versioned bucket aborts multipart uploads that never complete after 7 days', () => {
+      const versioned = Object.entries(getTemplate().findResources('AWS::S3::Bucket'))
+        .filter(([, bucket]: [string, any]) => bucket.Properties.VersioningConfiguration?.Status === 'Enabled');
+      expect(versioned.length).toBeGreaterThanOrEqual(4);
+
+      const offenders = versioned
+        .filter(([, bucket]: [string, any]) => {
+          const rules: any[] = bucket.Properties.LifecycleConfiguration?.Rules ?? [];
+          return !rules.some((rule) => rule.Status === 'Enabled'
+            && rule.AbortIncompleteMultipartUpload?.DaysAfterInitiation === 7);
+        })
+        .map(([logicalId]) => logicalId);
+      expect(offenders).toEqual([]);
+    });
+
+    // WHY: no bucket may gain an expiry on CURRENT objects. The audit log
+    // bucket's 400-day expiry predates this and is the only one allowed.
+    test('no bucket expires current objects, except the audit log bucket it already did', () => {
+      const expiring = Object.entries(getTemplate().findResources('AWS::S3::Bucket'))
+        .filter(([, bucket]: [string, any]) => {
+          const rules: any[] = bucket.Properties.LifecycleConfiguration?.Rules ?? [];
+          return rules.some((rule) => rule.ExpirationInDays !== undefined || rule.ExpirationDate !== undefined);
+        })
+        .map(([logicalId]) => logicalId);
+      expect(expiring).toHaveLength(1);
+      expect(expiring[0]).toContain('AuditLogBucket');
     });
   });
 }
@@ -2859,6 +2926,7 @@ describe('production synth: the OTP test backdoor must not exist', () => {
   describeLambdaRuntimes('production', () => prodTemplate);
   describeLogRetention('production', () => prodTemplate);
   describeStepTimeouts('production', () => prodTemplate);
+  describeBucketLifecycle('production', () => prodTemplate);
 });
 
 describe('custom-certificate synth: the CloudFront TLS floor', () => {
