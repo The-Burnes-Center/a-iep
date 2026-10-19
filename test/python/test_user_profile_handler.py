@@ -141,3 +141,19 @@ def test_create_response_serializes_dynamodb_decimals(profile_module):
     assert response['statusCode'] == 200
     assert json.loads(response['body']) == {'count': 3, 'score': 2.5}
     assert response['headers']['Access-Control-Allow-Origin'] == '*'
+
+
+def test_router_resolve_names_the_template_and_logs_nothing(router_module, capsys):
+    router = router_module.Router()
+    handler = lambda event: 'documents'
+    router.add_route('/profile/children/{childId}/documents', 'GET', handler)
+    capsys.readouterr()
+
+    template, matched, params = router.resolve('/profile/children/abc-123/documents', 'GET')
+    with pytest.raises(router_module.RouteNotFoundException):
+        router.resolve('/profile/children/abc-123/unknown', 'GET')
+
+    assert template == '/profile/children/{childId}/documents'
+    assert matched is handler and params == {'childId': 'abc-123'}
+    # Not the route table, not the path, not "possible typo" suggestions.
+    assert capsys.readouterr().out == ''
