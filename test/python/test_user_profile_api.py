@@ -522,7 +522,8 @@ def test_add_child_malformed_body_is_a_client_error(api):
 def test_get_documents_denies_unowned_child(api):
     profile_with_child(api, child_id='child-1')
     status, body = call(api, '/profile/children/child-9/documents', 'GET')
-    assert status == 403
+    assert status == 404
+    assert body == {'message': 'Not found'}
 
 
 def test_get_documents_empty(api):
@@ -1019,7 +1020,7 @@ def test_an_iso_string_with_a_zone_on_it_is_honoured(api):
 
 def test_delete_documents_denies_unowned_child(api):
     profile_with_child(api, child_id='child-1')
-    assert call(api, '/profile/children/child-9/documents', 'DELETE')[0] == 403
+    assert call(api, '/profile/children/child-9/documents', 'DELETE')[0] == 404
 
 
 def test_delete_documents_removes_s3_and_records(api):
@@ -1893,3 +1894,70 @@ def test_every_response_from_this_handler_is_no_store(api, monkeypatch):
     crashed = api.module.lambda_handler(api_event('/profile', 'GET'), None)
     assert crashed['statusCode'] == 500
     assert crashed['headers'].get('Cache-Control') == 'no-store'
+
+
+# ---------------------------------------------------------------------------
+# 404, not 403, and nothing in the body
+
+OTHER_USER = 'user-sub-2'
+
+
+def seed_other_users_child(api):
+    """A real child with a real document, belonging to someone else."""
+    profile_with_child(api, child_id='child-1')
+    profile_with_child(api, child_id='their-child', user=OTHER_USER)
+    put_document(api, iep_id='their-iep', child_id='their-child', user=OTHER_USER,
+                 content={'summaries': {'en': 'Their private summary'}})
+    return put_audio(api, iep_id='their-iep', child_id='their-child')
+
+
+@pytest.mark.parametrize('method', ['GET', 'DELETE'])
+def test_a_childs_existence_is_not_revealed_by_the_answer(api, method):
+    """Someone else's child and a child that does not exist get the same
+    status and the same body, so the endpoint cannot be used to find out which
+    ids are real."""
+    seed_other_users_child(api)
+
+    real_but_not_yours = call(api, '/profile/children/their-child/documents', method)
+    made_up = call(api, '/profile/children/never-existed/documents', method)
+
+    assert real_but_not_yours == made_up == (404, {'message': 'Not found'})
+
+
+def test_refusing_a_delete_leaves_the_other_familys_records_alone(api):
+    audio = seed_other_users_child(api)
+
+    assert call(api, '/profile/children/their-child/documents', 'DELETE')[0] == 404
+
+    assert api.documents.get_item(
+        Key={'iepId': 'their-iep', 'childId': 'their-child'}).get('Item')
+    assert key_exists(api, 'iep-data/their-iep/their-child/content.json')
+    assert all(key_exists(api, key) for key in audio)
+
+
+def test_refusing_a_read_returns_none_of_the_other_familys_content(api):
+    seed_other_users_child(api)
+
+    status, body = call(api, '/profile/children/their-child/documents', 'GET')
+
+    assert status == 404
+    assert 'Their private summary' not in json.dumps(body)
+
+
+def test_a_refusal_logs_why_without_telling_the_caller(api, capsys):
+    seed_other_users_child(api)
+    capsys.readouterr()
+
+    code, body = call(api, '/profile/children/their-child/documents', 'GET')
+    logged = capsys.readouterr().out
+
+    assert code == 404
+    assert 'does not own child' in logged
+    assert body == {'message': 'Not found'}
+
+
+def test_an_unknown_route_does_not_echo_the_path_or_the_method(api):
+    code, body = call(api, '/profile/children/child-secret-id/unknown', 'PATCH')
+
+    assert code == 404
+    assert body == {'message': 'Not found'}

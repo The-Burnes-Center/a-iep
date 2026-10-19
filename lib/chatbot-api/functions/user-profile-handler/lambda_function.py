@@ -164,6 +164,17 @@ def create_response(event: Dict, status_code: int, body: Dict) -> Dict:
         'body': json.dumps(body, cls=DecimalEncoder)
     }
 
+def not_found(event: Dict) -> Dict:
+    """The one 404, for an unknown route and for a child that is not the caller's.
+
+    Not 403 for the second, and not different from a child that does not exist:
+    "this id exists but is not yours" tells a caller which ids are real. The
+    reason is logged by the caller; the body says nothing about it, and never
+    echoes the path or the exception text.
+    """
+    return create_response(event, 404, {'message': 'Not found'})
+
+
 def handle_options(event: Dict) -> Dict:
     """
     Handle OPTIONS requests for CORS preflight.
@@ -942,7 +953,7 @@ def get_child_documents(event: Dict) -> Dict:
         owned_child = _find_child(profile, child_id)
         if owned_child is None:
             print(f"Access denied: user {user_id} does not own child {child_id}")
-            return create_response(event, 403, {'message': 'Access denied'})
+            return not_found(event)
 
         # Query documents by childId
         response = iep_documents_table.query(
@@ -1408,7 +1419,7 @@ def delete_child_documents(event: Dict) -> Dict:
         # Authorization: only allow deletion if the authenticated user owns the child.
         if not _user_owns_child(user_id, child_id):
             print(f"Access denied: user {user_id} does not own child {child_id}")
-            return create_response(event, 403, {'message': 'Access denied'})
+            return not_found(event)
 
         # Delete all IEP-related data
         # Initialize clients
@@ -1809,7 +1820,7 @@ def lambda_handler(event: Dict, context) -> Dict:
 
     except RouteNotFoundException as e:
         print(f"{method} {route_template} -> 404 (no route)")
-        return create_response(event, 404, {'message': str(e)})
+        return not_found(event)
     except Exception as e:
         print(f"{method} {route_template} -> 500 unhandled {type(e).__name__}: {str(e)}")
         import traceback
