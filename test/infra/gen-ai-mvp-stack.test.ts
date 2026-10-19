@@ -63,9 +63,14 @@ const PUBLIC_ROUTE_KEYS = [
 // parent's upload cannot be undone.
 //
 // Named rather than pattern-matched, so a second state cannot quietly join it.
-// States whose failure is deliberately NOT a document failure: the purge is
-// best effort, and the two pre-warm invokes only start a container early.
-const CATCH_EXEMPT_STATES = ['PurgeRedactedOCR', 'WarmParsingAgent', 'WarmTranslateContent'];
+// States whose failure is deliberately NOT a document failure: the two purges
+// are best effort (PurgeReplacedDocuments deletes the child's previous IEP
+// after the new one is complete, so recording a failure there would mark the
+// parent's brand-new document FAILED over a cleanup problem), and the two
+// pre-warm invokes only start a container early.
+const CATCH_EXEMPT_STATES = [
+  'PurgeRedactedOCR', 'PurgeReplacedDocuments', 'WarmParsingAgent', 'WarmTranslateContent',
+];
 
 // Lambdas aws-cdk-lib injects for its own custom resources (log retention,
 // auto-delete-objects, bucket notifications, bucket deployment). Their
@@ -871,7 +876,8 @@ describe('Cognito custom-auth wiring', () => {
 
     // AFTER the summary is written, never before: the parsing agent reads
     // this text, so purging earlier would break the product itself.
-    expect(states.FinalizeResults.Next).toBe('PurgeRedactedOCR');
+    expect(states.FinalizeResults.Next).toBe('PurgeReplacedDocuments');
+    expect(states.PurgeReplacedDocuments.Next).toBe('PurgeRedactedOCR');
     expect(states.PurgeRedactedOCR.Parameters.params.data_type).toBe('redacted_ocr_result');
     expect(states.PurgeRedactedOCR.Parameters.operation).toBe('delete_ocr_data');
   });
@@ -890,6 +896,69 @@ describe('Cognito custom-auth wiring', () => {
     // Anywhere but RecordFailure: the document is already finished.
     expect(catches[0].Next).toBe('RedactedOCRPurgeSkipped');
     expect(states.RedactedOCRPurgeSkipped).toMatchObject({ Type: 'Pass', End: true });
+  });
+
+  // One active IEP per child, and the previous one goes only AFTER the new one
+  // is complete. The purge state is therefore reachable from exactly one
+  // place, the success path out of FinalizeResults. Before this the upload
+  // handler deleted the old document when the presigned URL was requested,
+  // so a cancelled upload or a failed run left a family with no IEP.
+  describe('replacing a child\'s IEP', () => {
+    const states = () => parseStateMachineDefinition(template, 'IEPProcessingStateMachine').States;
+
+    /** Every state that can transition into `target`, by Next, Catch or Choice. */
+    const predecessorsOf = (all: Record<string, any>, target: string): string[] =>
+      Object.entries(all)
+        .filter(([, state]: [string, any]) =>
+          state.Next === target
+          || (state.Catch ?? []).some((c: any) => c.Next === target)
+          || (state.Choices ?? []).some((c: any) => c.Next === target)
+          || state.Default === target)
+        .map(([name]) => name);
+
+    test('the old document is deleted only on the success path, straight after FinalizeResults', () => {
+      const all = states();
+      expect(predecessorsOf(all, 'PurgeReplacedDocuments')).toEqual(['FinalizeResults']);
+      expect(all.PurgeReplacedDocuments.Parameters.operation).toBe('purge_replaced_documents');
+    });
+
+    test('nothing downstream of a failure can reach the purge', () => {
+      const all = states();
+      const reachable = new Set<string>();
+      const walk = (name: string) => {
+        if (reachable.has(name) || !all[name]) return;
+        reachable.add(name);
+        const state = all[name];
+        [state.Next, state.Default,
+          ...(state.Catch ?? []).map((c: any) => c.Next),
+          ...(state.Choices ?? []).map((c: any) => c.Next)]
+          .filter(Boolean).forEach(walk);
+      };
+      walk('RecordFailure');
+      expect(reachable.has('PurgeReplacedDocuments')).toBe(false);
+    });
+
+    test('the purge names the new document so it can be excluded', () => {
+      const params = states().PurgeReplacedDocuments.Parameters.params;
+      expect(params).toEqual({
+        'iep_id.$': '$.iep_id',
+        'child_id.$': '$.child_id',
+        'user_id.$': '$.user_id',
+      });
+    });
+
+    test('a failed purge does not mark the new document failed, and the run carries on', () => {
+      const all = states();
+      const purge = all.PurgeReplacedDocuments;
+      const catches: any[] = purge.Catch ?? [];
+      expect(catches).toHaveLength(1);
+      expect(catches[0].ErrorEquals).toContain('States.ALL');
+      expect(catches[0].Next).toBe('ReplacedDocumentsPurgeSkipped');
+      expect(all.ReplacedDocumentsPurgeSkipped).toMatchObject({ Type: 'Pass', Next: 'PurgeRedactedOCR' });
+      // The purge result must not overwrite the execution state the next
+      // state reads its ids from.
+      expect(purge.ResultPath).toBeNull();
+    });
   });
 
   // The change that actually closes the hole. Cognito's SignUp API is public
@@ -1452,6 +1521,41 @@ describe('S3 data protection', () => {
           .toEqual({ action, fn, held: 1 });
       }
       expect({ action, roles: roles.length }).toEqual({ action, roles: deleters.length });
+    }
+  });
+
+  // The replace-after-success purge runs inside the DDB service, so that is
+  // the one role that can list a child's documents through the byChildId index
+  // and delete their rows. FinalizeResults, which marks the new document
+  // complete, must hold neither: if it did, a bug in the step that tells a
+  // parent their document is ready could also delete a family's records.
+  test('only the DDB service can delete document rows and list them by child', () => {
+    const statementsFor = (roleHint: string): any[] =>
+      Object.values(template.findResources('AWS::IAM::Policy'))
+        .filter((policy: any) => JSON.stringify(policy.Properties?.Roles ?? []).includes(roleHint))
+        .flatMap((policy: any) => policy.Properties?.PolicyDocument?.Statement ?? [])
+        .filter((statement: any) => statement.Effect === 'Allow');
+    const grants = (roleHint: string, action: string, resourceHint: string): boolean =>
+      statementsFor(roleHint).some((statement: any) =>
+        [statement.Action ?? []].flat().includes(action)
+        && JSON.stringify(statement.Resource).includes(resourceHint));
+
+    expect(grants('DDBServiceFunctionServiceRole', 'dynamodb:DeleteItem', 'IepDocumentsTable')).toBe(true);
+    expect(grants('DDBServiceFunctionServiceRole', 'dynamodb:Query', '/index/byChildId')).toBe(true);
+
+    for (const role of [
+      'FinalizeResultsFunctionServiceRole',
+      'DeleteOriginalFunctionServiceRole',
+      'ParsingAgentFunctionServiceRole',
+      'TranslateContentFunctionServiceRole',
+      'MistralOCRFunctionServiceRole',
+      'RedactOCRFunctionServiceRole',
+      'CheckLanguagePrefsFunctionServiceRole',
+    ]) {
+      expect({ role, canDeleteRows: grants(role, 'dynamodb:DeleteItem', 'IepDocumentsTable') })
+        .toEqual({ role, canDeleteRows: false });
+      expect({ role, canQueryByChild: grants(role, 'dynamodb:Query', '/index/byChildId') })
+        .toEqual({ role, canQueryByChild: false });
     }
   });
 });

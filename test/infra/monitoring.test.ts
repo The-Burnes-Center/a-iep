@@ -484,14 +484,32 @@ describe('a deletion that only partly happened', () => {
       .map((r: any) => r.Properties)
       .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'));
 
-    // One per watched handler: the account/profile path and the document path.
-    expect(filters.length).toBeGreaterThanOrEqual(2);
+    // One per watched handler: the account/profile path, the document path,
+    // and the DDB service, which deletes the child's previous IEP once a
+    // re-upload has finished (scope=replaced-document).
+    expect(filters.length).toBeGreaterThanOrEqual(3);
     for (const filter of filters) {
       // Both terms, load-bearing: matching the marker alone would page for an
       // orphaned audio file.
       expect(filter.FilterPattern).toContain('DELETION_INCOMPLETE');
       expect(filter.FilterPattern).toContain('essential=yes');
     }
+  });
+
+  // Replacing an IEP deletes the old document AFTER the new one is complete.
+  // The new document is already visible by then, so nothing fails visibly when
+  // that cleanup does: the marker is the only way anyone learns an old IEP is
+  // still in the bucket. Pinned on the lambda side in
+  // test/python/test_replaced_documents.py.
+  test('the DDB service log group is watched for an unfinished replace-cleanup', () => {
+    const filters = Object.values(synth('production').findResources('AWS::Logs::MetricFilter'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'));
+
+    const ddbService = filters.filter((p: any) => JSON.stringify(p.LogGroupName).includes('DDBService'));
+    expect(ddbService).toHaveLength(1);
+    expect(ddbService[0].FilterPattern).toContain('DELETION_INCOMPLETE');
+    expect(ddbService[0].FilterPattern).toContain('essential=yes');
   });
 
   test('one incomplete deletion is enough to alarm, at critical', () => {

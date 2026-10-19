@@ -339,7 +339,7 @@ export class MonitoringStack extends Construct {
       props.smsSenderFunctions, props.kmsKey);
     this.addSignupPathAlarms(props.signupFunction);
     this.addAuthEndpointAlarms(props.authEndpointFunctions);
-    this.addDeletionAlarms(props.apiFunctions);
+    this.addDeletionAlarms(props.apiFunctions, props.ddbServiceFunction);
     this.addTranslationAndUsageAlarms(props.translationStateMachine);
     this.addDailyBrief(props.kmsKey, [
       ...props.pipelineFunctions,
@@ -1612,13 +1612,21 @@ export class MonitoringStack extends Construct {
    * non-essential one (a cached mp3, a referral row) is worth knowing and is
    * not worth waking anyone.
    */
-  private addDeletionAlarms(apiFunctions: MonitoredFunction[]): void {
+  private addDeletionAlarms(
+    apiFunctions: MonitoredFunction[],
+    ddbServiceFunction: lambda.Function,
+  ): void {
     const metricNamespace = getMetricNamespace('Pipeline');
-    const watched = apiFunctions.filter((f) =>
-      f.label === 'user profile' || f.label === 'document delete');
-    if (watched.length === 0) {
-      return;
-    }
+    // The DDB service is the third emitter: after a re-upload finishes it
+    // deletes the child's older documents (purge_replaced_documents) and logs
+    // the same marker, scope=replaced-document, when any of that survived. The
+    // new document is already complete by then, so the log line is the only
+    // way anyone learns an old IEP is still in the bucket.
+    const watched: Array<{ label: string; fn: lambda.Function }> = [
+      ...apiFunctions.filter((f) =>
+        f.label === 'user profile' || f.label === 'document delete'),
+      { label: 'replaced documents', fn: ddbServiceFunction },
+    ];
 
     for (const { label, fn } of watched) {
       new logs.MetricFilter(this, `DeletionIncompleteFilter${label.replace(/[^A-Za-z0-9]/g, '')}`, {

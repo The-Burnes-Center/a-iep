@@ -890,7 +890,7 @@
           "ResultPath": "$.error"
         }
       ],
-      "Next": "PurgeRedactedOCR"
+      "Next": "PurgeReplacedDocuments"
     },
     "FailedAtFinalizeResults": {
       "Type": "Pass",
@@ -935,6 +935,46 @@
         }
       ],
       "End": true
+    },
+    "PurgeReplacedDocuments": {
+      "Type": "Task",
+      "Resource": "${DDBServiceArn}",
+      "TimeoutSeconds": 60,
+      "Comment": "One active IEP per child: now that this document is PROCESSED, delete the child's older documents (rows, S3 objects in every version, translations, audio). Only here, after success: deleting at upload time left a parent with no IEP when the upload or the run failed. Best effort by design. The new document is already complete and visible, so a failure must never reach RecordFailure (which would mark it FAILED); the DDB service logs DELETION_INCOMPLETE with the ids that survived, and that marker is what an alarm counts. The service reports a partial failure in its result rather than raising, so the Catch below fires only when the invocation itself fails.",
+      "Parameters": {
+        "operation": "purge_replaced_documents",
+        "params": {
+          "iep_id.$": "$.iep_id",
+          "child_id.$": "$.child_id",
+          "user_id.$": "$.user_id"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "ReplacedDocumentsPurgeSkipped",
+          "ResultPath": "$.replaced_purge_error"
+        }
+      ],
+      "Next": "PurgeRedactedOCR"
+    },
+    "ReplacedDocumentsPurgeSkipped": {
+      "Type": "Pass",
+      "Comment": "The replaced-documents purge could not be invoked and the new document is still complete, so the run carries on to the redacted-OCR purge instead of marking a finished document failed. The older documents stay in place, are never shown once a newer document is ready, and are removed by the next successful upload.",
+      "Next": "PurgeRedactedOCR"
     },
     "PurgeRedactedOCR": {
       "Type": "Task",

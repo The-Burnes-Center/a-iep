@@ -507,6 +507,26 @@ export class LambdaFunctionStack extends cdk.Stack {
     grantPermanentDelete(this.deleteOriginalFunction, props.knowledgeBucket);
     grantPermanentDelete(this.ddbServiceFunction, props.knowledgeBucket);
 
+    // The third: purge_replaced_documents, which the pipeline's
+    // PurgeReplacedDocuments state runs once a re-uploaded document has
+    // finished, to delete the child's older documents. It lists them through
+    // the byChildId index (stepFunctionPolicies grants Query on the table
+    // ARN only, which does not cover an index) and deletes each row. Held by
+    // the DDB service alone: no step lambda, FinalizeResults included, can
+    // delete a document row. The S3 side needs nothing new: DeleteObject and
+    // ListBucket come from stepFunctionPolicies and the version-level
+    // deletes from grantPermanentDelete above.
+    this.ddbServiceFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:DeleteItem'],
+      resources: [props.iepDocumentsTable.tableArn],
+    }));
+    this.ddbServiceFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:Query'],
+      resources: [`${props.iepDocumentsTable.tableArn}/index/byChildId`],
+    }));
+
     // Reclaim documents whose upload never reached S3: the presigned-URL
     // upload path (knowledge-management/upload-s3) writes the DynamoDB row
     // before the browser's PUT to S3 is confirmed, so a dropped upload (closed

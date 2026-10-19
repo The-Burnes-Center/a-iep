@@ -11,6 +11,7 @@ import traceback
 from botocore.exceptions import ClientError
 from datetime import datetime
 from decimal import Decimal
+from replaced_documents import purge_replaced_documents
 from s3_content_handler import (
     save_content_to_s3,
     get_content_from_s3,
@@ -154,7 +155,7 @@ def lambda_handler(event, context):
     
     Expected event structure:
     {
-        "operation": "update_progress|record_failure|get_document|save_ocr_data|get_ocr_data",
+        "operation": "update_progress|record_failure|get_document|save_ocr_data|get_ocr_data|purge_replaced_documents",
         "params": {
             // operation-specific parameters
         }
@@ -186,6 +187,8 @@ def lambda_handler(event, context):
             return expire_stale_pending_uploads(params)
         elif operation == 'get_student_name':
             return get_student_name(params)
+        elif operation == 'purge_replaced_documents':
+            return purge_replaced_documents(table, params, context)
         else:
             raise ValueError(f"Unknown operation: {operation}")
             
