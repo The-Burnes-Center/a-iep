@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
-import LinearProgress from '@mui/material/LinearProgress';
+import { ProgressBar } from 'react-bootstrap';
 import {
   displayPercent,
   processingProgressState,
@@ -98,17 +98,23 @@ const ProcessingStatusBar: React.FC<ProcessingStatusBarProps> = ({ document: doc
           ran at the same speed for the two seconds of redaction and the
           ninety of summarizing, which is the single thing parents ask about
           on this screen. */}
-      <LinearProgress
-        variant="determinate"
-        value={percent}
-        aria-labelledby={stepLabelId}
-        className="processing-status-bar"
-        data-testid="processing-progress-bar"
-        // The confirmed milestone, beside the eased value the bar draws. A
-        // test asserting on aria-valuenow alone cannot tell the two apart,
-        // and the difference between them is the whole design.
-        data-confirmed-percent={easedState.confirmedPercent}
-      />
+      {/* react-bootstrap puts the wrapper props on the track and the
+          role="progressbar" on the child fill, so the ARIA attributes and the
+          test id go on the child: the element a screen reader and the tests
+          read is the one that carries the value. */}
+      <ProgressBar className="processing-status-bar">
+        <ProgressBar
+          now={percent}
+          min={0}
+          max={100}
+          aria-labelledby={stepLabelId}
+          data-testid="processing-progress-bar"
+          // The confirmed milestone, beside the eased value the bar draws. A
+          // test asserting on aria-valuenow alone cannot tell the two apart,
+          // and the difference between them is the whole design.
+          data-confirmed-percent={easedState.confirmedPercent}
+        />
+      </ProgressBar>
     </>
   );
 };
