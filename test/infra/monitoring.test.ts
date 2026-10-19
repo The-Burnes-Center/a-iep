@@ -265,18 +265,18 @@ describe.each([
     }
   });
 
-  // AWS Chatbot renders AlarmDescription in its Slack card and nothing else
-  // here carries context, so an empty description ships an alert that says
-  // only that a metric moved.
-  // The description is used verbatim as the impact line, and is also the body
-  // of the raw card if the formatter is down. Chatbot truncates around 250
-  // characters: 17 of these were once long enough to be cut mid-sentence,
-  // losing the most actionable part.
-  test('every description is a usable length for Slack', () => {
+  // The description carries the whole alert: environment, severity, symptom,
+  // impact, next steps and runbook. Its exact shape is pinned in
+  // alert-copy.test.ts; this only guards the two limits that make Slack and
+  // CloudFormation reject or cut it. It used to be capped at 250 characters,
+  // because it was shown verbatim in Chatbot's raw card. The formatter now
+  // parses it, and only the two formatter-bypass alarms still fall back to
+  // the raw card (their lead is pinned in alert-copy.test.ts).
+  test('every description is present and fits what CloudFormation accepts', () => {
     for (const alarm of alarms) {
       expect(typeof alarm.AlarmDescription).toBe('string');
-      expect(alarm.AlarmDescription.length).toBeGreaterThan(40);
-      expect(alarm.AlarmDescription.length).toBeLessThanOrEqual(250);
+      expect(alarm.AlarmDescription.length).toBeGreaterThan(100);
+      expect(alarm.AlarmDescription.length).toBeLessThanOrEqual(1024);
     }
   });
 
@@ -523,7 +523,7 @@ describe('a deletion that only partly happened', () => {
 
     expect(alarm).toBeDefined();
     expect(alarm.Threshold).toBe(1);
-    expect(alarm.AlarmDescription).toContain('[critical]');
+    expect(alarm.AlarmDescription).toMatch(/^\[PROD\] \[CRITICAL\] /);
   });
 });
 
@@ -557,7 +557,7 @@ describe('OCR text that should have been deleted and was not', () => {
 
     expect(alarm).toBeDefined();
     expect(alarm.Threshold).toBe(1);
-    expect(alarm.AlarmDescription).toContain('[critical]');
+    expect(alarm.AlarmDescription).toMatch(/^\[PROD\] \[CRITICAL\] /);
   });
 });
 
@@ -593,7 +593,7 @@ describe('unredacted copies surviving a failed document', () => {
 
     expect(alarm).toBeDefined();
     expect(alarm.Threshold).toBe(1);
-    expect(alarm.AlarmDescription).toContain('[critical]');
+    expect(alarm.AlarmDescription).toMatch(/^\[PROD\] \[CRITICAL\] /);
   });
 });
 
@@ -899,7 +899,7 @@ describe('undelivered login codes', () => {
 
     expect(alarm).toBeDefined();
     expect(alarm.Threshold).toBe(1);
-    expect(alarm.AlarmDescription).toContain('[critical]');
+    expect(alarm.AlarmDescription).toMatch(/^\[PROD\] \[CRITICAL\] /);
   });
 
   // The counterpart. This one has routine benign volume -- landlines, dead
@@ -910,7 +910,7 @@ describe('undelivered login codes', () => {
 
     expect(alarm).toBeDefined();
     expect(alarm.Threshold).toBeGreaterThan(1);
-    expect(alarm.AlarmDescription).not.toContain('[critical]');
+    expect(alarm.AlarmDescription).not.toMatch(/^\[PROD\] \[CRITICAL\] /);
   });
 
   // The attribution is the dimension. An alarm on the undimensioned series
@@ -1106,7 +1106,7 @@ describe('SMS spend', () => {
     expect(alarm.Threshold).toBeGreaterThan(0);
     // Self-clearing: no data (and no new spend) reads as not breaching.
     expect(alarm.TreatMissingData).toBe('notBreaching');
-    expect(alarm.AlarmDescription).toContain('[critical]');
+    expect(alarm.AlarmDescription).toMatch(/^\[PROD\] \[CRITICAL\] /);
   });
 
   // The 2026-09-09 attack ran at about $590 an hour and a normal week spends
@@ -1131,9 +1131,9 @@ describe('SMS spend', () => {
 });
 
 // An event-count alarm clears when a quiet window passes, not when anything
-// is fixed. The formatter words those recoveries as "no further failures",
-// keyed on a marker in the description; pinned here so a new SMS alarm, or a
-// reworded one, cannot quietly go back to announcing "Back to normal".
+// is fixed. The formatter words those recoveries as "no new failures", keyed
+// on the `Recovery: quiet` line in the description; pinned here so a new SMS
+// alarm, or a reworded one, cannot quietly go back to announcing "Resolved".
 describe('failure-count alarms carry the marker the formatter reads', () => {
   test.each([
     'the SMS provider is rejecting login codes',
@@ -1146,7 +1146,7 @@ describe('failure-count alarms carry the marker the formatter reads', () => {
       .map((r: any) => r.Properties)
       .find((p: any) => String(p.AlarmName).includes(fragment));
     expect(alarm).toBeDefined();
-    expect(alarm.AlarmDescription).toMatch(/^\[(critical|medium|low)\]\[failures\] /);
+    expect(alarm.AlarmDescription).toMatch(/^Recovery: quiet$/m);
   });
 
   // The other direction: a heartbeat or a level alarm clearing IS a
@@ -1160,7 +1160,7 @@ describe('failure-count alarms carry the marker the formatter reads', () => {
       .map((r: any) => r.Properties)
       .find((p: any) => String(p.AlarmName).includes(fragment));
     expect(alarm).toBeDefined();
-    expect(alarm.AlarmDescription).not.toContain('[failures]');
+    expect(alarm.AlarmDescription).not.toMatch(/^Recovery: quiet$/m);
   });
 });
 

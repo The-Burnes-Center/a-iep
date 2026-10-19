@@ -1,10 +1,10 @@
 """Turn a CloudWatch alarm into an alert a person can act on.
 
 AWS Chatbot's default alarm card is a metric dump. It leads with the account
-id and region, buries the description under Namespace / Metric / Timestamp,
-truncates it around 250 characters, and states the problem as
-"Threshold Crossed: 1 datapoint [4.0] was greater than or equal to the
-threshold (2.0)". Nobody reads that at 2am and knows what to do.
+id, buries the description under Namespace / Metric / Timestamp, truncates it
+around 250 characters, and states the problem as "Threshold Crossed: 1
+datapoint [4.0] was greater than or equal to the threshold (2.0)". Nobody
+reads that at 2am and knows what to do.
 
 Chatbot renders a custom notification instead when the SNS payload carries
 source: "custom", which gives us the whole message. This function is the
@@ -12,87 +12,201 @@ translation step:
 
     alarm -> ALARM_TOPIC -> this -> ALERT_TOPIC -> Chatbot -> Slack
 
-Following the alerting guidance rather than taste: concise and scannable, no
-walls of text, structured fields instead of prose, the runbook linked rather
-than embedded, and repeat alerts threaded rather than filling the channel.
+## The message
 
-Everything shown is derived from the alarm itself, so there is no second copy
-of the wording to drift: the alarm name is the headline, its description is
-the single impact line, and its dimensions produce the log link. Adding an
-alarm in monitoring.ts needs no change here.
+Written to the usual alerting guidance (actionable, symptom-based, says who is
+affected and what to do first), and identical in shape every time:
+
+    [PROD] [CRITICAL] Sign-in codes are not being sent
+    What is happening: at least 3 failed code sends in 5 minutes (latest reading: 4)
+    Who is affected: Parents ask for a sign-in code, none arrives...
+    Started: 12 Oct 2026, 14:03 UTC
+    Check first: 1. ... 2. ...   (plus the runbook, the logs and the alarm)
+
+Environment and severity are the first two words, as words rather than colours,
+so the message reads the same in a push notification, a screen reader and a
+plain-text export. Staging is capped at WARNING and says no real families are
+affected.
+
+## Where the words come from
+
+Not from here. Every alarm's description is written by
+lib/chatbot-api/monitoring/alert-copy.ts in a fixed shape, and this function
+parses it (`parse_description`). Adding or rewording an alarm is an edit to
+that file and needs no change here. An alarm that does not follow the shape
+(one created outside that file) still produces an alert, built from its name.
+
+## What is posted
+
+- Every ALARM, in both environments.
+- A resolution ("Resolved: ...") only for CRITICAL alarms in prod. A warning
+  that clears needs no announcement, and staging resolutions are noise: the
+  channel is shared, and a resolved test failure is not news to anyone.
+- Never an OK that is an alarm starting up (INSUFFICIENT_DATA to OK).
+
+Nothing shown can carry FERPA content: every value is an alarm name, copy
+written in the repo, a resource id, a count or a timestamp. Never add a field
+sourced from a log message or a request body.
 """
+import datetime
 import json
 import os
 import re
+import urllib.parse
 
 import boto3
 
 sns = boto3.client('sns')
+cloudwatch = boto3.client('cloudwatch')
 
 ALERT_TOPIC_ARN = os.environ['ALERT_TOPIC_ARN']
 ENVIRONMENT = os.environ.get('ENVIRONMENT', 'unknown')
 REGION = os.environ.get('AWS_REGION', 'us-east-1')
 
-# Production alarms mean real families are affected right now; staging alarms
-# mean a test broke. Saying which, on the headline, is the difference between
-# an alert someone acts on and one they have to investigate to triage.
 IS_PROD = ENVIRONMENT in ('prod', 'production')
+ENV_LABEL = 'PROD' if IS_PROD else 'STAGING'
 
 _CONSOLE = f'https://console.aws.amazon.com/cloudwatch/home?region={REGION}'
 
-# Colour is severity, not environment. Which environment fired is already on
-# the headline and in the footer as words; how urgent it is was not encoded
-# anywhere, so 39 alarms all arrived looking identical and a total auth outage
-# read the same as one throttled write.
-#
-# Staging is capped at yellow. It fires the same alarms for broken tests, and
-# a red that sometimes means "a test broke" is a red nobody trusts at 3am.
-_SEVERITY_ICON = {
-    'critical': ':red_circle:',
-    'medium': ':large_yellow_circle:',
-    'low': ':large_blue_circle:',
-}
-_STAGING_ICON = {
-    'critical': ':large_yellow_circle:',
-    'medium': ':large_yellow_circle:',
-    'low': ':large_blue_circle:',
-}
-# Blue for low, not green, and this was learned the hard way. Green was the
-# obvious choice for "not urgent", but green reads as "everything is fine"
-# before anyone gets to the words, so a firing low-priority alarm arrived
-# looking like good news: a green circle above the sentence "the daily health
-# brief has stopped running".
-#
-# So no firing alarm is ever green, at any severity. Green and the tick belong
-# to states where nothing is wrong, and nothing else may borrow them.
-_CLEARED_ICON = ':white_check_mark:'
+# The first line of every description written by alert-copy.ts.
+_TITLE_LINE = re.compile(r'^\[(PROD|STAGING)\] \[(CRITICAL|WARNING|INFO)\] (.+)$')
+_SECTION_LINE = re.compile(r'^(Impact|Fires when|Runbook|Recovery): (.*)$')
+_CHECK_STEP = re.compile(r'^\d+\. (.+)$')
 
-# The marker MonitoringStack prefixes onto every alarm description. Stripped
-# here so no reader ever sees it, and defaulted rather than required: an alarm
-# created outside that construct must still format, just without a tier.
-#
-# The optional second marker, [failures], says the alarm counts discrete
-# failures. Its OK only means none arrived lately, so the recovery is worded
-# as exactly that; see _quiet_description.
-_SEVERITY_PATTERN = re.compile(r'^\s*\[(critical|medium|low)\](\[failures\])?\s*')
+# What to say when an alarm does not follow the shape above.
+_FALLBACK_SEVERITY = 'WARNING'
 
-# A quiet event-count alarm is not a fixed one, so it does not get the tick.
-_QUIET_ICON = ':white_circle:'
+# "at least 3 failed code sends in 5 minutes": the only shape of threshold
+# phrase that a latest reading can sensibly sit next to.
+_COUNT_CONDITION = re.compile(r'^at least \d+ ')
+
+_QUIET = 'quiet'
 
 
-def _markers_and_text(description):
-    """Split '[critical][failures] Nobody can sign in.' into its parts.
+def parse_description(text):
+    """Split an alert-copy.ts description into its parts, or None.
 
-    Returns (severity, counts_failures, the sentence).
+    Returns a dict with environment, severity, symptom, impact, fires,
+    check (list), runbook and recovery. The last four may be None or empty.
+    None means the text is not in the expected shape.
     """
-    match = _SEVERITY_PATTERN.match(description or '')
+    lines = (text or '').strip().splitlines()
+    if not lines:
+        return None
+    match = _TITLE_LINE.match(lines[0].strip())
     if not match:
-        return 'medium', False, (description or '').strip()
-    text = _SEVERITY_PATTERN.sub('', description).strip()
-    return match.group(1), bool(match.group(2)), text
+        return None
+
+    parsed = {
+        'environment': match.group(1),
+        'severity': match.group(2),
+        'symptom': match.group(3).strip(),
+        'impact': None,
+        'fires': None,
+        'check': [],
+        'runbook': None,
+        'recovery': None,
+    }
+    key_by_label = {'Impact': 'impact', 'Fires when': 'fires',
+                    'Runbook': 'runbook', 'Recovery': 'recovery'}
+    for line in lines[1:]:
+        line = line.strip()
+        section = _SECTION_LINE.match(line)
+        if section:
+            label, value = section.group(1), section.group(2).strip()
+            # "Fires when" ends in a full stop that the body adds back itself.
+            parsed[key_by_label[label]] = value.rstrip('.') if label == 'Fires when' else value
+            continue
+        step = _CHECK_STEP.match(line)
+        if step:
+            parsed['check'].append(step.group(1).strip())
+    return parsed
 
 
-def _quiet_window_minutes(alarm):
+def _fallback(alarm):
+    """An alert for an alarm that was not written by alert-copy.ts.
+
+    Better a plain alert than none: swallowing an alarm is the one failure
+    this function must never have.
+    """
+    name = alarm.get('AlarmName', 'unknown alarm')
+    symptom = re.sub(r'^a-iep(-staging)?\s+', '', name).strip() or name
+    return {
+        'environment': ENV_LABEL,
+        'severity': _FALLBACK_SEVERITY,
+        'symptom': symptom[:1].upper() + symptom[1:],
+        'impact': None,
+        'fires': None,
+        'check': [],
+        'runbook': None,
+        'recovery': None,
+        'fallback': True,
+    }
+
+
+def _resource(dimensions):
+    """The logs or console page for the resource this alarm is about, or (None, None)."""
+    dims = {d.get('name'): d.get('value') for d in dimensions or []}
+
+    function_name = dims.get('FunctionName')
+    if function_name:
+        encoded = f'/aws/lambda/{function_name}'.replace('/', '$252F')
+        return f'{_CONSOLE}#logsV2:log-groups/log-group/{encoded}', 'Open the logs'
+
+    table_name = dims.get('TableName')
+    if table_name:
+        return (f'https://console.aws.amazon.com/dynamodbv2/home?region={REGION}'
+                f'#table?name={table_name}&tab=monitoring'), 'Open the table metrics'
+
+    rule_name = dims.get('RuleName')
+    if rule_name:
+        return (f'https://console.aws.amazon.com/events/home?region={REGION}'
+                f'#/eventbus/default/rules/{rule_name}'), 'Open the schedule'
+
+    api_id = dims.get('ApiId')
+    if api_id:
+        return (f'https://console.aws.amazon.com/apigateway/main/monitor/logs'
+                f'?api={api_id}&region={REGION}'), 'Open the API logs'
+
+    return None, None
+
+
+def _alarm_link(name):
+    return f'{_CONSOLE}#alarmsV2:alarm/{urllib.parse.quote(name, safe="")}'
+
+
+_MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+           'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+
+def _when(raw):
+    """'12 Oct 2026, 14:03 UTC' from CloudWatch's timestamp, or None.
+
+    A custom notification gets no timestamp from Chatbot, so without this the
+    reader cannot tell a five-minute-old outage from a five-hour-old one.
+    """
+    match = re.match(r'(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})', raw or '')
+    if not match:
+        return None
+    year, month, day, hour, minute = match.groups()
+    return f'{int(day)} {_MONTHS[int(month)]} {year}, {hour}:{minute} UTC'
+
+
+def _latest_reading(alarm):
+    """The number that crossed the threshold, or None.
+
+    CloudWatch states it as "Threshold Crossed: 1 datapoint [8.0 (08/09/26
+    18:14:00)] was greater than or equal to the threshold (5.0)". The value is
+    the only part worth showing.
+    """
+    match = re.search(r'\[([0-9.]+)\s', alarm.get('NewStateReason') or '')
+    if not match:
+        return None
+    value = float(match.group(1))
+    return str(int(value)) if value.is_integer() else str(value)
+
+
+def _quiet_minutes(alarm):
     """How long the alarm has been quiet when it clears, or None.
 
     Period x EvaluationPeriods is the window that has to be clean for an
@@ -107,240 +221,118 @@ def _quiet_window_minutes(alarm):
     return int(period * periods // 60) or None
 
 
-def _quiet_description(alarm, headline):
-    """The recovery line for an alarm that counts failures.
-
-    "Back to normal" was wrong for these. An SMS delivery alarm clears 15
-    minutes after the last dropped code whether or not anything changed, and
-    read as "codes are arriving again" when the truth was only that nobody
-    had been dropped since.
-    """
-    minutes = _quiet_window_minutes(alarm)
-    window = f'in the last {minutes} minutes' if minutes else 'since it fired'
-    return (f'The "{headline}" alert has gone quiet: no further failures {window}. '
-            'That is not proof the cause is fixed.')
-
-
-# No @channel, @here or any all-member mention, ever, in either environment.
-# Getting an alert to push is the channel's notification settings, which is a
-# choice for the person receiving them rather than something an alert imposes
-# on everyone in the room.
-
-
-def _resource(dimensions):
-    """Which AWS resource this alarm is about, and where to look at it.
-
-    Returns (name, url, link_label). The name goes in a field because it is
-    what someone pastes into a console search; the url is linked rather than
-    pasted, because the alert says what broke and the logs say why.
-    """
-    dims = {d.get('name'): d.get('value') for d in dimensions or []}
-
-    function_name = dims.get('FunctionName')
-    if function_name:
-        encoded = f'/aws/lambda/{function_name}'.replace('/', '$252F')
-        return function_name, f'{_CONSOLE}#logsV2:log-groups/log-group/{encoded}', 'Logs'
-
-    table_name = dims.get('TableName')
-    if table_name:
-        return table_name, (f'https://console.aws.amazon.com/dynamodbv2/home?region={REGION}'
-                            f'#table?name={table_name}&tab=monitoring'), 'Table metrics'
-
-    rule_name = dims.get('RuleName')
-    if rule_name:
-        return rule_name, (f'https://console.aws.amazon.com/events/home?region={REGION}'
-                           f'#/eventbus/default/rules/{rule_name}'), 'Schedule'
-
-    api_id = dims.get('ApiId')
-    if api_id:
-        return api_id, (f'https://console.aws.amazon.com/apigateway/main/monitor/logs'
-                        f'?api={api_id}&region={REGION}'), 'API logs'
-
-    # Metric-filter alarms (DocumentFailures) carry no dimensions: the alarm
-    # is about the pipeline as a whole, so the ddb-service log is the place to
-    # start and the caller supplies it.
-    return None, None, None
-
-
-def _started(alarm):
-    """When this started, in a form someone can compare to their clock.
-
-    A custom notification gets no timestamp from Chatbot, unlike the default
-    alarm card, so it has to be a field here or the reader cannot tell a
-    five-minute-old outage from a five-hour-old one.
-    """
-    raw = alarm.get('StateChangeTime') or ''
-    match = re.match(r'(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})', raw)
+def _parse_time(raw):
+    """A CloudWatch timestamp as an aware datetime, or None."""
+    match = re.match(r'(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})', raw or '')
     if not match:
         return None
-    _, month, day, hour, minute = match.groups()
-    months = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    return f'{int(day)} {months[int(month)]} {hour}:{minute} UTC'
+    year, month, day, hour, minute, second = (int(part) for part in match.groups())
+    return datetime.datetime(year, month, day, hour, minute, second,
+                             tzinfo=datetime.timezone.utc)
 
 
-def _headline(alarm_name):
-    """Strip the resource prefix; monitoring.ts already names alarms for humans."""
-    return re.sub(r'^a-iep(-staging)?\s+', '', alarm_name).strip() or alarm_name
+def _alert_duration_minutes(alarm):
+    """How long the alarm was in ALARM before this OK, or None.
 
-
-# What the metric counts, said the way a person would say it. Without this the
-# card reads "Observed: 8", which is 8 of nothing in particular.
-_UNITS = {
-    'Errors': 'errors',
-    '5xx': 'server errors',
-    'DocumentFailures': 'documents failed',
-    'Throttles': 'throttled requests',
-    'ExecutionsTimedOut': 'executions timed out',
-    'FailedInvocations': 'failed invocations',
-}
-
-
-def _observed_phrase(alarm):
-    """'8 errors in 5 min', or None when there is no useful number.
-
-    CloudWatch states this as "Threshold Crossed: 1 datapoint [8.0
-    (08/09/26 18:14:00)] was greater than or equal to the threshold (5.0)".
-    The value is the only part worth showing, and it is meaningless without
-    both its unit and the window it was counted over.
+    The OK payload carries no start time, so this asks CloudWatch for the
+    alarm's history and takes the most recent move into ALARM. Best effort and
+    only used for the resolution line: if the lookup fails the resolution is
+    still posted, just without the duration, and the failure is logged.
     """
-    match = re.search(r'\[([0-9.]+)\s', alarm.get('NewStateReason') or '')
-    if not match:
+    cleared = _parse_time(alarm.get('StateChangeTime'))
+    if cleared is None:
         return None
-    value = float(match.group(1))
-    count = str(int(value)) if value.is_integer() else str(value)
-
-    trigger = alarm.get('Trigger') or {}
-    unit = _UNITS.get(trigger.get('MetricName'), 'events')
-
-    period = trigger.get('Period')
-    window = ''
-    if isinstance(period, (int, float)) and period > 0:
-        minutes = int(period // 60)
-        window = f' in {minutes} min' if minutes else f' in {int(period)}s'
-    return f'{count} {unit}{window}'
-
-
-def _threshold_phrase(alarm):
-    """e.g. "AI-IEP/Auth SmsSendFailed >= 1", so the bar is visible.
-
-    Worth showing because a surprising alarm is often a threshold problem
-    rather than an outage, and that is not otherwise answerable from Slack.
-    """
-    trigger = alarm.get('Trigger') or {}
-    namespace = trigger.get('Namespace')
-    metric = trigger.get('MetricName')
-    threshold = trigger.get('Threshold')
-    if not metric or threshold is None:
-        return ''
-    operators = {
-        'GreaterThanOrEqualToThreshold': '>=',
-        'GreaterThanThreshold': '>',
-        'LessThanOrEqualToThreshold': '<=',
-        'LessThanThreshold': '<',
-    }
-    operator = operators.get(trigger.get('ComparisonOperator'), '>=')
-    # Trim the trailing .0 CloudWatch puts on integral thresholds.
-    if isinstance(threshold, float) and threshold.is_integer():
-        threshold = int(threshold)
-    subject = f'{namespace} {metric}' if namespace else metric
-    return f'{subject} {operator} {threshold}'
+    try:
+        history = cloudwatch.describe_alarm_history(
+            AlarmName=alarm['AlarmName'],
+            HistoryItemType='StateUpdate',
+            MaxRecords=20,
+            ScanBy='TimestampDescending',
+        )
+    except Exception as error:  # noqa: BLE001 - never lose a resolution over a lookup
+        print(f'ALARM_DURATION_UNAVAILABLE {type(error).__name__}')
+        return None
+    for item in history.get('AlarmHistoryItems', []):
+        summary = item.get('HistorySummary') or ''
+        timestamp = item.get('Timestamp')
+        if not summary.endswith('to ALARM') or timestamp is None:
+            continue
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=datetime.timezone.utc)
+        seconds = (cleared - timestamp).total_seconds()
+        if seconds < 0:
+            continue
+        return max(1, int(round(seconds / 60)))
+    return None
 
 
-def build_notification(alarm):
+def _plural_minutes(minutes):
+    return '1 minute' if minutes == 1 else f'{minutes} minutes'
+
+
+def _title(parsed, recovered, quiet, alarm):
+    label = parsed['environment']
+    if not recovered:
+        return f"[{label}] [{parsed['severity']}] {parsed['symptom']}"
+    if quiet:
+        minutes = _quiet_minutes(alarm)
+        window = f' for {_plural_minutes(minutes)}' if minutes else ''
+        return f"[{label}] Quiet: {parsed['symptom']} (no new failures{window})"
+    phrase = parsed['recovery'] or f'the "{parsed["symptom"]}" alert has cleared'
+    duration = _alert_duration_minutes(alarm)
+    lasted = f' (alert lasted {_plural_minutes(duration)})' if duration else ''
+    return f'[{label}] Resolved: {phrase}{lasted}'
+
+
+def _firing_body(parsed, alarm):
+    lines = []
+    if parsed['fires']:
+        reading = _latest_reading(alarm)
+        suffix = f' (latest reading: {reading})' if reading and _COUNT_CONDITION.match(parsed['fires']) else ''
+        lines.append(f"*What is happening:* Alert condition met: {parsed['fires']}{suffix}.")
+    if parsed['impact']:
+        lines.append(f"*Who is affected:* {parsed['impact']}")
+    started = _when(alarm.get('StateChangeTime'))
+    if started:
+        lines.append(f'*Started:* {started}')
+    return lines
+
+
+def _resolved_body(parsed, quiet, alarm):
+    cleared = _when(alarm.get('StateChangeTime'))
+    when = f' at {cleared}' if cleared else ''
+    if quiet:
+        return [f'The alert cleared{when} because failures stopped arriving. '
+                'That does not confirm the cause is fixed.']
+    return [f'The alert cleared{when}. No action needed.']
+
+
+def build_notification(alarm, parsed=None):
     """Shape one alarm into a Chatbot custom notification."""
     name = alarm.get('AlarmName', 'unknown alarm')
-    state = alarm.get('NewStateValue', 'ALARM')
-    recovered = state == 'OK'
-    headline = _headline(name)
+    recovered = alarm.get('NewStateValue') == 'OK'
+    parsed = parsed or parse_description(alarm.get('AlarmDescription')) or _fallback(alarm)
+    quiet = recovered and parsed['recovery'] == _QUIET
 
-    # Environment on the headline, because "is this real" is the first
-    # question and it should not need a click to answer.
-    env_label = 'prod' if IS_PROD else 'staging'
-    description = (alarm.get('AlarmDescription') or '').strip()
-    severity, counts_failures, description = _markers_and_text(description)
-    quiet = recovered and counts_failures
-    icons = _SEVERITY_ICON if IS_PROD else _STAGING_ICON
-    if quiet:
-        icon = _QUIET_ICON
-    elif recovered:
-        icon = _CLEARED_ICON
+    title = _title(parsed, recovered, quiet, alarm)
+    content = {'textType': 'client-markdown', 'title': title}
+
+    if recovered:
+        content['description'] = '\n'.join(_resolved_body(parsed, quiet, alarm))
     else:
-        icon = icons.get(severity, ':large_yellow_circle:')
-    # Alarm names are present-tense problem statements, which is right when
-    # one fires and wrong in every recovery: "Cleared · login codes are not
-    # being delivered" still reads as a claim that codes are not arriving.
-    #
-    # So a recovery leads with the state and demotes the name into the
-    # description, in quotes. The quotes are what stop it being read as a
-    # sentence: it becomes the name of an alert rather than an assertion
-    # about right now.
-    if quiet:
-        title = f'{icon} No further failures · {env_label}'
-    elif recovered:
-        title = f'{icon} Back to normal · {env_label}'
-    else:
-        title = f'{icon} {headline} · {env_label}'
+        body = _firing_body(parsed, alarm)
+        if parsed.get('fallback'):
+            body.insert(0, 'This alarm has no written guidance. Open the alarm for details.')
+        content['description'] = '\n'.join(body)
 
-    # The description is written as the impact statement, so it is used as-is
-    # rather than wrapped in more words. Already stripped of its tier above.
-    observed = _observed_phrase(alarm)
-    if quiet:
-        description = _quiet_description(alarm, headline)
-    elif recovered:
-        description = f'The "{headline}" alert has cleared. No action needed.'
-
-    trigger = alarm.get('Trigger') or {}
-    resource, link, link_label = _resource(trigger.get('Dimensions'))
-
-    content = {
-        'textType': 'client-markdown',
-        'title': title,
-        'description': description,
-    }
-    # Recovery needs no next steps; adding them implies work that is done.
-    if link and not recovered:
-        content['nextSteps'] = [f'<{link}|{link_label}>']
-
-    # Detail lines, one fact per line as "• key: value".
-    #
-    # These belong in metadata.additionalContext by the guidance (fields, not
-    # prose), and that is where they started. Chatbot does not render it: a
-    # test notification carrying environment/resource/started showed the title,
-    # description and nextSteps only, with the fields silently dropped. So they
-    # go in the description instead, still as fields rather than a sentence.
-    #
-    # The 250-character truncation in the docstring above is Chatbot's DEFAULT
-    # alarm card. A custom notification carries the whole message, so there is
-    # room to say what actually happened rather than only that it did.
-    #
-    # A custom notification also gets no timestamp from Chatbot, unlike the
-    # default card, so without "since" a reader cannot tell a five-minute
-    # outage from a five-hour one.
-    #
-    # Nothing here can carry FERPA content: every value is an alarm name, a
-    # metric name, a resource id, a count or a timestamp. Never add a field
-    # sourced from a log message or a request body.
-    details = []
-    if observed and not recovered:
-        details.append(('observed', observed))
-    started = _started(alarm)
-    if started:
-        details.append(('since', started))
-    # Environment as a field, and deliberately no claim about who was
-    # affected. Some alarms watch account-scoped metrics, so a staging-named
-    # alarm can be reporting damage that is not staging's. Naming the
-    # environment is a fact this function has; impact is not, and asserting it
-    # wrongly is worse than leaving it out.
-    details.append(('environment', 'prod' if IS_PROD else 'staging'))
-    if resource:
-        details.append(('resource', f'`{resource}`'))
-    threshold = _threshold_phrase(alarm)
-    if threshold and not recovered:
-        details.append(('trigger', threshold))
-
-    lines = [description, ''] + [f'• {key}: {value}' for key, value in details]
-    content['description'] = '\n'.join(lines)
+        steps = list(parsed['check'])
+        if parsed['runbook']:
+            steps.append(f"<{parsed['runbook']}|Open the runbook>")
+        resource_link, resource_label = _resource((alarm.get('Trigger') or {}).get('Dimensions'))
+        if resource_link:
+            steps.append(f'<{resource_link}|{resource_label}>')
+        steps.append(f'<{_alarm_link(name)}|Open the alarm in CloudWatch>')
+        content['nextSteps'] = steps
 
     return {
         'version': '1.0',
@@ -348,15 +340,14 @@ def build_notification(alarm):
         'content': content,
         'metadata': {
             # The mobile push preview, so it must stand alone.
-            'summary': f'{headline} ({env_label})',
-            # Same alarm flapping threads under its first message instead of
-            # filling the channel.
+            'summary': title,
+            # The same alarm flapping, or clearing, threads under its first
+            # message instead of filling the channel.
             'threadId': re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')[:64],
             # No additionalContext: Chatbot accepts it and renders nothing, so
             # anything put there is silently invisible. Verified with a test
-            # notification carrying environment/resource/started, which showed
-            # only title, description and nextSteps. Those values are in the
-            # description's context line instead.
+            # notification carrying extra fields, which showed only title,
+            # description and nextSteps.
         },
     }
 
@@ -371,6 +362,23 @@ def _is_alarm_coming_online(alarm):
     return (
         alarm.get('NewStateValue') == 'OK'
         and alarm.get('OldStateValue') != 'ALARM'
+    )
+
+
+def _should_post(alarm, parsed):
+    """Whether this state change reaches Slack at all.
+
+    Every ALARM does. An OK does only for a CRITICAL alarm in prod, because
+    that is the one case where "is it fixed" is a question somebody is
+    waiting on. Staging never posts one, and an alarm without written guidance
+    cannot be known to be critical.
+    """
+    if alarm.get('NewStateValue') != 'OK':
+        return True
+    return (
+        parsed is not None
+        and parsed['environment'] == 'PROD'
+        and parsed['severity'] == 'CRITICAL'
     )
 
 
@@ -398,16 +406,19 @@ def lambda_handler(event, context):
         if _is_alarm_coming_online(alarm):
             # A brand-new alarm starts in INSUFFICIENT_DATA and moves to OK as
             # soon as it has data. That is not a recovery, but the OK action
-            # fires all the same, so a deploy announces "Recovered: login codes
-            # are not being delivered" for something that never broke. Four of
-            # those arrived at 2am on 2026-09-10 and read as a real outage.
-            #
-            # Dropped rather than reworded: there is no news here at all.
+            # fires all the same, so a deploy would announce a "recovery" for
+            # something that never broke. Dropped, not reworded: no news here.
             print(f"Suppressing coming-online OK for {alarm.get('AlarmName')} "
                   f"(was {alarm.get('OldStateValue')})")
             continue
 
-        notification = build_notification(alarm)
+        parsed = parse_description(alarm.get('AlarmDescription'))
+        if not _should_post(alarm, parsed):
+            print(f"Not posting the resolution of {alarm.get('AlarmName')}: "
+                  'resolutions post for CRITICAL alarms in prod only')
+            continue
+
+        notification = build_notification(alarm, parsed)
         print(f"Formatted alert for {alarm.get('AlarmName')} "
               f"-> {alarm.get('NewStateValue')}")
         sns.publish(TopicArn=ALERT_TOPIC_ARN, Message=json.dumps(notification))

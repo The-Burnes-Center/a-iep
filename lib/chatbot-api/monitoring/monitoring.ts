@@ -16,7 +16,15 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as path from 'path';
 import * as kms from 'aws-cdk-lib/aws-kms';
-import { getEnvironment, getMetricNamespace, getResourceName, tagResource } from '../../tags';
+import { getEnvironment, getMetricNamespace, getResourceName, tagResource, type Environment } from '../../tags';
+import {
+  renderAlarmDescriptionFor,
+  type AlarmThreshold,
+  type AlertCopy,
+  type Severity,
+} from './alert-copy';
+import { COMPONENT_COPY, plainName, smsSpendNearCap } from './alert-copy-components';
+import { ALERT_COPY } from './alert-copy-table';
 
 /**
  * Outage alerting:
@@ -45,21 +53,26 @@ import { getEnvironment, getMetricNamespace, getResourceName, tagResource } from
  *    used are the per-step lambda Errors (which also say WHICH stage broke)
  *    and the metric filter counting the failure marker.
  *
- * 2. **The alarm description is the one line a person reads.** The formatter
- *    uses it verbatim as the impact statement under the headline, so each one
- *    is a single sentence about what a parent experiences, not a restatement
- *    of the metric. Keep them under ~250 characters: Chatbot truncates around
- *    there, and that limit also applies to the raw card it falls back to.
- *    Measured, after 17 of these were long enough to be cut mid-sentence.
+ * 2. **The alarm description carries the whole message.** CloudWatch passes
+ *    the alarm name, description and state into the SNS payload and nothing
+ *    else we control, so the environment, severity, symptom, impact, next
+ *    steps and runbook link all travel in the description, written by
+ *    alert-copy.ts and laid out by the formatter. The wording of every alarm
+ *    is in that one file; this file only says what is measured and when it
+ *    fires. The two alarms that bypass the formatter fall back to Chatbot's
+ *    raw card, which truncates around 250 characters, so a description leads
+ *    with the headline and impact for exactly that reason.
  *
  * 3. **A missing metric must not read as healthy.** Anything that is a
  *    heartbeat uses treatMissingData.BREACHING. The default (MISSING) would
  *    leave a dead schedule looking fine, which is the exact failure the
  *    heartbeat exists to catch.
  *
- * Staging gets every alarm too, but staging alarms are informational: the
- * severity split lives in how Slack is configured to treat the topic, not
- * here, so that a noisy staging never trains anyone to ignore the channel.
+ * Staging gets every alarm too, and says so: its alerts read [STAGING]
+ * [WARNING] at most, state that no real families are affected, and never post
+ * a resolution. Recoveries post only for CRITICAL alarms in prod; see the
+ * formatter. Both environments currently post to the same Slack channel, so
+ * the label on the first line is what tells them apart.
  */
 
 /**
@@ -142,27 +155,7 @@ const SMS_QUOTA_PROVIDER_RESPONSE = 'No quota left for account';
  */
 const COGNITO_SMS_VALIDATION_NUMBER = '+12064350128';
 
-/**
- * How urgent this alarm is, which is the only thing that decides its colour
- * in Slack.
- *
- * - `critical`: families cannot use the service right now. Red.
- * - `medium`:   something is degraded, or is heading for critical if left.
- *               Yellow.
- * - `low`:      worth knowing, nothing is broken. Green.
- *
- * Assigned per alarm rather than derived, because urgency is a judgement
- * about what a parent experiences and no metric carries it. It is required,
- * so a new alarm cannot quietly default into the wrong tier.
- *
- * It reaches the formatter as a prefix on the alarm description, which is the
- * only field CloudWatch carries into the SNS payload that we control. The
- * formatter strips it, so no reader ever sees the marker. Splitting the tiers
- * across separate SNS topics would be tidier and is the upgrade path if these
- * ever need to reach different Slack channels; it is not worth three topics
- * while they all land in one.
- */
-export type Severity = 'critical' | 'medium' | 'low';
+export type { Severity };
 
 const PIPELINE_STEP_RETRY_INVOCATIONS = 4;
 const PIPELINE_STEP_ERROR_THRESHOLD = PIPELINE_STEP_RETRY_INVOCATIONS + 1;
@@ -298,7 +291,7 @@ export class MonitoringStack extends Construct {
   /** Every alarm created, so test/infra can assert the set. */
   public readonly alarms: cloudwatch.Alarm[] = [];
 
-  private readonly env: string;
+  private readonly env: Environment;
 
   constructor(scope: Construct, id: string, props: MonitoringProps) {
     super(scope, id);
@@ -355,7 +348,9 @@ export class MonitoringStack extends Construct {
         purpose: 'works out which environment sent each undelivered login code; runs only when one fails',
       },
     ].map(({ label, fn, purpose }) => ({
-      label,
+      // Plain words, because the brief is read by people who did not build
+      // the stack: "code creation", not a Cognito trigger name.
+      label: plainName(label),
       functionName: fn.functionName,
       purpose,
     })));
@@ -459,11 +454,7 @@ export class MonitoringStack extends Construct {
     // is that its absence means something. BREACHING so a dead schedule reads
     // as broken rather than as quiet.
     this.alarm('DailyBriefMissingAlarm', {
-      severity: 'low',
-      name: 'the daily health brief has stopped running',
-      description:
-        'The once-a-day summary did not go out, so "no news" no longer means ' +
-        'anything. Nothing is broken for families.',
+      copy: ALERT_COPY.DailyBriefMissingAlarm,
       // 24 one-hour periods, not one 26-hour period. CloudWatch caps an alarm
       // period at 86,400 seconds; above that it cannot aggregate, so it sees
       // no datapoints, treats every one as breaching, and sits in ALARM
@@ -490,11 +481,7 @@ export class MonitoringStack extends Construct {
     // firing and the brief being sent are two different facts, and only the
     // second one is the point.
     this.alarm('DailyBriefFailingAlarm', {
-      severity: 'medium',
-      name: 'the daily health brief is failing',
-      description:
-        'The once-a-day summary ran but could not be sent, so "no news" no ' +
-        'longer means anything. Nothing is broken for families.',
+      copy: ALERT_COPY.DailyBriefFailingAlarm,
       metric: brief.metricErrors({ period: cdk.Duration.hours(1), statistic: 'Sum' }),
       threshold: 1,
       evaluationPeriods: 1,
@@ -521,15 +508,29 @@ export class MonitoringStack extends Construct {
     tagResource(formatter, { Resource: 'Lambda', Function: 'AlertFormatter' });
 
     this.alertTopic.grantPublish(formatter);
+
+    // To say how long an alert lasted in its resolution message. Read-only,
+    // and scoped to this environment's alarms: the name prefix is what keeps
+    // prod's formatter out of staging's history and the other way round. The
+    // lookup is best effort in the lambda, so a denied call loses only the
+    // duration, never the message.
+    formatter.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['cloudwatch:DescribeAlarmHistory'],
+      resources: [
+        cdk.Stack.of(this).formatArn({
+          service: 'cloudwatch',
+          resource: 'alarm',
+          resourceName: `${getResourceName('a-iep')} *`,
+          arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
+        }),
+      ],
+    }));
+
     this.alarmTopic.addSubscription(new subscriptions.LambdaSubscription(formatter));
 
     this.alarm('AlertFormatterFailingAlarm', {
-      severity: 'critical',
-      name: 'alerting itself is broken',
-      description:
-        'Alarms are firing but their alerts are not reaching Slack, so the ' +
-        'channel looks quiet while something may be wrong. Check CloudWatch ' +
-        'alarms directly until this is fixed.',
+      copy: ALERT_COPY.AlertFormatterFailingAlarm,
       metric: formatter.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
       threshold: 1,
       evaluationPeriods: 1,
@@ -547,12 +548,7 @@ export class MonitoringStack extends Construct {
     //
     // Also straight to alertTopic, for the same reason as above.
     this.alarm('AlertDeliveryFailingAlarm', {
-      severity: 'critical',
-      name: 'alerts are not reaching the formatter',
-      description:
-        'Alarms fired but could not be delivered for formatting, so they ' +
-        'never reached Slack. The channel looks quiet while something may be ' +
-        'wrong. Check CloudWatch alarms directly until this is fixed.',
+      copy: ALERT_COPY.AlertDeliveryFailingAlarm,
       metric: new cloudwatch.Metric({
         namespace: 'AWS/SNS',
         metricName: 'NumberOfNotificationsFailed',
@@ -575,41 +571,23 @@ export class MonitoringStack extends Construct {
    */
   private alarm(
     id: string,
-    opts: {
-      name: string;
-      description: string;
-      severity: Severity;
-      metric: cloudwatch.IMetric;
-      threshold: number;
-      evaluationPeriods: number;
-      comparisonOperator?: cloudwatch.ComparisonOperator;
-      /** Defaults to evaluationPeriods (all of them must breach). */
-      datapointsToAlarm?: number;
+    opts: AlarmThreshold & {
+      /** The words: name, severity and the whole Slack message. See alert-copy.ts. */
+      copy: AlertCopy;
       treatMissingData?: cloudwatch.TreatMissingData;
       /** Defaults to alarmTopic (via the formatter). Only the formatter's own
        *  alarm overrides this, to bypass the component it is reporting on. */
       topic?: sns.Topic;
-      /**
-       * This alarm counts discrete failures, so its OK means "none lately",
-       * not "fixed". Set it and the formatter words the recovery as "no
-       * further failures in the last N minutes" instead of "back to normal".
-       *
-       * An SMS delivery alarm clears 15 minutes after the last dropped code
-       * whether or not anything changed, and "Back to normal" under it read
-       * as a claim that codes were arriving again. Opt-in rather than
-       * inferred: a heartbeat or a level alarm clearing IS a recovery.
-       */
-      countsFailures?: boolean;
     },
   ): cloudwatch.Alarm {
     const alarm = new cloudwatch.Alarm(this, id, {
-      // Named for a human reading Slack at 2am, not for the metric.
-      alarmName: `${getResourceName('a-iep')} ${opts.name}`,
-      // The markers the formatter reads and strips; see Severity. The
-      // description is the only field CloudWatch carries into the alarm
-      // payload that we control, which is why the flag travels there too.
-      alarmDescription:
-        `[${opts.severity}]${opts.countsFailures ? '[failures]' : ''} ${opts.description}`,
+      // Unchanged from before alert-copy.ts existed: renaming an alarm makes
+      // CloudFormation replace it. See the header of alert-copy.ts.
+      alarmName: `${getResourceName('a-iep')} ${opts.copy.alarmName}`,
+      // The description is the only field CloudWatch carries into the alarm
+      // payload that we control, so everything the formatter shows travels in
+      // it: environment, severity, symptom, impact, next steps and runbook.
+      alarmDescription: renderAlarmDescriptionFor(this.env, opts.copy, opts),
       metric: opts.metric,
       threshold: opts.threshold,
       evaluationPeriods: opts.evaluationPeriods,
@@ -689,12 +667,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('DdbServiceErrorAlarm', {
-      severity: 'medium',
-      name: 'the pipeline cannot write to its database',
-      description:
-        'Document progress, failures or cleanup are not being recorded. A ' +
-        'parent may see a progress bar that never moves, or an upload that ' +
-        'never reports what went wrong.',
+      copy: ALERT_COPY.DdbServiceErrorAlarm,
       metric: new cloudwatch.Metric({
         namespace: metricNamespace,
         metricName: 'DdbServiceErrors',
@@ -726,12 +699,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('UnredactedArtifactsRetainedAlarm', {
-      severity: 'critical',
-      name: 'a failed document kept its unredacted copy',
-      description:
-        'A document failed and the original upload or raw OCR could not be ' +
-        'deleted, so unredacted student information is still stored. It ' +
-        'needs removing by hand.',
+      copy: ALERT_COPY.UnredactedArtifactsRetainedAlarm,
       metric: new cloudwatch.Metric({
         namespace: metricNamespace,
         metricName: 'UnredactedArtifactsRetained',
@@ -761,12 +729,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('OcrPurgeFailedAlarm', {
-      severity: 'critical',
-      name: 'a document kept text we said we would delete',
-      description:
-        'The extracted text of an IEP should have been deleted once the ' +
-        'summary existed, and was not. The document is fine for the family; ' +
-        'the leftover text needs removing by hand.',
+      copy: ALERT_COPY.OcrPurgeFailedAlarm,
       metric: new cloudwatch.Metric({
         namespace: metricNamespace,
         metricName: 'OcrPurgeFailed',
@@ -779,12 +742,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('DocumentsFailingAlarm', {
-      severity: 'medium',
-      name: 'a document failed to process',
-      description:
-        'A document failed to process, so a parent got an error instead of a ' +
-        'summary. Often one unreadable or unsupported file; a burst in 15 ' +
-        'minutes usually means Mistral OCR, OpenAI or Comprehend is down.',
+      copy: ALERT_COPY.DocumentsFailingAlarm,
       metric: new cloudwatch.Metric({
         namespace: metricNamespace,
         metricName,
@@ -794,8 +752,8 @@ export class MonitoringStack extends Construct {
       threshold: DOCUMENT_FAILURE_ALARM_THRESHOLD,
       evaluationPeriods: 1,
       // One failed document clears 15 minutes later on its own; that parent
-      // still has no summary.
-      countsFailures: true,
+      // still has no summary. alert-copy.ts marks this alarm countsFailures,
+      // so its Slack follow-up says "no new failures", not "resolved".
     });
   }
 
@@ -826,12 +784,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('TranslationSkippedAlarm', {
-      severity: 'medium',
-      name: 'a family got English only: a requested translation was left out',
-      description:
-        'A translation kept losing the child\'s name placeholder, so it was ' +
-        'not saved. The family has the English summary and is offered ' +
-        '"Translate it now"; if they do not use it, they never get their language.',
+      copy: ALERT_COPY.TranslationSkippedAlarm,
       metric: new cloudwatch.Metric({
         namespace: metricNamespace,
         metricName: 'TranslationSkipped',
@@ -852,11 +805,7 @@ export class MonitoringStack extends Construct {
   private addPipelineStepAlarms(fns: MonitoredFunction[]): void {
     for (const { label, fn } of fns) {
       this.alarm(`PipelineStepErrors${label.replace(/[^A-Za-z0-9]/g, '')}`, {
-        severity: 'medium',
-        name: `pipeline step failing: ${label}`,
-        description:
-          `Documents are failing at the ${label} step, so every upload ` +
-          'reaching this stage is affected.',
+        copy: COMPONENT_COPY.pipelineStep(label),
         metric: fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
         threshold: PIPELINE_STEP_ERROR_THRESHOLD,
         evaluationPeriods: 1,
@@ -877,10 +826,7 @@ export class MonitoringStack extends Construct {
   private addAuthAlarms(fns: MonitoredFunction[]): void {
     for (const { label, fn } of fns) {
       this.alarm(`AuthTriggerErrors${label.replace(/[^A-Za-z0-9]/g, '')}`, {
-        severity: 'critical',
-        name: `login broken: ${label} trigger failing`,
-        description:
-          `Families cannot log in or sign up: the ${label} trigger is failing.`,
+        copy: COMPONENT_COPY.authTriggerErrors(label),
         metric: fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
         threshold: 1,
         evaluationPeriods: 1,
@@ -907,12 +853,7 @@ export class MonitoringStack extends Construct {
   private addAuthDurationAlarms(fns: MonitoredFunction[]): void {
     for (const { label, fn } of fns) {
       this.alarm(`AuthTriggerDuration${label.replace(/[^A-Za-z0-9]/g, '')}`, {
-        severity: 'critical',
-        name: `login slow: ${label} trigger nearing Cognito's 5-second limit`,
-        description:
-          `The ${label} trigger is running long enough that Cognito may ` +
-          'already be abandoning the call and failing the sign-in, even ' +
-          'though the Lambda itself reports success.',
+        copy: COMPONENT_COPY.authTriggerDuration(label, AUTH_TRIGGER_DURATION_ALARM_THRESHOLD_MS),
         metric: fn.metricDuration({ period: cdk.Duration.minutes(5), statistic: 'Maximum' }),
         threshold: AUTH_TRIGGER_DURATION_ALARM_THRESHOLD_MS,
         evaluationPeriods: 1,
@@ -922,10 +863,7 @@ export class MonitoringStack extends Construct {
 
   private addApiAlarms(fns: MonitoredFunction[], httpApi: apigwv2.IHttpApi): void {
     this.alarm('ApiServerErrorAlarm', {
-      severity: 'critical',
-      name: 'API returning 5xx',
-      description:
-        'Parents cannot load summaries, save a profile or start an upload.',
+      copy: ALERT_COPY.ApiServerErrorAlarm,
       metric: new cloudwatch.Metric({
         namespace: 'AWS/ApiGateway',
         metricName: '5xx',
@@ -939,19 +877,13 @@ export class MonitoringStack extends Construct {
 
     for (const { label, fn } of fns) {
       this.alarm(`ApiFunctionErrors${label.replace(/[^A-Za-z0-9]/g, '')}`, {
-        severity: 'medium',
-        name: `API handler failing: ${label}`,
-        description:
-          `The ${label} part of the app is broken for everyone using it now.`,
+        copy: COMPONENT_COPY.apiErrors(label),
         metric: fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
         threshold: 5,
         evaluationPeriods: 1,
       });
       this.alarm(`ApiFunctionThrottles${label.replace(/[^A-Za-z0-9]/g, '')}`, {
-        severity: 'medium',
-        name: `API handler throttled: ${label}`,
-        description:
-          `The ${label} handler is throttled: failing on capacity, not bugs.`,
+        copy: COMPONENT_COPY.apiThrottles(label),
         metric: fn.metricThrottles({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
         threshold: 1,
         evaluationPeriods: 1,
@@ -976,11 +908,7 @@ export class MonitoringStack extends Construct {
 
     for (const { label, fn } of fns) {
       this.alarm(`AuthEndpointErrors${id(label)}`, {
-        severity: 'critical',
-        name: `sign-in broken: ${label}`,
-        description:
-          `The ${label} step of signing in is failing. Parents cannot get into `
-          + 'the app, and the ones already in will be locked out within an hour.',
+        copy: COMPONENT_COPY.authEndpointErrors(label),
         metric: fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
         threshold: 1,
         evaluationPeriods: 1,
@@ -991,11 +919,7 @@ export class MonitoringStack extends Construct {
       // either a flood or a wedged function, and either way a real parent is
       // getting a 429 before any of our code runs.
       this.alarm(`AuthEndpointThrottles${id(label)}`, {
-        severity: 'critical',
-        name: `sign-in throttled: ${label}`,
-        description:
-          `The ${label} step hit its concurrency cap, so sign-ins are being `
-          + 'refused before any of our code runs. Failing on capacity, not a bug.',
+        copy: COMPONENT_COPY.authEndpointThrottles(label),
         metric: fn.metricThrottles({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
         threshold: 1,
         evaluationPeriods: 1,
@@ -1037,12 +961,7 @@ export class MonitoringStack extends Construct {
     }
 
     this.alarm('AuthStartRefusedAlarm', {
-      severity: 'medium',
-      name: 'sign-ins are being refused in bulk',
-      description:
-        'Sign-in attempts are being turned away by the limits or the bot check. '
-        + 'Either an abuse run is under way and the limits are holding, or the '
-        + 'limits are too tight and real parents cannot get in.',
+      copy: ALERT_COPY.AuthStartRefusedAlarm,
       metric: markerMetric('AuthStartRefusedFilter', start.fn.logGroup, 'AUTH_START_REFUSED', 'AuthStartRefused'),
       // Above the per-source floor of ten an hour, so one parent having a bad
       // day never reaches Slack.
@@ -1054,11 +973,7 @@ export class MonitoringStack extends Construct {
     // everything and records it on the challenge row, so a total SMS or email
     // outage looks like a perfectly healthy function.
     this.alarm('AuthCodeNotSentAlarm', {
-      severity: 'critical',
-      name: 'login codes are not being sent',
-      description:
-        'Parents are asking for a login code and it is not going out. They see '
-        + 'a code screen with nothing arriving, and cannot get into the app.',
+      copy: ALERT_COPY.AuthCodeNotSentAlarm,
       metric: markerMetric('AuthDispatchFailedFilter', dispatch.fn.logGroup, 'AUTH_DISPATCH_FAILED', 'AuthDispatchFailed'),
       threshold: 3,
       evaluationPeriods: 1,
@@ -1068,12 +983,7 @@ export class MonitoringStack extends Construct {
     // problem degrades it silently and everything stays green. This is the
     // only thing that says the control is switched off.
     this.alarm('AuthVerifyCounterDegradedAlarm', {
-      severity: 'medium',
-      name: 'the wrong-code limit is not being enforced',
-      description:
-        'The counter that stops repeated wrong codes cannot be read, so it is '
-        + 'letting attempts through. Sign-in still works for parents; the brute '
-        + 'force limit is down to Cognito\'s three tries per code.',
+      copy: ALERT_COPY.AuthVerifyCounterDegradedAlarm,
       metric: markerMetric('AuthVerifyCounterFilter', verify.fn.logGroup, 'AUTH_VERIFY_COUNTER_UNAVAILABLE', 'AuthVerifyCounterUnavailable'),
       threshold: 5,
       evaluationPeriods: 1,
@@ -1101,11 +1011,7 @@ export class MonitoringStack extends Construct {
    */
   private addStateMachineAlarms(sm: stepfunctions.StateMachine): void {
     this.alarm('PipelineTimedOutAlarm', {
-      severity: 'medium',
-      name: 'document stuck: pipeline execution timed out',
-      description:
-        'A document stuck for six hours was never marked failed, so the parent ' +
-        'is still on the processing screen. Fail the row closed by hand.',
+      copy: ALERT_COPY.PipelineTimedOutAlarm,
       metric: sm.metricTimedOut({ period: cdk.Duration.minutes(15), statistic: 'Sum' }),
       threshold: 1,
       evaluationPeriods: 1,
@@ -1122,11 +1028,7 @@ export class MonitoringStack extends Construct {
    */
   private addSweepHeartbeatAlarm(rule: events.Rule): void {
     this.alarm('SweepHeartbeatAlarm', {
-      severity: 'medium',
-      name: 'pending-upload sweep has stopped running',
-      description:
-        'Stalled uploads are no longer failed closed, so parents sit on the ' +
-        'processing screen indefinitely. The 10-minute sweep has stopped.',
+      copy: ALERT_COPY.SweepHeartbeatAlarm,
       metric: new cloudwatch.Metric({
         namespace: 'AWS/Events',
         metricName: 'Invocations',
@@ -1141,11 +1043,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('SweepFailingAlarm', {
-      severity: 'medium',
-      name: 'pending-upload sweep failing to invoke',
-      description:
-        'EventBridge cannot invoke the pending-upload sweep, so stalled ' +
-        'uploads are never failed closed.',
+      copy: ALERT_COPY.SweepFailingAlarm,
       metric: new cloudwatch.Metric({
         namespace: 'AWS/Events',
         metricName: 'FailedInvocations',
@@ -1209,12 +1107,7 @@ export class MonitoringStack extends Construct {
     };
 
     this.alarm('SmsDestinationRefusedAlarm', {
-      severity: 'medium',
-      name: 'login codes being requested for numbers we do not serve',
-      description:
-        'Someone is asking for login codes for numbers outside the countries ' +
-        'this service texts. The codes are being refused, so no money is ' +
-        'being spent, but this is what an abuse run looks like starting.',
+      copy: ALERT_COPY.SmsDestinationRefusedAlarm,
       metric: markerMetric('SmsRefusedDestinationFilter', 'SMS_REFUSED_DESTINATION', 'SmsRefusedDestination'),
       // A real parent mistyping a country code is possible but rare, and one
       // refusal should not page. A run produces these in bulk.
@@ -1223,12 +1116,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('SmsBudgetExhaustedAlarm', {
-      severity: 'critical',
-      name: 'login codes are being refused: the sending limit is reached',
-      description:
-        'The service-wide limit on login codes has been hit, so parents are ' +
-        'being turned away at sign-in. Either an abuse run is under way or ' +
-        'real demand has outgrown the limit.',
+      copy: ALERT_COPY.SmsBudgetExhaustedAlarm,
       metric: markerMetric('SmsBudgetExhaustedFilter', 'SMS_BUDGET_EXHAUSTED', 'SmsBudgetExhausted'),
       // Any occurrence matters: this one only fires when a parent was refused.
       threshold: 1,
@@ -1236,16 +1124,10 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('SmsSendFailedAlarm', {
-      severity: 'critical',
-      name: 'login codes are not being delivered',
-      description:
-        'Sending a login code is failing outright, so no parent can sign in. ' +
-        'This is the alarm the trigger error alarms cannot raise, because a ' +
-        'failed send is reported to the app rather than thrown.',
+      copy: ALERT_COPY.SmsSendFailedAlarm,
       metric: markerMetric('SmsSendFailedFilter', 'SMS_SEND_FAILED', 'SmsSendFailed'),
       threshold: 1,
       evaluationPeriods: 1,
-      countsFailures: true,
     });
 
     // The provider-side failure alarm lives in addSmsDeliveryFailureAlarm,
@@ -1343,12 +1225,7 @@ export class MonitoringStack extends Construct {
     }
 
     this.alarm('SmsNotificationsFailedAlarm', {
-      severity: 'critical',
-      name: 'the SMS provider is rejecting login codes',
-      description:
-        'SNS is failing to send login codes, so parents are told a code is ' +
-        'coming and none arrives. Usually the monthly SMS spend cap, which ' +
-        'stops delivery for everyone until it is raised.',
+      copy: ALERT_COPY.SmsNotificationsFailedAlarm,
       metric: new cloudwatch.Metric({
         namespace: 'AWS/SNS',
         metricName: 'NumberOfNotificationsFailed',
@@ -1359,7 +1236,6 @@ export class MonitoringStack extends Construct {
       }),
       threshold: 1,
       evaluationPeriods: 1,
-      countsFailures: true,
     });
 
     new logs.MetricFilter(this, 'SmsQuotaExhaustedFilter', {
@@ -1376,12 +1252,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('SmsQuotaExhaustedAlarm', {
-      severity: 'critical',
-      name: 'the monthly SMS cap is reached and login codes are being binned',
-      description:
-        'The account hit its monthly SMS spend cap, so SNS has stopped ' +
-        'delivering. No parent in EITHER environment can get a login code ' +
-        'until the limit is raised. Check for signup abuse before raising it.',
+      copy: ALERT_COPY.SmsQuotaExhaustedAlarm,
       metric: new cloudwatch.Metric({
         namespace: getMetricNamespace('Auth'),
         metricName: 'SmsQuotaExhausted',
@@ -1393,8 +1264,8 @@ export class MonitoringStack extends Construct {
       threshold: 1,
       evaluationPeriods: 1,
       // Quiet for 15 minutes can just mean nobody tried to sign in. The cap
-      // is only lifted by raising the limit or by the month rolling over.
-      countsFailures: true,
+      // is only lifted by raising the limit or by the month rolling over, so
+      // alert-copy.ts marks this alarm countsFailures.
     });
 
     this.addSmsSpendAlarms();
@@ -1483,13 +1354,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('SmsDeliveryFailedAlarm', {
-      severity: 'medium',
-      name: 'login codes are being accepted and then not delivered',
-      description:
-        'The provider took login codes and dropped them, so those parents ' +
-        'got none. A trickle is normal (landlines, dead handsets, abuse ' +
-        'signups); this is more. Counts this environment only, and excludes ' +
-        'the cap, which pages separately.',
+      copy: ALERT_COPY.SmsDeliveryFailedAlarm,
       metric: new cloudwatch.Metric({
         namespace: getMetricNamespace('Auth'),
         metricName: 'SmsDeliveryFailed',
@@ -1506,19 +1371,13 @@ export class MonitoringStack extends Construct {
       // environments, so per environment it is, if anything, generous.
       threshold: 4,
       evaluationPeriods: 1,
-      countsFailures: true,
     });
 
     // It catches lookup failures and counts the record anyway (see the
     // handler), so Errors here means it could not publish the count at all:
     // undelivered codes are going uncounted and the alarm above is blind.
     this.alarm('SmsFailureClassifierFailingAlarm', {
-      severity: 'medium',
-      name: 'undelivered login codes are not being counted',
-      description:
-        'The check that counts undelivered login codes is failing, so the ' +
-        'alarm for codes that never arrive cannot fire. Nothing is broken ' +
-        'for families by this alone.',
+      copy: ALERT_COPY.SmsFailureClassifierFailingAlarm,
       metric: classifier.metricErrors({ period: cdk.Duration.minutes(15), statistic: 'Sum' }),
       threshold: 1,
       evaluationPeriods: 1,
@@ -1555,12 +1414,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('SmsSpendVelocityAlarm', {
-      severity: 'critical',
-      name: 'SMS spend is climbing fast: an abuse run may be under way',
-      description:
-        `SMS spend is rising faster than $${SMS_SPEND_VELOCITY_ALARM_USD_PER_HOUR} an hour, ` +
-        'far above what real login codes cost. If it continues the monthly ' +
-        'cap is hit and no parent can get a code. Check for signup abuse.',
+      copy: ALERT_COPY.SmsSpendVelocityAlarm,
       metric: new cloudwatch.MathExpression({
         // RATE is the change between consecutive datapoints divided by the
         // seconds between them, so a gap in the series stretches the divisor
@@ -1586,12 +1440,7 @@ export class MonitoringStack extends Construct {
 
     const nearCapUsd = SMS_MONTHLY_LIMIT_USD * SMS_NEAR_CAP_FRACTION;
     this.alarm('SmsSpendNearCapAlarm', {
-      severity: 'medium',
-      name: `SMS spend is past ${Math.round(SMS_NEAR_CAP_FRACTION * 100)}% of the monthly cap`,
-      description:
-        `Monthly SMS spend has passed $${nearCapUsd} of the $${SMS_MONTHLY_LIMIT_USD} cap. At ` +
-        'the cap SNS stops sending and NO parent can get a login code until ' +
-        'the month rolls over. Check for abuse, then raise the limit.',
+      copy: smsSpendNearCap(Math.round(SMS_NEAR_CAP_FRACTION * 100)),
       metric: spend(cdk.Duration.minutes(15)),
       threshold: nearCapUsd,
       evaluationPeriods: 1,
@@ -1644,12 +1493,7 @@ export class MonitoringStack extends Construct {
     }
 
     this.alarm('DeletionIncompleteAlarm', {
-      severity: 'critical',
-      name: 'a parent asked us to delete their records and we did not',
-      description:
-        'A delete request only partly completed, so a child\'s documents or ' +
-        'profile still exist after a parent asked for them to be removed. ' +
-        'They need removing by hand.',
+      copy: ALERT_COPY.DeletionIncompleteAlarm,
       metric: new cloudwatch.Metric({
         namespace: metricNamespace,
         metricName: 'DeletionIncompleteEssential',
@@ -1682,22 +1526,14 @@ export class MonitoringStack extends Construct {
     const metricNamespace = getMetricNamespace('Auth');
 
     this.alarm('SignupEndpointErrorsAlarm', {
-      severity: 'critical',
-      name: 'signup broken: nobody can create an account',
-      description:
-        'The signup endpoint is failing. Cognito\'s own signup is closed, so ' +
-        'this is the only way to join: no new family can create an account.',
+      copy: ALERT_COPY.SignupEndpointErrorsAlarm,
       metric: signup.fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
       threshold: 1,
       evaluationPeriods: 1,
     });
 
     this.alarm('SignupEndpointThrottledAlarm', {
-      severity: 'critical',
-      name: 'signup throttled: nobody can create an account',
-      description:
-        'The signup endpoint is being throttled, so new families are turned ' +
-        'away. Failing on capacity, not on a bug.',
+      copy: ALERT_COPY.SignupEndpointThrottledAlarm,
       metric: signup.fn.metricThrottles({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
       threshold: 1,
       evaluationPeriods: 1,
@@ -1723,12 +1559,7 @@ export class MonitoringStack extends Construct {
     };
 
     this.alarm('SignupRefusedAlarm', {
-      severity: 'medium',
-      name: 'sign-ups are being refused in bulk',
-      description:
-        'Sign-ups are being turned away by the rate limits or the bot check. ' +
-        'Either an abuse run is under way and the limits are holding, or the ' +
-        'limits are too tight and real families cannot join.',
+      copy: ALERT_COPY.SignupRefusedAlarm,
       metric: markerMetric('SignupRefusedFilter', 'SIGNUP_REFUSED', 'SignupRefused'),
       // Deliberately above the per-source floor of 3/hour, so one family
       // mistyping their number twice never reaches Slack.
@@ -1737,11 +1568,7 @@ export class MonitoringStack extends Construct {
     });
 
     this.alarm('SignupFailedAlarm', {
-      severity: 'critical',
-      name: 'signup broken: accounts are not being created',
-      description:
-        'Sign-ups are reaching Cognito and failing there. Families are ' +
-        'filling in the form and being told it did not work.',
+      copy: ALERT_COPY.SignupFailedAlarm,
       metric: markerMetric('SignupFailedFilter', 'SIGNUP_FAILED', 'SignupFailed'),
       threshold: 3,
       evaluationPeriods: 1,
@@ -1751,12 +1578,7 @@ export class MonitoringStack extends Construct {
     // its password rotated is an account whoever created it can sign into,
     // which is the exact hole the PostConfirmation trigger used to close.
     this.alarm('SignupPasswordNotRotatedAlarm', {
-      severity: 'critical',
-      name: 'new accounts may be reachable by whoever created them',
-      description:
-        'An account was created but could not be secured afterwards, and ' +
-        'removing it also failed. Until this is cleared, treat accounts ' +
-        'created now as untrusted.',
+      copy: ALERT_COPY.SignupPasswordNotRotatedAlarm,
       metric: markerMetric('SignupOrphanedFilter', 'SIGNUP_ORPHANED', 'SignupOrphaned'),
       threshold: 1,
       evaluationPeriods: 1,
@@ -1768,12 +1590,7 @@ export class MonitoringStack extends Construct {
     // between "the bot check is protecting signup" and "the bot check is off"
     // is invisible from anywhere.
     this.alarm('TurnstileNotConfiguredAlarm', {
-      severity: 'medium',
-      name: 'the signup bot check is switched off',
-      description:
-        'Sign-ups are being accepted without the bot check, because its ' +
-        'secret is missing. The rate limits still apply; the defence that ' +
-        'stops a script does not.',
+      copy: ALERT_COPY.TurnstileNotConfiguredAlarm,
       metric: markerMetric(
         'TurnstileNotConfiguredFilter', 'TURNSTILE_NOT_CONFIGURED', 'TurnstileNotConfigured'),
       threshold: 1,
@@ -1791,11 +1608,7 @@ export class MonitoringStack extends Construct {
    */
   private addTranslationAndUsageAlarms(translationStateMachine: stepfunctions.StateMachine): void {
     this.alarm('TranslationRunsFailingAlarm', {
-      severity: 'medium',
-      name: 'on-demand translations are failing',
-      description:
-        'A parent asked for a translation and it errored. They are left on ' +
-        'the page waiting for something that will not arrive.',
+      copy: ALERT_COPY.TranslationRunsFailingAlarm,
       metric: translationStateMachine.metricFailed({
         period: cdk.Duration.minutes(15),
         statistic: 'Sum',
@@ -1811,12 +1624,7 @@ export class MonitoringStack extends Construct {
     // noticed. Harmless, but it is the shape a runaway loop makes, and it
     // cost more to find than it did to run.
     this.alarm('KmsCallVolumeAlarm', {
-      severity: 'low',
-      name: 'unusual AWS API volume',
-      description:
-        'Something is calling AWS far more than this service normally does. ' +
-        'Nothing is broken for families; this is usually a script or an ' +
-        'agent left running.',
+      copy: ALERT_COPY.KmsCallVolumeAlarm,
       metric: new cloudwatch.Metric({
         namespace: 'AWS/Usage',
         metricName: 'CallCount',
@@ -1853,12 +1661,7 @@ export class MonitoringStack extends Construct {
     const preSignUp = authTriggers.find((f) => f.label.startsWith('PreSignUp'));
     if (preSignUp) {
       this.alarm('SignupSurgeAlarm', {
-        severity: 'critical',
-        name: 'signup flood: someone is abusing the signup form',
-        description:
-          'Far more accounts are being created than this service ever sees. ' +
-          'Each one sends an SMS, so this burns the monthly SMS budget and ' +
-          'ends with families unable to receive login codes.',
+        copy: ALERT_COPY.SignupSurgeAlarm,
         metric: preSignUp.fn.metricInvocations({
           period: cdk.Duration.minutes(5),
           statistic: 'Sum',
@@ -1877,11 +1680,7 @@ export class MonitoringStack extends Construct {
   ): void {
     for (const { label, table } of tables) {
       this.alarm(`TableThrottle${label.replace(/[^A-Za-z0-9]/g, '')}`, {
-        severity: 'critical',
-        name: `DynamoDB throttling: ${label}`,
-        description:
-          `The ${label} table is throttling: parents see random intermittent ` +
-          'errors rather than a clean outage.',
+        copy: COMPONENT_COPY.tableThrottle(label),
         metric: new cloudwatch.MathExpression({
           expression: 'read + write',
           usingMetrics: {
