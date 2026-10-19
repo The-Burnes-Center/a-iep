@@ -396,7 +396,7 @@ export const ALERT_COPY = {
     symptom: 'A deletion request was only partly carried out',
     impact: 'Administrators must act: a parent asked for a child\'s documents or profile to be removed, and some of it still exists.',
     check: [
-      'Open the logs for the document delete and user profile functions and search for DELETION_INCOMPLETE to find the user and step.',
+      'Open the user profile function logs and search for DELETION_INCOMPLETE to find the user and step.',
       'Remove what is left by hand and confirm it is gone before telling the parent (see the runbook).',
     ],
     runbook: 'privacy',

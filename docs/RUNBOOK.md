@@ -248,8 +248,8 @@ child's records exist that should not, and an administrator has to remove them.
    to a dry run: read the output, then re-run with `--apply`, then run the audit
    again to confirm it is gone.
 3. For a deletion request that only partly completed, find the user and step from
-   the `DELETION_INCOMPLETE` marker in the document delete or user profile
-   function logs. Remove what is left by hand and confirm before telling the
+   the `DELETION_INCOMPLETE` marker in the user profile function
+   logs. Remove what is left by hand and confirm before telling the
    parent their records are gone.
 
 Never paste a document, a summary or a name into Slack or a ticket while doing this.

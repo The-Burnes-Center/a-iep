@@ -505,17 +505,20 @@ describe('a deletion that only partly happened', () => {
   // steps failed, so a parent could be told their child's records were gone
   // while they were still there. The marker is the only signal.
   //
-  // Pinned on the lambda side in test/python/test_user_profile_api.py and
-  // test/python/test_knowledge_delete_s3.py.
+  // Pinned on the lambda side in test/python/test_user_profile_api.py. The
+  // document-delete lambda that used to be the second emitter is gone, so
+  // the watched log groups are now the profile handler and the DDB service.
   test('DELETION_INCOMPLETE is counted, but only when it is essential', () => {
     const filters = Object.values(synth('production').findResources('AWS::Logs::MetricFilter'))
       .map((r: any) => r.Properties)
       .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'));
 
-    // One per watched handler: the account/profile path, the document path,
-    // and the DDB service, which deletes the child's previous IEP once a
-    // re-upload has finished (scope=replaced-document).
-    expect(filters.length).toBeGreaterThanOrEqual(3);
+    // One per watched handler: the account/profile path, and the DDB service,
+    // which deletes the child's previous IEP once a re-upload has finished
+    // (scope=replaced-document). The floor was 3 while the unrouted
+    // document-delete lambda still had its own filter; it was removed with the
+    // lambda, so 2 is the real number and the guard against a vanished filter.
+    expect(filters.length).toBeGreaterThanOrEqual(2);
     for (const filter of filters) {
       // Both terms, load-bearing: matching the marker alone would page for an
       // orphaned audio file.

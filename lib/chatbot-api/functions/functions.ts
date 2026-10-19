@@ -90,8 +90,6 @@ export interface LambdaFunctionStackProps {
 }
 
 export class LambdaFunctionStack extends cdk.Stack {  
-  public readonly deleteS3Function : lambda.Function;
-  public readonly getS3KnowledgeFunction : lambda.Function;
   public readonly uploadS3KnowledgeFunction : lambda.Function;
   public readonly userProfileFunction : lambda.Function;
   public readonly cognitoTriggerFunction : lambda.Function;
@@ -141,87 +139,6 @@ export class LambdaFunctionStack extends cdk.Stack {
       return func;
     };
     
-    const deleteS3APIHandlerFunction = new lambda.Function(scope, 'DeleteS3FilesHandlerFunction', {
-      runtime: lambda.Runtime.PYTHON_3_12, // Choose any supported Node.js runtime
-      code: lambda.Code.fromAsset(path.join(__dirname, 'knowledge-management/delete-s3'), {
-        exclude: PYTHON_ASSET_EXCLUDES,
-      }), // Points to the lambda directory
-      handler: 'lambda_function.lambda_handler', // Points to the 'hello' file in the lambda directory
-      environment: {
-        "BUCKET" : props.knowledgeBucket.bucketName,
-        // Deleting a document is not deleting one object: the row is the only
-        // pointer to the summary, the redacted OCR text and the cached audio,
-        // and it also proves the caller owns the iepId named in the key.
-        "IEP_DOCUMENTS_TABLE": props.iepDocumentsTable.tableName,
-      },
-      timeout: cdk.Duration.seconds(30),
-      logRetention: logs.RetentionDays.ONE_YEAR,
-      ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
-    });
-
-    // Scope to only the operation the handler actually needs.
-    deleteS3APIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        's3:DeleteObject'
-      ],
-      resources: [props.knowledgeBucket.bucketArn + "/*"]
-    }));
-
-    // The derived-artifact sweep lists iep-data/ and iep-audio/ before
-    // deleting; ListBucket is bucket-level, hence the separate statement.
-    deleteS3APIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        's3:ListBucket'
-      ],
-      resources: [props.knowledgeBucket.bucketArn]
-    }));
-
-    grantPermanentDelete(deleteS3APIHandlerFunction, props.knowledgeBucket);
-
-    // GetItem to read contentS3Reference and check ownership, DeleteItem to
-    // drop the row once its artifacts are gone. No index: the key carries the
-    // full primary key (iepId + childId).
-    deleteS3APIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'dynamodb:GetItem',
-        'dynamodb:DeleteItem'
-      ],
-      resources: [props.iepDocumentsTable.tableArn]
-    }));
-
-    this.deleteS3Function = deleteS3APIHandlerFunction;
-
-    const getS3APIHandlerFunction = new lambda.Function(scope, 'GetS3FilesHandlerFunction', {
-      runtime: lambda.Runtime.NODEJS_22_X, // Choose any supported Node.js runtime
-      code: lambda.Code.fromAsset(path.join(__dirname, 'knowledge-management/get-s3')), // Points to the lambda directory
-      handler: 'index.handler', // Points to the 'hello' file in the lambda directory
-      environment: {
-        "BUCKET" : props.knowledgeBucket.bucketName,        
-      },
-      timeout: cdk.Duration.seconds(30),
-      logRetention: logs.RetentionDays.ONE_YEAR,
-      ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
-    });
-
-    // Least privilege: this handler only lists a caller's own prefix
-    // (ListObjectsV2 -> s3:ListBucket, a bucket-level action, so no object
-    // ARN). It never reads, writes or deletes object contents, and the
-    // bucket holds every family's IEP documents, so a wildcard here would
-    // hand full read/write over all of them to anything that compromises
-    // this function. Pinned by the infra suite.
-    getS3APIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        's3:ListBucket'
-      ],
-      resources: [props.knowledgeBucket.bucketArn]
-    }));
-
-    this.getS3KnowledgeFunction = getS3APIHandlerFunction;
-
     const uploadS3KnowledgeAPIHandlerFunction = createTaggedLambda('UploadS3KnowledgeFilesHandlerFunction', {
       runtime: lambda.Runtime.NODEJS_22_X,
       code: lambda.Code.fromAsset(path.join(__dirname, 'knowledge-management/upload-s3')),
@@ -1167,8 +1084,6 @@ export class LambdaFunctionStack extends cdk.Stack {
         resources: [props.kmsKey.keyArn]
       });
 
-      deleteS3APIHandlerFunction.addToRolePolicy(kmsPolicy);
-      getS3APIHandlerFunction.addToRolePolicy(kmsPolicy);
       uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(kmsPolicy);
       // Legacy metadata handler removed
       userProfileHandlerFunction.addToRolePolicy(kmsPolicy);

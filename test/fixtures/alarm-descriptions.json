@@ -22,7 +22,7 @@
   },
   {
    "AlarmName": "a-iep-staging a parent asked us to delete their records and we did not",
-   "AlarmDescription": "[STAGING] [WARNING] A deletion request was only partly carried out\nImpact: Staging only. No real families are affected.\nFires when: at least 1 incomplete deletion in 15 minutes.\nCheck first:\n1. Open the logs for the document delete and user profile functions and search for DELETION_INCOMPLETE to find the user and step.\n2. Remove what is left by hand and confirm it is gone before telling the parent (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#student-records-were-not-removed\nRecovery: quiet"
+   "AlarmDescription": "[STAGING] [WARNING] A deletion request was only partly carried out\nImpact: Staging only. No real families are affected.\nFires when: at least 1 incomplete deletion in 15 minutes.\nCheck first:\n1. Open the user profile function logs and search for DELETION_INCOMPLETE to find the user and step.\n2. Remove what is left by hand and confirm it is gone before telling the parent (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#student-records-were-not-removed\nRecovery: quiet"
   },
   {
    "AlarmName": "a-iep-staging alerting itself is broken",
@@ -31,14 +31,6 @@
   {
    "AlarmName": "a-iep-staging alerts are not reaching the formatter",
    "AlarmDescription": "[STAGING] [WARNING] Alerts are not being delivered, so Slack may look quiet\nImpact: Staging only. No real families are affected.\nFires when: at least 1 failed delivery in 5 minutes.\nCheck first:\n1. Open the CloudWatch alarms page and look for any alarms in the ALARM state.\n2. Check that the alarm topic still has its subscription to the alert formatter function.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-alerting-itself-is-broken\nRecovery: Alerts are being delivered again"
-  },
-  {
-   "AlarmName": "a-iep-staging API handler failing: document delete",
-   "AlarmDescription": "[STAGING] [WARNING] Errors in document deletion\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
-  },
-  {
-   "AlarmName": "a-iep-staging API handler failing: documents list",
-   "AlarmDescription": "[STAGING] [WARNING] Errors in the document list\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
   },
   {
    "AlarmName": "a-iep-staging API handler failing: PDF download",
@@ -67,14 +59,6 @@
   {
    "AlarmName": "a-iep-staging API handler failing: user profile",
    "AlarmDescription": "[STAGING] [WARNING] Errors in the account screen\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
-  },
-  {
-   "AlarmName": "a-iep-staging API handler throttled: document delete",
-   "AlarmDescription": "[STAGING] [WARNING] Requests to document deletion are being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
-  },
-  {
-   "AlarmName": "a-iep-staging API handler throttled: documents list",
-   "AlarmDescription": "[STAGING] [WARNING] Requests to the document list are being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
   },
   {
    "AlarmName": "a-iep-staging API handler throttled: PDF download",
@@ -416,7 +400,7 @@
   },
   {
    "AlarmName": "a-iep a parent asked us to delete their records and we did not",
-   "AlarmDescription": "[PROD] [CRITICAL] A deletion request was only partly carried out\nImpact: Administrators must act: a parent asked for a child's documents or profile to be removed, and some of it still exists.\nFires when: at least 1 incomplete deletion in 15 minutes.\nCheck first:\n1. Open the logs for the document delete and user profile functions and search for DELETION_INCOMPLETE to find the user and step.\n2. Remove what is left by hand and confirm it is gone before telling the parent (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#student-records-were-not-removed\nRecovery: quiet"
+   "AlarmDescription": "[PROD] [CRITICAL] A deletion request was only partly carried out\nImpact: Administrators must act: a parent asked for a child's documents or profile to be removed, and some of it still exists.\nFires when: at least 1 incomplete deletion in 15 minutes.\nCheck first:\n1. Open the user profile function logs and search for DELETION_INCOMPLETE to find the user and step.\n2. Remove what is left by hand and confirm it is gone before telling the parent (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#student-records-were-not-removed\nRecovery: quiet"
   },
   {
    "AlarmName": "a-iep alerting itself is broken",
@@ -425,14 +409,6 @@
   {
    "AlarmName": "a-iep alerts are not reaching the formatter",
    "AlarmDescription": "[PROD] [CRITICAL] Alerts are not being delivered, so Slack may look quiet\nImpact: Administrators may miss real problems. Alarms fire in CloudWatch but never reach Slack.\nFires when: at least 1 failed delivery in 5 minutes.\nCheck first:\n1. Open the CloudWatch alarms page and look for any alarms in the ALARM state.\n2. Check that the alarm topic still has its subscription to the alert formatter function.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-alerting-itself-is-broken\nRecovery: Alerts are being delivered again"
-  },
-  {
-   "AlarmName": "a-iep API handler failing: document delete",
-   "AlarmDescription": "[PROD] [WARNING] Errors in document deletion\nImpact: Parents using document deletion get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
-  },
-  {
-   "AlarmName": "a-iep API handler failing: documents list",
-   "AlarmDescription": "[PROD] [WARNING] Errors in the document list\nImpact: Parents using the document list get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
   },
   {
    "AlarmName": "a-iep API handler failing: PDF download",
@@ -461,14 +437,6 @@
   {
    "AlarmName": "a-iep API handler failing: user profile",
    "AlarmDescription": "[PROD] [WARNING] Errors in the account screen\nImpact: Parents using the account screen get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
-  },
-  {
-   "AlarmName": "a-iep API handler throttled: document delete",
-   "AlarmDescription": "[PROD] [WARNING] Requests to document deletion are being throttled\nImpact: Parents using document deletion get errors because the function is at its capacity limit, not because of a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
-  },
-  {
-   "AlarmName": "a-iep API handler throttled: documents list",
-   "AlarmDescription": "[PROD] [WARNING] Requests to the document list are being throttled\nImpact: Parents using the document list get errors because the function is at its capacity limit, not because of a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
   },
   {
    "AlarmName": "a-iep API handler throttled: PDF download",

@@ -1469,14 +1469,13 @@ export class MonitoringStack extends Construct {
     ddbServiceFunction: lambda.Function,
   ): void {
     const metricNamespace = getMetricNamespace('Pipeline');
-    // The DDB service is the third emitter: after a re-upload finishes it
+    // The DDB service is the second emitter: after a re-upload finishes it
     // deletes the child's older documents (purge_replaced_documents) and logs
     // the same marker, scope=replaced-document, when any of that survived. The
     // new document is already complete by then, so the log line is the only
     // way anyone learns an old IEP is still in the bucket.
     const watched: Array<{ label: string; fn: lambda.Function }> = [
-      ...apiFunctions.filter((f) =>
-        f.label === 'user profile' || f.label === 'document delete'),
+      ...apiFunctions.filter((f) => f.label === 'user profile'),
       { label: 'replaced documents', fn: ddbServiceFunction },
     ];
 

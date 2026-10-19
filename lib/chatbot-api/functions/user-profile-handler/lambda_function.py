@@ -673,7 +673,7 @@ def update_user_profile(event: Dict) -> Dict:
         user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
         # A malformed (or missing) JSON body is the client's fault: catch it
         # here so it maps to 400 instead of falling through to the broad
-        # except below as a 500 (same treatment as the tts/delete-s3 handlers).
+        # except below as a 500 (same treatment as the tts handler).
         try:
             body = json.loads(event['body']) if event.get('body') else {}
         except (TypeError, ValueError):
@@ -1564,8 +1564,8 @@ def _report_deletion_incomplete(scope: str, survived: List[str],
 
     DELETION_INCOMPLETE is a stable marker, not prose: a metric filter alarms
     on it, and rewording this line would disarm that alarm. Same contract as
-    RECORD_FAILURE in the pipeline. knowledge-management/delete-s3 emits it
-    too, with scope=document.
+    RECORD_FAILURE in the pipeline. The DDB service emits it too, with
+    scope=replaced-document.
 
     `essential` says whether the parent was told the deletion failed, so one
     filter can page on real data survival and another can merely ticket a

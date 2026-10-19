@@ -41,8 +41,6 @@ const PLAIN_NAMES: Readonly<Record<string, string>> = {
   referrals: 'referrals',
   TTS: 'read-aloud audio',
   'PDF download': 'PDF download',
-  'documents list': 'the document list',
-  'document delete': 'document deletion',
   'translation request': 'translation requests',
   'pipeline database writes': 'pipeline progress saving',
   // DynamoDB tables.

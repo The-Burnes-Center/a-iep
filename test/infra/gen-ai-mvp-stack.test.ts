@@ -1031,6 +1031,12 @@ describe('Cognito custom-auth wiring', () => {
 
   // The route went first; the lambda behind it is deleted too, so nothing can
   // be pointed at it again by a stray integration or invoke permission.
+  test('the unrouted get-s3 and delete-s3 lambdas do not exist (staging)', () => {
+    const ids = Object.keys(template.findResources('AWS::Lambda::Function'));
+    expect(ids.length).toBeGreaterThanOrEqual(20);
+    expect(ids.filter((id) => /GetS3Files|DeleteS3Files/.test(id))).toEqual([]);
+  });
+
   test('no lambda with the signup-endpoint handler exists (staging)', () => {
     const handlers = Object.values(template.findResources('AWS::Lambda::Function'))
       .map((fn: any) => fn.Properties.Handler);
@@ -1527,8 +1533,10 @@ describe('S3 data protection', () => {
       return [...actions].sort();
     };
 
-    // get-s3 only lists a caller's own prefix.
-    expect(s3ActionsFor('GetS3FilesHandlerFunctionServiceRole')).toEqual(['s3:ListBucket']);
+    // The get-s3 and delete-s3 lambdas are deleted outright (their routes were
+    // already gone), so no role by those names may come back.
+    expect(s3ActionsFor('GetS3FilesHandlerFunctionServiceRole')).toEqual([]);
+    expect(s3ActionsFor('DeleteS3FilesHandlerFunctionServiceRole')).toEqual([]);
 
     // upload-s3 presigns a PUT and a GET and nothing else. It used to clear the
     // child's previous document (list + delete) when the upload URL was
@@ -1588,10 +1596,10 @@ describe('S3 data protection', () => {
     const deleters = [
       'DeleteOriginalFunction',          // the original, once redaction succeeds
       'DDBServiceFunction',              // RecordFailure's purge, and the previous IEP once a re-upload finishes
-      'DeleteS3FilesHandlerFunction',    // a parent deleting one document
       'UserProfileHandlerFunction',      // child and account deletion
     ];
-    // Not in the list, on purpose: UploadS3KnowledgeFilesHandler. It used to
+    // Not in the list, on purpose: DeleteS3FilesHandler (deleted with its
+    // unrouted /delete-s3-file route) and UploadS3KnowledgeFilesHandler. It used to
     // delete the previous document when the upload URL was requested; it now
     // holds neither action, and the sum below fails if it ever gets them back.
 
@@ -2078,7 +2086,7 @@ function describeLambdaRuntimes(envLabel: EnvLabel, getTemplate: () => Template)
       const owned = functions.filter(({ logicalId }) => !isInjected(logicalId));
       expect(owned.length).toBeGreaterThanOrEqual(20);
       expect(owned.filter(({ runtime }) => typeof runtime !== 'string')).toEqual([]);
-      expect(owned.filter(({ runtime }) => (runtime as string).startsWith('nodejs')).length).toBeGreaterThanOrEqual(14);
+      expect(owned.filter(({ runtime }) => (runtime as string).startsWith('nodejs')).length).toBeGreaterThanOrEqual(13);
 
       // Non-vacuity: the helpers are present, and any Node helper is on a
       // runtime at or above nodejs22.x.
@@ -2890,12 +2898,12 @@ describe('Python lambda assets exclude __pycache__', () => {
   test('every Python lambda asset is staged with the __pycache__ exclude', () => {
     const pythonSites = assetCallSites().filter((s) => isPythonAsset(s.dir));
 
-    // Vacuity floor: 8 literal-directory Python call sites today
+    // Vacuity floor: 7 literal-directory Python call sites today (8 before delete-s3 was removed)
     // (user-profile-handler is staged twice). A large shrink means the parser
     // broke and the loop below would pass by finding nothing. The step lambdas
     // are staged through a shared helper with a variable path, so they are not
     // literal sites and are pinned separately below.
-    expect(pythonSites.length).toBeGreaterThanOrEqual(8);
+    expect(pythonSites.length).toBeGreaterThanOrEqual(7);
 
     const offenders = pythonSites
       .filter((s) => !s.options.includes('exclude: PYTHON_ASSET_EXCLUDES'))
@@ -3128,6 +3136,32 @@ describe('production synth: the OTP test backdoor must not exist', () => {
       .map((fn: any) => fn.Properties.Handler);
     expect(handlers.length).toBeGreaterThanOrEqual(20);
     expect(handlers).not.toContain('signup-endpoint.handler');
+  });
+
+  // DeleteS3FilesHandler held s3:DeleteObjectVersion while its route was gone,
+  // which is exactly the shape of a permission nobody is watching. It and the
+  // unrouted get-s3 lambda are deleted; in production the only roles that may
+  // destroy object versions are the three that delete a family's documents.
+  test('only the document-deleting functions hold s3:DeleteObjectVersion (production)', () => {
+    const roles = new Set<string>();
+    for (const policy of Object.values(prodTemplate.findResources('AWS::IAM::Policy'))) {
+      const props = (policy as any).Properties ?? {};
+      const grants = (props.PolicyDocument?.Statement ?? []).some((statement: any) =>
+        statement.Effect === 'Allow' && [statement.Action ?? []].flat().includes('s3:DeleteObjectVersion'));
+      if (!grants) continue;
+      for (const role of props.Roles ?? []) roles.add(role.Ref ?? JSON.stringify(role));
+    }
+    const holders = [...roles];
+    for (const fn of ['DeleteOriginalFunction', 'DDBServiceFunction', 'UserProfileHandlerFunction']) {
+      expect({ fn, held: holders.filter((r) => r.includes(fn)).length }).toEqual({ fn, held: 1 });
+    }
+    expect(holders).toHaveLength(3);
+  });
+
+  test('the unrouted get-s3 and delete-s3 lambdas do not exist (production)', () => {
+    const ids = Object.keys(prodTemplate.findResources('AWS::Lambda::Function'));
+    expect(ids.length).toBeGreaterThanOrEqual(20);
+    expect(ids.filter((id) => /GetS3Files|DeleteS3Files/.test(id))).toEqual([]);
   });
 
   // Per-request timing is a staging diagnostic. In production it would be a log

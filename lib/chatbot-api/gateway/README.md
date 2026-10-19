@@ -30,7 +30,7 @@ The following endpoints are configured in the main ChatBotApi stack:
 
 `/documents/{iepId}/status` (GET), `/summary` (POST), `/s3-knowledge-bucket-data`
 (POST) and `/delete-s3-file` (POST) were removed: the first two never had a
-handler and always 404ed, the other two had no callers. A parent's document
+handler and always 404ed, the other two had no callers, and the lambdas behind those two were deleted with them. A parent's document
 list comes from `/profile/children/{childId}/documents`, and deletion from the
 DELETE on the same path. `test/infra/gen-ai-mvp-stack.test.ts` asserts the four
 routes stay gone.

@@ -367,8 +367,6 @@ export class ChatBotApi extends Construct {
         { label: 'PDF download', fn: this.lambdaFunctions.pdfGeneratorFunction, purpose: 'renders a summary as a PDF; runs when a parent downloads one' },
         // Silent failure here shows a parent an empty document list, or a
         // delete that appears to work and does not.
-        { label: 'documents list', fn: this.lambdaFunctions.getS3KnowledgeFunction, purpose: 'lists the documents on an account; runs on every visit to that page' },
-        { label: 'document delete', fn: this.lambdaFunctions.deleteS3Function, purpose: 'deletes a document at a parent request' },
         // The "translate it now" request path.
         { label: 'translation request', fn: this.lambdaFunctions.translationRequestFunction, purpose: 'handles "translate it now"; runs only when a parent asks' },
         // Writes every pipeline progress and failure record.
