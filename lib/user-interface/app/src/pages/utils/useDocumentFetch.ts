@@ -133,6 +133,10 @@ export const useDocumentFetch = ({
             if (!prev || 
                 prev.status !== retrievedDocument.status || 
                 prev.createdAt !== retrievedDocument.createdAt ||
+                // The replacement behind a finished document is news too: its
+                // status moves while the document on screen stays PROCESSED.
+                prev.replacement?.iepId !== retrievedDocument.replacement?.iepId ||
+                prev.replacement?.status !== retrievedDocument.replacement?.status ||
                 hasProgressChanged(prev, retrievedDocument)) {
                   
               // console.log("if (prev) is true");

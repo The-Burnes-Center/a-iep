@@ -286,6 +286,12 @@ test.describe('document lifecycle (upload -> summary -> translations -> replace 
       'the old IEP left the screen while its replacement was still being processed'
     ).toBeVisible();
     await expect(page.getByTestId(TESTID.processing)).toHaveCount(0);
+    // ...and a note says the new one is on its way, so the parent is not left
+    // guessing whether the upload did anything.
+    await expect(
+      page.getByTestId('replacement-processing'),
+      'no note said the replacement was being processed'
+    ).toBeVisible({ timeout: 60_000 });
   });
 
   test('9. the replacement finishes processing', async () => {
