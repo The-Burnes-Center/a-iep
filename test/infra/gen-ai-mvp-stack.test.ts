@@ -495,6 +495,29 @@ describe('HTTP API authorization', () => {
     }
   });
 
+  // Routes with no handler or no callers. The first two were declared but no
+  // lambda registered them, so every call 404ed; the last two had zero calls in
+  // 30 days in prod and staging and no frontend caller. A route that exists is
+  // attack surface and an alarm to maintain, so they must not come back
+  // without a reason.
+  test('retired routes are gone from the API', () => {
+    const routeKeys = Object.values(template.findResources('AWS::ApiGatewayV2::Route'))
+      .map((r: any) => r.Properties.RouteKey);
+
+    // Vacuity floor: the sibling routes they were next to are still there.
+    expect(routeKeys).toContain('GET /profile');
+    expect(routeKeys).toContain('POST /signed-url-knowledge');
+
+    for (const retired of [
+      'GET /documents/{iepId}/status',
+      'POST /summary',
+      'POST /s3-knowledge-bucket-data',
+      'POST /delete-s3-file',
+    ]) {
+      expect(routeKeys).not.toContain(retired);
+    }
+  });
+
   // An AuthorizerId is only as strong as the authorizer behind it: it must
   // validate Authorization-header JWTs issued by OUR user pool for OUR app
   // client, not merely exist.

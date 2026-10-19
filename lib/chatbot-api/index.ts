@@ -138,7 +138,6 @@ export class ChatBotApi extends Construct {
       ],
     });
 
-    const s3GetKnowledgeAPIIntegration = new HttpLambdaIntegration('S3GetKnowledgeAPIIntegration', this.lambdaFunctions.getS3KnowledgeFunction);
     // Signup. The ONE unauthenticated route, necessarily: there is no token
     // to authorize with before an account exists. Everything that would
     // normally be an authorizer's job (anti-abuse, rate limiting, destination
@@ -200,21 +199,6 @@ export class ChatBotApi extends Construct {
       authorizer: new apigwv2.HttpNoneAuthorizer(),
     })
 
-    this.httpAPI.restAPI.addRoutes({
-      path: "/s3-knowledge-bucket-data",
-      methods: [apigwv2.HttpMethod.POST],
-      integration: s3GetKnowledgeAPIIntegration,
-      authorizer: httpAuthorizer,
-    })
-
-    const s3DeleteAPIIntegration = new HttpLambdaIntegration('S3DeleteAPIIntegration', this.lambdaFunctions.deleteS3Function);
-    this.httpAPI.restAPI.addRoutes({
-      path: "/delete-s3-file",
-      methods: [apigwv2.HttpMethod.POST],
-      integration: s3DeleteAPIIntegration,
-      authorizer: httpAuthorizer,
-    })
-
     const s3UploadKnowledgeAPIIntegration = new HttpLambdaIntegration('S3UploadKnowledgeAPIIntegration', this.lambdaFunctions.uploadS3KnowledgeFunction);
     this.httpAPI.restAPI.addRoutes({
       path: "/signed-url-knowledge",
@@ -246,20 +230,6 @@ export class ChatBotApi extends Construct {
     this.httpAPI.restAPI.addRoutes({
       path: "/profile/children/{childId}/documents",
       methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.DELETE],
-      integration: userProfileAPIIntegration,
-      authorizer: httpAuthorizer,
-    });
-
-    this.httpAPI.restAPI.addRoutes({
-      path: "/documents/{iepId}/status",
-      methods: [apigwv2.HttpMethod.GET],
-      integration: userProfileAPIIntegration,
-      authorizer: httpAuthorizer,
-    });
-
-    this.httpAPI.restAPI.addRoutes({
-      path: "/summary",
-      methods: [apigwv2.HttpMethod.POST],
       integration: userProfileAPIIntegration,
       authorizer: httpAuthorizer,
     });

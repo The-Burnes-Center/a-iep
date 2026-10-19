@@ -32,8 +32,6 @@ The main Lambda handler implements a REST API with the following endpoints:
 - **POST /profile/children**: Adds a child to a user's profile
 - **GET /profile/children/{childId}/documents**: Gets documents for a specific child
 - **DELETE /profile/children/{childId}/documents/{documentId}**: Deletes a document
-- **GET /documents/{iepId}/status**: Retrieves the processing status of a document
-- **POST /summary**: Generates or retrieves a document summary
 
 ### Cognito Trigger (cognito_trigger.py)
 
