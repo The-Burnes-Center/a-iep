@@ -413,7 +413,7 @@ def _follow_catch(states, step, error):
 STEPS_THAT_RECORD_A_FAILURE = [
     'InitializeProcessing', 'MistralOCR', 'UpdateOCRProgress', 'RedactOCR',
     'UpdateRedactionProgress', 'DeleteOriginal', 'UpdateCleanupProgress',
-    'ParsingAgent', 'UpdateAnalysisProgress', 'CheckLanguagePrefs',
+    'ParsingAgent', 'UpdateAnalysisProgress',
     'TranslateParsingResult', 'UpdateTranslationProgress', 'FinalizeResults',
 ]
 
@@ -455,3 +455,104 @@ def test_the_on_demand_machine_bounds_its_tasks_too():
     for name, state in single.items():
         if state['Type'] == 'Task':
             assert isinstance(state.get('TimeoutSeconds'), int), name
+
+
+# ---------------------------------------------------------------------------
+# The language decision moved into the OCR step (mistral_ocr/language_prefs.py)
+#
+# CheckLanguagePrefs used to be its own Task after ParsingAgent. Its output,
+# translation_needed and target_languages, is read by TranslationChoice,
+# TranslateParsingResult and FinalizeResults, and every Pass state in between
+# rebuilds the execution state from an explicit field list, so a field one of
+# them forgets silently vanishes: FinalizeResults then fails on a missing path,
+# or worse, TranslationChoice falls through to its Default and a parent who
+# needs Spanish gets English only. These replay the data flow.
+# ---------------------------------------------------------------------------
+
+def _lookup(state, path):
+    """A `$.a.b` lookup; raises KeyError where Step Functions would fail the state."""
+    assert path.startswith('$.'), path
+    node = state
+    for part in path[2:].split('.'):
+        node = node[part]
+    return node
+
+
+def _resolve(template, state):
+    """Evaluate a Parameters / ResultSelector template against the state."""
+    out = {}
+    for key, value in template.items():
+        if key.endswith('.$'):
+            out[key[:-2]] = _lookup(state, value)
+        else:
+            out[key] = value
+    return out
+
+
+def _run_to_translation_choice(states, handler_output):
+    """Replay the straight line from the start to TranslationChoice.
+
+    Tasks other than MistralOCR are taken to return nothing the machine keeps
+    (their real outputs are discarded by ResultPath: null); MistralOCR returns
+    `handler_output`. Returns the state TranslationChoice is evaluated on.
+    """
+    state = {'iep_id': 'iep-1', 'child_id': 'child-1', 'user_id': 'user-1',
+             's3_bucket': 'bucket', 's3_key': 'user/child/iep/file.pdf'}
+    current = 'SetInitialProgress'
+    for _ in range(40):
+        node = states[current]
+        if current == 'TranslationChoice':
+            return state
+        if node['Type'] == 'Pass':
+            state = _resolve(node['Parameters'], state)
+        elif current == 'MistralOCR':
+            selected = _resolve(node.get('ResultSelector', {}), handler_output)
+            assert node['ResultPath'].startswith('$.')
+            state = {**state, node['ResultPath'][2:]: selected}
+        elif node['Type'] == 'Task':
+            # Whatever it takes as input must resolve against the state.
+            if 'Parameters' in node:
+                _resolve({k: v for k, v in node['Parameters'].items() if k.endswith('.$')}, state)
+            assert node['ResultPath'] is None, f'{current} would overwrite the state'
+        current = node['Next']
+    pytest.fail('never reached TranslationChoice')
+
+
+@pytest.mark.parametrize('languages', [[], ['es'], ['es', 'vi']])
+def test_the_language_decision_survives_to_the_translation_choice(states, languages):
+    decision = {'translation_needed': bool(languages), 'target_languages': languages}
+    handler_output = {'iep_id': 'iep-1', 'ocr_status': 'completed', 'page_count': 3,
+                      'ddb_save_result': {'statusCode': 200}, **decision}
+
+    state = _run_to_translation_choice(states, handler_output)
+
+    assert state['translation_needed'] is decision['translation_needed']
+    assert state['target_languages'] == languages
+    # Only the decision is kept from the OCR step's return value.
+    assert 'ddb_save_result' not in state and 'page_count' not in state
+
+
+def test_what_the_translate_and_finalize_steps_read_is_still_there(states):
+    state = _run_to_translation_choice(states, {
+        'translation_needed': True, 'target_languages': ['es']})
+
+    translate = states['TranslateParsingResult']['Parameters']
+    _resolve({k: v for k, v in translate.items() if k.endswith('.$')}, state)
+    finalize = states['FinalizeResults']['Parameters']
+    _resolve({k: v for k, v in finalize.items() if k.endswith('.$')}, state)
+
+
+def test_the_ocr_step_hands_over_only_the_two_fields_the_machine_needs(states):
+    ocr = states['MistralOCR']
+    # OCR text is never in what this lambda returns, but its save result and
+    # page count are, and Step Functions keeps every state's output for 90 days.
+    assert ocr['ResultSelector'] == {'translation_needed.$': '$.translation_needed',
+                                     'target_languages.$': '$.target_languages'}
+    assert ocr['ResultPath'] == '$.language_prefs'
+
+
+def test_there_is_no_separate_language_step_left_to_pay_a_cold_start_for(states):
+    assert not [name for name, state in states.items()
+                if 'CheckLanguagePrefs' in json.dumps(state)
+                and 'the CheckLanguagePrefs step used to do' not in json.dumps(state)]
+    assert states['SetAnalysisProgress']['Next'] == 'TranslationChoice'

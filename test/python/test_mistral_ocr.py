@@ -337,9 +337,14 @@ def test_upload_and_download_logs_never_carry_the_filename_either(mistral_ocr_mo
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def handler_module():
+def handler_module(monkeypatch):
     module = load_lambda_module('metadata-handler/steps/mistral_ocr',
                                 'mistral_ocr_handler_under_test', module_name='handler')
+    # The handler also decides the translation languages (language_prefs.py,
+    # tested against a real moto table in test_check_language_prefs.py). The
+    # tests below are about OCR, so they take the English-only answer rather
+    # than reaching for DynamoDB.
+    monkeypatch.setattr(module, 'target_languages_for', lambda user_id: [])
     try:
         yield module
     finally:
@@ -718,3 +723,73 @@ def test_nothing_is_deleted_when_the_upload_itself_failed(mistral_ocr_module, mo
 
     assert result['status_code'] == 413
     assert _deletes(fake) == []
+
+
+# ---------------------------------------------------------------------------
+# The language decision the CheckLanguagePrefs step used to make now rides on
+# this step's result (language_prefs.py). The decision's own cases, and parity
+# with check_language_prefs/handler.py, are in test_check_language_prefs.py;
+# this pins the handler's half: the fields leave it in the shape the state
+# machine's ResultSelector reads, and a misconfigured table fails before the
+# paid OCR call.
+# ---------------------------------------------------------------------------
+
+PROFILES_TABLE = 'profiles-test'
+
+
+def _profiles_table():
+    table = boto3.resource('dynamodb', region_name='us-east-1').create_table(
+        TableName=PROFILES_TABLE,
+        KeySchema=[{'AttributeName': 'userId', 'KeyType': 'HASH'}],
+        AttributeDefinitions=[{'AttributeName': 'userId', 'AttributeType': 'S'}],
+        BillingMode='PAY_PER_REQUEST',
+    )
+    return table
+
+
+@pytest.mark.parametrize('profile, expected', [
+    ({'primaryLanguage': 'es', 'secondaryLanguage': 'vi'}, ['es', 'vi']),
+    ({'primaryLanguage': 'en'}, []),
+])
+def test_the_handler_returns_the_language_decision(handler_module, monkeypatch, profile, expected):
+    import sys
+    monkeypatch.setitem(handler_module.process_document_with_mistral_ocr.__globals__, 'requests',
+                        _RecordingRequests(_ocr_sequence(_ocr_4_response())))
+    monkeypatch.setenv('MISTRAL_API_KEY', 'test-mistral-key')
+    monkeypatch.setenv('USER_PROFILES_TABLE', PROFILES_TABLE)
+    monkeypatch.setattr(handler_module, 'target_languages_for', sys.modules['language_prefs'].target_languages_for)
+    lambda_client = _SavingLambdaClient()
+    real_client = boto3.client
+    monkeypatch.setattr(
+        handler_module.boto3, 'client',
+        lambda service, *a, **kw: lambda_client if service == 'lambda' else real_client(service, *a, **kw))
+
+    event = {'iep_id': 'iep-1', 'user_id': 'user-1', 'child_id': 'child-1',
+             's3_bucket': BUCKET, 's3_key': KEY}
+    with mock_aws():
+        _wire_s3_object()
+        _profiles_table().put_item(Item={'userId': 'user-1', **profile})
+        result = handler_module.lambda_handler(event, None)
+
+    assert result['target_languages'] == expected
+    assert result['translation_needed'] is bool(expected)
+    # And nothing else about the decision leaks into what OCR saves.
+    assert 'target_languages' not in json.dumps(lambda_client.payloads)
+
+
+def test_a_misconfigured_profiles_table_fails_before_the_paid_ocr_call(handler_module, monkeypatch):
+    import sys
+    fake = _RecordingRequests([])
+    monkeypatch.setitem(handler_module.process_document_with_mistral_ocr.__globals__, 'requests', fake)
+    monkeypatch.setenv('MISTRAL_API_KEY', 'test-mistral-key')
+    monkeypatch.delenv('USER_PROFILES_TABLE', raising=False)
+    monkeypatch.setattr(handler_module, 'target_languages_for', sys.modules['language_prefs'].target_languages_for)
+
+    event = {'iep_id': 'iep-1', 'user_id': 'user-1', 'child_id': 'child-1',
+             's3_bucket': BUCKET, 's3_key': KEY}
+    with mock_aws():
+        _wire_s3_object()
+        with pytest.raises(KeyError):
+            handler_module.lambda_handler(event, None)
+
+    assert fake.calls == []  # Mistral was never called, so nothing was paid for

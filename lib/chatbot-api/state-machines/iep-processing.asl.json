@@ -84,8 +84,12 @@
       "Type": "Task",
       "Resource": "${MistralOCRArn}",
       "TimeoutSeconds": 120,
-      "Comment": "Extract text from document using Mistral OCR API. mistral_ocr/handler.py raises OcrClientError for a 4xx (other than 429) from Mistral: that means the file itself was rejected -- a password-protected PDF is the incident this was written for -- so retrying an unchanged request is guaranteed to fail three more times. That error is retried zero times, below. Everything else (5xx, 429, or a timeout/connection error that never got a response) falls through to the States.ALL retrier and keeps the original 3-attempt policy.",
-      "ResultPath": null,
+      "Comment": "Extract text from document using Mistral OCR API. mistral_ocr/handler.py raises OcrClientError for a 4xx (other than 429) from Mistral: that means the file itself was rejected -- a password-protected PDF is the incident this was written for -- so retrying an unchanged request is guaranteed to fail three more times. That error is retried zero times, below. Everything else (5xx, 429, or a timeout/connection error that never got a response) falls through to the States.ALL retrier and keeps the original 3-attempt policy. The handler also reads the parent's language preferences (what the CheckLanguagePrefs step used to do, one lambda and one cold start later) and returns translation_needed and target_languages; only those two fields are kept, under $.language_prefs, and SetOCRProgress lifts them to the top level.",
+      "ResultSelector": {
+        "translation_needed.$": "$.translation_needed",
+        "target_languages.$": "$.target_languages"
+      },
+      "ResultPath": "$.language_prefs",
       "Retry": [
         {
           "ErrorEquals": [
@@ -210,7 +214,9 @@
         "s3_key.$": "$.s3_key",
         "progress": 15,
         "current_step": "ocr_complete",
-        "status": "PROCESSING"
+        "status": "PROCESSING",
+        "translation_needed.$": "$.language_prefs.translation_needed",
+        "target_languages.$": "$.language_prefs.target_languages"
       },
       "Next": "RedactOCR"
     },
@@ -338,7 +344,9 @@
         "s3_key.$": "$.s3_key",
         "progress": 20,
         "current_step": "pii_redaction_complete",
-        "status": "PROCESSING"
+        "status": "PROCESSING",
+        "translation_needed.$": "$.translation_needed",
+        "target_languages.$": "$.target_languages"
       },
       "Next": "DeleteOriginal"
     },
@@ -466,7 +474,9 @@
         "s3_key.$": "$.s3_key",
         "progress": 22,
         "current_step": "cleanup_complete",
-        "status": "PROCESSING"
+        "status": "PROCESSING",
+        "translation_needed.$": "$.translation_needed",
+        "target_languages.$": "$.target_languages"
       },
       "Next": "ParsingAgent"
     },
@@ -594,69 +604,11 @@
         "s3_key.$": "$.s3_key",
         "progress": 75,
         "current_step": "analysis_complete",
-        "status": "PROCESSING"
+        "status": "PROCESSING",
+        "translation_needed.$": "$.translation_needed",
+        "target_languages.$": "$.target_languages"
       },
-      "Next": "CheckLanguagePrefs"
-    },
-    "CheckLanguagePrefs": {
-      "Type": "Task",
-      "Resource": "${CheckLanguagePrefsArn}",
-      "TimeoutSeconds": 60,
-      "Comment": "Check user language preferences to determine if translations are needed",
-      "Parameters": {
-        "iep_id.$": "$.iep_id",
-        "child_id.$": "$.child_id",
-        "user_id.$": "$.user_id",
-        "s3_bucket.$": "$.s3_bucket",
-        "s3_key.$": "$.s3_key",
-        "progress.$": "$.progress",
-        "current_step.$": "$.current_step",
-        "status.$": "$.status"
-      },
-      "Retry": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "MaxAttempts": 3,
-          "IntervalSeconds": 2,
-          "BackoffRate": 2
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": [
-            "States.Timeout"
-          ],
-          "Next": "TimedOutAtCheckLanguagePrefs",
-          "ResultPath": "$.error"
-        },
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "Next": "FailedAtCheckLanguagePrefs",
-          "ResultPath": "$.error"
-        }
-      ],
       "Next": "TranslationChoice"
-    },
-    "FailedAtCheckLanguagePrefs": {
-      "Type": "Pass",
-      "Comment": "Name the failing step for record_failure (CheckLanguagePrefs)",
-      "Result": "CheckLanguagePrefs",
-      "ResultPath": "$.failed_step",
-      "Next": "RecordFailure"
-    },
-    "TimedOutAtCheckLanguagePrefs": {
-      "Type": "Pass",
-      "Comment": "A step that times out may report no Cause, and RecordFailure reads $.error.Cause, so supply one before naming the step (CheckLanguagePrefs)",
-      "Result": {
-        "Error": "States.Timeout",
-        "Cause": "The step did not finish within its time limit."
-      },
-      "ResultPath": "$.error",
-      "Next": "FailedAtCheckLanguagePrefs"
     },
     "TranslationChoice": {
       "Type": "Choice",
