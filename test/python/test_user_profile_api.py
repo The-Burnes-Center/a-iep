@@ -7,6 +7,7 @@ encryption, and Cognito for account deletion.
 import base64
 import json
 import sys
+import threading
 from types import SimpleNamespace
 
 import boto3
@@ -1689,3 +1690,98 @@ def test_the_cognito_client_is_reused_across_requests(api, monkeypatch):
         assert call(api, '/profile', 'PUT', {'secondaryLanguage': language})[0] == 200
 
     assert counting.built.count('cognito-idp') == 1
+
+
+# ---------------------------------------------------------------------------
+# GET /profile decrypts its fields concurrently
+
+class SequentialPool:
+    """Executor stand-in that runs everything in order on the calling thread:
+    the behaviour the concurrent decrypt must be byte-identical to."""
+
+    def map(self, fn, *iterables):
+        return map(fn, *iterables)
+
+
+def seed_encrypted_profile(api):
+    api.profiles.put_item(Item={
+        'userId': USER,
+        'phone': encrypt(api, '+16175551234'),
+        'city': encrypt(api, 'Boston'),
+        'parentName': encrypt(api, 'Jane Parent'),
+        'primaryLanguage': 'en',
+        'children': [
+            {'childId': 'c1', 'name': encrypt(api, 'Alex Rivera'), 'schoolCity': 'Boston'},
+            {'childId': 'c2', 'name': encrypt(api, 'Sam Rivera'), 'schoolCity': 'Boston'},
+            {'childId': 'c3', 'name': 'Legacy Plain', 'schoolCity': 'Boston'},
+            {'childId': 'c4', 'name': '', 'schoolCity': 'Boston'},
+        ],
+    })
+
+
+def raw_get_profile(api):
+    return api.module.lambda_handler(api_event('/profile', 'GET'), None)
+
+
+def test_concurrent_decrypt_returns_exactly_what_a_sequential_one_does(api, monkeypatch):
+    seed_encrypted_profile(api)
+
+    concurrent = raw_get_profile(api)
+    monkeypatch.setattr(api.module, '_decrypt_pool', SequentialPool())
+    sequential = raw_get_profile(api)
+
+    assert concurrent['statusCode'] == 200
+    assert concurrent == sequential  # status, headers and the body string
+    profile = json.loads(concurrent['body'])['profile']
+    assert (profile['phone'], profile['city'], profile['parentName']) == (
+        '+16175551234', 'Boston', 'Jane Parent')
+    assert [child['name'] for child in profile['children']] == [
+        'Alex Rivera', 'Sam Rivera', 'Legacy Plain', '']
+
+
+def test_one_field_that_will_not_decrypt_does_not_disturb_the_others(api, monkeypatch):
+    """kms_decrypt_string hands a field back as it was when it cannot decrypt
+    it; that stays per-field when the fields run together."""
+    seed_encrypted_profile(api)
+    broken = encrypt(api, 'Sam Rivera')
+    api.profiles.update_item(
+        Key={'userId': USER},
+        UpdateExpression='SET parentName = :p',
+        ExpressionAttributeValues={':p': broken})
+    real = api.module.kms_client.decrypt
+
+    def decrypt_unless_broken(**kwargs):
+        if base64.b64encode(kwargs['CiphertextBlob']).decode() == broken:
+            raise RuntimeError('AccessDeniedException')
+        return real(**kwargs)
+    monkeypatch.setattr(api.module.kms_client, 'decrypt', decrypt_unless_broken)
+
+    status, body = call(api, '/profile', 'GET')
+    profile = body['profile']
+
+    assert status == 200
+    assert profile['parentName'] == broken      # handed back, not dropped
+    assert profile['phone'] == '+16175551234'
+    assert profile['children'][1]['name'] == 'Sam Rivera'
+    assert profile['children'][0]['name'] == 'Alex Rivera'
+
+
+def test_the_decrypts_really_overlap(api, monkeypatch):
+    """Two decrypts must be in flight at once. A barrier that needs two
+    parties times out (and the request fails) if they run one at a time."""
+    seed_encrypted_profile(api)
+    barrier = threading.Barrier(2, timeout=5)
+    real = api.module.kms_decrypt_string
+    in_flight = []
+
+    def decrypt_together(ciphertext):
+        in_flight.append(threading.get_ident())
+        barrier.wait()
+        return real(ciphertext)
+    monkeypatch.setattr(api.module, 'kms_decrypt_string', decrypt_together)
+
+    status, body = call(api, '/profile', 'GET')
+
+    assert status == 200
+    assert body['profile']['parentName'] == 'Jane Parent'
+    assert len(set(in_flight)) > 1

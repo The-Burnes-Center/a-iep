@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Literal
 from router import Router, UserProfileRouter, RouteNotFoundException
 from student_name_substitution import substitute_content, usable_student_name
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import copy
 import re
 import unicodedata
@@ -370,6 +371,41 @@ def kms_decrypt_string(ciphertext_b64: str) -> str:
         print(f"KMS decrypt failed with unexpected error: {str(e)}")
         return ciphertext_b64
 
+# KMS Decrypt is a network call (~10-20ms). A profile holds up to three PII
+# fields plus one name per child, and they were decrypted one after another.
+# Four workers cover the usual profile in a single round trip's time. The pool
+# is module level so threads are created once, on first use, not per request.
+_DECRYPT_WORKERS = 4
+_decrypt_pool = ThreadPoolExecutor(max_workers=_DECRYPT_WORKERS)
+_PROFILE_PII_FIELDS = ('phone', 'city', 'parentName')
+
+
+def _decrypt_profile_fields(profile: Dict) -> None:
+    """Decrypt, in place and concurrently, every encrypted string on a profile.
+
+    Result is identical to decrypting each field in turn: the same fields, each
+    through kms_decrypt_string (which never raises and hands a field back as it
+    was if it cannot decrypt it), written back to the same place.
+    """
+    targets = []
+    for field in _PROFILE_PII_FIELDS:
+        if isinstance(profile.get(field), str):
+            targets.append((profile, field))
+    for child in profile.get('children') or []:
+        if isinstance(child, dict) and isinstance(child.get('name'), str):
+            targets.append((child, 'name'))
+    targets = [(holder, key) for holder, key in targets if holder[key]]
+    if not targets:
+        return
+    ciphertexts = [holder[key] for holder, key in targets]
+    if len(ciphertexts) == 1:
+        plaintexts = [kms_decrypt_string(ciphertexts[0])]
+    else:
+        plaintexts = list(_decrypt_pool.map(kms_decrypt_string, ciphertexts))
+    for (holder, key), plaintext in zip(targets, plaintexts):
+        holder[key] = plaintext
+
+
 def get_timestamps() -> Dict[str, any]:
     """
     Generate both Unix timestamp in milliseconds and human-readable ISO format.
@@ -441,11 +477,6 @@ def get_user_profile(event: Dict) -> Dict:
         
         existing_profile = response['Item']
 
-        # Decrypt selected PII fields before returning
-        for pii_field in ['phone', 'city', 'parentName']:
-            if pii_field in existing_profile and isinstance(existing_profile[pii_field], str):
-                existing_profile[pii_field] = kms_decrypt_string(existing_profile[pii_field])
-        
         # Check if existing profile has no children and add default child if needed
         if 'children' not in existing_profile or not existing_profile['children']:
             print(f"Existing profile found but no children, adding default child for userId: {user_id}")
@@ -475,14 +506,13 @@ def get_user_profile(event: Dict) -> Dict:
             existing_profile['updatedAt'] = times['timestamp']
             existing_profile['updatedAtISO'] = times['datetime']
 
-        # Decrypt each child's name -- see kms_encrypt_string in add_child and
-        # in the children branch of update_user_profile for where it is
-        # written encrypted. A freshly created/backfilled default_child's
-        # name is '' and decrypting that is a no-op, so this runs
-        # unconditionally rather than only for pre-existing children.
-        for child in existing_profile.get('children', []):
-            if isinstance(child, dict) and isinstance(child.get('name'), str):
-                child['name'] = kms_decrypt_string(child['name'])
+        # Decrypt the PII fields and each child's name. The parent's phone,
+        # city and name, and every child's name (see kms_encrypt_string in
+        # add_child and in the children branch of update_user_profile for where
+        # they are written encrypted). Each is an independent KMS round trip,
+        # so they run together rather than one after another. A default
+        # child's name is '' and decrypting that is a no-op.
+        _decrypt_profile_fields(existing_profile)
 
         return create_response(event, 200, {'profile': existing_profile})
         
