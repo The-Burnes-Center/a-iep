@@ -478,3 +478,152 @@ def test_admin_list_admins(referral):
     assert status == 200
     assert [admin['username'] for admin in body['admins']] == ['the-admin']
     assert body['admins'][0]['phone'] == '+16175550000'
+
+
+# ---------------------------------------------------------------------------
+# Hardening: every 4xx says why, nothing identifying reaches the log, AWS
+# faults are generic 503s, and the admin lookup cannot be steered by its input.
+
+def test_every_refusal_logs_a_reason_and_never_the_identifier(referral, capsys):
+    make_pool_user(referral, 'the-admin', in_admin_group=True)
+    capsys.readouterr()
+
+    assert call(referral, '/referral/admin/admins', 'POST', claims=ADMIN_CLAIMS,
+                body={'identifier': 'ghost@example.org'})[0] == 404
+    assert call(referral, '/referral/admin/admins', 'POST', claims=ADMIN_CLAIMS,
+                body={'identifier': 'sneaky@example.org" OR x = "y'})[0] == 400
+    assert call(referral, '/referral/admin/admins/x%40example.org', 'DELETE',
+                claims={'sub': 'someone', 'cognito:groups': []})[0] == 403
+    assert call(referral, '/referral/nope', 'GET', claims={'sub': USER})[0] == 404
+
+    out = capsys.readouterr().out
+    assert 'lookup matched no account' in out
+    assert 'neither a valid email nor a phone number' in out
+    # The admin route is logged with its username replaced, not the address.
+    assert 'admin route DELETE /referral/admin/admins/{id} without the admin group' in out
+    assert 'no route for GET /referral/nope' in out
+    for leaked in ('ghost', 'sneaky', 'x%40', 'x@', 'example.org'):
+        assert leaked not in out, leaked
+
+
+def test_an_admin_lookup_value_that_could_steer_the_filter_is_refused_before_cognito(referral, monkeypatch):
+    """Cognito's filter has no bound parameters. A quote in the value is what
+    would let an identifier add a clause, so it never reaches the filter."""
+    seen = []
+
+    class RecordingCognito:
+        def list_users(self, **kwargs):
+            seen.append(kwargs)
+            return {'Users': []}
+
+    monkeypatch.setattr(referral.module, 'cognito', RecordingCognito())
+    for hostile in ('a"b@example.org', 'a\\b@example.org', '+1617" OR "1"="1',
+                    'x@example', ' @example.org'):
+        status, _ = call(referral, '/referral/admin/admins', 'POST', claims=ADMIN_CLAIMS,
+                         body={'identifier': hostile})
+        assert status == 400, hostile
+    assert seen == []
+
+
+def test_an_admin_lookup_for_a_valid_email_uses_the_quoted_filter(referral, monkeypatch):
+    seen = []
+
+    class RecordingCognito:
+        def list_users(self, **kwargs):
+            seen.append(kwargs['Filter'])
+            return {'Users': []}
+
+    monkeypatch.setattr(referral.module, 'cognito', RecordingCognito())
+    status, _ = call(referral, '/referral/admin/admins', 'POST', claims=ADMIN_CLAIMS,
+                     body={'identifier': 'p2@example.org'})
+    assert status == 404
+    assert seen == ['email = "p2@example.org"']
+
+
+def test_a_percent_encoded_admin_username_is_decoded_before_the_lookup(referral):
+    make_pool_user(referral, 'the-admin', in_admin_group=True)
+    make_pool_user(referral, 'other@example.org', in_admin_group=True)
+    claims = {'sub': ADMIN, 'cognito:groups': ['admin']}
+
+    status, _ = call(referral, '/referral/admin/admins/other%40example.org', 'DELETE', claims=claims)
+
+    assert status == 200
+    assert admins_in_group(referral) == {'the-admin'}
+
+
+def test_malformed_json_on_an_admin_write_is_a_400_with_the_reason_logged(referral, capsys):
+    for raw in ('{nope', '["code"]'):
+        capsys.readouterr()
+        status, _ = call(referral, '/referral/admin/links', 'POST', claims=ADMIN_CLAIMS, body=raw)
+        assert status == 400, raw
+        assert 'body is not' in capsys.readouterr().out
+    assert call(referral, '/referral/admin/links', 'GET', claims=ADMIN_CLAIMS)[1]['links'] == []
+
+
+def test_click_stays_lenient_on_a_malformed_body(referral):
+    """sendBeacon can post anything; the public counter answers 200 regardless."""
+    status, body = call(referral, '/referral/click', 'POST', body='{nope')
+    assert status == 200
+    assert body == {'ok': True}
+
+
+def test_a_missing_table_setting_is_a_logged_500(referral, monkeypatch, capsys):
+    monkeypatch.delenv('REFERRALS_TABLE')
+    status, body = call(referral, '/referral/click', 'POST', body={'code': 'launch'})
+    assert status == 500
+    assert body == {'message': 'internal error'}
+    assert 'REFERRALS_TABLE' in capsys.readouterr().out
+
+
+def test_a_dynamodb_throttle_is_a_generic_503(referral, monkeypatch, capsys):
+    from botocore.exceptions import ClientError
+
+    class ThrottledTable:
+        def get_item(self, **_kwargs):
+            raise ClientError({'Error': {'Code': 'ProvisionedThroughputExceededException',
+                                         'Message': f'on {PROFILES_TABLE}'}}, 'GetItem')
+
+    monkeypatch.setattr(referral.module, 'user_profiles_table', ThrottledTable())
+
+    status, body = call(referral, '/referral/me', 'GET', claims={'sub': USER})
+
+    assert status == 503
+    assert PROFILES_TABLE not in json.dumps(body)
+    assert 'ProvisionedThroughputExceededException' in capsys.readouterr().out
+
+
+def test_every_response_says_no_store(referral):
+    ok = referral.module.lambda_handler(api_event('/referral/click', 'POST', body={'code': 'x'}), None)
+    refused = referral.module.lambda_handler(api_event('/referral/me', 'GET'), None)
+    assert ok['headers']['Cache-Control'] == 'no-store'
+    assert refused['headers']['Cache-Control'] == 'no-store'
+
+
+def test_an_owner_name_kms_cannot_decrypt_is_withheld_not_returned_as_ciphertext(referral, capsys):
+    """A value that decodes as base64 but is not a KMS ciphertext used to come
+    back to the admin UI as the ciphertext itself. It is now withheld."""
+    blob = base64.b64encode(b'not-a-real-kms-ciphertext-blob').decode()
+    put_profile(referral, parentName=blob)
+    call(referral, '/referral/me', 'GET', claims={'sub': USER})  # mints personal link
+
+    status, body = call(referral, '/referral/admin/links', 'GET', claims=ADMIN_CLAIMS)
+
+    assert status == 200
+    personal = next(link for link in body['links'] if link['type'] == 'user')
+    assert personal['ownerName'] is None
+    assert blob not in json.dumps(body)
+    out = capsys.readouterr().out
+    assert 'owner name withheld' in out
+    assert blob not in out
+
+
+def test_a_legacy_plaintext_owner_name_is_still_shown(referral):
+    """Rows written before name encryption hold plaintext. A value that is not
+    base64 is returned unchanged, as before."""
+    put_profile(referral, parentName='Jane P.')
+    call(referral, '/referral/me', 'GET', claims={'sub': USER})
+
+    status, body = call(referral, '/referral/admin/links', 'GET', claims=ADMIN_CLAIMS)
+
+    personal = next(link for link in body['links'] if link['type'] == 'user')
+    assert personal['ownerName'] == 'Jane P.'

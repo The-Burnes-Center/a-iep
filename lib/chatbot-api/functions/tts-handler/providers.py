@@ -30,6 +30,30 @@ class TTSProviderError(Exception):
     """Raised when a provider is misconfigured or its API call fails."""
 
 
+class TTSProviderNotConfigured(TTSProviderError):
+    """The provider's API key is missing from SSM: a server fault, so a 500."""
+
+
+class TTSProviderUnavailable(TTSProviderError):
+    """The provider could not be reached (timeout, DNS, connection reset).
+
+    Retryable, so the handler answers 503. A provider that answered with an
+    error status is a plain TTSProviderError and stays a 502.
+    """
+
+
+def _post(provider: str, url: str, **kwargs):
+    """POST to a provider, turning a transport failure into TTSProviderUnavailable.
+
+    urllib3 raises its own exception types for timeouts and connection
+    failures, which would otherwise surface as an unhandled error.
+    """
+    try:
+        return http.request('POST', url, **kwargs)
+    except urllib3.exceptions.HTTPError as e:
+        raise TTSProviderUnavailable(f'{provider} unreachable: {type(e).__name__}') from None
+
+
 def _failure_class(status: int) -> str:
     """A coarse, content-free category for a provider's HTTP failure status.
 
@@ -118,7 +142,7 @@ class ElevenLabsProvider(TTSProvider):
             'ELEVENLABS_API_KEY_PARAMETER_NAME', ttl=API_KEY_TTL_SECONDS, decrypt=True
         )
         if not api_key:
-            raise TTSProviderError('ElevenLabs API key not available from SSM')
+            raise TTSProviderNotConfigured('ElevenLabs API key not available from SSM')
 
         voice_id = self._voice_for(language)
         url = (
@@ -131,8 +155,8 @@ class ElevenLabsProvider(TTSProvider):
             # language_code enforcement is only supported by flash/turbo models
             if 'flash' in self.model or 'turbo' in self.model:
                 body['language_code'] = language
-            resp = http.request(
-                'POST', url,
+            resp = _post(
+                self.name, url,
                 body=json.dumps(body).encode('utf-8'),
                 headers={'xi-api-key': api_key, 'Content-Type': 'application/json'},
                 timeout=urllib3.Timeout(connect=10, read=90),
@@ -173,13 +197,13 @@ class OpenAIProvider(TTSProvider):
             'OPENAI_API_KEY_PARAMETER_NAME', ttl=API_KEY_TTL_SECONDS, decrypt=True
         )
         if not api_key:
-            raise TTSProviderError('OpenAI API key not available from SSM')
+            raise TTSProviderNotConfigured('OpenAI API key not available from SSM')
 
         audio = b''
         # Raw MP3 frame streams concatenate into a playable file
         for chunk in chunk_text(text, self.MAX_CHARS):
-            resp = http.request(
-                'POST', 'https://api.openai.com/v1/audio/speech',
+            resp = _post(
+                self.name, 'https://api.openai.com/v1/audio/speech',
                 body=json.dumps({
                     'model': self.model,
                     'voice': self._voice_for(language),

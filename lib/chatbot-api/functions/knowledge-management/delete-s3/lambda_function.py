@@ -8,6 +8,11 @@ dynamodb = boto3.resource('dynamodb')
 # content.json and the like), so they are safe to log whole.
 _ID_ONLY_PREFIXES = ('iep-data/', 'iep-audio/')
 
+# S3 DeleteObjects accepts at most 1000 keys per request.
+DELETE_BATCH_SIZE = 1000
+
+_GENERIC_FAILURE = 'Could not delete the document. Please try again later.'
+
 
 def _safe_key(key):
     """An S3 key fit for CloudWatch: an upload's filename removed.
@@ -34,6 +39,7 @@ def _cors_response(status_code, message, extra=None):
         'headers': {
             'Access-Control-Allow-Origin': '*',
             'Content-Type': 'application/json',
+            'Cache-Control': 'no-store',
         },
         'body': json.dumps(body),
     }
@@ -56,6 +62,24 @@ def _report_deletion_incomplete(user_id, iep_id, survived):
           f"iep={iep_id or 'unknown'} survived={','.join(sorted(set(survived)))}")
 
 
+def _delete_batch(s3, bucket, entries):
+    """One DeleteObjects call. Per-key failures come back in a successful
+    response, so they are raised here: a version that was not deleted must
+    never be counted as deleted. The message carries the S3 error code only,
+    because the key can hold a filename."""
+    response = s3.delete_objects(
+        Bucket=bucket,
+        Delete={
+            'Objects': [{'Key': e['Key'], 'VersionId': e['VersionId']} for e in entries],
+            'Quiet': True,
+        },
+    )
+    errors = response.get('Errors', [])
+    if errors:
+        raise RuntimeError(f"DeleteObjects left {len(errors)} version(s) in place "
+                           f"(first error code: {errors[0].get('Code')})")
+
+
 def _delete_every_version(s3, bucket, prefix, exact=False):
     """Permanently delete every version and delete marker under a prefix.
 
@@ -63,6 +87,7 @@ def _delete_every_version(s3, bucket, prefix, exact=False):
     delete marker: the bytes stay retrievable by version id until the 1-day
     noncurrent lifecycle rule reaches them, which measured 1 to 3 days on
     staging (2026-10-14). Deleting each version by id is immediate and final.
+    Entries go out in DeleteObjects batches of up to 1000 keys.
     Duplicated in each lambda that deletes from the bucket (each folder is
     its own asset); deleteEveryVersion in upload-s3/utils is the JS twin.
 
@@ -75,10 +100,10 @@ def _delete_every_version(s3, bucket, prefix, exact=False):
     visible = []
     for page in s3.get_paginator('list_object_versions').paginate(Bucket=bucket, Prefix=prefix):
         versions = page.get('Versions', [])
-        for entry in versions + page.get('DeleteMarkers', []):
-            if exact and entry['Key'] != prefix:
-                continue
-            s3.delete_object(Bucket=bucket, Key=entry['Key'], VersionId=entry['VersionId'])
+        entries = [e for e in versions + page.get('DeleteMarkers', [])
+                   if not exact or e['Key'] == prefix]
+        for start in range(0, len(entries), DELETE_BATCH_SIZE):
+            _delete_batch(s3, bucket, entries[start:start + DELETE_BATCH_SIZE])
         visible.extend(v['Key'] for v in versions
                        if v.get('IsLatest') and (not exact or v['Key'] == prefix))
     return visible
@@ -112,7 +137,7 @@ def _delete_document_artifacts(s3, bucket, doc):
     ref = doc.get('contentS3Reference') or {}
     if ref.get('s3Key'):
         _delete_every_version(s3, ref.get('bucket') or bucket, ref['s3Key'], exact=True)
-        print(f"Deleted S3 object: {ref['s3Key']}")
+        print(f"Deleted S3 object: {_safe_key(ref['s3Key'])}")
         deleted += 1
 
     # Any key already removed above is simply not listed, so the count stays
@@ -122,81 +147,66 @@ def _delete_document_artifacts(s3, bucket, doc):
     return deleted
 
 
-def lambda_handler(event, context):
+def _read_key(event):
+    """The KEY from the JSON body, or (None, 400 response) with the reason logged."""
     try:
         payload = json.loads(event['body']) if event.get('body') else {}
     except (TypeError, ValueError):
         # Logged rather than silent: a rejection with no log line is
         # undiagnosable, and a 4xx is the only trace a bad request leaves.
         print('Rejected delete request: body is not valid JSON')
-        return _cors_response(400, 'Invalid JSON body')
+        return None, _cors_response(400, 'Invalid JSON body')
+
+    if not isinstance(payload, dict):
+        print(f"Rejected delete request: body is not a JSON object (type={type(payload).__name__})")
+        return None, _cors_response(400, 'Request body must be a JSON object')
 
     key = payload.get('KEY')
     if not key or not isinstance(key, str):
         print(f"Rejected delete request: KEY missing or not a string (type={type(key).__name__})")
-        return _cors_response(400, 'KEY is required')
+        return None, _cors_response(400, 'KEY is required')
+    return key, None
 
+
+def _user_sub(event):
     try:
-        user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
+        return event['requestContext']['authorizer']['jwt']['claims']['sub']
     except (KeyError, TypeError):
-        print('Rejected delete request: no JWT sub claim on the event')
-        return _cors_response(401, 'Unauthorized')
+        return None
 
-    # Ownership check: S3 keys are stored under `{userId}/{childId}/{iepId}/{filename}`.
-    # Reject any attempt to delete keys that don't belong to the authenticated user,
-    # including path-traversal-style attempts (e.g. `userId/../other/...`).
-    expected_prefix = f"{user_id}/"
-    if not key.startswith(expected_prefix) or '..' in key.split('/'):
-        print(f"Access denied: user {user_id} attempted to delete key {_safe_key(key)}")
-        return _cors_response(403, 'Access denied: cannot delete files belonging to other users')
 
-    # childId and iepId come from the caller, so they are not trusted until the
-    # document row confirms this user owns that document: a key can carry the
-    # caller's own prefix and still name another family's iepId, and the sweeps
-    # below are keyed on iepId alone.
-    segments = key.split('/')
-    child_id, iep_id = (segments[1], segments[2]) if len(segments) >= 4 else (None, None)
+def _load_document(documents_table, iep_id, child_id, user_id):
+    """(doc or None, error response or None) for the row the key names.
 
-    table_name = os.environ.get('IEP_DOCUMENTS_TABLE')
-    if not table_name:
-        # Fail closed. Without the table this route can only delete the raw
-        # upload, which is exactly the orphaning it used to do; refusing is
-        # better than reporting a deletion that leaves the summary behind.
-        print('IEP_DOCUMENTS_TABLE is not configured; refusing to half-delete')
+    A row owned by someone else is answered exactly like a missing row, so the
+    response never says which iepIds exist. The reason is logged.
+    """
+    try:
+        doc = documents_table.get_item(Key={'iepId': iep_id, 'childId': child_id}).get('Item')
+    except Exception as e:
+        print(f"Error reading document row for iepId {iep_id}: {type(e).__name__}")
         _report_deletion_incomplete(user_id, iep_id,
                                     ['raw-upload', 'derived-artifacts', 'document-row'])
-        return _cors_response(500, 'Could not delete the document. Please try again later.')
+        return None, _cors_response(503, _GENERIC_FAILURE)
 
-    s3 = boto3.client('s3')
-    bucket = os.environ['BUCKET']
-    documents_table = dynamodb.Table(table_name)
+    if doc and doc.get('userId') != user_id:
+        print(f"Refused delete: user {user_id} does not own document {iep_id}")
+        return None, _cors_response(404, 'Not found')
+    return doc, None
 
-    doc = None
-    if iep_id and child_id:
-        try:
-            doc = documents_table.get_item(
-                Key={'iepId': iep_id, 'childId': child_id}).get('Item')
-        except Exception as e:
-            print(f"Error reading document row for iepId {iep_id}: {str(e)}")
-            _report_deletion_incomplete(user_id, iep_id,
-                                        ['raw-upload', 'derived-artifacts', 'document-row'])
-            return _cors_response(500, 'Could not delete the document. Please try again later.')
 
-        if doc and doc.get('userId') != user_id:
-            # The key prefix is theirs, the document is not.
-            print(f"Access denied: user {user_id} does not own document {iep_id}")
-            return _cors_response(403, 'Access denied: cannot delete files belonging to other users')
+def _delete_document(s3, bucket, key, documents_table, iep_id, child_id, doc):
+    """Delete the raw upload, then the derived artifacts, then the row.
 
+    Returns (objects_deleted, survived). Every pointer outlives the thing it
+    points at, so a retry after a partial failure can still find whatever
+    survived: the row carries contentS3Reference and is also the proof that
+    this caller owns the document. Each step is idempotent (DeleteObject and
+    DeleteItem succeed on something already gone), so a retry converges.
+    """
     survived = []
     objects_deleted = 0
 
-    # Order: the raw upload, then the artifacts derived from it, then the row
-    # that points at them. Every pointer outlives the thing it points at, so a
-    # retry after a partial failure can still find whatever survived: the row
-    # carries contentS3Reference and is also the proof that this caller owns
-    # the document. Both steps are idempotent (DeleteObject and DeleteItem
-    # succeed on something already gone), so a retry converges instead of
-    # failing on work the first attempt finished.
     try:
         _delete_every_version(s3, bucket, key, exact=True)
         objects_deleted += 1
@@ -209,7 +219,7 @@ def lambda_handler(event, context):
         try:
             objects_deleted += _delete_document_artifacts(s3, bucket, doc)
         except Exception as e:
-            print(f"Error deleting S3 artifacts for iepId {iep_id}: {str(e)}")
+            print(f"Error deleting S3 artifacts for iepId {iep_id}: {type(e).__name__}")
             # Keep the row: it is the only pointer to the artifacts that
             # survived, so deleting it here would strand them where nothing
             # but scripts/purge-orphaned-artifacts.py could reach them.
@@ -219,7 +229,7 @@ def lambda_handler(event, context):
                 documents_table.delete_item(Key={'iepId': iep_id, 'childId': child_id})
                 print(f"Deleted IEP document record with iepId: {iep_id}")
             except Exception as e:
-                print(f"Error deleting IEP document record {iep_id}: {str(e)}")
+                print(f"Error deleting IEP document record {iep_id}: {type(e).__name__}")
                 survived.append('document-row')
     elif iep_id:
         # No row: either it is already gone or this key never had one. The
@@ -227,10 +237,59 @@ def lambda_handler(event, context):
         # nothing that proves the caller owns this iepId; the orphan sweep
         # (scripts/purge-orphaned-artifacts.py) is what collects those.
         print(f"No document row for iepId {iep_id}; deleted the object only")
+    return objects_deleted, survived
+
+
+def lambda_handler(event, context):
+    key, error = _read_key(event)
+    if error:
+        return error
+
+    user_id = _user_sub(event)
+    if not user_id:
+        print('Rejected delete request: no JWT sub claim on the event')
+        return _cors_response(401, 'Unauthorized')
+
+    # Ownership check: S3 keys are stored under `{userId}/{childId}/{iepId}/{filename}`.
+    # A key outside the caller's prefix, or with a '..' segment, is answered as
+    # not found: the response must not reveal which keys exist.
+    if not key.startswith(f"{user_id}/") or '..' in key.split('/'):
+        print(f"Refused delete for {_safe_key(key)} (user {user_id}): "
+              "key is outside the caller's prefix or has a '..' segment")
+        return _cors_response(404, 'Not found')
+
+    # childId and iepId come from the caller, so they are not trusted until the
+    # document row confirms this user owns that document: a key can carry the
+    # caller's own prefix and still name another family's iepId, and the sweeps
+    # below are keyed on iepId alone.
+    segments = key.split('/')
+    child_id, iep_id = (segments[1], segments[2]) if len(segments) >= 4 else (None, None)
+
+    table_name = os.environ.get('IEP_DOCUMENTS_TABLE')
+    bucket = os.environ.get('BUCKET')
+    if not table_name or not bucket:
+        # Fail closed. Without the table this route can only delete the raw
+        # upload, which is exactly the orphaning it used to do; refusing is
+        # better than reporting a deletion that leaves the summary behind.
+        print('BUCKET or IEP_DOCUMENTS_TABLE is not configured; refusing to half-delete')
+        _report_deletion_incomplete(user_id, iep_id,
+                                    ['raw-upload', 'derived-artifacts', 'document-row'])
+        return _cors_response(500, _GENERIC_FAILURE)
+
+    documents_table = dynamodb.Table(table_name)
+    doc = None
+    if iep_id and child_id:
+        doc, error = _load_document(documents_table, iep_id, child_id, user_id)
+        if error:
+            return error
+
+    s3 = boto3.client('s3')
+    objects_deleted, survived = _delete_document(
+        s3, bucket, key, documents_table, iep_id, child_id, doc)
 
     if survived:
         _report_deletion_incomplete(user_id, iep_id, survived)
-        return _cors_response(500, 'Could not delete the document. Please try again later.')
+        return _cors_response(503, _GENERIC_FAILURE)
 
     return _cors_response(200, 'Deleted', {
         'key': key,

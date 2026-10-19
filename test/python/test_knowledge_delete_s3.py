@@ -103,8 +103,9 @@ def test_rejects_other_users_keys_and_traversal(delete_s3):
     foreign = 'other-user/child-1/iep-1/report.pdf'
     delete_s3.s3.put_object(Bucket=BUCKET, Key=foreign, Body=b'pdf')
 
-    assert call(delete_s3, key=foreign)[0] == 403
-    assert call(delete_s3, key=f'{USER}/../other-user/report.pdf')[0] == 403
+    # Not-owned is 404, the same answer as a key that does not exist.
+    assert call(delete_s3, key=foreign)[0] == 404
+    assert call(delete_s3, key=f'{USER}/../other-user/report.pdf')[0] == 404
     # The foreign object is untouched
     assert delete_s3.s3.list_objects_v2(Bucket=BUCKET, Prefix=foreign)['KeyCount'] == 1
 
@@ -158,7 +159,7 @@ def test_a_partial_failure_is_not_reported_as_success(delete_s3, monkeypatch, ca
     monkeypatch.setattr(delete_s3.module, '_delete_prefix', boom)
 
     status, body = call(delete_s3, key=doc.raw_key)
-    assert status == 500
+    assert status == 503
     assert 'S3 unavailable' not in json.dumps(body), 'internals leaked to the caller'
 
     marker = [line for line in capsys.readouterr().out.splitlines()
@@ -179,7 +180,7 @@ def test_retry_after_a_partial_failure_converges(delete_s3, monkeypatch):
     real_delete_prefix = delete_s3.module._delete_prefix
     monkeypatch.setattr(delete_s3.module, '_delete_prefix',
                         lambda *args: (_ for _ in ()).throw(RuntimeError('S3 unavailable')))
-    assert call(delete_s3, key=doc.raw_key)[0] == 500
+    assert call(delete_s3, key=doc.raw_key)[0] == 503
 
     # Second attempt, S3 healthy again. The raw upload is already gone, so
     # this also pins that a deleted object is not an error on the way back.
@@ -203,7 +204,7 @@ def test_refuses_a_key_naming_another_familys_document(delete_s3):
                            user='other-user')
 
     status, _ = call(delete_s3, key=f'{USER}/child-9/iep-victim/report.pdf')
-    assert status == 403
+    assert status == 404
 
     for key in victim.derived:
         assert key_exists(delete_s3, key) is True, f"another family's {key} was deleted"
@@ -241,7 +242,7 @@ def test_a_refused_key_is_logged_without_its_filename(delete_s3, capsys):
     status, _ = call(delete_s3, key=f'someone-else/child-1/iep-1/{NAMED_FILE}')
 
     out = capsys.readouterr().out
-    assert status == 403
+    assert status == 404
     assert 'Sofia' not in out
     assert 'someone-else/child-1/iep-1/...' in out
 
@@ -254,3 +255,109 @@ def test_deleting_a_document_leaves_no_retrievable_version(delete_s3):
     assert call(delete_s3, key=doc.raw_key)[0] == 200
 
     assert retrievable_versions(delete_s3.s3, BUCKET) == set()
+
+
+@pytest.mark.parametrize('raw_body', ['[1, 2]', '"report.pdf"', 'null', '42'])
+def test_a_body_that_is_not_an_object_is_a_400_with_the_reason_logged(delete_s3, raw_body, capsys):
+    status, _ = call(delete_s3, raw_body=raw_body)
+
+    assert status == 400
+    assert 'body is not a JSON object' in capsys.readouterr().out
+
+
+def test_every_response_says_no_store(delete_s3):
+    doc = seed_document(delete_s3)
+    response = delete_s3.module.lambda_handler(
+        {'body': json.dumps({'KEY': doc.raw_key}),
+         'requestContext': {'authorizer': {'jwt': {'claims': {'sub': USER}}}}}, None)
+    assert response['headers']['Cache-Control'] == 'no-store'
+
+    refusal = delete_s3.module.lambda_handler({'body': 'not json'}, None)
+    assert refusal['headers']['Cache-Control'] == 'no-store'
+
+
+def test_a_missing_bucket_setting_fails_closed_with_the_marker(delete_s3, monkeypatch, capsys):
+    doc = seed_document(delete_s3)
+    monkeypatch.delenv('BUCKET')
+
+    status, body = call(delete_s3, key=doc.raw_key)
+
+    assert status == 500
+    assert body['message'] == 'Could not delete the document. Please try again later.'
+    assert 'DELETION_INCOMPLETE' in capsys.readouterr().out
+    assert key_exists(delete_s3, doc.raw_key) is True, 'deleted anyway, then reported failure'
+
+
+def test_a_documents_table_read_fault_is_a_generic_503(delete_s3, monkeypatch, capsys):
+    """A DynamoDB fault is the service's, not the caller's: never a 404 or 403
+    that would read as a claim about the document."""
+    doc = seed_document(delete_s3)
+
+    class ThrottledTable:
+        def get_item(self, **_kwargs):
+            raise RuntimeError(f'ProvisionedThroughputExceeded on {DOCUMENTS_TABLE}')
+
+    class ThrottledResource:
+        def Table(self, _name):
+            return ThrottledTable()
+
+    monkeypatch.setattr(delete_s3.module, 'dynamodb', ThrottledResource())
+
+    status, body = call(delete_s3, key=doc.raw_key)
+
+    assert status == 503
+    assert DOCUMENTS_TABLE not in json.dumps(body)
+    assert 'Throughput' not in json.dumps(body)
+    assert key_exists(delete_s3, doc.raw_key) is True
+    assert 'DELETION_INCOMPLETE' in capsys.readouterr().out
+
+
+class FakeS3:
+    """Records delete_objects calls; the listing is a single page of entries."""
+
+    def __init__(self, entries, errors=None):
+        self.entries = entries
+        self.errors = errors or []
+        self.batches = []
+
+    def get_paginator(self, _name):
+        entries = self.entries
+
+        class Paginator:
+            def paginate(self, **_kwargs):
+                return [{'Versions': [e for e in entries if not e.get('IsDeleteMarker')],
+                         'DeleteMarkers': [e for e in entries if e.get('IsDeleteMarker')]}]
+        return Paginator()
+
+    def delete_objects(self, Bucket, Delete):
+        self.batches.append(list(Delete['Objects']))
+        return {'Errors': self.errors} if self.errors else {}
+
+
+def test_every_version_and_marker_goes_out_in_batches_of_at_most_1000(delete_s3):
+    """Batching must not drop an entry: 2001 entries become 1000 + 1000 + 1."""
+    prefix = f'{USER}/child-1/iep-1/'
+    entries = [{'Key': f'{prefix}f{i}.pdf', 'VersionId': f'v{i}', 'IsLatest': False}
+               for i in range(2001)]
+    fake = FakeS3(entries)
+
+    delete_s3.module._delete_every_version(fake, BUCKET, prefix)
+
+    assert [len(batch) for batch in fake.batches] == [1000, 1000, 1]
+    sent = {o['VersionId'] for batch in fake.batches for o in batch}
+    assert sent == {e['VersionId'] for e in entries}
+
+
+def test_a_version_the_store_refuses_is_raised_not_counted(delete_s3):
+    """DeleteObjects reports per-key failures in a 200 body. Treating that as
+    success would drop the row that points at the surviving bytes."""
+    entries = [{'Key': 'iep-data/iep-1/child-1/content.json', 'VersionId': 'v1', 'IsLatest': True}]
+    fake = FakeS3(entries, errors=[{'Key': 'iep-data/iep-1/child-1/content.json',
+                                    'VersionId': 'v1', 'Code': 'AccessDenied'}])
+
+    with pytest.raises(RuntimeError) as raised:
+        delete_s3.module._delete_every_version(fake, BUCKET, 'iep-data/iep-1/child-1/')
+
+    message = str(raised.value)
+    assert 'AccessDenied' in message
+    assert 'content.json' not in message
