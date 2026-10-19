@@ -673,7 +673,9 @@ def test_the_migrated_document_shape_is_substituted_too(api, monkeypatch):
     """A row with no contentS3Reference is migrated through the ddb-service,
     and the content comes back from there rather than from S3."""
     profile_with_named_child(api, encrypt(api, CHILD_NAME))
-    put_document(api)  # no contentS3Reference: takes the migration branch
+    # No contentS3Reference but inline content: the only row the lazy
+    # migration has anything to move, so the only one that takes its branch.
+    put_document(api, summaries={'en': 'old inline summary'})
     fake_ddb_service(api, monkeypatch, lambda payload: {
         'statusCode': 200, 'body': json.dumps(TOKEN_CONTENT)})
 
@@ -681,6 +683,62 @@ def test_the_migrated_document_shape_is_substituted_too(api, monkeypatch):
 
     assert body['summaries']['en'] == 'Jordan Smith is making progress.'
     assert '{{S}}' not in json.dumps(body)
+
+
+# A document that is still PENDING_UPLOAD or PROCESSING has no content to
+# migrate. Invoking ddb-service for it was a synchronous call to a lambda that
+# is cold nine times in ten (~1s), for an answer that was always "nothing here".
+
+@pytest.mark.parametrize('status', ['PENDING_UPLOAD', 'PROCESSING', 'FAILED', None])
+def test_a_document_with_no_content_yet_does_not_invoke_ddb_service(api, monkeypatch, status):
+    profile_with_child(api)
+    row = {'iepId': 'iep-1', 'childId': 'child-1', 'userId': USER, 'createdAt': 1000,
+           'progress': 40, 'current_step': 'ocr'}
+    if status:
+        row['status'] = status
+    api.documents.put_item(Item=row)
+    fake = fake_ddb_service(api, monkeypatch, lambda payload: {
+        'statusCode': 500, 'body': json.dumps({'error': 'must not be called'})})
+
+    code, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert fake.invocations == []
+    assert code == 200
+    assert body['iepId'] == 'iep-1'
+    assert body['status'] == ('FAILED' if status == 'FAILED' else 'PROCESSING')
+    assert body['progress'] == 40
+    assert body['current_step'] == 'ocr'
+    # The shape the screen reads is unchanged: four empty content fields.
+    assert {field: body[field] for field in api.module.CONTENT_FIELDS} == {
+        'summaries': {}, 'sections': {}, 'document_index': {}, 'abbreviations': {}}
+
+
+def test_a_legacy_row_with_inline_content_is_still_migrated(api, monkeypatch):
+    profile_with_child(api)
+    put_document(api, summaries={'en': 'old inline summary'})
+    fake = fake_ddb_service(api, monkeypatch, lambda payload: {
+        'statusCode': 200,
+        'body': json.dumps({'summaries': {'en': 'migrated summary'}})})
+
+    code, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert code == 200
+    assert [p['operation'] for _, p in fake.invocations] == ['get_document_with_content']
+    assert fake.invocations[0][1]['params'] == {
+        'iep_id': 'iep-1', 'child_id': 'child-1', 'user_id': USER}
+    assert body['summaries']['en'] == 'migrated summary'
+
+
+def test_a_processing_row_that_still_holds_inline_content_is_still_migrated(api, monkeypatch):
+    """The skip is about having nothing to move, not about the status word."""
+    profile_with_child(api)
+    put_document(api, status='PROCESSING', summaries={'en': 'old inline summary'})
+    fake = fake_ddb_service(api, monkeypatch, lambda payload: {
+        'statusCode': 200, 'body': json.dumps({'summaries': {'en': 'migrated summary'}})})
+
+    call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert len(fake.invocations) == 1
 
 
 def test_the_inline_row_a_failed_migration_falls_back_to_is_substituted_too(api, monkeypatch):

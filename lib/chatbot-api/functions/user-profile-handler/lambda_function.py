@@ -849,6 +849,16 @@ def _document_updated_at(doc: Dict):
     return max(known) if known else ''
 
 
+def _has_inline_content(doc: Dict) -> bool:
+    """Whether a row still carries its content inline (the pre-S3 layout).
+
+    That is the only thing the lazy migration can act on: ddb-service's
+    migrate_dynamodb_to_s3 returns "no content to migrate" for a row without
+    any, whatever its status.
+    """
+    return any(doc.get(field) for field in CONTENT_FIELDS)
+
+
 def get_child_documents(event: Dict) -> Dict:
     """
     Get document associated with a specific child.
@@ -941,6 +951,15 @@ def get_child_documents(event: Dict) -> Dict:
                                 'document_index': {},
                                 'abbreviations': {}
                             })
+                    elif not _has_inline_content(doc):
+                        # No content anywhere yet, which is the normal state of
+                        # a row in PENDING_UPLOAD or PROCESSING: the pipeline
+                        # has not written any. The migration has nothing to
+                        # move (ddb-service answers "no content to migrate"),
+                        # so invoking it is a synchronous call to a cold
+                        # lambda (~1s) that hands back the same empty content.
+                        # 42% of document reads took that detour.
+                        latest_doc.update({field: {} for field in CONTENT_FIELDS})
                     else:
                         # Old format: migrate to S3 (lazy migration)
                         print(f"Migrating {doc['iepId']}/{doc['childId']} to S3 (lazy migration)")
