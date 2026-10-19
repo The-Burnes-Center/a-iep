@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/images/aiep-logo-vertical.svg" />
+    <!-- Fetched by app-configured.tsx before anything renders. Requested here so
+         the download starts while the HTML is still parsing, not after the JS
+         bundle has run. Same URL and credentials mode as that fetch
+         (same-origin), or the browser would discard the preload. -->
+    <link rel="preload" href="/aws-exports.json" as="fetch" crossorigin />
+    <!-- Bootstrap, LTR build. Declared here rather than injected by the JS so
+         the request starts with the document. src/common/direction.ts swaps the
+         href to the RTL build for Arabic, and only then. It must come before the
+         icon font and every other stylesheet so custom CSS keeps winning the
+         cascade. -->
+    <link id="bootstrap-css" rel="stylesheet" href="/vendor/bootstrap.min.css" />
     <!-- Icon font is served from public/vendor (synced by scripts/sync-bootstrap.cjs)
          instead of being imported in main.tsx: Vite 4 production builds leave the
          font url()s as unreplaced __VITE_ASSET__ placeholders, breaking every bi-* glyph -->
