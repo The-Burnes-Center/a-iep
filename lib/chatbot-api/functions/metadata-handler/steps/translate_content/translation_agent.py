@@ -72,16 +72,7 @@ class OptimizedTranslationAgent:
         Designed for single-language, high-performance translation.
         """
         _use_bounded_openai_client(api_key)
-        self.language_context_tool = self._create_language_context_tool()
         self.terminology_tool = self._create_terminology_tool()
-
-    def _create_language_context_tool(self):
-        """Create tool to get language-specific translation context"""
-        @function_tool()
-        def get_language_context_for_translation(target_language: str) -> str:
-            """Get comprehensive translation guidelines for target language"""
-            return get_language_context(target_language)
-        return get_language_context_for_translation
 
     def _create_terminology_tool(self):
         """Create tool to access IEP-specific terminology translations"""
@@ -130,7 +121,6 @@ class OptimizedTranslationAgent:
                 model=model,
                 instructions=system_prompt,
                 tools=[
-                    self.language_context_tool,
                     self.terminology_tool
                 ],
                 model_settings=ModelSettings(
@@ -184,11 +174,10 @@ TRANSLATION TASK:
 Translate English {content_description} to {target_language} while preserving JSON structure.
 
 TOOLS AVAILABLE:
-1. get_language_context_for_translation() - Get comprehensive guidelines for target language
-2. get_iep_terminology() - Look up specific IEP term translations
+1. get_iep_terminology() - Look up specific IEP term translations
 
 WORKFLOW:
-1. FIRST: Call get_language_context_for_translation("{target_language}") to get language guidelines
+1. The language guidelines and the glossary of IEP terms are already in this prompt, under LANGUAGE CONTEXT below. Do not call a tool to fetch them.
 2. For any IEP-specific terms, use get_iep_terminology(term, "{target_language}")
 3. Apply language guidelines consistently throughout translation
 4. Maintain exact JSON structure and field names
@@ -211,7 +200,7 @@ OUTPUT FORMAT: {output_format}
 
 LANGUAGE CONTEXT: {language_context}
 
-Remember: Use tools to ensure translation accuracy and consistency!
+Remember: apply the language context above consistently, and use get_iep_terminology for any term you are unsure of.
         '''
 
     def _parse_translation_result(self, raw_output, content_type):

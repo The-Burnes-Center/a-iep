@@ -70,8 +70,7 @@ The IEP processing workflow uses comprehensive status tracking with real-time pr
 - **Model**: OpenAI GPT-4.1 (default)
 - **Instructions**: Translation-specific prompts in `steps/translate_content/translation_agent.py`
 - **Tools**:
-  - `get_language_context_for_translation`: Provides language context for translation
-  - `get_iep_terminology`: Look up specific IEP term translations
+  - `get_iep_terminology`: Look up specific IEP term translations (the language guidelines and glossary are in the prompt itself, not behind a tool)
 
 ### Agent Execution Flow
 - The parsing agent extracts the English structure (summaries, sections, document index, abbreviations)
