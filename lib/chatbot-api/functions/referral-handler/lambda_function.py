@@ -1,15 +1,19 @@
 """Referral system handler.
 
 One Lambda behind four kinds of routes:
-  POST /referral/click              public: count a link visit
+  POST /referral/click              public: count a link visit, mint a click id
   GET  /referral/me                 caller's personal code + stats
   POST /referral/attribute          stamp the caller's signup attribution
+                                    (takes the click id, never a client time)
   *    /referral/admin/...          campaign-link CRUD + metrics ('admin' group only)
 
 Data model (REFERRALS_TABLE, PK 'code', SK 'sk'):
   sk 'META'                 the link: type 'campaign'|'user', ownerUserId,
                             name/channel/notes, active, clicks, signups
   sk 'EVT#CLICK#<ts>#<id>'  click event (ttl ~400 days)
+  sk 'CLICK#<clickId>'      the server's record of one click: atMs is the
+                            SERVER time it arrived (ttl ~400 days). This, not
+                            anything the client says, is when the click happened
   sk 'EVT#SIGNUP#<ts>#<id>' signup event (kept; carries referredUserId)
 
 Privacy: no IP addresses or user agents are stored, click events expire via
@@ -49,16 +53,23 @@ CODE_PATTERN = re.compile(r'^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$')
 CODE_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz'
 CODE_LENGTH = 6
 
-# Attribution requires the click to have happened at or before signup (the
-# client sends when it captured the code); CAPTURE_GRACE_MS only absorbs
-# client/server clock skew, not a real gap. Account age alone doesn't prove
-# the click caused the signup: an existing user who clicks a link later is
-# still "new" by that measure for their first week.
-CAPTURE_GRACE_MS = 10 * 60 * 1000
-# Defense in depth: the client already discards pending codes older than 30
-# days, so a much-older capture reaching here implies tampering, not a slow
-# signup.
+# Attribution requires the click to have happened at or before signup. When
+# the click happened is the server's own record of it (the CLICK# item written
+# by /referral/click), never a time the client supplies. Both sides of the
+# comparison are now server clocks, so the grace only absorbs the ordering of a
+# beacon that lands just as a fast signup completes, plus the profile's
+# second-resolution createdAt. Account age alone doesn't prove the click caused
+# the signup: an existing user who clicks a link later is still "new" by that
+# measure for their first week.
+CAPTURE_GRACE_MS = 60 * 1000
+# The client already discards pending codes older than 30 days, so a click the
+# server recorded much longer before signup than that is not a slow signup.
 MAX_CAPTURE_AGE_DAYS = 35
+# A click id is opaque to the server: the client mints a random one (a beacon
+# cannot read a response) or the server does. 16+ characters keeps it
+# unguessable; the alphabet keeps it safe to embed in a sort key.
+CLICK_ID_PATTERN = re.compile(r'^[A-Za-z0-9_-]{16,64}$')
+CLICK_ID_SK_PREFIX = 'CLICK#'
 CLICK_EVENT_TTL_DAYS = 400
 CHANNELS = ['social', 'conference', 'event', 'print', 'partner', 'other']
 
@@ -85,6 +96,10 @@ def now_iso():
 
 def now_epoch_seconds():
     return int(datetime.now(timezone.utc).timestamp())
+
+
+def now_epoch_ms():
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
 
 
 def create_response(event, status_code, body):
@@ -232,16 +247,52 @@ def bump_counter(code, counter):
 # ---------------------------------------------------------------------------
 # Public
 
+def normalize_click_id(value):
+    """A well-formed client-supplied click id, or None."""
+    if isinstance(value, str) and CLICK_ID_PATTERN.match(value):
+        return value
+    return None
+
+
+def record_click(code, click_id):
+    """Store the server's record of a click, once. Returns False when this
+    click id was already recorded: the first server timestamp stands, so
+    replaying an id can neither move it later nor count the click twice."""
+    try:
+        referrals_table.put_item(
+            Item={
+                'code': code,
+                'sk': f'{CLICK_ID_SK_PREFIX}{click_id}',
+                'kind': 'clickid',
+                'at': now_iso(),
+                'atMs': now_epoch_ms(),
+                'ttl': now_epoch_seconds() + CLICK_EVENT_TTL_DAYS * 86400,
+            },
+            ConditionExpression='attribute_not_exists(sk)',
+        )
+        return True
+    except referrals_table.meta.client.exceptions.ConditionalCheckFailedException:
+        return False
+
+
 def handle_click(event):
-    """Count a link visit. Always answers 200 so callers can't probe which
-    codes exist; only known active codes are counted."""
-    code = normalize_code(parse_body(event).get('code'))
+    """Count a link visit and answer with a click id. Always answers 200 with
+    the same shape so callers can't probe which codes exist; only known active
+    codes are counted or recorded.
+
+    The id is what /referral/attribute later trusts for WHEN the click
+    happened. A client that cannot read a response (sendBeacon) mints its own
+    and sends it; otherwise the server mints one. Either way the timestamp is
+    the server's, taken when the id is first seen."""
+    body = parse_body(event)
+    click_id = normalize_click_id(body.get('clickId')) or secrets.token_urlsafe(16)
+    code = normalize_code(body.get('code'))
     if code:
         meta = get_meta(code)
-        if meta and meta.get('active'):
+        if meta and meta.get('active') and record_click(code, click_id):
             bump_counter(code, 'clicks')
             put_event(code, 'click')
-    return create_response(event, 200, {'ok': True})
+    return create_response(event, 200, {'ok': True, 'clickId': click_id})
 
 
 # ---------------------------------------------------------------------------
@@ -332,10 +383,11 @@ def handle_attribute(event):
     if not code:
         return rejected('invalid_code')
 
-    captured_at = body.get('capturedAt')
-    if not isinstance(captured_at, (int, float)) or captured_at <= 0:
-        return rejected('invalid_capture')
-    captured_at = int(captured_at)
+    # Any capturedAt in the body is ignored on purpose: it is client-supplied,
+    # so honouring it would let a caller choose when their click happened.
+    click_id = normalize_click_id(body.get('clickId'))
+    if not click_id:
+        return rejected('invalid_click')
 
     meta = get_meta(code)
     if not meta or not meta.get('active'):
@@ -358,12 +410,22 @@ def handle_attribute(event):
     if created_ms < 10**12:  # tolerate second-resolution timestamps
         created_ms *= 1000
 
-    # The click must precede signup (small grace for clock skew): this is
-    # what actually distinguishes "this link brought in a new user" from "an
+    # The click the server recorded under this id, with the server's time.
+    click = referrals_table.get_item(
+        Key={'code': code, 'sk': f'{CLICK_ID_SK_PREFIX}{click_id}'},
+    ).get('Item')
+    if not click:
+        return rejected('unknown_click')
+    clicked_ms = int(click.get('atMs') or 0)
+    if clicked_ms <= 0:
+        return rejected('unknown_click')
+
+    # The click must precede signup (small grace for ordering): this is what
+    # actually distinguishes "this link brought in a new user" from "an
     # existing user later clicked a link". Account age alone doesn't do that.
-    if captured_at > created_ms + CAPTURE_GRACE_MS:
+    if clicked_ms > created_ms + CAPTURE_GRACE_MS:
         return rejected('click_after_signup')
-    if created_ms - captured_at > MAX_CAPTURE_AGE_DAYS * 86400000:
+    if created_ms - clicked_ms > MAX_CAPTURE_AGE_DAYS * 86400000:
         return rejected('capture_too_old')
 
     try:

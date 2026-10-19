@@ -28,9 +28,11 @@ export class ReferralClient {
    * fetch fallback stays a "simple" CORS request (no preflight) because it
    * sets no Content-Type header.
    */
-  logClick(code: string): void {
+  logClick(code: string, clickId: string): void {
     const url = `${this.API}/referral/click`;
-    const payload = JSON.stringify({ code });
+    // The client mints the id because a beacon cannot read a reply; the
+    // server stamps its own time on it when it first arrives.
+    const payload = JSON.stringify({ code, clickId });
     try {
       if (typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(url, payload)) {
         return;
@@ -58,11 +60,12 @@ export class ReferralClient {
   }
 
   /**
-   * capturedAt (client Date.now() from the moment the code was captured) lets
-   * the backend confirm the click actually preceded signup, rather than
-   * just checking the account is new.
+   * clickId is the id this browser sent with its click beacon. The backend
+   * looks up the time IT recorded for that click to confirm the click
+   * preceded signup; no client-side time is sent, because one could be made
+   * up.
    */
-  async attribute(code: string, capturedAt: number): Promise<{ attributed: boolean; reason?: string }> {
+  async attribute(code: string, clickId: string): Promise<{ attributed: boolean; reason?: string }> {
     const auth = await Utils.authenticate();
     const response = await fetch(`${this.API}/referral/attribute`, {
       method: 'POST',
@@ -72,7 +75,7 @@ export class ReferralClient {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
-      body: JSON.stringify({ code, capturedAt })
+      body: JSON.stringify({ code, clickId })
     });
     if (!response.ok) {
       throw new Error('Failed to record referral');

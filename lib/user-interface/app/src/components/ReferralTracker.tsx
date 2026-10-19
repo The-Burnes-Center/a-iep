@@ -25,10 +25,11 @@ export default function ReferralTracker() {
 
   useEffect(() => {
     const code = normalizeReferralCode(new URLSearchParams(location.search).get('ref'));
-    // storePendingReferral is true only on first capture, so a ?ref= that
-    // sticks around across navigations is counted as one click
-    if (code && appContext && storePendingReferral(code)) {
-      new ApiClient(appContext).referral.logClick(code);
+    // storePendingReferral returns a capture only the first time, so a ?ref=
+    // that sticks around across navigations is counted as one click
+    const capture = code && appContext ? storePendingReferral(code) : null;
+    if (capture && appContext) {
+      new ApiClient(appContext).referral.logClick(capture.code, capture.clickId);
     }
   }, [location.search, appContext]);
 
@@ -38,7 +39,7 @@ export default function ReferralTracker() {
     if (!pending) return;
     attributing.current = true;
     new ApiClient(appContext).referral
-      .attribute(pending.code, pending.capturedAt)
+      .attribute(pending.code, pending.clickId)
       // A 200 means the server decided (attributed or rejected): done either
       // way. Only a network/server failure leaves the code pending for a
       // retry on the next visit.

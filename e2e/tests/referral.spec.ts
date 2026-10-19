@@ -6,14 +6,14 @@
  * This is the only journey coverage the referral system has (it shipped to
  * production 2026-08-04 with manual testing only), and it exercises the whole
  * chain: GET /referral/me mints the personal code, /r/<code> stores the
- * pending capture and fires the public click beacon, and after the new
+ * pending capture (with a click id) and fires the public click beacon, and after the new
  * account's first login ReferralTracker posts /referral/attribute, whose
  * server-side guards (active code, no self-referral, unattributed profile,
  * click-before-signup) all have to pass for the stats to move.
  *
  * Ordering that matters: the burner visits /r/<code> BEFORE its first login.
- * The attribute lambda rejects captures newer than the profile row
- * ('click_after_signup'), and the profile row is created during first login —
+ * The attribute lambda rejects clicks its own clock recorded after
+ * the profile row was created ('click_after_signup'), and the profile row is created during first login —
  * so capture first, then log in, exactly like a real invited parent.
  *
  * Two browser contexts on purpose: the referrer stays signed in on one while
