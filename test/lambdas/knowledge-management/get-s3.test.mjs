@@ -89,23 +89,70 @@ test('always lists under the caller prefix', async () => {
 test('continuation token is accepted from the event or the HTTP body', async () => {
     await handler(listEvent({ continuationToken: 'tok-direct' }));
     await handler(listEvent({ body: JSON.stringify({ continuationToken: 'tok-body' }) }));
-    await handler(listEvent({ body: 'not json' }));
+    await handler(listEvent({ body: JSON.stringify({}) }));
 
     const tokens = s3Mock.commandCalls(ListObjectsV2Command)
         .map((c) => c.args[0].input.ContinuationToken);
     expect(tokens).toEqual(['tok-direct', 'tok-body', undefined]);
 });
 
-test('an S3 failure is a 500', async () => {
-    s3Mock.on(ListObjectsV2Command).rejects(new Error('S3 down'));
+describe('malformed request bodies', () => {
+    test.each([
+        ['not JSON', 'not json'],
+        ['an array', '[1,2]'],
+        ['a string', '"tok"'],
+        ['a non-string token', JSON.stringify({ continuationToken: 42 })],
+    ])('a body that is %s -> 400 with the reason logged, and no S3 call', async (_label, body) => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            const response = await handler(listEvent({ body }));
+            expect(response.statusCode).toBe(400);
+            expect(warn).toHaveBeenCalledTimes(1);
+            expect(s3Mock.commandCalls(ListObjectsV2Command)).toHaveLength(0);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+});
+
+test('an S3 failure is a generic 503', async () => {
+    s3Mock.on(ListObjectsV2Command).rejects(new Error(`S3 down for ${BUCKET}`));
     const error = jest.spyOn(console, 'error').mockImplementation(() => {});
     try {
         const response = await handler(listEvent());
-        expect(response.statusCode).toBe(500);
-        // Generic to the caller, detailed in CloudWatch.
-        expect(JSON.parse(response.body).message).not.toContain('S3 down');
+        expect(response.statusCode).toBe(503);
+        // Generic to the caller: no bucket name, no SDK text.
+        expect(response.body).not.toContain('S3 down');
+        expect(response.body).not.toContain(BUCKET);
         expect(error).toHaveBeenCalled();
     } finally {
+        error.mockRestore();
+    }
+});
+
+test('every response says no-store, including the refusals', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+        const ok = await handler(listEvent());
+        const refused = await handler(listEvent({ body: 'not json' }));
+        expect(ok.headers['Cache-Control']).toBe('no-store');
+        expect(refused.headers['Cache-Control']).toBe('no-store');
+    } finally {
+        warn.mockRestore();
+    }
+});
+
+test('a missing bucket setting is a logged 500, not a listing of nothing', async () => {
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const saved = process.env.BUCKET;
+    delete process.env.BUCKET;
+    try {
+        const response = await handler(listEvent());
+        expect(response.statusCode).toBe(500);
+        expect(s3Mock.commandCalls(ListObjectsV2Command)).toHaveLength(0);
+        expect(error.mock.calls.flat().join(' ')).toMatch(/BUCKET/);
+    } finally {
+        process.env.BUCKET = saved;
         error.mockRestore();
     }
 });
