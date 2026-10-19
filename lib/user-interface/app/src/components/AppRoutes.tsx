@@ -1,41 +1,16 @@
-import React, { useEffect } from 'react';
+import React, { lazy, useEffect } from 'react';
 import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { trackPageView } from '../common/helpers/analytics-helper';
 
 // Auth components
 import LoginRedirect from './LoginRedirect';
 
-// Public pages
+// Public pages. These are on the logged-out path (the landing page, its
+// public siblings and the hub), so they stay in the main bundle.
 import LandingPage from '../pages/LandingPage';
-
-// Public and Protected pages
-import SupportCenter from '../pages/profile/SupportCenter';
-import AboutApp from '../pages/profile/AboutApp';
-
-// Protected pages
-import PreferredLanguage from '../pages/profile/PreferredLanguage';
-import OnboardingUser from '../pages/profile/OnboardingUser';
-import UserProfileForm from '../pages/profile/UserProfileForm';
-import IEPDocumentView from '../pages/iep-folder/IEPDocumentView';
-import SummaryAndTranslationsPage from '../pages/iep-folder/SummaryAndTranslationsPage';
-import ViewAndAddChild from '../pages/profile/ViewAndAddChild';
-import UpdateProfileName from '../pages/profile/UpdateProfileName';
-import RevokeConsent from '../pages/profile/RevokeConsent';
-import RightsAndOnboarding from '../pages/RightsAndOnboarding';
-import ConsentForm from '../pages/profile/ConsentForm';
-import HowToUseTool from '../pages/profile/HowToUseTool';
-import HaveIepPdf from '../pages/profile/HaveIepPdf';
-import HowToAskForPdf from '../pages/profile/HowToAskForPdf';
-import HowWeProtectYourPrivacy from '../pages/profile/HowWeProtectYourPrivacy';
 import FrequentlyAskedQuestions from '../components/FrequentlyAskedQuestions';
 import AIEPHub from '../components/AIEPHub';
-import ParentRightsCarousel from '../components/ParentRightsCarousel';
-import AccountCenter from '../pages/profile/AccountCenter';
-import AboutAIEP from '../components/AboutAIEP';
-import DeleteAccount from '../pages/profile/DeleteAccount';
-import ChangeLanguage from '../pages/profile/ChangeLanguage';
-import ViewResources from '../pages/profile/ViewResources';
-import ParentRights from '../pages/ParentRights';
+import AboutApp from '../pages/profile/AboutApp';
 import PrivacyPolicy from '../pages/PrivacyPolicy';
 
 // Navigation behaviour shared by every route
@@ -46,16 +21,42 @@ import { PublicChrome } from './RouteChrome';
 // Referral system
 import ReferralRedirect from './ReferralRedirect';
 import ReferralTracker from './ReferralTracker';
-import InvitePage from '../pages/profile/InvitePage';
-import AdminReferrals from '../pages/admin/AdminReferrals';
 
 // Route guards
 import { ProtectedRoute } from './ProtectedRoute';
 import { ConsentGate } from './ConsentGate';
 
+// Protected pages. Each one is its own chunk, fetched the first time a signed-in
+// parent opens it, so the landing page does not download the whole app. The
+// fallback is the in-app shell's loading state (see InAppChrome).
+const SupportCenter = lazy(() => import('../pages/profile/SupportCenter'));
+const PreferredLanguage = lazy(() => import('../pages/profile/PreferredLanguage'));
+const OnboardingUser = lazy(() => import('../pages/profile/OnboardingUser'));
+const UserProfileForm = lazy(() => import('../pages/profile/UserProfileForm'));
+const IEPDocumentView = lazy(() => import('../pages/iep-folder/IEPDocumentView'));
+const SummaryAndTranslationsPage = lazy(() => import('../pages/iep-folder/SummaryAndTranslationsPage'));
+const ViewAndAddChild = lazy(() => import('../pages/profile/ViewAndAddChild'));
+const UpdateProfileName = lazy(() => import('../pages/profile/UpdateProfileName'));
+const RevokeConsent = lazy(() => import('../pages/profile/RevokeConsent'));
+const RightsAndOnboarding = lazy(() => import('../pages/RightsAndOnboarding'));
+const ConsentForm = lazy(() => import('../pages/profile/ConsentForm'));
+const HowToUseTool = lazy(() => import('../pages/profile/HowToUseTool'));
+const HaveIepPdf = lazy(() => import('../pages/profile/HaveIepPdf'));
+const HowToAskForPdf = lazy(() => import('../pages/profile/HowToAskForPdf'));
+const HowWeProtectYourPrivacy = lazy(() => import('../pages/profile/HowWeProtectYourPrivacy'));
+const ParentRightsCarousel = lazy(() => import('../components/ParentRightsCarousel'));
+const AccountCenter = lazy(() => import('../pages/profile/AccountCenter'));
+const AboutAIEP = lazy(() => import('../components/AboutAIEP'));
+const DeleteAccount = lazy(() => import('../pages/profile/DeleteAccount'));
+const ChangeLanguage = lazy(() => import('../pages/profile/ChangeLanguage'));
+const ViewResources = lazy(() => import('../pages/profile/ViewResources'));
+const ParentRights = lazy(() => import('../pages/ParentRights'));
+const InvitePage = lazy(() => import('../pages/profile/InvitePage'));
+const AdminReferrals = lazy(() => import('../pages/admin/AdminReferrals'));
+
 export default function AppRoutes() {
   const location = useLocation();
-  
+
   // Track page views when location changes
   useEffect(() => {
     trackPageView(location.pathname + location.search);
@@ -109,7 +110,7 @@ export default function AppRoutes() {
       <Route element={<ProtectedRoute />}>
         {/* Landing page after login - now at /preferred-language */}
         <Route path="/preferred-language" element={<PreferredLanguage />} />
-        
+
         {/* Onboarding flow */}
         <Route path="/onboarding-user" element={<OnboardingUser />} />
         <Route path="/consent-form" element={<ConsentForm />} />
@@ -123,7 +124,7 @@ export default function AppRoutes() {
         <Route path="/do-you-have-pdf" element={<HaveIepPdf />} />
         <Route path="/how-to-ask-for-pdf" element={<HowToAskForPdf />} />
         <Route path="/about-the-app" element={<AboutApp />} />
-        
+
         {/* Main app pages */}
         {/* Consent is required to use the IEP tool itself; onboarding and
             account routes stay reachable because consent is collected as
@@ -132,7 +133,7 @@ export default function AppRoutes() {
           <Route path="/iep-documents" element={<IEPDocumentView />} />
           <Route path="/summary-and-translations" element={<SummaryAndTranslationsPage />} />
         </Route>
-        
+
         {/* Profile & Settings */}
         <Route path="/profile" element={<UserProfileForm />} />
         <Route path="/account-center" element={<AccountCenter />} />
@@ -140,16 +141,16 @@ export default function AppRoutes() {
         <Route path="/account-center/delete-account" element={<DeleteAccount />} />
         <Route path="/account-center/change-language" element={<ChangeLanguage />} />
         <Route path="/support-center" element={<SupportCenter />} />
-        
+
         {/* Children & Parents */}
         <Route path="/view-update-add-child" element={<ViewAndAddChild />} />
-        
+
         {/* Rights & Resources */}
         <Route path="/rights-and-onboarding" element={<RightsAndOnboarding />} />
         <Route path="/parent-rights" element={<ParentRights />} />
         <Route path="/rights-of-parents" element={<ParentRightsCarousel />} />
         <Route path="/view-resources" element={<ViewResources />} />
-        
+
         {/* Other pages */}
         <Route path="/revoke-consent" element={<RevokeConsent />} />
         <Route path="/frequently-asked-questions" element={<FrequentlyAskedQuestions />} />
@@ -169,4 +170,3 @@ export default function AppRoutes() {
     </>
   );
 }
-
