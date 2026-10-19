@@ -61,6 +61,7 @@
 
 /* Banner Carousel Wrapper */
 .banner-carousel-wrapper {
+    position: relative;
     width: 100%;
     max-width: 90%;
     border-radius: 12px;
@@ -172,30 +173,55 @@
     transform: rotate(90deg);
 }
 
-/* Banner Carousel Indicators */
-.banner-carousel .carousel-indicators {
+/* Banner dots: our own buttons, not react-bootstrap's (indicators={false}).
+   The button is the 24px target WCAG 2.2 asks for; the 8px dot inside it is
+   what the parent sees. Positioned on both edges, so the row centres itself
+   under RTL too; the flex row reverses the dot order on its own. */
+.banner-dots {
+    position: absolute;
+    left: 0;
+    right: 0;
     bottom: 1rem;
     z-index: 3;
-    margin-bottom: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
 }
 
-.banner-carousel .carousel-indicators [data-bs-target] {
+.banner-dot {
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.banner-dot::before {
+    content: '';
     width: 8px;
     height: 8px;
     border-radius: 50%;
     border: 0.5px solid #1E1E1E;
     background-color: #F5F3EE;
-    margin: 0 4px;
-    transition: all 0.3s ease;
+    transition: background-color 0.3s ease;
 }
 
-.banner-carousel .carousel-indicators .active {
+.banner-dot.active::before {
     background-color: #00682F;
-    border-color: none;
 }
 
-.banner-carousel .carousel-indicators [data-bs-target]:focus {
-    outline: none !important;
+.banner-dot:focus-visible {
+    outline: 2px solid #0040BA;
     outline-offset: 2px;
 }
 
@@ -216,11 +242,6 @@
 .banner-carousel .carousel-item-next,
 .banner-carousel .carousel-item-prev {
     display: flex;
-}
-
-.banner-carousel .carousel-indicators [data-bs-target]:focus {
-    outline: 2px solid #0040BA;
-    outline-offset: 2px;
 }
 
 /* Media Queries */
