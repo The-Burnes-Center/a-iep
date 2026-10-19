@@ -41,6 +41,12 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 // an exclude for exactly the same reason.
 const PYTHON_ASSET_EXCLUDES = ['__pycache__'];
 
+// Step lambda timeouts, each above its state's TimeoutSeconds (see the
+// comment where they are used).
+const MISTRAL_OCR_TIMEOUT_SECONDS = 150;
+const PARSING_AGENT_TIMEOUT_SECONDS = 300;
+const TRANSLATE_CONTENT_TIMEOUT_SECONDS = 300;
+
 /**
  * Let a function delete from the knowledge bucket permanently.
  *
@@ -430,10 +436,17 @@ export class LambdaFunctionStack extends cdk.Stack {
     // Create core business logic step functions (no more individual DDB operations)
     // Note: Removed updateDDBStartFunction - replaced by DDB service calls
 
+    // Each step lambda's own timeout sits just above its state's TimeoutSeconds
+    // in lib/chatbot-api/state-machines/. Step Functions stops waiting when the
+    // state times out but does not cancel the lambda, so a lambda with a longer
+    // timeout keeps running after the state has moved on. MistralOCR and
+    // RedactOCR: state 120s. ParsingAgent and TranslateContent: state 240s
+    // (TranslateContent is also invoked by the single-language machine, whose
+    // TranslateRequestedLanguage state is 240s).
     this.mistralOCRFunction = createStepFunctionLambda(
-      'MistralOCRFunction', 
+      'MistralOCRFunction',
       'metadata-handler/steps/mistral_ocr',
-      600
+      MISTRAL_OCR_TIMEOUT_SECONDS
     );
 
     this.redactOCRFunction = createStepFunctionLambda(
@@ -451,7 +464,7 @@ export class LambdaFunctionStack extends cdk.Stack {
     this.parsingAgentFunction = createStepFunctionLambda(
       'ParsingAgentFunction',
       'metadata-handler/steps/parsing_agent',
-      900
+      PARSING_AGENT_TIMEOUT_SECONDS
     );
 
     // Note: Removed saveEnglishFunction, saveFinalFunction, recordFailureFunction - replaced by DDB service calls
@@ -466,7 +479,7 @@ export class LambdaFunctionStack extends cdk.Stack {
     this.translateContentFunction = createStepFunctionLambda(
       'TranslateContentFunction',
       'metadata-handler/steps/translate_content',
-      600
+      TRANSLATE_CONTENT_TIMEOUT_SECONDS
     );
 
 
@@ -628,7 +641,7 @@ export class LambdaFunctionStack extends cdk.Stack {
     // document back to PROCESSED.
     //
     // Why a state machine rather than an async lambda invoke from the API:
-    // TranslateContentFunction has a 600s timeout, twenty times API Gateway's
+    // TranslateContentFunction has a 300s timeout, ten times API Gateway's
     // 29s cap, and translate_content does not reset status — FinalizeResults
     // does. A fire-and-forget invoke would therefore strand every document at
     // PROCESSING_TRANSLATIONS forever, which is the state the frontend polls.

@@ -1851,6 +1851,7 @@ describe('encryption at rest and in transit', () => {
 describeDurableStoreRetention('staging', () => template);
 describeAppClientContract('staging', () => template);
 describeLambdaRuntimes('staging', () => template);
+describeStepTimeouts('staging', () => template);
 
 /**
  * Lambda runtimes that must hold in BOTH synthesized templates. Staging and
@@ -1878,6 +1879,40 @@ function describeLambdaRuntimes(envLabel: EnvLabel, getTemplate: () => Template)
       // Non-vacuity: the exemption above must match something, or it is not
       // exempting anything and the pin is hiding nothing.
       expect(functions.filter(({ logicalId }) => isInjected(logicalId)).length).toBeGreaterThanOrEqual(2);
+    });
+  });
+}
+
+/**
+ * Step lambda timeouts that must hold in BOTH synthesized templates.
+ */
+function describeStepTimeouts(envLabel: EnvLabel, getTemplate: () => Template) {
+  describe(`step lambda timeouts (${envLabel})`, () => {
+    // WHY: Step Functions stops waiting for a state at its TimeoutSeconds but
+    // does not cancel the lambda behind it. A lambda timeout at or below its
+    // state's would be killed mid-write, and one far above keeps running after
+    // RecordFailure has purged, so each lambda sits just above its state. The
+    // pinned values are the ones the state timeouts in the ASL were sized for.
+    test('each step lambda outlives its state timeout and keeps its pinned value', () => {
+      const t = getTemplate();
+      const pipeline = parseStateMachineDefinition(t, 'IEPProcessingStateMachine').States;
+      const singleLanguage = parseStateMachineDefinition(t, 'SingleLanguageTranslationStateMachine').States;
+      const bounds: [string, number, number][] = [
+        ['MistralOCRFunction', 150, pipeline.MistralOCR.TimeoutSeconds],
+        ['ParsingAgentFunction', 300, pipeline.ParsingAgent.TimeoutSeconds],
+        // TranslateContent serves both machines, so it outlives the longer of
+        // its two states (both 240s today).
+        ['TranslateContentFunction', 300, Math.max(
+          pipeline.TranslateParsingResult.TimeoutSeconds,
+          singleLanguage.TranslateRequestedLanguage.TimeoutSeconds,
+        )],
+      ];
+      for (const [hint, lambdaTimeout, stateTimeout] of bounds) {
+        const fns = resourcesMatching(t, 'AWS::Lambda::Function', hint);
+        expect(fns).toHaveLength(1);
+        expect(fns[0][1].Properties.Timeout).toBe(lambdaTimeout);
+        expect(lambdaTimeout).toBeGreaterThan(stateTimeout);
+      }
     });
   });
 }
@@ -2788,6 +2823,7 @@ describe('production synth: the OTP test backdoor must not exist', () => {
   describeDurableStoreRetention('production', () => prodTemplate);
   describeAppClientContract('production', () => prodTemplate);
   describeLambdaRuntimes('production', () => prodTemplate);
+  describeStepTimeouts('production', () => prodTemplate);
 });
 
 describe('custom-certificate synth: the CloudFront TLS floor', () => {
