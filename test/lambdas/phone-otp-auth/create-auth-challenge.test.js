@@ -228,6 +228,50 @@ describe('create-auth-challenge', () => {
         expect(Message).not.toContain(PHONE);
     });
 
+    // The profile read that picks the language is independent of the policy
+    // read, so the two overlap. Only reads overlap: every counter write still
+    // waits for the destination check, which is what the second test pins.
+    test('the language lookup runs while the SMS policy is still being read', async () => {
+        process.env.USER_PROFILES_TABLE = 'test-profiles-table';
+        process.env.SMS_POLICY_PARAM_PREFIX = '/a-iep/test/sms-policy';
+        let releasePolicy;
+        mockSsmSend.mockImplementation(() => new Promise((resolve) => {
+            releasePolicy = () => resolve({ Parameters: [] });
+        }));
+        mockDdbSend.mockImplementation(async (cmd) => {
+            if (cmd instanceof UpdateCommand) return { Attributes: { smsCount: 1 } };
+            return { Item: { secondaryLanguage: 'es' } };
+        });
+
+        const pending = handler(baseEvent([HANDSHAKE_PASS]));
+        await new Promise((resolve) => setImmediate(resolve));
+
+        // Policy still unresolved, yet the profile has already been asked for,
+        // and nothing has been counted or sent.
+        const asked = mockDdbSend.mock.calls.map(([cmd]) => cmd.input.TableName);
+        expect(asked).toEqual(['test-profiles-table']);
+        expect(updateCalls()).toHaveLength(0);
+        expect(mockSnsSend).not.toHaveBeenCalled();
+
+        releasePolicy();
+        const event = await pending;
+        const code = event.response.privateChallengeParameters.secretLoginCode;
+        expect(mockSnsSend.mock.calls[0][0].input.Message)
+            .toBe(getMessages('es').otpLoginSms.replace('{code}', code).replace('{minutes}', 5));
+    });
+
+    test('starting the language lookup early does not let a refused destination spend anything', async () => {
+        process.env.USER_PROFILES_TABLE = 'test-profiles-table';
+        const event = await handler(baseEvent([HANDSHAKE_PASS], {
+            userAttributes: { phone_number: '+442071838750' },
+        }));
+
+        expect(event.response.publicChallengeParameters).toEqual(UNSUPPORTED_SHAPE);
+        expect(mockSnsSend).not.toHaveBeenCalled();
+        // No counter row, global or per-recipient: the checks stayed in order.
+        expect(updateCalls()).toHaveLength(0);
+    });
+
     test('reuses the previous OTP inside the 5-minute window without re-texting', async () => {
         const previous = otpMetadata('654321', 60 * 1000);
         const event = await handler(baseEvent([HANDSHAKE_PASS, {

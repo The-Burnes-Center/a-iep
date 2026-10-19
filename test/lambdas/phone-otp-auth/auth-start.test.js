@@ -283,6 +283,54 @@ describe('auth start', () => {
         expect(errors.join('\n')).toContain('secret-unreadable');
     });
 
+    // The secret read is started before the counters so a cold container pays
+    // for the two in parallel. Both halves are pinned: it really does overlap,
+    // and starting it early never changes what a refused request costs.
+    test('the secret read starts while the rate-limit counters are still running', async () => {
+        let releaseCounter;
+        mockDdbSend.mockImplementation(() => new Promise((resolve) => {
+            releaseCounter = () => resolve({ Attributes: { attempts: 1 } });
+        }));
+
+        const pending = load()(request());
+        // Let the handler run up to its first await: the per-source counter.
+        await new Promise((resolve) => setImmediate(resolve));
+
+        expect(mockSsmSend).toHaveBeenCalledTimes(1);
+        expect(putCalls()).toHaveLength(0);
+
+        // Drain both counters (each is a separate DynamoDB call) and finish.
+        mockDdbSend.mockResolvedValue({ Attributes: { attempts: 1 } });
+        releaseCounter();
+        const response = await pending;
+        expect(response.statusCode).toBe(200);
+    });
+
+    test('a refused request whose secret read fails leaves no unhandled rejection', async () => {
+        // Rate limited AND the secret unreadable: the handler returns the 429
+        // without ever awaiting the read, which rejects with nobody listening
+        // unless the early start handled it.
+        mockDdbSend.mockResolvedValue({ Attributes: { attempts: 99 } });
+        mockSsmSend.mockRejectedValue(Object.assign(new Error('ssm down'), { name: 'InternalServerError' }));
+
+        const unhandled = [];
+        const onUnhandled = (reason) => unhandled.push(reason);
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            const response = await load()(request());
+            // Rejections are reported on a later turn of the event loop.
+            await new Promise((resolve) => setImmediate(resolve));
+            await new Promise((resolve) => setImmediate(resolve));
+
+            expect(response.statusCode).toBe(429);
+            expect(bodyOf(response).code).toBe('rate_limited');
+            expect(global.fetch).not.toHaveBeenCalled();
+            expect(unhandled).toEqual([]);
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+        }
+    });
+
     test('a failed bot check refuses, writes no challenge and queues no send', async () => {
         global.fetch.mockResolvedValue({
             ok: true, status: 200, json: async () => ({ success: false, 'error-codes': ['invalid-input-response'] }),
