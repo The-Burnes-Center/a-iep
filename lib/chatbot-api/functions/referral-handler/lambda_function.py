@@ -386,9 +386,13 @@ def handle_attribute(event):
 # Admin
 
 def kms_decrypt_string(ciphertext_b64):
-    """Decrypt an app-layer-encrypted profile field. Mirrors the helper in
-    user-profile-handler: values that are not valid ciphertext (legacy
-    plaintext rows, encryption disabled) are returned as-is."""
+    """Decrypt an app-layer-encrypted profile field.
+
+    Values that are not base64 at all (plaintext rows) are returned as-is.
+    When the value decodes but KMS cannot decrypt it, the result is None: the
+    caller must never receive the ciphertext, and the failure is logged by
+    error class only.
+    """
     if not ciphertext_b64 or not isinstance(ciphertext_b64, str):
         return ciphertext_b64
     try:
@@ -398,8 +402,8 @@ def kms_decrypt_string(ciphertext_b64):
     try:
         return kms_client.decrypt(CiphertextBlob=blob)['Plaintext'].decode('utf-8')
     except Exception as exc:
-        print(f"KMS decrypt failed, returning raw value: {type(exc).__name__}")
-        return ciphertext_b64
+        print(f"KMS decrypt failed, owner name withheld: {type(exc).__name__}")
+        return None
 
 
 def attach_owner_names(links):
@@ -421,7 +425,9 @@ def attach_owner_names(links):
         })
         for item in response.get('Responses', {}).get(user_profiles_table.name, []):
             if item.get('parentName'):
-                names[item['userId']] = kms_decrypt_string(item['parentName'])
+                name = kms_decrypt_string(item['parentName'])
+                if name is not None:
+                    names[item['userId']] = name
     for link in links:
         if link.get('type') == 'user':
             link['ownerName'] = names.get(link.get('ownerUserId'))

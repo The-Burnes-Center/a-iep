@@ -597,3 +597,33 @@ def test_every_response_says_no_store(referral):
     refused = referral.module.lambda_handler(api_event('/referral/me', 'GET'), None)
     assert ok['headers']['Cache-Control'] == 'no-store'
     assert refused['headers']['Cache-Control'] == 'no-store'
+
+
+def test_an_owner_name_kms_cannot_decrypt_is_withheld_not_returned_as_ciphertext(referral, capsys):
+    """A value that decodes as base64 but is not a KMS ciphertext used to come
+    back to the admin UI as the ciphertext itself. It is now withheld."""
+    blob = base64.b64encode(b'not-a-real-kms-ciphertext-blob').decode()
+    put_profile(referral, parentName=blob)
+    call(referral, '/referral/me', 'GET', claims={'sub': USER})  # mints personal link
+
+    status, body = call(referral, '/referral/admin/links', 'GET', claims=ADMIN_CLAIMS)
+
+    assert status == 200
+    personal = next(link for link in body['links'] if link['type'] == 'user')
+    assert personal['ownerName'] is None
+    assert blob not in json.dumps(body)
+    out = capsys.readouterr().out
+    assert 'owner name withheld' in out
+    assert blob not in out
+
+
+def test_a_legacy_plaintext_owner_name_is_still_shown(referral):
+    """Rows written before name encryption hold plaintext. A value that is not
+    base64 is returned unchanged, as before."""
+    put_profile(referral, parentName='Jane P.')
+    call(referral, '/referral/me', 'GET', claims={'sub': USER})
+
+    status, body = call(referral, '/referral/admin/links', 'GET', claims=ADMIN_CLAIMS)
+
+    personal = next(link for link in body['links'] if link['type'] == 'user')
+    assert personal['ownerName'] == 'Jane P.'
