@@ -31,7 +31,7 @@ export interface ChatBotApiProps {
 export class ChatBotApi extends Construct {
   public readonly httpAPI: RestBackendAPI;
   public readonly logging: LoggingStack;
-  /** Outage alerting. Subscribe AWS Chatbot to monitoring.alarmTopic. */
+  /** Outage alerting. Subscribe AWS Chatbot to monitoring.alertTopic. */
   public monitoring!: MonitoringStack;
   /** SES configuration set, suppression list and reputation alarms. */
   public email!: EmailIdentityStack;
@@ -345,14 +345,6 @@ export class ChatBotApi extends Construct {
         { label: 'PostConfirmation (secures a new account)', fn: this.lambdaFunctions.cognitoTriggerFunction,
           purpose: 'secures a newly created account; runs once per signup' },
       ],
-      // Its own field, not one of the lists: this is the only way to create
-      // an account, so its alarms say "signup broken" rather than "an API
-      // handler is failing", and most of its failures are 4xx refusals that
-      // no Errors or 5xx metric can see.
-      signupFunction: {
-        label: 'signup', fn: authentication.signupFunction,
-        purpose: 'the only way to create an account; runs once per new family',
-      },
       // The passwordless login path. Its own list, not apiFunctions: an API
       // handler failing breaks part of the app, and one of these failing means
       // nobody can get in at all.

@@ -25,7 +25,7 @@ export interface RestBackendAPIProps {
  * The $default stage's access-log line, as a single JSON object built from
  * API Gateway's $context variables (audit finding #7: a request the JWT
  * authorizer rejects is recorded nowhere today, and the two intentionally
- * unauthenticated routes -- POST /auth/signup, POST /referral/click -- have
+ * unauthenticated routes -- POST /auth/start, POST /referral/click -- have
  * no visibility into load at all).
  *
  * Consulted: https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-logging.html
@@ -52,9 +52,8 @@ export interface RestBackendAPIProps {
  *    JWT-authorized API never populates. Source IP is left out deliberately,
  *    even though it is in every AWS example format: on the two unauthenticated
  *    routes an IP address alone can identify a household, and this API does
- *    not need it in the access log to do its job -- signup abuse is already
- *    rate-limited by IP inside signup-endpoint.js (MAX_SIGNUPS_PER_IP_HOUR in
- *    new-auth.ts), which counts requests rather than logging addresses.
+ *    not need it in the access log to do its job -- sign-in abuse is already
+ *    rate-limited by IP inside auth-start.js (see new-auth.ts), which counts requests rather than logging addresses.
  *  - No $context.authorizer.claims.* (Cognito sub, username, custom:role).
  *    That is the JWT's own claims, i.e. the literal per-user identifier this
  *    pin is most about keeping out. $context.authorizer.error IS kept: it is

@@ -179,14 +179,13 @@ function resourcesMatching(t: Template, type: string, hint: string): [string, an
 }
 
 // Every env var that decides which countries A-IEP will send a code to: the
-// OTP send path, the /auth/start front door, and the signup endpoint. All
-// three are fed from one constant in lib/authorization/new-auth.ts, so they
-// are asserted together rather than one at a time — a widening that reached
-// only two of the three would be worse than one that reached all three.
+// OTP send path and the /auth/start front door. Both are fed from one constant
+// in lib/authorization/new-auth.ts, so they are asserted together rather than
+// one at a time — a widening that reached only one of them would be worse than
+// one that reached both.
 const COUNTRY_CODE_VARS = [
   'SMS_ALLOWED_COUNTRY_CODES',
   'AUTH_ALLOWED_COUNTRY_CODES',
-  'SIGNUP_ALLOWED_COUNTRY_CODES',
 ];
 
 /**
@@ -668,7 +667,7 @@ describe('Cognito custom-auth wiring', () => {
     const rotationStatements = policies
       .flatMap((policy: any) => policy.Properties?.PolicyDocument?.Statement ?? [])
       // AdminDisableUser is what distinguishes the PostConfirmation trigger's
-      // grant from the signup endpoint's, which also rotates a password but
+      // grant from the auth dispatcher's, which also rotates a password but
       // on an account it just created and cannot disable one.
       .filter((statement: any) => [statement.Action].flat().includes('cognito-idp:AdminSetUserPassword'))
       .filter((statement: any) => [statement.Action].flat().includes('cognito-idp:AdminDisableUser'));
@@ -1030,6 +1029,15 @@ describe('Cognito custom-auth wiring', () => {
     expect(start.AuthorizationType).toBe('NONE');
   });
 
+  // The route went first; the lambda behind it is deleted too, so nothing can
+  // be pointed at it again by a stray integration or invoke permission.
+  test('no lambda with the signup-endpoint handler exists (staging)', () => {
+    const handlers = Object.values(template.findResources('AWS::Lambda::Function'))
+      .map((fn: any) => fn.Properties.Handler);
+    expect(handlers.length).toBeGreaterThanOrEqual(20);
+    expect(handlers).not.toContain('signup-endpoint.handler');
+  });
+
   // AdminCreateUser without AdminSetUserPassword leaves every new account
   // holding a password its creator was handed. The pair is the control that
   // kept ~1,030 abuse accounts unusable, and it is only a pair if both
@@ -1046,11 +1054,10 @@ describe('Cognito custom-auth wiring', () => {
     const cognitoAdmin = statements.filter((st) =>
       JSON.stringify(st.Action).includes('cognito-idp:AdminCreateUser'));
 
-    // EXACTLY TWO roles may create an account: the old signup endpoint and the
-    // new auth dispatcher. Both are the same control in two places while the
-    // frontend switches over; the first one goes when /auth/signup does.
-    // Anything else acquiring AdminCreateUser must fail here.
-    expect(cognitoAdmin).toHaveLength(2);
+    // EXACTLY ONE role may create an account: the auth dispatcher. The old
+    // signup endpoint went with /auth/signup. Anything else acquiring
+    // AdminCreateUser must fail here.
+    expect(cognitoAdmin).toHaveLength(1);
 
     const actionSets = cognitoAdmin
       .map((st) => ([] as string[]).concat(st.Action).sort())
@@ -1059,11 +1066,6 @@ describe('Cognito custom-auth wiring', () => {
     // Exact matches, not arrayWith: an exact-match IAM assertion is the only
     // kind that catches a permission creeping in.
     expect(actionSets[0]).toEqual([
-      'cognito-idp:AdminCreateUser',
-      'cognito-idp:AdminDeleteUser',
-      'cognito-idp:AdminSetUserPassword',
-    ]);
-    expect(actionSets[1]).toEqual([
       'cognito-idp:AdminCreateUser',
       'cognito-idp:AdminDeleteUser',
       'cognito-idp:AdminGetUser',
@@ -2076,7 +2078,7 @@ function describeLambdaRuntimes(envLabel: EnvLabel, getTemplate: () => Template)
       const owned = functions.filter(({ logicalId }) => !isInjected(logicalId));
       expect(owned.length).toBeGreaterThanOrEqual(20);
       expect(owned.filter(({ runtime }) => typeof runtime !== 'string')).toEqual([]);
-      expect(owned.filter(({ runtime }) => (runtime as string).startsWith('nodejs')).length).toBeGreaterThanOrEqual(15);
+      expect(owned.filter(({ runtime }) => (runtime as string).startsWith('nodejs')).length).toBeGreaterThanOrEqual(14);
 
       // Non-vacuity: the helpers are present, and any Node helper is on a
       // runtime at or above nodejs22.x.
@@ -3101,12 +3103,12 @@ describe('production synth: the OTP test backdoor must not exist', () => {
     expect(JSON.stringify(prodTemplate.toJSON())).not.toContain('/a-iep/staging/test-otp');
   });
 
-  // The signup endpoint's Turnstile bypass, which exists only so the E2E
-  // suite can complete an account creation: a real widget refuses automated
-  // browsers, which is the entire product. In production there must be no
-  // env var, no SSM grant and no parameter reference, so the bypass branch in
-  // signup-endpoint.js is unreachable rather than merely unused.
-  test('no production lambda can bypass the signup bot check', () => {
+  // The Turnstile bypass, which exists only so the E2E suite can complete an
+  // account creation: a real widget refuses automated browsers, which is the
+  // entire product. In production there must be no env var, no SSM grant and
+  // no parameter reference, so the bypass branch in e2e-bypass.js is
+  // unreachable rather than merely unused.
+  test('no production lambda can bypass the sign-in bot check', () => {
     const functions = Object.entries(prodTemplate.findResources('AWS::Lambda::Function'));
     expect(functions.length).toBeGreaterThanOrEqual(20);
 
@@ -3119,6 +3121,13 @@ describe('production synth: the OTP test backdoor must not exist', () => {
     // IAM grant.
     expect(JSON.stringify(prodTemplate.toJSON()))
       .not.toContain('/a-iep/staging/e2e-turnstile-bypass');
+  });
+
+  test('no lambda with the signup-endpoint handler exists (production)', () => {
+    const handlers = Object.values(prodTemplate.findResources('AWS::Lambda::Function'))
+      .map((fn: any) => fn.Properties.Handler);
+    expect(handlers.length).toBeGreaterThanOrEqual(20);
+    expect(handlers).not.toContain('signup-endpoint.handler');
   });
 
   // Per-request timing is a staging diagnostic. In production it would be a log
@@ -3135,12 +3144,12 @@ describe('production synth: the OTP test backdoor must not exist', () => {
 
   // Cloudflare's server-side recommendation: check the hostname a token was
   // solved on. Every lambda that verifies a token must carry it in
-  // production, or one of the three doors quietly skips the check.
+  // production, or one of the two doors quietly skips the check.
   test('every production lambda that verifies a bot-check token checks its hostname', () => {
     const verifiers = Object.values(prodTemplate.findResources('AWS::Lambda::Function'))
       .map((fn: any) => fn.Properties?.Environment?.Variables ?? {})
       .filter((vars: Record<string, unknown>) => 'TURNSTILE_SECRET_PARAM' in vars);
-    expect(verifiers.length).toBe(3);
+    expect(verifiers.length).toBe(2);
     for (const vars of verifiers) {
       expect(vars.TURNSTILE_EXPECTED_HOSTNAMES).toBe('a-iep.org');
     }
@@ -3163,7 +3172,7 @@ describe('production synth: the OTP test backdoor must not exist', () => {
   test('every production sign-in lambda has at least 1024 MB', () => {
     const SIGN_IN_HANDLERS = [
       'auth-start.handler', 'auth-dispatch.handler', 'auth-verify.handler',
-      'auth-session.handler', 'signup-endpoint.handler',
+      'auth-session.handler',
       'define-auth-challenge.handler', 'create-auth-challenge.handler',
       'verify-auth-challenge.handler', 'pre-sign-up.handler',
       'pre-authentication.handler', 'custom-message.handler',
@@ -3172,7 +3181,7 @@ describe('production synth: the OTP test backdoor must not exist', () => {
       .map((fn: any) => fn.Properties)
       .filter((p: any) => SIGN_IN_HANDLERS.includes(p.Handler));
 
-    // Vacuity floor: all eleven, or a renamed handler hollowed this out.
+    // Vacuity floor: all ten, or a renamed handler hollowed this out.
     expect(functions.map((p: any) => p.Handler).sort()).toEqual([...SIGN_IN_HANDLERS].sort());
     for (const p of functions) {
       expect(p.MemorySize).toBeGreaterThanOrEqual(1024);

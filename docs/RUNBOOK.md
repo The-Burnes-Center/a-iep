@@ -128,21 +128,19 @@ sign-in code by text until the limit is raised or the month rolls over.
 
 ## Sign-up is failing
 
-**Alerts:** sign-up is down; sign-up is being throttled; sign-ups are failing when
-the account is created; an account could not be secured; the bot check is
-switched off.
+**Alerts:** an account could not be secured; the bot check is switched off.
+(Login failures alert under their own names: see the sign-in sections.)
 
-**Who is affected:** new families. Sign-up is the only way to create an account,
-so while it fails nobody new can join.
+**Who is affected:** new families. Accounts are created by the auth send
+function (`/auth/start` hands off to it), so while it fails nobody new can join.
 
 **Check first**
 
-1. Read the latest error in the signup function logs (`SIGNUP_FAILED` carries the
-   Cognito error).
-2. Check for a recent change to the user pool or the signup function.
+1. Read the latest error in the auth send function logs.
+2. Check for a recent change to the user pool or that function.
 
 **An account could not be secured** (`SIGNUP_ORPHANED`): an account exists that
-whoever created it may be able to sign into. Find it in the signup logs by id,
+whoever created it may be able to sign into. Find it in the auth send function logs by id,
 disable or delete it in Cognito, then find out why the clean-up failed. Treat
 accounts created while the alert is active as untrusted until that is done.
 

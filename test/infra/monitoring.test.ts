@@ -58,14 +58,9 @@ const EXPECTED_ALARM_SUFFIXES = [
   'a document kept text we said we would delete',
   'a parent asked us to delete their records and we did not',
   'a family got English only: a requested translation was left out',
-  // The signup endpoint. It is the ONLY way to create an account, because
-  // Cognito's public SignUp API is closed, and for its first day it had no
-  // alarm of any kind: not in pipelineFunctions, not in authTriggerFunctions,
-  // not in apiFunctions, no metric filter on any of its markers.
-  'signup broken: nobody can create an account',
-  'signup throttled: nobody can create an account',
-  'sign-ups are being refused in bulk',
-  'signup broken: accounts are not being created',
+  // Account creation lives in the auth send function now (the signup endpoint
+  // and its four alarms are gone); these two are fed by markers it and
+  // /auth/start still log.
   'new accounts may be reachable by whoever created them',
   'the signup bot check is switched off',
   // The alerting path watching itself, both halves of it.
@@ -103,16 +98,14 @@ const SMS_MARKERS: [string, string][] = [
 ];
 
 /**
- * The same contract, for the signup endpoint.
+ * The same contract, for account creation.
  *
- * Nearly every way that function turns a family away is a deliberate 4xx
- * refusal that raises nothing, so Lambda Errors stays flat through a total
- * signup outage and these markers are the only signal there is. The lambda
- * side is pinned in test/lambdas/phone-otp-auth/signup-endpoint.test.js.
+ * SIGNUP_ORPHANED is logged by auth-dispatch (pinned in
+ * test/lambdas/phone-otp-auth/auth-dispatch.test.js) and TURNSTILE_NOT_CONFIGURED
+ * by turnstile.js through /auth/start. SIGNUP_REFUSED and SIGNUP_FAILED had
+ * only one emitter, the deleted signup endpoint, so their filters went with it.
  */
 const SIGNUP_MARKERS: [string, string][] = [
-  ['SIGNUP_REFUSED', 'SignupRefused'],
-  ['SIGNUP_FAILED', 'SignupFailed'],
   ['SIGNUP_ORPHANED', 'SignupOrphaned'],
   ['TURNSTILE_NOT_CONFIGURED', 'TurnstileNotConfigured'],
 ];
@@ -628,11 +621,9 @@ describe('unredacted copies surviving a failed document', () => {
   });
 });
 
-describe('the signup endpoint is watched at all', () => {
-  // It is the only way to create an account, and for its first day it was in
-  // none of the three monitoring lists: no Errors alarm, no Throttles alarm,
-  // no metric filter on any of its six markers. This describe block exists so
-  // that a future change dropping it from the list fails here.
+describe('account creation is watched at all', () => {
+  // The marker filters behind the two surviving account-creation alarms. This
+  // describe block exists so that a change dropping either fails here.
   test.each(SIGNUP_MARKERS)('%s is counted into %s', (marker, metricName) => {
     for (const environment of ['production', 'staging']) {
       synth(environment).hasResourceProperties('AWS::Logs::MetricFilter', {
@@ -656,13 +647,22 @@ describe('the signup endpoint is watched at all', () => {
     expect(alarm.Threshold).toBe(1);
   });
 
-  // The endpoint is in the daily brief too, so a day with zero signups is
-  // visible rather than merely un-alarmed.
-  test('the endpoint reaches the daily brief', () => {
-    const manifest = JSON.stringify(
-      synth('production').findResources('AWS::SSM::Parameter'));
-
-    expect(manifest).toContain('the only way to create an account');
+  // The deleted signup endpoint must leave nothing behind: no alarm, no
+  // metric filter on its log group, no daily-brief entry.
+  test('nothing of the retired signup endpoint remains in monitoring', () => {
+    for (const environment of ['production', 'staging']) {
+      const template = synth(environment);
+      const alarmNames = Object.values(template.findResources('AWS::CloudWatch::Alarm'))
+        .map((r: any) => String(r.Properties.AlarmName));
+      expect(alarmNames.filter((n) => /^signup (broken|throttled)|^sign-ups are being refused/.test(n))).toEqual([]);
+      for (const marker of ['SIGNUP_REFUSED', 'SIGNUP_FAILED']) {
+        const filters = Object.values(template.findResources('AWS::Logs::MetricFilter'))
+          .filter((r: any) => r.Properties.FilterPattern === marker);
+        expect(filters).toEqual([]);
+      }
+      expect(JSON.stringify(template.findResources('AWS::SSM::Parameter')))
+        .not.toContain('the only way to create an account');
+    }
   });
 });
 

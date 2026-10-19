@@ -148,7 +148,7 @@ const AUTH_TIMING_ENV: Record<string, string> = getEnvironment() !== 'prod' ? { 
 // as the OTP backdoor above. Turnstile refuses automated browsers by design,
 // so the real widget and an automated signup cannot both work; staging keeps
 // the real widget for anyone testing by hand, and only the E2E runner holds
-// this. The endpoint additionally requires one of TEST_PHONE_NUMBERS, so a
+// this. /auth/start additionally requires one of TEST_PHONE_NUMBERS, so a
 // leaked token cannot create an account on a number a person could receive a
 // text on. Created out of band, like every other credential here.
 const E2E_TURNSTILE_BYPASS_PARAM = '/a-iep/staging/e2e-turnstile-bypass';
@@ -187,10 +187,6 @@ export class NewAuthorizationStack extends Construct {
    *  budget fails closed on a DynamoDB error, so throttling here stops
    *  login outright rather than just slowing it. */
   public otpRateLimitTable!: dynamodb.Table;
-  /** The only way to create an account, once the pool refuses self-service
-   *  signup. Exposed so ChatbotAPI can put an unauthenticated route on it:
-   *  there is no token to authorize with before an account exists. */
-  public signupFunction!: lambda.Function;
   /** The client the BROWSER holds. Token refresh only: it cannot start a
    *  sign-in. See the note beside it. */
   public readonly userPoolClient: UserPoolClient;
@@ -277,10 +273,10 @@ export class NewAuthorizationStack extends Construct {
       // no matter what we put behind it.
       //
       // With it false, AdminCreateUser is the only route in, and only the
-      // signup endpoint holds that permission. The cost is that neither
+      // auth-dispatch lambda holds that permission. The cost is that neither
       // PreSignUp_SignUp nor PostConfirmation_ConfirmSignUp fires any more,
-      // so auto-confirm and the password rotation both move into that
-      // endpoint. See signup-endpoint.js.
+      // so auto-confirm and the password rotation both live in
+      // auth-dispatch.js.
       selfSignUpEnabled: false,
       // Pinned, not chosen. Both live pools are already ESSENTIALS, put there
       // OUT OF BAND, and CDK set neither this nor the sign-in policy below --
@@ -730,7 +726,7 @@ export class NewAuthorizationStack extends Construct {
         ...sharedEnvironment,
         // The per-source limit on /auth/token and /auth/logout.
         OTP_RATE_LIMIT_TABLE: this.otpRateLimitTable.tableName,
-        // Staging only, for the same reason as the start and signup limits:
+        // Staging only, for the same reason as the start limits:
         // the E2E suite signs in repeatedly from one CI address.
         ...(getEnvironment() !== 'prod' ? { MAX_AUTH_SESSION_CALLS_PER_IP_HOUR: '1200' } : {}),
       },
@@ -920,86 +916,6 @@ export class NewAuthorizationStack extends Construct {
 
     // UpdateItem on the SMS rate-limit counter
     otpRateLimitTable.grantWriteData(createAuthChallengeFunction);
-
-    // ── The signup endpoint ────────────────────────────────────────────────
-    // Lives here rather than with the API lambdas because it needs the pool
-    // and the rate-limit table, and because it is part of the auth flow: it
-    // does what PreSignUp and PostConfirmation used to do for a self-service
-    // signup, in one place where it can be read.
-    const signupFunction = new lambda.Function(this, 'SignupEndpointFunction', {
-      runtime: lambda.Runtime.NODEJS_22_X,
-      memorySize: AUTH_LAMBDA_MEMORY_MB,
-      code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
-      handler: 'signup-endpoint.handler',
-      environment: {
-        USER_POOL_ID: userPool.userPoolId,
-        // Same table as the OTP limiter: identical schema (pk plus a TTL on
-        // expiresAt), different key prefixes, and signup is roughly a daily
-        // event so it adds no meaningful load.
-        SIGNUP_RATE_LIMIT_TABLE: otpRateLimitTable.tableName,
-        SIGNUP_ALLOWED_COUNTRY_CODES: SMS_ALLOWED_COUNTRY_CODES.join(','),
-        TURNSTILE_SECRET_PARAM,
-        ...TURNSTILE_HOSTNAME_ENV,
-        // Staging only, and only because the E2E suite signs up repeatedly
-        // from one CI address, which no rule can tell apart from abuse.
-        // Production keeps the compiled floors.
-        ...(getEnvironment() !== 'prod'
-          ? { MAX_SIGNUPS_PER_IP_HOUR: '40', MAX_SIGNUPS_PER_HOUR: '80' }
-          : {}),
-      },
-      // One outbound call to Cloudflare, bounded at 5s inside the handler.
-      timeout: cdk.Duration.seconds(30),
-      logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
-      description: 'Creates accounts; the only path once self-service signup is off',
-    });
-    this.signupFunction = signupFunction;
-
-    otpRateLimitTable.grantWriteData(signupFunction);
-
-    // Exactly three actions, on exactly this pool. AdminCreateUser without
-    // AdminSetUserPassword would leave every new account holding a password
-    // the caller was given, which is the takeover this pair prevents.
-    //
-    // AdminDeleteUser is the rollback for the gap between those two: an
-    // account that is created and then cannot be secured has to be removed,
-    // because it can neither sign in (it is stuck in FORCE_CHANGE_PASSWORD)
-    // nor sign up again (the number is taken). Scoped to this pool, and the
-    // endpoint only ever calls it on a user it just created in the same
-    // invocation.
-    signupFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'cognito-idp:AdminCreateUser',
-        'cognito-idp:AdminSetUserPassword',
-        'cognito-idp:AdminDeleteUser',
-      ],
-      resources: [userPool.userPoolArn],
-    }));
-
-    signupFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['ssm:GetParameter'],
-      resources: [
-        `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${TURNSTILE_SECRET_PARAM}`,
-      ],
-    }));
-
-    // Production gets no env var and no grant, so the bypass branch in the
-    // endpoint is unreachable there rather than merely unused. Pinned on both
-    // sides in test/infra/gen-ai-mvp-stack.test.ts.
-    if (getEnvironment() !== 'prod') {
-      signupFunction.addEnvironment('E2E_BYPASS_PARAM', E2E_TURNSTILE_BYPASS_PARAM);
-      signupFunction.addEnvironment('TEST_PHONE_NUMBERS', TEST_PHONE_NUMBERS.join(','));
-      signupFunction.addToRolePolicy(new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: ['ssm:GetParameter'],
-        resources: [
-          `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${E2E_TURNSTILE_BYPASS_PARAM}`,
-        ],
-      }));
-    }
-
-    tagResource(signupFunction, { Resource: 'Lambda', Function: 'SignupEndpoint' });
 
     // Allow reading user profiles to localize the OTP SMS. grantReadData
     // (rather than a manual GetItem policy) also grants kms:Decrypt on the

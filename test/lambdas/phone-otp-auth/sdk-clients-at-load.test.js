@@ -37,15 +37,6 @@ jest.mock('@aws-sdk/client-sns', () => ({
     PublishCommand: class { constructor(input) { this.input = input; } },
 }), { virtual: true });
 
-// signup-endpoint builds a Cognito client at load too; it is not what is under
-// test, so a bare stub keeps the module loadable.
-jest.mock('@aws-sdk/client-cognito-identity-provider', () => ({
-    CognitoIdentityProviderClient: class {},
-    AdminCreateUserCommand: class {},
-    AdminSetUserPasswordCommand: class {},
-    AdminDeleteUserCommand: class {},
-}), { virtual: true });
-
 const DIR ='../../../lib/chatbot-api/functions/phone-otp-auth';
 
 describe('SDK clients are built at module load', () => {
@@ -71,7 +62,7 @@ describe('SDK clients are built at module load', () => {
     test('every module shares one client of each kind, so one connection each', () => {
         for (const name of [
             'auth-store', 'messages', 'email-suppression', 'pre-authentication',
-            'signup-endpoint', 'turnstile', 'e2e-bypass', 'create-auth-challenge',
+            'turnstile', 'e2e-bypass', 'create-auth-challenge',
         ]) {
             require(`${DIR}/${name}`);
         }
