@@ -289,6 +289,10 @@ describe("the translate button", () => {
     expect(screen.getByTestId("translation-progress")).toHaveTextContent(
       "summary.processing.almostThere",
     );
+    // Indeterminate progressbar: named by the message beside it, and with no
+    // aria-valuenow, since the server gives no fraction for this wait.
+    const wait = screen.getByRole("progressbar", { name: "summary.processing.almostThere" });
+    expect(wait).not.toHaveAttribute("aria-valuenow");
     expect(screen.queryByTestId("translate-now-button")).not.toBeInTheDocument();
     // Inline, NOT the full-screen takeover: the English summary is still there.
     expect(screen.getByTestId("summary-text-en")).toBeInTheDocument();

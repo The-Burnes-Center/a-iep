@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useContext } from 'react';
-import { Container, Row, Col, Card, Alert, Button, Accordion, Tabs, Tab, Offcanvas, Dropdown} from 'react-bootstrap';
-import LinearProgress from '@mui/material/LinearProgress';
+import { Container, Row, Col, Card, Alert, Button, Accordion, Tabs, Tab, Offcanvas, Dropdown, ProgressBar } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useNavigate } from 'react-router-dom';
 import { faLanguage, faDownload, faArrowsRotate } from '@fortawesome/free-solid-svg-icons';
@@ -1192,10 +1191,20 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                                 </h6>
                                 {isTranslatingOnDemand ? (
                                   <div data-testid="translation-progress">
-                                    <p className="mb-2">
+                                    <p className="mb-2" id="translation-progress-message">
                                       {t(translationRequest.messageKey ?? 'summary.processing.almostThere')}
                                     </p>
-                                    <LinearProgress color="success" />
+                                    {/* Indeterminate: no `now`, so no aria-valuenow, which is how
+                                        ARIA marks a progressbar as unknown-length. The width is
+                                        set by the sliding animation in the page CSS. */}
+                                    <ProgressBar className="translation-progress-track">
+                                      <ProgressBar
+                                        aria-labelledby="translation-progress-message"
+                                        className="translation-progress-indeterminate"
+                                        style={{ width: '40%' }}
+                                        data-testid="translation-progress-bar"
+                                      />
+                                    </ProgressBar>
                                   </div>
                                 ) : (
                                   <>

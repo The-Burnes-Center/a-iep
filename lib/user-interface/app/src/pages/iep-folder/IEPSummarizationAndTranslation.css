@@ -681,3 +681,36 @@ display: none !important;
     margin-bottom: 1rem;
   }
 }
+
+/* Translation on demand. Indeterminate: the server gives no fraction for it,
+   so a segment slides across a 4px track in the brand green. The segment is
+   40% wide and starts fully off the left edge, and ends fully off the right. */
+.translation-progress-track.progress {
+  height: 4px;
+  width: 100%;
+  direction: ltr;
+  background-color: var(--aiep-surface-field);
+  border-radius: 0;
+}
+
+.translation-progress-indeterminate.progress-bar {
+  position: relative;
+  background-color: var(--aiep-green);
+  animation: translation-progress-slide 1.4s linear infinite;
+}
+
+@keyframes translation-progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .translation-progress-indeterminate.progress-bar {
+    animation: none;
+    transform: translateX(0);
+  }
+}
