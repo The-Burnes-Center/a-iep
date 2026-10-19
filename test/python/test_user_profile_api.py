@@ -1741,8 +1741,9 @@ def test_concurrent_decrypt_returns_exactly_what_a_sequential_one_does(api, monk
 
 
 def test_one_field_that_will_not_decrypt_does_not_disturb_the_others(api, monkeypatch):
-    """kms_decrypt_string hands a field back as it was when it cannot decrypt
-    it; that stays per-field when the fields run together."""
+    """A field that is not ciphertext (legacy plaintext that happens to look
+    like base64) is handed back as it was; that stays per-field when the
+    fields run together."""
     seed_encrypted_profile(api)
     broken = encrypt(api, 'Sam Rivera')
     api.profiles.update_item(
@@ -1753,7 +1754,8 @@ def test_one_field_that_will_not_decrypt_does_not_disturb_the_others(api, monkey
 
     def decrypt_unless_broken(**kwargs):
         if base64.b64encode(kwargs['CiphertextBlob']).decode() == broken:
-            raise RuntimeError('AccessDeniedException')
+            raise ClientError({'Error': {'Code': 'InvalidCiphertextException',
+                                         'Message': 'not ciphertext'}}, 'Decrypt')
         return real(**kwargs)
     monkeypatch.setattr(api.module.kms_client, 'decrypt', decrypt_unless_broken)
 
@@ -1775,10 +1777,10 @@ def test_the_decrypts_really_overlap(api, monkeypatch):
     real = api.module.kms_decrypt_string
     in_flight = []
 
-    def decrypt_together(ciphertext):
+    def decrypt_together(ciphertext, **kwargs):
         in_flight.append(threading.get_ident())
         barrier.wait()
-        return real(ciphertext)
+        return real(ciphertext, **kwargs)
     monkeypatch.setattr(api.module, 'kms_decrypt_string', decrypt_together)
 
     status, body = call(api, '/profile', 'GET')
@@ -1961,3 +1963,134 @@ def test_an_unknown_route_does_not_echo_the_path_or_the_method(api):
 
     assert code == 404
     assert body == {'message': 'Not found'}
+
+
+# ---------------------------------------------------------------------------
+# A fault in DynamoDB, KMS or S3 is a 503, never a 403 or a 404
+
+UNAVAILABLE = {'message': 'This service is temporarily unavailable. Please try again in a moment.'}
+
+
+def aws_fault(code='ProvisionedThroughputExceededException', operation='GetItem'):
+    return ClientError({'Error': {'Code': code,
+                                  'Message': 'table profiles-test is throttled'}}, operation)
+
+
+def fail_with(error):
+    def fail(*args, **kwargs):
+        raise error
+    return fail
+
+
+def test_a_profile_read_fault_in_the_ownership_check_is_a_503_not_a_403(api, monkeypatch, capsys):
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'Summary'}})
+    monkeypatch.setattr(api.module.user_profiles_table, 'get_item', fail_with(aws_fault()))
+    capsys.readouterr()
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+    logged = capsys.readouterr().out
+
+    assert (status, body) == (503, UNAVAILABLE)
+    assert 'get_child_documents ownership check' in logged
+    assert 'ProvisionedThroughputExceededException' in logged
+    assert 'profiles-test' not in json.dumps(body)
+
+
+def test_a_fault_while_checking_ownership_never_deletes_anything(api, monkeypatch):
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'Summary'}})
+    audio = put_audio(api)
+    monkeypatch.setattr(api.module.user_profiles_table, 'get_item', fail_with(aws_fault()))
+
+    status, body = call(api, '/profile/children/child-1/documents', 'DELETE')
+
+    assert (status, body) == (503, UNAVAILABLE)
+    assert api.documents.get_item(Key={'iepId': 'iep-1', 'childId': 'child-1'}).get('Item')
+    assert key_exists(api, 'iep-data/iep-1/child-1/content.json')
+    assert all(key_exists(api, key) for key in audio)
+
+
+def test_a_documents_query_fault_is_a_503(api, monkeypatch, capsys):
+    profile_with_child(api)
+    monkeypatch.setattr(api.module.iep_documents_table, 'query',
+                        fail_with(aws_fault('InternalServerError', 'Query')))
+    capsys.readouterr()
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert (status, body) == (503, UNAVAILABLE)
+    assert 'get_child_documents query' in capsys.readouterr().out
+
+
+def test_an_s3_fault_reading_the_content_is_a_503_not_an_empty_summary(api, monkeypatch, capsys):
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'Summary'}})
+    monkeypatch.setattr(api.module._aws_client('s3'), 'get_object',
+                        fail_with(aws_fault('ServiceUnavailable', 'GetObject')))
+    capsys.readouterr()
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert (status, body) == (503, UNAVAILABLE)
+    assert 'get_child_documents content read' in capsys.readouterr().out
+
+
+def test_content_missing_from_s3_still_reads_as_an_empty_document(api):
+    """A fact about the document, not a fault: the row outlived its object."""
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'Summary'}})
+    api.s3.delete_object(Bucket=BUCKET, Key='iep-data/iep-1/child-1/content.json')
+    for version in api.s3.list_object_versions(Bucket=BUCKET).get('Versions', []):
+        api.s3.delete_object(Bucket=BUCKET, Key=version['Key'], VersionId=version['VersionId'])
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert status == 200
+    assert body['summaries'] == {} and body['iepId'] == 'iep-1'
+
+
+def test_a_bug_in_our_own_code_is_still_a_500(api, monkeypatch):
+    """Only AWS faults are 503: a KeyError is ours, and says so."""
+    profile_with_child(api)
+    monkeypatch.setattr(api.module.user_profiles_table, 'get_item', fail_with(KeyError('boom')))
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert status == 500
+    assert body == {'message': 'Could not load your documents. Please try again later.'}
+
+
+def test_a_profile_read_fault_on_get_profile_is_a_503(api, monkeypatch):
+    monkeypatch.setattr(api.module.user_profiles_table, 'get_item', fail_with(aws_fault()))
+
+    assert call(api, '/profile', 'GET') == (503, UNAVAILABLE)
+
+
+@pytest.mark.parametrize('code', ['ThrottlingException', 'KMSInternalException',
+                                  'AccessDeniedException', 'DisabledException'])
+def test_a_kms_outage_on_get_profile_is_a_503_not_ciphertext_in_the_body(api, monkeypatch, code):
+    ciphertext = encrypt(api, '+16175551234')
+    api.profiles.put_item(Item={'userId': USER, 'phone': ciphertext,
+                                'children': [{'childId': 'c1', 'name': 'Kid', 'schoolCity': 'x'}]})
+    monkeypatch.setattr(api.module.kms_client, 'decrypt',
+                        fail_with(aws_fault(code, 'Decrypt')))
+
+    status, body = call(api, '/profile', 'GET')
+
+    assert (status, body) == (503, UNAVAILABLE)
+    assert ciphertext[:24] not in json.dumps(body)
+
+
+def test_a_kms_outage_still_degrades_the_name_inside_a_summary(api, monkeypatch):
+    """The 503 is for fields a parent is shown as themselves. The child's name
+    inside a summary keeps its neutral-phrase fallback (and its own test)."""
+    profile_with_named_child(api, encrypt(api, CHILD_NAME))
+    put_document(api, content=TOKEN_CONTENT)
+    monkeypatch.setattr(api.module.kms_client, 'decrypt',
+                        fail_with(aws_fault('ThrottlingException', 'Decrypt')))
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert status == 200
+    assert body['summaries']['en'] == 'your child is making progress.'

@@ -12,7 +12,8 @@ from concurrent.futures import ThreadPoolExecutor
 import copy
 import re
 import unicodedata
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
+from functools import partial
 
 dynamodb = boto3.resource('dynamodb')
 user_profiles_table = dynamodb.Table(os.environ['USER_PROFILES_TABLE'])
@@ -173,6 +174,27 @@ def not_found(event: Dict) -> Dict:
     echoes the path or the exception text.
     """
     return create_response(event, 404, {'message': 'Not found'})
+
+
+# What a fault in AWS itself looks like to boto3. Only these become a 503: a
+# bug in this code (a KeyError, a TypeError) is still our 500, and neither is
+# ever a 403 or a 404, which would tell a parent something about their records
+# that is not true.
+AWS_FAULTS = (ClientError, BotoCoreError)
+
+
+def service_unavailable(event: Dict, operation: str, error: Exception) -> Dict:
+    """503 for a fault in DynamoDB, KMS or S3, with the reason in the log.
+
+    Generic body: the cause (a table name, an AWS error code) goes to
+    CloudWatch only. The logged reason is the exception class and, for a
+    service error, its code; never its message, which can quote a key.
+    """
+    code = error.response.get('Error', {}).get('Code', '') if isinstance(error, ClientError) else ''
+    print(f"{operation}: unavailable, {type(error).__name__} {code}".rstrip())
+    return create_response(event, 503, {
+        'message': 'This service is temporarily unavailable. Please try again in a moment.'
+    })
 
 
 def handle_options(event: Dict) -> Dict:
@@ -359,7 +381,24 @@ def normalize_child_name(name: str) -> str:
         lambda match: match.group(1) + match.group(2).upper(), collapsed)
 
 
-def kms_decrypt_string(ciphertext_b64: str) -> str:
+class KmsUnavailable(RuntimeError):
+    """KMS could not answer, as opposed to the field not being ciphertext."""
+
+
+def kms_decrypt_string(ciphertext_b64: str, strict: bool = False) -> str:
+    """Decrypt a field, or hand it back if it was never ciphertext.
+
+    Fields written before encryption existed are plaintext, and some of those
+    happen to look like base64, so a decrypt that fails because the bytes are
+    not ciphertext (InvalidCiphertextException) hands the value back.
+
+    strict=True is for callers that would otherwise show the result to a
+    parent: any OTHER failure (throttling, an outage, a revoked key) raises
+    KmsUnavailable instead of returning the ciphertext, which would print a
+    blob where their phone number or their child's name belongs. Callers that
+    can live without the value (the child's name inside a summary) leave it
+    off and keep the lenient behaviour.
+    """
     if not ciphertext_b64:
         return ciphertext_b64
     
@@ -379,11 +418,15 @@ def kms_decrypt_string(ciphertext_b64: str) -> str:
     except ClientError as e:
         error_code = e.response['Error']['Code']
         print(f"KMS decrypt failed with {error_code}: {str(e)}")
+        if strict and error_code != 'InvalidCiphertextException':
+            raise KmsUnavailable(error_code) from e
         if error_code in ['UnrecognizedClientException', 'AccessDeniedException', 'InvalidCiphertextException']:
             print("Assuming plaintext data (encryption may be disabled)")
         return ciphertext_b64
     except Exception as e:
         print(f"KMS decrypt failed with unexpected error: {str(e)}")
+        if strict:
+            raise KmsUnavailable(type(e).__name__) from e
         return ciphertext_b64
 
 # KMS Decrypt is a network call (~10-20ms). A profile holds up to three PII
@@ -399,8 +442,9 @@ def _decrypt_profile_fields(profile: Dict) -> None:
     """Decrypt, in place and concurrently, every encrypted string on a profile.
 
     Result is identical to decrypting each field in turn: the same fields, each
-    through kms_decrypt_string (which never raises and hands a field back as it
-    was if it cannot decrypt it), written back to the same place.
+    through kms_decrypt_string, written back to the same place. A field that is
+    not ciphertext at all (legacy plaintext) is handed back as it was; a KMS
+    that cannot answer raises KmsUnavailable for the caller to turn into a 503.
     """
     targets = []
     for field in _PROFILE_PII_FIELDS:
@@ -413,10 +457,11 @@ def _decrypt_profile_fields(profile: Dict) -> None:
     if not targets:
         return
     ciphertexts = [holder[key] for holder, key in targets]
+    decrypt = partial(kms_decrypt_string, strict=True)
     if len(ciphertexts) == 1:
-        plaintexts = [kms_decrypt_string(ciphertexts[0])]
+        plaintexts = [decrypt(ciphertexts[0])]
     else:
-        plaintexts = list(_decrypt_pool.map(kms_decrypt_string, ciphertexts))
+        plaintexts = list(_decrypt_pool.map(decrypt, ciphertexts))
     for (holder, key), plaintext in zip(targets, plaintexts):
         holder[key] = plaintext
 
@@ -454,9 +499,12 @@ def get_user_profile(event: Dict) -> Dict:
         user_id = claims['sub']
         print(f"Retrieved from Cognito - userId: {user_id}")
         
-        response = user_profiles_table.get_item(
-            Key={'userId': user_id}
-        )
+        try:
+            response = user_profiles_table.get_item(
+                Key={'userId': user_id}
+            )
+        except AWS_FAULTS as e:
+            return service_unavailable(event, 'get_user_profile read', e)
         
         times = get_timestamps()
         
@@ -527,7 +575,10 @@ def get_user_profile(event: Dict) -> Dict:
         # they are written encrypted). Each is an independent KMS round trip,
         # so they run together rather than one after another. A default
         # child's name is '' and decrypting that is a no-op.
-        _decrypt_profile_fields(existing_profile)
+        try:
+            _decrypt_profile_fields(existing_profile)
+        except KmsUnavailable as e:
+            return service_unavailable(event, 'get_user_profile decrypt', e)
 
         return create_response(event, 200, {'profile': existing_profile})
         
@@ -806,19 +857,17 @@ def _find_child(profile: Optional[Dict], child_id: str) -> Optional[Dict]:
     return None
 
 
-def _user_owns_child(user_id: str, child_id: str) -> bool:
-    """
-    Verify the given childId belongs to the authenticated user's profile.
-    Returns True only if the user has a child with the matching childId.
+def _owned_child(user_id: str, child_id: str) -> Optional[Dict]:
+    """The caller's child with this childId, or None if it is not theirs.
+
+    Raises an AWS_FAULTS error if the profile cannot be read: "could not check"
+    is not "not yours", and callers answer the first with a 503 and only the
+    second with a 404.
     """
     if not user_id or not child_id:
-        return False
-    try:
-        profile_response = user_profiles_table.get_item(Key={'userId': user_id})
-    except Exception as e:
-        print(f"Error loading profile for ownership check (user {user_id}): {str(e)}")
-        return False
-    return _find_child(profile_response.get('Item'), child_id) is not None
+        return None
+    profile = user_profiles_table.get_item(Key={'userId': user_id}).get('Item')
+    return _find_child(profile, child_id)
 
 
 def _child_name(child: Optional[Dict]) -> Optional[str]:
@@ -912,6 +961,10 @@ def _document_updated_at(doc: Dict):
     return max(known) if known else ''
 
 
+# What S3 answers for a key that is not there.
+S3_MISSING_CODES = ('NoSuchKey', '404', 'NotFound')
+
+
 def _has_inline_content(doc: Dict) -> bool:
     """Whether a row still carries its content inline (the pre-S3 layout).
 
@@ -947,20 +1000,22 @@ def get_child_documents(event: Dict) -> Dict:
         # supplies the child's name for the substitution below.
         try:
             profile = user_profiles_table.get_item(Key={'userId': user_id}).get('Item')
-        except Exception as e:
-            print(f"Error loading profile for ownership check (user {user_id}): {str(e)}")
-            profile = None
+        except AWS_FAULTS as e:
+            return service_unavailable(event, 'get_child_documents ownership check', e)
         owned_child = _find_child(profile, child_id)
         if owned_child is None:
             print(f"Access denied: user {user_id} does not own child {child_id}")
             return not_found(event)
 
         # Query documents by childId
-        response = iep_documents_table.query(
-            IndexName='byChildId',
-            KeyConditionExpression='childId = :childId',
-            ExpressionAttributeValues={':childId': child_id}
-        )
+        try:
+            response = iep_documents_table.query(
+                IndexName='byChildId',
+                KeyConditionExpression='childId = :childId',
+                ExpressionAttributeValues={':childId': child_id}
+            )
+        except AWS_FAULTS as e:
+            return service_unavailable(event, 'get_child_documents query', e)
         
         # Find the latest document
         latest_doc = None
@@ -1013,6 +1068,17 @@ def get_child_documents(event: Dict) -> Dict:
                                 'abbreviations': content.get('abbreviations', {})
                             })
                             print(f"Successfully fetched content from S3 for {doc['iepId']}")
+                        except AWS_FAULTS as e:
+                            # A missing object is a fact about this document
+                            # (the row outlived its content): keep the empty
+                            # fallback below. Anything else is S3 not
+                            # answering, and an empty summary served as if it
+                            # were the document is the wrong reply to that.
+                            if not (isinstance(e, ClientError)
+                                    and e.response.get('Error', {}).get('Code') in S3_MISSING_CODES):
+                                return service_unavailable(event, 'get_child_documents content read', e)
+                            print(f"Content object missing in S3 for {doc['iepId']}")
+                            latest_doc.update({field: {} for field in CONTENT_FIELDS})
                         except Exception as e:
                             print(f"Error fetching content from S3 for {doc['iepId']}: {str(e)}")
                             # Fallback to empty content
@@ -1417,7 +1483,11 @@ def delete_child_documents(event: Dict) -> Dict:
         print(f"Processing request to delete IEP documents for childId: {child_id} by userId: {user_id}")
 
         # Authorization: only allow deletion if the authenticated user owns the child.
-        if not _user_owns_child(user_id, child_id):
+        try:
+            owned_child = _owned_child(user_id, child_id)
+        except AWS_FAULTS as e:
+            return service_unavailable(event, 'delete_child_documents ownership check', e)
+        if owned_child is None:
             print(f"Access denied: user {user_id} does not own child {child_id}")
             return not_found(event)
 
