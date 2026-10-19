@@ -140,7 +140,7 @@ const landedOn = () => screen.getByTestId("landed-on").textContent;
 /** The card's own heading — AuthHeader's, inside the hero's <CustomLogin/>. */
 const signInHeading = () => screen.getByRole("heading", { name: en["auth.signInHeader"] });
 
-let scrollIntoView: ReturnType<typeof vi.fn>;
+let scrollIntoView: ReturnType<typeof vi.fn<(arg?: boolean | ScrollIntoViewOptions) => void>>;
 let scrollTo: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
@@ -151,7 +151,7 @@ beforeEach(() => {
   // exist on Element at all, and scrollTo logs "not implemented". Stubbed, not
   // asserted on for their own sake — what each test actually claims is which
   // one of the two ran for a given arrival.
-  scrollIntoView = vi.fn();
+  scrollIntoView = vi.fn<(arg?: boolean | ScrollIntoViewOptions) => void>();
   Element.prototype.scrollIntoView = scrollIntoView;
   scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
 });
