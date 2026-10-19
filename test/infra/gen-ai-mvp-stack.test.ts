@@ -27,15 +27,12 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 //
 //   /referral/click  hit by visitors who are not signed in yet, stores no
 //                    PII, and only bumps counters for known active codes.
-//   /auth/signup     there is no token before an account exists, so this
+//   /auth/start      a parent signing in (or up) has no token yet, so this
 //                    cannot be authorized. Everything an authorizer would do
 //                    happens inside the handler instead: destination policy,
-//                    per-source and global rate limits, then anti-abuse
-//                    verification, cheapest check first.
-//   /auth/start      the same, for the passwordless path: a parent signing in
-//                    has no token yet. Unlike /auth/signup this one also
-//                    fronts the OTP SEND, which is why the bot check moved in
-//                    front of it.
+//                    per-source and global rate limits, then the bot check,
+//                    cheapest first. It fronts the OTP SEND and is the only
+//                    way to create an account (/auth/signup is retired).
 //   /auth/verify     reachable only with a challenge handle from /auth/start,
 //                    which cannot be obtained without passing that bot check.
 //   /auth/token      this is the route that ISSUES the JWT, so it cannot
@@ -47,7 +44,6 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 // Anything added here must survive the same scrutiny.
 const PUBLIC_ROUTE_KEYS = [
   'POST /referral/click',
-  'POST /auth/signup',
   'POST /auth/start',
   'POST /auth/verify',
   'POST /auth/token',
@@ -495,6 +491,52 @@ describe('HTTP API authorization', () => {
     }
   });
 
+  // The click beacon has no authorizer, so nothing else turns a flood away and
+  // every call that names a real code writes to DynamoDB. Throttling is the
+  // only control in front of it, and it must be on THIS route alone: a
+  // stage-wide default would cap every parent's authenticated calls too.
+  test('the public click beacon is throttled on its own route, and no other route is', () => {
+    const stages = Object.values(template.findResources('AWS::ApiGatewayV2::Stage'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => p.StageName === '$default');
+    expect(stages).toHaveLength(1);
+    const [stage] = stages;
+
+    expect(Object.keys(stage.RouteSettings ?? {})).toEqual(['POST /referral/click']);
+    const click = stage.RouteSettings['POST /referral/click'];
+    expect(click.ThrottlingRateLimit).toBeGreaterThan(0);
+    expect(click.ThrottlingRateLimit).toBeLessThanOrEqual(10);
+    expect(click.ThrottlingBurstLimit).toBeGreaterThanOrEqual(click.ThrottlingRateLimit);
+    expect(click.ThrottlingBurstLimit).toBeLessThanOrEqual(50);
+
+    // Not a stage-wide cap: that would throttle every authenticated route.
+    expect(stage.DefaultRouteSettings?.ThrottlingRateLimit).toBeUndefined();
+    expect(stage.DefaultRouteSettings?.ThrottlingBurstLimit).toBeUndefined();
+  });
+
+  // Routes with no handler or no callers. The first two were declared but no
+  // lambda registered them, so every call 404ed; the last two had zero calls in
+  // 30 days in prod and staging and no frontend caller. A route that exists is
+  // attack surface and an alarm to maintain, so they must not come back
+  // without a reason.
+  test('retired routes are gone from the API', () => {
+    const routeKeys = Object.values(template.findResources('AWS::ApiGatewayV2::Route'))
+      .map((r: any) => r.Properties.RouteKey);
+
+    // Vacuity floor: the sibling routes they were next to are still there.
+    expect(routeKeys).toContain('GET /profile');
+    expect(routeKeys).toContain('POST /signed-url-knowledge');
+
+    for (const retired of [
+      'GET /documents/{iepId}/status',
+      'POST /summary',
+      'POST /s3-knowledge-bucket-data',
+      'POST /delete-s3-file',
+    ]) {
+      expect(routeKeys).not.toContain(retired);
+    }
+  });
+
   // An AuthorizerId is only as strong as the authorizer behind it: it must
   // validate Authorization-header JWTs issued by OUR user pool for OUR app
   // client, not merely exist.
@@ -903,13 +945,21 @@ describe('Cognito custom-auth wiring', () => {
     }));
   });
 
-  test('signup is reachable without a token, because there cannot be one yet', () => {
+  // POST /auth/signup created accounts synchronously, so a stopwatch could
+  // tell a number with an account from one without; /auth/start is built not
+  // to. It had no calls in 30 days, so the route is retired and must not
+  // return. Account creation is reachable only through /auth/start.
+  test('POST /auth/signup is retired; account creation goes through /auth/start', () => {
     const routes = Object.values(template.findResources('AWS::ApiGatewayV2::Route'))
       .map((r: any) => r.Properties);
-    const signup = routes.find((r: any) => r.RouteKey === 'POST /auth/signup');
+    const keys = routes.map((r: any) => r.RouteKey);
 
-    expect(signup).toBeDefined();
-    expect(signup.AuthorizationType).toBe('NONE');
+    expect(keys).not.toContain('POST /auth/signup');
+    expect(keys.filter((k: string) => k.includes('/auth/signup'))).toEqual([]);
+
+    const start = routes.find((r: any) => r.RouteKey === 'POST /auth/start');
+    expect(start).toBeDefined();
+    expect(start.AuthorizationType).toBe('NONE');
   });
 
   // AdminCreateUser without AdminSetUserPassword leaves every new account

@@ -81,6 +81,12 @@ export class RestBackendAPI extends Construct {
   public readonly restAPI: apigwv2.HttpApi;
   /** Exposed for tests; not user data, see ACCESS_LOG_FORMAT above. */
   public readonly accessLogGroup: logs.LogGroup;
+  private readonly cfnStage: apigwv2.CfnStage;
+  // AWS::ApiGatewayV2::Stage types RouteSettings as free-form JSON, so CDK
+  // passes the keys through untouched: they are written in CloudFormation's
+  // own PascalCase, as SAM does for the same property.
+  private readonly routeSettings: Record<string, { ThrottlingRateLimit: number; ThrottlingBurstLimit: number }> = {};
+
   constructor(scope: Construct, id: string, props: RestBackendAPIProps) {
     super(scope, id);
 
@@ -155,9 +161,36 @@ export class RestBackendAPI extends Construct {
       );
     }
     const cfnStage = httpApi.defaultStage.node.defaultChild as apigwv2.CfnStage;
+    this.cfnStage = cfnStage;
     cfnStage.accessLogSettings = {
       destinationArn: this.accessLogGroup.logGroupArn,
       format: ACCESS_LOG_FORMAT,
     };
+  }
+
+  /**
+   * Cap one route's request rate on the default stage.
+   *
+   * Used for the unauthenticated routes, which have no authorizer to turn a
+   * flood away. HTTP API route throttling is per route and per stage, NOT per
+   * caller: it bounds what the route can cost (lambda invocations, table
+   * writes), and a flood past it gets 429s that crowd out real callers too.
+   * Per-source limits would need WAF, which is not deployed.
+   *
+   * Only the named route is limited; the stage default is left alone, so no
+   * authenticated route's behaviour changes.
+   */
+  public throttleRoute(
+    route: apigwv2.HttpRoute,
+    limits: { rateLimit: number; burstLimit: number },
+  ): void {
+    const routeKey = (route.node.defaultChild as apigwv2.CfnRoute).routeKey;
+    this.routeSettings[routeKey] = {
+      ThrottlingRateLimit: limits.rateLimit,
+      ThrottlingBurstLimit: limits.burstLimit,
+    };
+    this.cfnStage.routeSettings = { ...this.routeSettings };
+    // A stage cannot reference a route that does not exist yet.
+    this.cfnStage.addDependency(route.node.defaultChild as apigwv2.CfnRoute);
   }
 }

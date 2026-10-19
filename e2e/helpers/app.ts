@@ -105,10 +105,9 @@ export function isSignedOutPath(pathname: string): boolean {
 }
 
 /**
- * Put the staging bypass token on every /auth/start or /auth/signup request
- * this page makes -- the legacy screen posts to the latter, PasswordlessAuthForm
- * to the former, and e2e-bypass.js (shared by both endpoints' lambdas, see
- * auth-start.js and signup-endpoint.js) accepts the same token on either.
+ * Put the staging bypass token on every /auth/start request this page makes
+ * (PasswordlessAuthForm posts there; POST /auth/signup is retired). The
+ * server side is e2e-bypass.js, used by auth-start.js.
  *
  * Done at the NETWORK layer, deliberately, rather than by teaching the app a
  * test mode. The browser cannot solve a real Turnstile challenge, so something
@@ -124,7 +123,7 @@ export async function allowAuthPastTurnstile(page: Page): Promise<void> {
   await stubTurnstileWidget(page);
   const token = await fetchTurnstileBypassToken();
   await page.route(
-    (url) => url.pathname.endsWith('/auth/signup') || url.pathname.endsWith('/auth/start'),
+    (url) => url.pathname.endsWith('/auth/start'),
     async (route) => {
       const request = route.request();
       let body: Record<string, unknown> = {};

@@ -19,6 +19,11 @@ import * as kms from 'aws-cdk-lib/aws-kms';
 import { getEnvironment } from '../tags';
 
 
+// Requests per second, and the burst allowed above it, for the unauthenticated
+// POST /referral/click. See where it is applied for the reasoning.
+const REFERRAL_CLICK_RATE_LIMIT = 5;
+const REFERRAL_CLICK_BURST_LIMIT = 10;
+
 export interface ChatBotApiProps {
   readonly authentication?: NewAuthorizationStack;
 }
@@ -138,30 +143,15 @@ export class ChatBotApi extends Construct {
       ],
     });
 
-    const s3GetKnowledgeAPIIntegration = new HttpLambdaIntegration('S3GetKnowledgeAPIIntegration', this.lambdaFunctions.getS3KnowledgeFunction);
-    // Signup. The ONE unauthenticated route, necessarily: there is no token
-    // to authorize with before an account exists. Everything that would
-    // normally be an authorizer's job (anti-abuse, rate limiting, destination
-    // policy) happens inside the handler instead, in that order.
-    //
-    // This route only becomes a control because the pool refuses self-service
-    // signup. Before that, Cognito's public SignUp API was reachable from
-    // anywhere and is exactly what the 2026-09-09 run used.
-    const signupIntegration = new HttpLambdaIntegration(
-      'SignupAPIIntegration', authentication.signupFunction);
-    this.httpAPI.restAPI.addRoutes({
-      path: "/auth/signup",
-      methods: [apigwv2.HttpMethod.POST],
-      integration: signupIntegration,
-      authorizer: new apigwv2.HttpNoneAuthorizer(),
-    })
-
-    // The passwordless login path. Unauthenticated for the same unavoidable
-    // reason /auth/signup is: a parent signing in has no token yet, and one of
-    // these routes is how they get one. Everything an authorizer would do
-    // happens inside the handlers instead -- destination policy, per-source
-    // and global limits, then the bot check, cheapest first -- and this is the
-    // first time the OTP SEND path has had a bot check in front of it at all.
+    // The passwordless login path, and the only way to create an account.
+    // (POST /auth/signup is retired: it created accounts synchronously, which
+    // made "does this number already have an account" measurable by timing,
+    // and /auth/start is built not to.) Unauthenticated, necessarily: a
+    // parent signing in has no token yet, and one of these routes is how they
+    // get one. Everything an authorizer would do happens inside the handlers
+    // instead -- destination policy, per-source and global limits, then the
+    // bot check, cheapest first -- and this is the first time the OTP SEND
+    // path has had a bot check in front of it at all.
     //
     // See docs/AUTH_API_CONTRACT.md. /auth/start and /auth/verify are the
     // sign-in; /auth/token and /auth/logout are what an opaque session handle
@@ -200,21 +190,6 @@ export class ChatBotApi extends Construct {
       authorizer: new apigwv2.HttpNoneAuthorizer(),
     })
 
-    this.httpAPI.restAPI.addRoutes({
-      path: "/s3-knowledge-bucket-data",
-      methods: [apigwv2.HttpMethod.POST],
-      integration: s3GetKnowledgeAPIIntegration,
-      authorizer: httpAuthorizer,
-    })
-
-    const s3DeleteAPIIntegration = new HttpLambdaIntegration('S3DeleteAPIIntegration', this.lambdaFunctions.deleteS3Function);
-    this.httpAPI.restAPI.addRoutes({
-      path: "/delete-s3-file",
-      methods: [apigwv2.HttpMethod.POST],
-      integration: s3DeleteAPIIntegration,
-      authorizer: httpAuthorizer,
-    })
-
     const s3UploadKnowledgeAPIIntegration = new HttpLambdaIntegration('S3UploadKnowledgeAPIIntegration', this.lambdaFunctions.uploadS3KnowledgeFunction);
     this.httpAPI.restAPI.addRoutes({
       path: "/signed-url-knowledge",
@@ -246,20 +221,6 @@ export class ChatBotApi extends Construct {
     this.httpAPI.restAPI.addRoutes({
       path: "/profile/children/{childId}/documents",
       methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.DELETE],
-      integration: userProfileAPIIntegration,
-      authorizer: httpAuthorizer,
-    });
-
-    this.httpAPI.restAPI.addRoutes({
-      path: "/documents/{iepId}/status",
-      methods: [apigwv2.HttpMethod.GET],
-      integration: userProfileAPIIntegration,
-      authorizer: httpAuthorizer,
-    });
-
-    this.httpAPI.restAPI.addRoutes({
-      path: "/summary",
-      methods: [apigwv2.HttpMethod.POST],
       integration: userProfileAPIIntegration,
       authorizer: httpAuthorizer,
     });
@@ -300,10 +261,22 @@ export class ChatBotApi extends Construct {
     // Click beacon is deliberately unauthenticated: visitors are not signed
     // in yet. It only increments counters for known active codes and stores
     // no PII, so exposure is limited to counter noise.
-    this.httpAPI.restAPI.addRoutes({
+    //
+    // No authorizer means nothing turns a flood away, and every call that
+    // names a real code costs a counter update and a click write, so the route
+    // is throttled. The cap is per route, not per caller (see throttleRoute).
+    // Sized from traffic: production saw about one click in 30 days, and a
+    // staging test run sends a few at once. 5 requests/s sustained with a
+    // burst of 10 is orders of magnitude above that, and still covers a
+    // conference QR code scanned by a room full of people.
+    const [clickRoute] = this.httpAPI.restAPI.addRoutes({
       path: "/referral/click",
       methods: [apigwv2.HttpMethod.POST],
       integration: referralAPIIntegration,
+    });
+    this.httpAPI.throttleRoute(clickRoute, {
+      rateLimit: REFERRAL_CLICK_RATE_LIMIT,
+      burstLimit: REFERRAL_CLICK_BURST_LIMIT,
     });
 
     this.httpAPI.restAPI.addRoutes({

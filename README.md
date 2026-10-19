@@ -225,7 +225,8 @@ aws ssm put-parameter --name "/ai-iep/MISTRAL_API_KEY" --value "your-mistral-key
 
 ### 3a. Configure the signup bot check (Cloudflare Turnstile)
 
-Turnstile sits in front of account creation. It needs two values **per
+Turnstile sits in front of sign-in and account creation, both of which go
+through `POST /auth/start` (`POST /auth/signup` was retired). It needs two values **per
 environment**, under `/a-iep/<env>/...` where `<env>` is `prod` or `dev` (`dev`
 is what the staging stack deploys as, see `getEnvironment()` in `lib/tags.ts`).
 
