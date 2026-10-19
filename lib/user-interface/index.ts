@@ -246,10 +246,20 @@ export class UserInterface extends Construct {
     // no studentNameGate and no passwordlessAuth and rendered the old login
     // screen and no child-name prompt, on a build that contained both. A hard
     // reload fixed it, which is not a thing a parent knows to do.
-    new s3deploy.BucketDeployment(this, "UserInterfaceDeployment", {
+    // The hashed bundle: assets/ only. A new build is a new URL, so the old
+    // one is safe to keep for a year.
+    //
+    // Files outside assets/ and index.html are not hashed. vendor/ (the PDF
+    // worker and the icon font) and images/ keep their names across releases,
+    // so a version bump can leave a returning browser on the old file for a
+    // year. They get the one-day policy below instead, so a stale copy is
+    // replaced within a day, and stale-while-revalidate lets a return visit
+    // paint at once while the new copy loads behind it.
+    const assetsDeployment = new s3deploy.BucketDeployment(this, "UserInterfaceAssets", {
       prune: false,
       sources: [asset],
-      exclude: ["index.html"],
+      exclude: ["*"],
+      include: ["assets/*"],
       destinationBucket: websiteBucket,
       distribution: distribution,
       cacheControl: [
@@ -266,12 +276,30 @@ export class UserInterface extends Construct {
       ephemeralStorageSize: cdk.Size.gibibytes(1),
     });
 
+    // Everything else in the build that has a stable URL: vendor/, images/ and
+    // any top-level static file. Not index.html or aws-exports.json (the two
+    // entry points, deployed below with no-cache) and not assets/ (above).
+    const stableFilesDeployment = new s3deploy.BucketDeployment(this, "UserInterfaceStableFiles", {
+      prune: false,
+      sources: [asset],
+      exclude: ["index.html", "aws-exports.json", "assets/*"],
+      destinationBucket: websiteBucket,
+      distribution: distribution,
+      cacheControl: [
+        s3deploy.CacheControl.fromString(
+          "public, max-age=86400, stale-while-revalidate=604800"
+        ),
+      ],
+      memoryLimit: 1024,
+      ephemeralStorageSize: cdk.Size.gibibytes(1),
+    });
+
     // The two unhashed entry points. no-cache is revalidate-before-use, not
     // "never cache": the browser still stores them and still gets a 304 when
     // nothing changed, so this costs one conditional request per load rather
     // than a re-download. must-revalidate closes the stale-while-offline
     // window that would otherwise let a flag flip be ignored.
-    new s3deploy.BucketDeployment(this, "UserInterfaceEntrypoints", {
+    const entrypointsDeployment = new s3deploy.BucketDeployment(this, "UserInterfaceEntrypoints", {
       prune: false,
       sources: [asset, exportsAsset],
       exclude: ["*"],
@@ -285,6 +313,15 @@ export class UserInterface extends Construct {
       memoryLimit: 1024,
       ephemeralStorageSize: cdk.Size.gibibytes(1),
     });
+
+    // Publish the entry points last. CloudFormation would otherwise run the
+    // three deployments in parallel, and a parent whose browser fetched the new
+    // index.html while the new /assets chunks were still syncing would get the
+    // error boundary on a signed-in page, because each lazy route's chunk would
+    // be missing. With this ordering the old index.html keeps serving until
+    // every chunk it might ask for is in the bucket.
+    entrypointsDeployment.node.addDependency(assetsDeployment);
+    entrypointsDeployment.node.addDependency(stableFilesDeployment);
 
 
     /**

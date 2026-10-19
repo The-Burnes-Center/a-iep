@@ -35,7 +35,7 @@ const PartnerBanner: React.FC<PartnerBannerProps> = ({ position = 'top' }) => {
             rel="noopener noreferrer"
             className="partner-banner__link"
           >
-            <img src="/images/arrow-ne.svg" alt="" className="partner-banner__icon" />
+            <img loading="lazy" decoding="async" src="/images/arrow-ne.svg" alt="" className="partner-banner__icon" />
             {partner.name}
           </a>
         ))}
@@ -46,7 +46,7 @@ const PartnerBanner: React.FC<PartnerBannerProps> = ({ position = 'top' }) => {
         {!isOpen ? (
           <button className="partner-banner__toggle" onClick={() => setIsOpen(true)}>
             <span className="partner-banner__label">{t('partnerBanner.label')}</span>
-            <img
+            <img loading="lazy" decoding="async"
               src="/images/arrow-down.svg"
               alt=""
               className={`partner-banner__arrow${position === 'bottom' ? ' partner-banner__arrow--up' : ''}`}
@@ -59,7 +59,7 @@ const PartnerBanner: React.FC<PartnerBannerProps> = ({ position = 'top' }) => {
           >
             <span className="partner-banner__dropdown-header">
               <span className="partner-banner__label">{t('partnerBanner.label')}</span>
-              <img
+              <img loading="lazy" decoding="async"
                 src="/images/arrow-down.svg"
                 alt=""
                 className="partner-banner__arrow partner-banner__arrow--open"
@@ -74,7 +74,7 @@ const PartnerBanner: React.FC<PartnerBannerProps> = ({ position = 'top' }) => {
                 className="partner-banner__link"
                 onClick={(e) => e.stopPropagation()}
               >
-                <img src="/images/arrow-ne.svg" alt="" className="partner-banner__icon" />
+                <img loading="lazy" decoding="async" src="/images/arrow-ne.svg" alt="" className="partner-banner__icon" />
                 {partner.name}
               </a>
             ))}

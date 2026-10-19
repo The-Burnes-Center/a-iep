@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useMemo } from 'react';
 import { StorageHelper } from './helpers/storage-helper';
+import { isConstrainedConnection, readNetworkConnection } from './helpers/network-hints';
 import { applyDirection } from './direction';
 import { AppContext } from './app-context';
 import {
@@ -124,6 +125,9 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
   useEffect(() => {
     if (!initialLoadDone) return;
     const prefetchRemaining = () => {
+      // Data Saver or a 3G-or-slower link: the other dictionaries are only
+      // needed if the parent switches language, and that path loads on demand.
+      if (isConstrainedConnection(readNetworkConnection())) return;
       enabledLanguages
         .filter((lang) => !translationCache[lang])
         .forEach((lang) => { fetchTranslations(lang).catch(() => {}); });

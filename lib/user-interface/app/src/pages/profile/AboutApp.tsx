@@ -88,7 +88,7 @@ export default function AboutApp({
             {parentNavigator.slice(0, 4).map((member) => (
               <div key={member.id} className='parent-navigator-item'>
                 <div className='parent-navigator-item-image'>
-                  <img 
+                  <img loading="lazy" decoding="async" 
                     src={member.headshot}
                     alt={`${member.first_name} ${member.last_name}`}
                   />
@@ -104,7 +104,7 @@ export default function AboutApp({
             {parentNavigator.slice(4).map((member) => (
               <div key={member.id} className='parent-navigator-item'>
                 <div className='parent-navigator-item-image'>
-                  <img 
+                  <img loading="lazy" decoding="async" 
                     src={member.headshot}
                     alt={`${member.first_name} ${member.last_name}`}
                   />
@@ -125,7 +125,7 @@ export default function AboutApp({
             {teamMembers.map((member) => (
               <div key={member.id} className='team-member-item'>
                 <div className='team-member-item-image'>
-                  <img 
+                  <img loading="lazy" decoding="async" 
                     src={`https://directus.theburnescenter.org/assets/${member.thumbnail?.filename_disk}`}
                     alt={`${member.first_name} ${member.last_name}`}
                   />
@@ -145,7 +145,7 @@ export default function AboutApp({
             <GoToWebsiteButton url={"https://thegovlab.org/"} buttonText={t("about.learnMore")} />
           </div>
           <div className='gov-lab-logo-container'>
-              <img src="/images/the_govlab_logo 1.png" alt="The Gov Lab Logo" />
+              <img loading="lazy" decoding="async" src="/images/the_govlab_logo 1.png" alt="The Gov Lab Logo" />
           </div>
         </div>
 
@@ -156,14 +156,14 @@ export default function AboutApp({
             <GoToWebsiteButton url={"https://innovateschools.org/"} buttonText={t("about.learnMore")} />
           </div>
           <div className='innovate-schools-logo-container'>
-              <img src="/images/innovate_logo.png" alt="Innovate Public Schools Logo" />
+              <img loading="lazy" decoding="async" src="/images/innovate_logo.png" alt="Innovate Public Schools Logo" />
           </div>
         </div>
 
         <div className='privacy-policy-header section-header--privacy' style={{ cursor: 'pointer' }} onClick={() => navigate(showBreadcrumbs ? '/privacy-policy' : '/public-privacy-policy')}>
           <h5>{t("about.privacyPolicy")}</h5>
           <span className="arrow-icon">
-            <img src="/images/arrow.svg" alt="" />
+            <img loading="lazy" decoding="async" src="/images/arrow.svg" alt="" />
           </span>
         </div>
 

@@ -39,6 +39,10 @@ const API_BASE = "https://api.example.test/api";
 const CHILD_ID = "child-abc";
 const IEP_ID = "doc-1";
 const POLL_INTERVAL_MS = 5000;
+// After the first minute of polling the cadence backs off (see
+// pages/utils/polling-utility.ts). A milestone that lands after that is only
+// seen on the next slow tick.
+const SLOW_POLL_INTERVAL_MS = 15000;
 const DOCUMENTS_URL = `${API_BASE}/profile/children/${CHILD_ID}/documents`;
 
 const ENGLISH_SUMMARY = "The English summary paragraph.";
@@ -559,7 +563,8 @@ describe("the bar between milestones", () => {
       current_step: "analysis_complete",
       updatedAt: nowSeconds(),
     });
-    await settle(POLL_INTERVAL_MS);
+    // The minute above put the poller on its slow cadence.
+    await settle(SLOW_POLL_INTERVAL_MS);
 
     // The confirmed value is the exact one; the drawn value is already easing
     // past it toward 97, so pinning it to 75 would be asserting that the

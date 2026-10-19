@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Outlet } from 'react-router-dom';
 import AppShell from './AppShell';
 import LandingTopNavigation from './LandingTopNavigation';
 import MobileTopNavigation from './MobileTopNavigation';
+import PageLoading from './PageLoading';
+import { useLanguage } from '../common/language-context';
 
 /**
  * Which navigation bar a route gets, decided by the block it sits in rather
@@ -49,9 +51,16 @@ export function PublicChrome() {
  * yet". Exported so a test can put a screen under the real bar.
  */
 export function InAppChrome() {
+  const { t } = useLanguage();
+  // The protected pages are lazy chunks. Their Suspense boundary sits inside
+  // the shell, not above the routes, so the bar and footer stay on screen
+  // while a page downloads. The fallback is the guard's own loading state, so
+  // a parent sees the same mark for the route check and for the page fetch.
   return (
     <AppShell nav={<MobileTopNavigation />} footerVariant="compact">
-      <Outlet />
+      <Suspense fallback={<PageLoading label={t('common.loading')} />}>
+        <Outlet />
+      </Suspense>
     </AppShell>
   );
 }

@@ -36,12 +36,12 @@ const ResourcesBanner: React.FC = () => {
     return (
         <>
             <div className='multi-face-green-banner-divider'>
-                <img 
+                <img loading="lazy" decoding="async" 
                     src="/images/blue-pattern-stripe-desktop.png" 
                     alt="Blue pattern stripe" 
                     className="yellow-pattern-stripe-desktop"
                 />
-                <img 
+                <img loading="lazy" decoding="async" 
                     src="/images/blue-pattern-stripe-mobile.png" 
                     alt="Blue pattern stripe" 
                     className="yellow-pattern-stripe-mobile"

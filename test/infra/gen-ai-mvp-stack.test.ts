@@ -2794,26 +2794,67 @@ describe('production synth: the unhashed entry points are revalidated', () => {
     // The actual regression, stated as the thing that must not be true again:
     // no deployment may hand this file a long max-age, whether by carrying it
     // in the long-lived bundle or by someone adding a max-age to the pair.
-    const carryingConfig = deployments().filter((d) =>
-      d.include.includes('aws-exports.json') || d.include.length === 0);
+    const namingConfig = deployments().filter((d) =>
+      d.include.includes('aws-exports.json'));
 
-    for (const d of carryingConfig) {
-      const caches = d.include.includes('aws-exports.json');
-      if (!caches) continue;
-      expect(d.cacheControl ?? '').not.toMatch(/max-age=([1-9]\d{3,})/);
-      expect(d.cacheControl ?? '').not.toContain('immutable');
-    }
+    expect(namingConfig).toHaveLength(1);
+    expect(namingConfig[0].cacheControl ?? '').not.toMatch(/max-age=([1-9]\d{3,})/);
+    expect(namingConfig[0].cacheControl ?? '').not.toContain('immutable');
   });
 
-  it('still caches the content-hashed assets, and keeps index.html out of them', () => {
+  it('still caches the content-hashed assets, and nothing else', () => {
     // The other half: assets/ filenames carry a content hash, so a new build
     // is a new URL and the old one is safe to keep forever. Losing this would
     // turn every page load into a full re-download of the bundle.
-    const hashed = deployments().filter((d) => d.exclude.includes('index.html'));
+    const hashed = deployments().filter((d) => d.include.includes('assets/*'));
 
     expect(hashed).toHaveLength(1);
     expect(hashed[0].cacheControl).toContain('immutable');
     expect(hashed[0].cacheControl).toMatch(/max-age=\d{7,}/);
     expect(hashed[0].include).not.toContain('index.html');
+    // Only the hashed bundle may carry immutable. A stable URL marked immutable
+    // is the stale-PDF-worker bug this split exists to prevent.
+    const immutable = deployments().filter((d) => d.cacheControl?.includes('immutable'));
+    expect(immutable).toEqual(hashed);
+  });
+
+  it('gives vendor/, images/ and other stable-URL files a one-day policy with stale-while-revalidate', () => {
+    // These keep their names across releases (pdf.worker.min.mjs is tied to the
+    // pdfjs version), so a long max-age would pin a returning browser to an old
+    // file for a year. One day bounds that, and stale-while-revalidate lets a
+    // return visit paint at once while the copy refreshes behind it.
+    const stable = deployments().filter((d) =>
+      d.exclude.includes('assets/*') && d.exclude.includes('index.html'));
+
+    expect(stable).toHaveLength(1);
+    expect(stable[0].cacheControl).toBe(
+      'public, max-age=86400, stale-while-revalidate=604800',
+    );
+    // It must never upload the runtime config: that file is no-cache, and a
+    // second writer with a different policy would race it.
+    expect(stable[0].exclude).toContain('aws-exports.json');
+  });
+
+  it('publishes index.html and aws-exports.json only after the chunks and stable files', () => {
+    // Without this edge CloudFormation runs the three deployments in parallel.
+    // A parent who fetches the new index.html during that window requests
+    // lazy chunks that are not in the bucket yet, and hits the error boundary.
+    const resources = prodTemplate.findResources('Custom::CDKBucketDeployment');
+    const byProps = (pred: (p: Record<string, unknown>) => boolean) =>
+      Object.entries(resources)
+        .filter(([, r]) => pred((r as { Properties: Record<string, unknown> }).Properties))
+        .map(([id]) => id);
+
+    const entrypoints = byProps((p) => ((p.Include as string[] | undefined) ?? []).includes('aws-exports.json'));
+    const assets = byProps((p) => ((p.Include as string[] | undefined) ?? []).includes('assets/*'));
+    const stable = byProps((p) => ((p.Exclude as string[] | undefined) ?? []).includes('assets/*'));
+
+    expect(entrypoints).toHaveLength(1);
+    expect(assets).toHaveLength(1);
+    expect(stable).toHaveLength(1);
+
+    const dependsOn = (resources[entrypoints[0]] as { DependsOn?: string[] }).DependsOn ?? [];
+    expect(dependsOn).toContain(assets[0]);
+    expect(dependsOn).toContain(stable[0]);
   });
 });
