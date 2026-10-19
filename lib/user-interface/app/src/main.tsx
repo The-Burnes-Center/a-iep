@@ -8,6 +8,9 @@ import ReactDOM from "react-dom/client";
 import AppConfigured from "./components/app-configured";
 // Palette first: every other stylesheet resolves its colours from these tokens.
 import './styles/palette.css';
+// Self-hosted Google Fonts (Fjalla One, and the Arabic faces, which the browser
+// downloads only when Arabic glyphs are on screen).
+import './styles/fonts.css';
 import './styles/app.scss';
 import './styles/modal.css';
 import './styles/buttons.css';
