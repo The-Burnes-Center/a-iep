@@ -2713,4 +2713,27 @@ describe('production synth: the unhashed entry points are revalidated', () => {
     // second writer with a different policy would race it.
     expect(stable[0].exclude).toContain('aws-exports.json');
   });
+
+  it('publishes index.html and aws-exports.json only after the chunks and stable files', () => {
+    // Without this edge CloudFormation runs the three deployments in parallel.
+    // A parent who fetches the new index.html during that window requests
+    // lazy chunks that are not in the bucket yet, and hits the error boundary.
+    const resources = prodTemplate.findResources('Custom::CDKBucketDeployment');
+    const byProps = (pred: (p: Record<string, unknown>) => boolean) =>
+      Object.entries(resources)
+        .filter(([, r]) => pred((r as { Properties: Record<string, unknown> }).Properties))
+        .map(([id]) => id);
+
+    const entrypoints = byProps((p) => ((p.Include as string[] | undefined) ?? []).includes('aws-exports.json'));
+    const assets = byProps((p) => ((p.Include as string[] | undefined) ?? []).includes('assets/*'));
+    const stable = byProps((p) => ((p.Exclude as string[] | undefined) ?? []).includes('assets/*'));
+
+    expect(entrypoints).toHaveLength(1);
+    expect(assets).toHaveLength(1);
+    expect(stable).toHaveLength(1);
+
+    const dependsOn = (resources[entrypoints[0]] as { DependsOn?: string[] }).DependsOn ?? [];
+    expect(dependsOn).toContain(assets[0]);
+    expect(dependsOn).toContain(stable[0]);
+  });
 });

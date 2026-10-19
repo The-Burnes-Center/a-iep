@@ -255,7 +255,7 @@ export class UserInterface extends Construct {
     // year. They get the one-day policy below instead, so a stale copy is
     // replaced within a day, and stale-while-revalidate lets a return visit
     // paint at once while the new copy loads behind it.
-    new s3deploy.BucketDeployment(this, "UserInterfaceAssets", {
+    const assetsDeployment = new s3deploy.BucketDeployment(this, "UserInterfaceAssets", {
       prune: false,
       sources: [asset],
       exclude: ["*"],
@@ -279,7 +279,7 @@ export class UserInterface extends Construct {
     // Everything else in the build that has a stable URL: vendor/, images/ and
     // any top-level static file. Not index.html or aws-exports.json (the two
     // entry points, deployed below with no-cache) and not assets/ (above).
-    new s3deploy.BucketDeployment(this, "UserInterfaceStableFiles", {
+    const stableFilesDeployment = new s3deploy.BucketDeployment(this, "UserInterfaceStableFiles", {
       prune: false,
       sources: [asset],
       exclude: ["index.html", "aws-exports.json", "assets/*"],
@@ -299,7 +299,7 @@ export class UserInterface extends Construct {
     // nothing changed, so this costs one conditional request per load rather
     // than a re-download. must-revalidate closes the stale-while-offline
     // window that would otherwise let a flag flip be ignored.
-    new s3deploy.BucketDeployment(this, "UserInterfaceEntrypoints", {
+    const entrypointsDeployment = new s3deploy.BucketDeployment(this, "UserInterfaceEntrypoints", {
       prune: false,
       sources: [asset, exportsAsset],
       exclude: ["*"],
@@ -313,6 +313,15 @@ export class UserInterface extends Construct {
       memoryLimit: 1024,
       ephemeralStorageSize: cdk.Size.gibibytes(1),
     });
+
+    // Publish the entry points last. CloudFormation would otherwise run the
+    // three deployments in parallel, and a parent whose browser fetched the new
+    // index.html while the new /assets chunks were still syncing would get the
+    // error boundary on a signed-in page, because each lazy route's chunk would
+    // be missing. With this ordering the old index.html keeps serving until
+    // every chunk it might ask for is in the bucket.
+    entrypointsDeployment.node.addDependency(assetsDeployment);
+    entrypointsDeployment.node.addDependency(stableFilesDeployment);
 
 
     /**
