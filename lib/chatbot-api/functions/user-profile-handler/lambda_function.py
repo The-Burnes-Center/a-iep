@@ -4,7 +4,7 @@ import boto3
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Dict, List, Optional, Literal
+from typing import Dict, List, Optional, Literal, Tuple
 from router import Router, UserProfileRouter, RouteNotFoundException
 from student_name_substitution import substitute_content, usable_student_name
 import base64
@@ -328,6 +328,17 @@ def validate_child_name(name) -> Optional[str]:
     return None if has_letter else 'invalid'
 
 
+def bad_request(event: Dict, operation: str, user_id: str, reason: str, message: str) -> Dict:
+    """400 with the reason in CloudWatch. Every 4xx in this handler goes
+    through here so none is silent.
+
+    `reason` is a fixed phrase naming the rule that was broken, never the value
+    that broke it: values are a parent's and a child's details.
+    """
+    print(f"Rejecting {operation} for userId {user_id}: {reason}")
+    return create_response(event, 400, {'message': message})
+
+
 def reject_child_name(event: Dict, operation: str, user_id: str, reason: str) -> Dict:
     """400 for a name we will not store, with the reason code in CloudWatch.
 
@@ -336,14 +347,72 @@ def reject_child_name(event: Dict, operation: str, user_id: str, reason: str) ->
     to anyone with log-read access.
     """
     log_reason, message = CHILD_NAME_REJECTIONS[reason]
-    print(f"Rejecting {operation} for userId {user_id}: {log_reason}")
-    return create_response(event, 400, {'message': message})
+    return bad_request(event, operation, user_id, log_reason, message)
 
 
 # Word starts, for capitalising a name: the beginning of the string, or the
 # character after a space, a hyphen, or either apostrophe. So "mary-jane" and
 # "o'brien" get both halves, not just the first.
 _NAME_WORD_START = re.compile(r"(^|[\s\-'\u2019])(\w)", re.UNICODE)
+
+
+# The fields a child object holds, which is every field this app writes or reads
+# back: childId and the timestamps are server-issued (default child, add_child)
+# and the screen sends the whole object back when it renames a child, so
+# dropping any of them would lose data on the next save. Nothing else is stored.
+CHILD_FIELDS = ('childId', 'name', 'schoolCity',
+                'createdAt', 'createdAtISO', 'updatedAt', 'updatedAtISO')
+_CHILD_INT_FIELDS = ('createdAt', 'updatedAt')
+_CHILD_STRING_FIELDS = ('schoolCity', 'createdAtISO', 'updatedAtISO')
+CHILD_ID_MAX_LENGTH = 128
+
+
+def clean_children(children) -> Tuple[Optional[List[Dict]], Optional[Tuple[str, str]]]:
+    """Validate the `children` of a profile update and keep only known fields.
+
+    Returns (children, None) with new dicts holding CHILD_FIELDS only (the name
+    not yet normalized or encrypted), or (None, (log reason, response message))
+    for the first problem. Never raises on any JSON a caller can send.
+    """
+    if not isinstance(children, list):
+        return None, ('children is not a list', 'children must be a list of child objects')
+
+    cleaned = []
+    seen_ids = set()
+    for child in children:
+        if not isinstance(child, dict):
+            return None, ('a child is not an object', 'Each child must be an object')
+        if 'name' not in child or 'schoolCity' not in child:
+            return None, ('a child has no name or schoolCity',
+                          'Each child must have name and schoolCity')
+        if not isinstance(child['name'], str):
+            return None, ('child name is not a string', 'Child name must be text')
+        reason = validate_child_name(child['name'])
+        if reason:
+            return None, CHILD_NAME_REJECTIONS[reason]
+        for field in _CHILD_STRING_FIELDS:
+            if field in child and not isinstance(child[field], str):
+                return None, (f'child {field} is not a string', f'Child {field} must be text')
+        for field in _CHILD_INT_FIELDS:
+            value = child.get(field)
+            if field in child and (isinstance(value, bool) or not isinstance(value, int)):
+                return None, (f'child {field} is not a whole number',
+                              f'Child {field} must be a whole number')
+        child_id = child['childId'] if 'childId' in child else str(uuid.uuid4())
+        if (not isinstance(child_id, str) or not child_id.strip()
+                or len(child_id) > CHILD_ID_MAX_LENGTH):
+            return None, ('child childId is not a usable string', 'Child childId must be text')
+        if child_id in seen_ids:
+            return None, ('two children share a childId', 'Each child must have its own childId')
+        seen_ids.add(child_id)
+
+        kept = {field: child[field] for field in CHILD_FIELDS if field in child}
+        kept['childId'] = child_id
+        dropped = len(child) - len([field for field in child if field in CHILD_FIELDS])
+        if dropped:
+            print(f"Dropped {dropped} unrecognised child field(s) from a profile update")
+        cleaned.append(kept)
+    return cleaned, None
 
 
 def normalize_child_name(name: str) -> str:
@@ -608,9 +677,12 @@ def update_user_profile(event: Dict) -> Dict:
         try:
             body = json.loads(event['body']) if event.get('body') else {}
         except (TypeError, ValueError):
-            return create_response(event, 400, {'message': 'Invalid JSON body'})
+            return bad_request(event, 'update_user_profile', user_id,
+                               'body is not valid JSON', 'Invalid JSON body')
         if not isinstance(body, dict):
-            return create_response(event, 400, {'message': 'Invalid JSON body: expected a JSON object'})
+            return bad_request(event, 'update_user_profile', user_id,
+                               'body is not a JSON object',
+                               'Invalid JSON body: expected a JSON object')
         times = get_timestamps()
 
         # Start building update expression and values
@@ -635,30 +707,31 @@ def update_user_profile(event: Dict) -> Dict:
 
         # If email is in the request, return an error
         if 'email' in body:
-            return create_response(event, 400, {
-                'message': 'Email cannot be updated directly. Please update your email through account settings.'
-            })
+            return bad_request(
+                event, 'update_user_profile', user_id, 'email is not updatable here',
+                'Email cannot be updated directly. Please update your email through account settings.')
         
         for field, attr_name in optional_fields.items():
             if field in body:
                 # Special validation for language fields
                 if field in ['primaryLanguage', 'secondaryLanguage']:
                     if body[field] and not validate_language(body[field]):
-                        return create_response(event, 400, {
-                            'message': f'Unsupported language for {field}. Supported languages: {SUPPORTED_LANGUAGES}'
-                        })
+                        return bad_request(
+                            event, 'update_user_profile', user_id,
+                            f'unsupported language for {field}',
+                            f'Unsupported language for {field}. Supported languages: {SUPPORTED_LANGUAGES}')
                 
                 # Validation for consentGiven boolean field
                 if field == 'consentGiven' and not isinstance(body[field], bool):
-                    return create_response(event, 400, {
-                        'message': 'consentGiven must be a boolean value (true or false)'
-                    })
+                    return bad_request(
+                        event, 'update_user_profile', user_id, 'consentGiven is not a boolean',
+                        'consentGiven must be a boolean value (true or false)')
                 
                 # Validation for showOnboarding boolean field
                 if field == 'showOnboarding' and not isinstance(body[field], bool):
-                    return create_response(event, 400, {
-                        'message': 'showOnboarding must be a boolean value (true or false)'
-                    })
+                    return bad_request(
+                        event, 'update_user_profile', user_id, 'showOnboarding is not a boolean',
+                        'showOnboarding must be a boolean value (true or false)')
                 
                 # Encrypt selected PII fields at rest
                 value_to_store = body[field]
@@ -669,33 +742,26 @@ def update_user_profile(event: Dict) -> Dict:
             
         # Handle children array if present
         if 'children' in body:
-            # Validate child data
-            for child in body['children']:
-                if 'name' not in child or 'schoolCity' not in child:
-                    return create_response(event, 400, {'message': 'Each child must have name and schoolCity'})
-                # A present-but-blank name used to pass -- 'name' in child was
-                # the whole check -- which is exactly the value the redaction
-                # pipeline has nothing to restore from. So did '123' and '!!!',
-                # which is what validate_child_name now also catches. Reject
-                # and log why: an unlogged validation rejection already made
-                # one real failure in this file undiagnosable.
-                reason = validate_child_name(child['name'])
-                if reason:
-                    return reject_child_name(event, 'update_user_profile', user_id, reason)
-                if 'childId' not in child:
-                    child['childId'] = str(uuid.uuid4())
+            # A blank, over-long or non-name value is refused and logged with
+            # its reason (an unlogged validation rejection already made one
+            # real failure in this file undiagnosable), and so is anything
+            # that is not the list of child objects the screen sends.
+            children, problem = clean_children(body['children'])
+            if problem:
+                return bad_request(event, 'update_user_profile', user_id, *problem)
 
             # Encrypt at rest, same as phone/city/parentName above.
             update_parts.append('children = :children')
             expr_values[':children'] = [
                 {**child, 'name': kms_encrypt_string(normalize_child_name(child['name']))}
-                for child in body['children']
+                for child in children
             ]
-        
+
         # If no fields to update (the first two parts are always the
         # updatedAt/updatedAtISO timestamps)
         if len(update_parts) == 2:
-            return create_response(event, 400, {'message': 'No fields to update provided'})
+            return bad_request(event, 'update_user_profile', user_id,
+                               'no updatable fields in the body', 'No fields to update provided')
             
         # Construct final update expression
         update_expr = 'SET ' + ', '.join(update_parts)
@@ -754,14 +820,20 @@ def add_child(event: Dict) -> Dict:
         try:
             body = json.loads(event['body']) if event.get('body') else {}
         except (TypeError, ValueError):
-            return create_response(event, 400, {'message': 'Invalid JSON body'})
+            return bad_request(event, 'add_child', user_id,
+                               'body is not valid JSON', 'Invalid JSON body')
         if not isinstance(body, dict):
-            return create_response(event, 400, {'message': 'Invalid JSON body: expected a JSON object'})
+            return bad_request(event, 'add_child', user_id, 'body is not a JSON object',
+                               'Invalid JSON body: expected a JSON object')
         times = get_timestamps()
 
         # Validate required fields
         if 'name' not in body or 'schoolCity' not in body:
-            return create_response(event, 400, {'message': 'Missing required fields: name and schoolCity required'})
+            return bad_request(event, 'add_child', user_id, 'name or schoolCity missing',
+                               'Missing required fields: name and schoolCity required')
+        if not isinstance(body['schoolCity'], str):
+            return bad_request(event, 'add_child', user_id, 'schoolCity is not a string',
+                               'schoolCity must be text')
 
         # Blank, over-long, or not a name at all: same rule, same reason and
         # the same reason codes as the children branch of update_user_profile.

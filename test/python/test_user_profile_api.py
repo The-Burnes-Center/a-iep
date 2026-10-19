@@ -2094,3 +2094,146 @@ def test_a_kms_outage_still_degrades_the_name_inside_a_summary(api, monkeypatch)
 
     assert status == 200
     assert body['summaries']['en'] == 'your child is making progress.'
+
+
+# ---------------------------------------------------------------------------
+# PUT /profile: malformed children are a logged 400, and only known child
+# fields are stored
+
+GOOD_CHILD = {'childId': 'c1', 'name': 'Alex', 'schoolCity': 'Boston'}
+
+
+@pytest.mark.parametrize('children, why', [
+    ({'childId': 'c1'}, 'children is not a list'),
+    ('c1', 'children is not a list'),
+    (None, 'children is not a list'),
+    (7, 'children is not a list'),
+    ([1], 'a child is not an object'),
+    (['Alex'], 'a child is not an object'),
+    ([None], 'a child is not an object'),
+    ([[GOOD_CHILD]], 'a child is not an object'),
+    ([{'name': 'Alex'}], 'a child has no name or schoolCity'),
+    ([{'schoolCity': 'Boston'}], 'a child has no name or schoolCity'),
+    ([{**GOOD_CHILD, 'name': 123}], 'child name is not a string'),
+    ([{**GOOD_CHILD, 'name': None}], 'child name is not a string'),
+    ([{**GOOD_CHILD, 'name': ['Alex']}], 'child name is not a string'),
+    ([{**GOOD_CHILD, 'schoolCity': 5}], 'child schoolCity is not a string'),
+    ([{**GOOD_CHILD, 'schoolCity': {'a': 1}}], 'child schoolCity is not a string'),
+    ([{**GOOD_CHILD, 'createdAt': '1700000000'}], 'child createdAt is not a whole number'),
+    ([{**GOOD_CHILD, 'createdAt': True}], 'child createdAt is not a whole number'),
+    ([{**GOOD_CHILD, 'updatedAt': 1.5}], 'child updatedAt is not a whole number'),
+    ([{**GOOD_CHILD, 'createdAtISO': 20260101}], 'child createdAtISO is not a string'),
+    ([{**GOOD_CHILD, 'childId': 5}], 'child childId is not a usable string'),
+    ([{**GOOD_CHILD, 'childId': None}], 'child childId is not a usable string'),
+    ([{**GOOD_CHILD, 'childId': '  '}], 'child childId is not a usable string'),
+    ([{**GOOD_CHILD, 'childId': 'x' * 129}], 'child childId is not a usable string'),
+    ([GOOD_CHILD, dict(GOOD_CHILD)], 'two children share a childId'),
+    ([{**GOOD_CHILD, 'name': '!!!'}], 'child name holds no letter'),
+])
+def test_malformed_children_are_a_400_with_the_reason_logged_and_nothing_stored(
+        api, capsys, children, why):
+    profile_with_child(api, child_id='existing')
+    before = stored_profile(api)
+    capsys.readouterr()
+
+    status, body = call(api, '/profile', 'PUT', {'children': children})
+    logged = capsys.readouterr().out
+
+    assert status == 400, body
+    assert set(body) == {'message'}
+    assert f'Rejecting update_user_profile for userId {USER}: {why}' in logged
+    assert stored_profile(api) == before
+
+
+def test_only_the_fields_the_app_stores_are_kept_on_a_child(api, capsys):
+    api.profiles.put_item(Item={'userId': USER})
+    capsys.readouterr()
+
+    status, _ = call(api, '/profile', 'PUT', {'children': [{
+        **GOOD_CHILD,
+        'createdAt': 1700000000000, 'createdAtISO': '2026-01-01T00:00:00Z',
+        'updatedAt': 1700000000001, 'updatedAtISO': '2026-01-01T00:00:01Z',
+        'isAdmin': True, 'iepDocument': {'iepId': 'x'}, 'ssn': '000-00-0000',
+    }]})
+
+    assert status == 200
+    child = stored_profile(api)['children'][0]
+    assert set(child) == {'childId', 'name', 'schoolCity', 'createdAt', 'createdAtISO',
+                          'updatedAt', 'updatedAtISO'}
+    assert child['createdAt'] == 1700000000000 and child['updatedAtISO'] == '2026-01-01T00:00:01Z'
+    logged = capsys.readouterr().out
+    assert 'Dropped 3 unrecognised child field(s)' in logged
+    assert '000-00-0000' not in logged and 'isAdmin' not in logged
+
+
+def test_a_child_the_screen_sends_back_unchanged_keeps_every_field(api):
+    """ViewAndAddChild saves a rename as {...existingChild, name, schoolCity,
+    childId} where existingChild is what GET /profile returned. Nothing it
+    reads back may disappear on that round trip."""
+    assert call(api, '/profile/children', 'POST', {'name': 'Alex', 'schoolCity': 'Boston'})[0] == 200
+    stored_before = stored_profile(api)['children'][0]
+    fetched = call(api, '/profile', 'GET')[1]['profile']['children'][0]
+    assert {'childId', 'name', 'schoolCity', 'createdAt', 'createdAtISO',
+            'updatedAt', 'updatedAtISO'} == set(fetched)
+
+    status, _ = call(api, '/profile', 'PUT', {'children': [
+        {**fetched, 'name': 'Alexander', 'schoolCity': 'Cambridge', 'childId': fetched['childId']}]})
+
+    assert status == 200
+    after = stored_profile(api)['children'][0]
+    assert set(after) == set(stored_before)
+    for field in ('childId', 'createdAt', 'createdAtISO', 'updatedAt', 'updatedAtISO'):
+        assert after[field] == stored_before[field]
+    again = call(api, '/profile', 'GET')[1]['profile']['children'][0]
+    assert (again['name'], again['schoolCity']) == ('Alexander', 'Cambridge')
+
+
+def test_a_child_with_no_childId_is_given_one_and_the_request_is_not_mutated(api):
+    api.profiles.put_item(Item={'userId': USER})
+    body = {'children': [{'name': 'Alex', 'schoolCity': 'Boston'}]}
+
+    assert call(api, '/profile', 'PUT', body)[0] == 200
+
+    assert stored_profile(api)['children'][0]['childId']
+    assert 'childId' not in body['children'][0]
+
+
+def test_an_empty_children_list_is_still_accepted(api):
+    api.profiles.put_item(Item={'userId': USER, 'children': [GOOD_CHILD]})
+
+    assert call(api, '/profile', 'PUT', {'children': []})[0] == 200
+    assert stored_profile(api)['children'] == []
+
+
+def test_add_child_rejects_a_school_city_that_is_not_text(api, capsys):
+    capsys.readouterr()
+
+    status, _ = call(api, '/profile/children', 'POST', {'name': 'Alex', 'schoolCity': {'a': 1}})
+
+    assert status == 400
+    assert 'Rejecting add_child for userId' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('method, path, body, raw', [
+    ('PUT', '/profile', {'email': 'x@y.org'}, None),
+    ('PUT', '/profile', {'primaryLanguage': 'fr'}, None),
+    ('PUT', '/profile', {'consentGiven': 'yes'}, None),
+    ('PUT', '/profile', {'showOnboarding': 'no'}, None),
+    ('PUT', '/profile', {'unknownField': 1}, None),
+    ('PUT', '/profile', None, '{not json'),
+    ('PUT', '/profile', None, '[1, 2]'),
+    ('POST', '/profile/children', {'schoolCity': 'Boston'}, None),
+    ('POST', '/profile/children', None, '{not json'),
+    ('POST', '/profile/children', None, '"just a string"'),
+])
+def test_no_validation_rejection_is_silent(api, capsys, method, path, body, raw):
+    capsys.readouterr()
+
+    if raw is not None:
+        status, _ = call_raw_body(api, path, method, raw)
+    else:
+        status, _ = call(api, path, method, body)
+    logged = capsys.readouterr().out
+
+    assert status == 400
+    assert f'Rejecting ' in logged and f'for userId {USER}' in logged
