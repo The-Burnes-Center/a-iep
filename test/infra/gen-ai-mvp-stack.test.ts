@@ -1066,6 +1066,20 @@ describe('Cognito custom-auth wiring', () => {
     expect(writers).toHaveLength(0);
   });
 
+  // The optional pinned origination number is read from this same subtree
+  // (`<prefix>/origination-number`), so the existing grant must keep covering
+  // it and must not widen beyond it to make it work.
+  test('the optional origination-number parameter is inside the granted SMS policy subtree', () => {
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[])
+      .filter((st) => JSON.stringify(st.Resource ?? '').includes('sms-policy'));
+    expect(statements.length).toBeGreaterThan(0);
+    const resources = statements.flatMap((st) => ([] as any[]).concat(st.Resource).map((r) => JSON.stringify(r)));
+    expect(resources.some((r) => r.includes('/sms-policy/*'))).toBe(true);
+    // Never the wider hierarchy, which holds the API keys.
+    expect(resources.every((r) => r.includes('sms-policy'))).toBe(true);
+  });
+
   // create-auth-challenge fails open (or falls back to English SMS) when its
   // table wiring is missing, so the env vars are load-bearing: the rate-limit
   // counter and the profile lookup for OTP localization.

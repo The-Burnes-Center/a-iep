@@ -699,6 +699,72 @@ describe('create-auth-challenge', () => {
             expect(reads).toHaveLength(1);
         });
 
+        // US carriers ignore alphanumeric sender IDs, so none is sent. The only
+        // identity lever that works is pinning the origination number, which is
+        // optional and read with the rest of the policy.
+        describe('origination number', () => {
+            const attrs = () => mockSnsSend.mock.calls[0][0].input.MessageAttributes;
+
+            test('absent: no origination attribute, and never a sender ID', async () => {
+                paramsReturn({ 'max-per-hour-global': '40' });
+
+                await handler(baseEvent([HANDSHAKE_PASS]));
+
+                expect(Object.keys(attrs()).sort()).toEqual(
+                    ['AWS.SNS.SMS.MaxPrice', 'AWS.SNS.SMS.SMSType']);
+            });
+
+            test('present: every send is pinned to it', async () => {
+                paramsReturn({ 'origination-number': '+18885550123' });
+
+                await handler(baseEvent([HANDSHAKE_PASS]));
+
+                expect(attrs()['AWS.MM.SMS.OriginationNumber']).toEqual({
+                    DataType: 'String', StringValue: '+18885550123',
+                });
+                expect(attrs()['AWS.SNS.SMS.SenderID']).toBeUndefined();
+            });
+
+            test('it is asked for in the same read as the rest of the policy', async () => {
+                paramsReturn({ 'origination-number': '+18885550123' });
+
+                await handler(baseEvent([HANDSHAKE_PASS]));
+
+                const reads = mockSsmSend.mock.calls.filter(([cmd]) => cmd instanceof GetParametersCommand);
+                expect(reads).toHaveLength(1);
+                expect(reads[0][0].input.Names).toContain(`${PREFIX}/origination-number`);
+            });
+
+            test.each([['empty', ''], ['blank', '   '], ['not E.164', 'GovLab-AIEP'], ['no plus', '18885550123']])(
+                'a %s value is ignored: the text still goes, unpinned, and the value is not logged',
+                async (_label, value) => {
+                    paramsReturn({ 'origination-number': value });
+                    const logged = [];
+                    jest.spyOn(console, 'error').mockImplementation((...a) => logged.push(a.join(' ')));
+
+                    await handler(baseEvent([HANDSHAKE_PASS]));
+
+                    expect(mockSnsSend).toHaveBeenCalledTimes(1);
+                    expect(attrs()['AWS.MM.SMS.OriginationNumber']).toBeUndefined();
+                    if (value.trim()) {
+                        expect(logged.join('\n')).not.toContain(value);
+                    }
+                },
+            );
+
+            test('an unreadable store sends unpinned rather than not at all', async () => {
+                mockSsmSend.mockImplementation(async (cmd) => {
+                    if (cmd instanceof GetParametersCommand) throw new Error('SSM unavailable');
+                    return { Version: 1 };
+                });
+
+                await handler(baseEvent([HANDSHAKE_PASS]));
+
+                expect(mockSnsSend).toHaveBeenCalledTimes(1);
+                expect(attrs()['AWS.MM.SMS.OriginationNumber']).toBeUndefined();
+            });
+        });
+
         test('the policy read is scoped to the configured prefix', async () => {
             paramsReturn({ 'max-per-hour-global': '40' });
 
