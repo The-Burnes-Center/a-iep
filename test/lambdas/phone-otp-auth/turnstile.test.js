@@ -6,6 +6,14 @@
  *
  * No network: global.fetch is scripted per test.
  */
+// turnstile.js builds its SSM client at load, and the SDK comes from the Lambda
+// runtime rather than node_modules. verifyToken never touches SSM, so a bare
+// stub is enough here.
+jest.mock('@aws-sdk/client-ssm', () => ({
+    SSMClient: class {},
+    GetParameterCommand: class {},
+}), { virtual: true });
+
 const { verifyToken, UNAVAILABLE_REASONS, MAX_TOKEN_LENGTH } = require(
     '../../../lib/chatbot-api/functions/phone-otp-auth/turnstile');
 
