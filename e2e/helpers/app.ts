@@ -121,6 +121,7 @@ export function isSignedOutPath(pathname: string): boolean {
  * on, even if the token leaked.
  */
 export async function allowAuthPastTurnstile(page: Page): Promise<void> {
+  await stubTurnstileWidget(page);
   const token = await fetchTurnstileBypassToken();
   await page.route(
     (url) => url.pathname.endsWith('/auth/signup') || url.pathname.endsWith('/auth/start'),
@@ -139,6 +140,36 @@ export async function allowAuthPastTurnstile(page: Page): Promise<void> {
         postData: JSON.stringify({ ...body, turnstileToken: token }),
       });
     }
+  );
+}
+
+/**
+ * Stand in for Cloudflare's widget script, so a send never waits on a
+ * challenge this browser cannot solve.
+ *
+ * The app runs the check when a parent presses send and will not send until
+ * it has a token (use-turnstile.ts). Staging's widget is a real one, and a
+ * headless browser is exactly what it exists to challenge, so on some runs the
+ * send waited on an interactive challenge until the test timed out. The stub
+ * implements the four calls the hook makes and hands back a placeholder
+ * token at once; allowAuthPastTurnstile then swaps it for the bypass token on
+ * the wire, which is the one the server checks. Same principle as the bypass:
+ * the substitution lives here, and the shipped frontend has no test mode.
+ */
+const TURNSTILE_STUB = `(() => {
+  const widgets = {};
+  let next = 0;
+  window.turnstile = {
+    render(_el, options) { const id = 'e2e-' + (next += 1); widgets[id] = options; return id; },
+    execute(id) { const o = widgets[id]; if (o) setTimeout(() => o.callback('e2e-placeholder-token'), 0); },
+    reset() {},
+    remove(id) { delete widgets[id]; },
+  };
+})();`;
+
+async function stubTurnstileWidget(page: Page): Promise<void> {
+  await page.route('https://challenges.cloudflare.com/turnstile/v0/api.js*', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/javascript', body: TURNSTILE_STUB })
   );
 }
 
