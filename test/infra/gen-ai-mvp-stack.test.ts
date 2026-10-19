@@ -27,15 +27,12 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 //
 //   /referral/click  hit by visitors who are not signed in yet, stores no
 //                    PII, and only bumps counters for known active codes.
-//   /auth/signup     there is no token before an account exists, so this
+//   /auth/start      a parent signing in (or up) has no token yet, so this
 //                    cannot be authorized. Everything an authorizer would do
 //                    happens inside the handler instead: destination policy,
-//                    per-source and global rate limits, then anti-abuse
-//                    verification, cheapest check first.
-//   /auth/start      the same, for the passwordless path: a parent signing in
-//                    has no token yet. Unlike /auth/signup this one also
-//                    fronts the OTP SEND, which is why the bot check moved in
-//                    front of it.
+//                    per-source and global rate limits, then the bot check,
+//                    cheapest first. It fronts the OTP SEND and is the only
+//                    way to create an account (/auth/signup is retired).
 //   /auth/verify     reachable only with a challenge handle from /auth/start,
 //                    which cannot be obtained without passing that bot check.
 //   /auth/token      this is the route that ISSUES the JWT, so it cannot
@@ -47,7 +44,6 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 // Anything added here must survive the same scrutiny.
 const PUBLIC_ROUTE_KEYS = [
   'POST /referral/click',
-  'POST /auth/signup',
   'POST /auth/start',
   'POST /auth/verify',
   'POST /auth/token',
@@ -910,13 +906,21 @@ describe('Cognito custom-auth wiring', () => {
     }));
   });
 
-  test('signup is reachable without a token, because there cannot be one yet', () => {
+  // POST /auth/signup created accounts synchronously, so a stopwatch could
+  // tell a number with an account from one without; /auth/start is built not
+  // to. It had no calls in 30 days, so the route is retired and must not
+  // return. Account creation is reachable only through /auth/start.
+  test('POST /auth/signup is retired; account creation goes through /auth/start', () => {
     const routes = Object.values(template.findResources('AWS::ApiGatewayV2::Route'))
       .map((r: any) => r.Properties);
-    const signup = routes.find((r: any) => r.RouteKey === 'POST /auth/signup');
+    const keys = routes.map((r: any) => r.RouteKey);
 
-    expect(signup).toBeDefined();
-    expect(signup.AuthorizationType).toBe('NONE');
+    expect(keys).not.toContain('POST /auth/signup');
+    expect(keys.filter((k: string) => k.includes('/auth/signup'))).toEqual([]);
+
+    const start = routes.find((r: any) => r.RouteKey === 'POST /auth/start');
+    expect(start).toBeDefined();
+    expect(start.AuthorizationType).toBe('NONE');
   });
 
   // AdminCreateUser without AdminSetUserPassword leaves every new account

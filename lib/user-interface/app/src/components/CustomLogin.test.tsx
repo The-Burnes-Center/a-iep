@@ -517,36 +517,35 @@ describe("passwordless flow: copy is real words, not raw translation keys", () =
 });
 
 describe("legacy Amplify flow still renders when the flag is off", () => {
-  const signupFetchAsLegacy = () => {
-    // The legacy flow's own fetch is exercised through the same global mock;
-    // it never calls auth/start|verify|token, so any queued response there
-    // would simply never be consumed. Route it to the old signup shape.
+  const failAnyFetch = () => {
+    // The legacy flow makes no HTTP call of its own any more: /auth/signup is
+    // retired. A fetch from this path is therefore a regression, so it throws
+    // rather than answering.
     authFetch.fn.mockImplementation(async (url: unknown) => {
-      if (String(url).includes("auth/signup")) {
-        return { ok: true, status: 200, json: async () => ({ created: true }) } as Response;
-      }
       throw new Error(`unexpected fetch to ${String(url)} in legacy-flow test`);
     });
   };
 
-  test("an unknown phone number still falls back to the legacy /auth/signup endpoint", async () => {
-    signupFetchAsLegacy();
-    Auth.signIn.mockRejectedValueOnce(cognitoError("UserNotFoundException"));
-    Auth.signIn.mockResolvedValueOnce({
-      isSignedIn: false,
-      nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },
-    });
-    const { user } = renderLogin({ flagOn: false });
+  test.each([
+    ["UserNotFoundException", "auth.errorUserNotFound"],
+    ["NotAuthorizedException", "auth.errorGeneric"],
+  ])(
+    "an unknown phone number (%s) is refused and never posts to /auth/signup",
+    async (code, shownKey) => {
+      failAnyFetch();
+      Auth.signIn.mockRejectedValueOnce(cognitoError(code));
+      const { user } = renderLogin({ flagOn: false });
 
-    fillPhone();
-    await user.click(screen.getByRole("button", { name: "auth.sendSmsCode" }));
+      fillPhone();
+      await user.click(screen.getByRole("button", { name: "auth.sendSmsCode" }));
 
-    expect(await screen.findByTestId("sms-code-input")).toBeInTheDocument();
-    expect(authFetch.fn).toHaveBeenCalledWith(
-      expect.stringContaining("auth/signup"),
-      expect.objectContaining({ method: "POST" }),
-    );
-  });
+      expect(await screen.findByText(shownKey)).toBeInTheDocument();
+      expect(authFetch.fn).not.toHaveBeenCalled();
+      // One sign-in attempt, no second one after an account is created.
+      expect(Auth.signIn).toHaveBeenCalledTimes(1);
+      expect(onCodeScreen()).toBe(false);
+    },
+  );
 
   test.each([
     ["0185551234", "an area code starting 0"],
@@ -554,9 +553,9 @@ describe("legacy Amplify flow still renders when the flag is off", () => {
     ["2021551234", "an exchange starting 1"],
   ])("%s (%s) never reaches Cognito or /auth/signup", async (typed) => {
     // The legacy path used to accept any ten digits, and an unknown number
-    // falls through to /auth/signup, which is how an impossible number became
+    // fell through to /auth/signup, which is how an impossible number became
     // a confirmed account.
-    signupFetchAsLegacy();
+    failAnyFetch();
     const { user } = renderLogin({ flagOn: false });
 
     fillPhone(typed);
@@ -564,7 +563,7 @@ describe("legacy Amplify flow still renders when the flag is off", () => {
 
     expect(await screen.findByText("auth.errorPhoneNotReal")).toBeInTheDocument();
     expect(Auth.signIn).not.toHaveBeenCalled();
-    expect(authFetch.fn).not.toHaveBeenCalledWith(expect.stringContaining("auth/signup"), expect.anything());
+    expect(authFetch.fn).not.toHaveBeenCalled();
     expect(onCodeScreen()).toBe(false);
   });
 
@@ -587,7 +586,7 @@ describe("legacy Amplify flow still renders when the flag is off", () => {
     // browser last, not as whoever just authenticated.
     persistSessionHandle("sess-previous-parent");
     setCachedTokens({ accessToken: "access-previous", idToken: "id-previous", expiresIn: 3600 });
-    signupFetchAsLegacy();
+    failAnyFetch();
     Auth.signIn.mockResolvedValueOnce({
       isSignedIn: false,
       nextStep: { signInStep: "CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE", additionalInfo: {} },

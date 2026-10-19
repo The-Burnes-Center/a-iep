@@ -96,7 +96,7 @@ copy for a code it has not seen before.
 A `429` carries one extra field, `retryAfterSeconds` (an integer), and the same
 figure in a `Retry-After` header. Nothing else does.
 
-**Every response from every `/auth/*` route, and from `/auth/signup`, carries
+**Every response from every `/auth/*` route carries
 `Cache-Control: no-store`.** The bodies are credentials or the answer to a
 one-time code, and must never be stored by a browser or a shared cache.
 
@@ -427,8 +427,14 @@ accounts with no bot check in the path. There is a `TODO` at the call site in
 need updating in the same change. Until then, Turnstile guards the new path
 only.
 
-**`POST /auth/signup` still exists** and is unchanged. It is the route the
-deployed frontend posts to. It will be deleted with `ALLOW_CUSTOM_AUTH`.
+**`POST /auth/signup` is retired.** The route is no longer deployed. It created
+accounts synchronously, so response time told a caller whether a number already
+had an account; `/auth/start` hands account creation to `/auth/dispatch`
+asynchronously and answers identically either way. It had no calls in the 30
+days before removal, and `passwordlessAuth` is on in every environment, so
+nothing in the shipped frontend reaches it. `test/infra/gen-ai-mvp-stack.test.ts`
+asserts it stays gone. The legacy `CustomLogin` form behind the flag no longer
+falls back to it either: an unknown number there gets the generic error.
 
 **The password rotation is unchanged.** An account created by `/auth/start` is
 made with `AdminCreateUser` + `MessageAction: SUPPRESS` +
@@ -459,8 +465,8 @@ Carving the old path out instead
 forks the tree, forces deleting the tests that cover it, and turns the
 promotion into hand surgery.
 
-The 17 `CustomLogin.test.tsx` cases that assert the `auth/signup` URL cover the
-state machine that is being replaced. Most of them have no successor. Rewrite
+The 17 `CustomLogin.test.tsx` cases that asserted the `auth/signup` URL covered the
+state machine that was replaced. Most of them have no successor. Rewrite
 them against the two new routes rather than deleting them and moving on, and
 add the one case the repo's own rules ask for: **leave the page mid-flow and
 come back.** The bottom nav is a route change, so leaving unmounts the

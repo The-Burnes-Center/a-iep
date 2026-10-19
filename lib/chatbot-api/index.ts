@@ -138,29 +138,15 @@ export class ChatBotApi extends Construct {
       ],
     });
 
-    // Signup. The ONE unauthenticated route, necessarily: there is no token
-    // to authorize with before an account exists. Everything that would
-    // normally be an authorizer's job (anti-abuse, rate limiting, destination
-    // policy) happens inside the handler instead, in that order.
-    //
-    // This route only becomes a control because the pool refuses self-service
-    // signup. Before that, Cognito's public SignUp API was reachable from
-    // anywhere and is exactly what the 2026-09-09 run used.
-    const signupIntegration = new HttpLambdaIntegration(
-      'SignupAPIIntegration', authentication.signupFunction);
-    this.httpAPI.restAPI.addRoutes({
-      path: "/auth/signup",
-      methods: [apigwv2.HttpMethod.POST],
-      integration: signupIntegration,
-      authorizer: new apigwv2.HttpNoneAuthorizer(),
-    })
-
-    // The passwordless login path. Unauthenticated for the same unavoidable
-    // reason /auth/signup is: a parent signing in has no token yet, and one of
-    // these routes is how they get one. Everything an authorizer would do
-    // happens inside the handlers instead -- destination policy, per-source
-    // and global limits, then the bot check, cheapest first -- and this is the
-    // first time the OTP SEND path has had a bot check in front of it at all.
+    // The passwordless login path, and the only way to create an account.
+    // (POST /auth/signup is retired: it created accounts synchronously, which
+    // made "does this number already have an account" measurable by timing,
+    // and /auth/start is built not to.) Unauthenticated, necessarily: a
+    // parent signing in has no token yet, and one of these routes is how they
+    // get one. Everything an authorizer would do happens inside the handlers
+    // instead -- destination policy, per-source and global limits, then the
+    // bot check, cheapest first -- and this is the first time the OTP SEND
+    // path has had a bot check in front of it at all.
     //
     // See docs/AUTH_API_CONTRACT.md. /auth/start and /auth/verify are the
     // sign-in; /auth/token and /auth/logout are what an opaque session handle

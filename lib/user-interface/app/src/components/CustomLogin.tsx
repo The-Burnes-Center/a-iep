@@ -159,7 +159,6 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   const [cognitoUserForSms, setCognitoUserForSms] = useState<SmsChallengeUser | null>(null);
   const [isNewUserConfirmation, setIsNewUserConfirmation] = useState(false); // Track if this is signup confirmation
   const [pendingPhoneNumber, setPendingPhoneNumber] = useState<string | null>(null);
-  const [, setIsNewUserSignup] = useState(false); // Track if this is a brand new user signup // Store phone for confirmation flow
   
   // State for toggling password visibility
   const [showMainPassword, setShowMainPassword] = useState(false);
@@ -341,61 +340,13 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       } catch (signInError) {
         // console.log('SignIn error:', signInError.code);
 
-        // NotAuthorizedException is how "user does not exist" surfaces here:
-        // the app client prevents user existence errors, so the define-auth
-        // lambda fails auth for unknown numbers instead of Cognito throwing
-        // UserNotFoundException. Treat both as "create the account".
-        if (errCode(signInError) === 'UserNotFoundException' || errCode(signInError) === 'NotAuthorizedException') {
-          // User doesn't exist, create them first
-          // console.log('Creating new user for phone:', formattedPhone);
-          
-          try {
-            // The account is created by OUR endpoint, not by Cognito's public
-            // SignUp API, which the pool now refuses. That API was reachable
-            // by anyone holding the app client id, which necessarily ships in
-            // this bundle, and is how the 2026-09-09 abuse run created a
-            // thousand accounts without ever loading this page.
-            //
-            // No password is chosen here any more. The endpoint generates one
-            // the moment the account exists and nobody, including this code,
-            // ever sees it.
-            // Runs the check now: the widget waits for a send (see use-turnstile.ts).
-            const turnstileToken = await turnstile.getToken();
-            const response = await fetch(`${appConfig?.httpEndpoint ?? '/'}auth/signup`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                phoneNumber: formattedPhone,
-                language,
-                // Verified server-side. Absent when no widget is configured,
-                // in which case the server decides whether to accept it.
-                ...(turnstileToken ? { turnstileToken } : {}),
-              }),
-            });
-
-            if (!response.ok) {
-              // 429 is a rate limit and 403 a failed anti-abuse check. Both
-              // are deliberate refusals a parent can act on by waiting or
-              // retrying, so they must not read as a generic failure.
-              throw Object.assign(new Error('signup refused'), {
-                name: response.status === 429 ? 'TooManyRequestsException' : 'SignupRefused',
-              });
-            }
-
-            // The account exists and is confirmed, so the login OTP is the
-            // only SMS a new parent receives.
-            setIsNewUserSignup(true);
-            await applyPhoneSignInResult(await signInWithPhone(formattedPhone), 'auth.smsCodeSentNewUser');
-          } catch (signUpError) {
-            console.error('Phone sign-up failed:', errCode(signUpError) ?? 'unknown');
-            if (errCode(signUpError) === 'UsernameExistsException') {
-              // User was created between our attempts, try signin again
-              await applyPhoneSignInResult(await signInWithPhone(formattedPhone));
-            } else {
-              throw signUpError;
-            }
-          }
-        } else if (errCode(signInError) === 'UserNotConfirmedException') {
+        // An unknown number used to fall through to POST /auth/signup here.
+        // That route is retired (it created accounts synchronously, which
+        // made "does this number have an account" measurable by timing), and
+        // the passwordless flow, which is always on, creates accounts behind
+        // /auth/start. This legacy form can no longer create one, so an
+        // unknown number gets the generic failure below, same as a wrong one.
+        if (errCode(signInError) === 'UserNotConfirmedException') {
           // User exists but not confirmed - treat as new user confirmation
           // console.log('User exists but not confirmed, setting up confirmation flow');
           
@@ -520,7 +471,6 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           setIsNewUserConfirmation(false);
           setPendingPhoneNumber(null);
           setSmsCode('');
-          setIsNewUserSignup(false);
         }
         
       } else {
@@ -1134,7 +1084,6 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                       setSuccessMessage(null);
                       setIsNewUserConfirmation(false);
                       setPendingPhoneNumber(null);
-                      setIsNewUserSignup(false);
                     }}
                     disabled={loading}
                     buttonText={t('auth.backToLogin')}
