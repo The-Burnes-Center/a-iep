@@ -193,4 +193,48 @@ describe('failures', () => {
             error.mockRestore();
         }
     });
+
+    test('a launch failure logs name, message and the top of the stack, never the response', async () => {
+        const failure = Object.assign(new Error('libnss3.so: cannot open shared object file'), { name: 'LaunchError' });
+        mockLaunch.mockRejectedValueOnce(failure);
+        const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+            const response = await handler(event({ document: sampleDocument }));
+
+            expect(response.statusCode).toBe(500);
+            expect(response.body).not.toContain('libnss3');
+            const logged = error.mock.calls.flat().join(' ');
+            expect(logged).toContain('LaunchError');
+            expect(logged).toContain('libnss3.so: cannot open shared object file');
+            expect(logged).toContain('at ');
+            expect(logged.split('\n').length).toBeLessThanOrEqual(8);
+        } finally {
+            error.mockRestore();
+        }
+    });
+
+    test('a failure creating the page is still a setup failure and logs its message', async () => {
+        mockBrowser.newPage.mockRejectedValueOnce(new Error('Target closed'));
+        const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+            const response = await handler(event({ document: sampleDocument }));
+
+            expect(response.statusCode).toBe(500);
+            expect(error.mock.calls.flat().join(' ')).toContain('Target closed');
+        } finally {
+            error.mockRestore();
+        }
+    });
+
+    test('a failure while the page holds the document never logs the message', async () => {
+        mockPage.setContent.mockRejectedValueOnce(new Error('net::ERR at SECRET_CHILD_NAME'));
+        const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+            await handler(event({ document: sampleDocument }));
+
+            expect(error.mock.calls.flat().join(' ')).not.toContain('SECRET_CHILD_NAME');
+        } finally {
+            error.mockRestore();
+        }
+    });
 });
