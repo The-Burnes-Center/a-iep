@@ -80,10 +80,9 @@ const CDK_HELPER_PREFIXES = [
 
 const APPROVED_RUNTIMES = ['python3.12', 'nodejs22.x'];
 
-// The runtime the CDK library itself gives its injected helpers. It belongs to
-// the aws-cdk-lib version, not to this repo, so those helpers keep it until the
-// library is upgraded. Nothing else may.
-const CDK_INJECTED_NODE_RUNTIME = 'nodejs20.x';
+// The Node runtime this repo refuses anywhere in the stack. aws-cdk-lib 2.197+
+// moved its injected helpers off it, so there is no exemption left.
+const DEPRECATED_NODE_RUNTIME = 'nodejs20.x';
 
 // ── Durable-store retention pins ────────────────────────────────────────
 // WHY (2026-06/07 data-loss incident): e1df452 (2025-09-15) made the
@@ -1863,25 +1862,31 @@ describeRetiredLanguageStep('staging', () => template);
 function describeLambdaRuntimes(envLabel: EnvLabel, getTemplate: () => Template) {
   describe(`lambda runtimes (${envLabel})`, () => {
     // WHY: Node 20 is past upstream end of life, and AWS blocks updates to a
-    // deprecated runtime, so every function this repo owns moves to nodejs22.x.
-    // The only exemption is the CDK-injected helpers, which stay on the runtime
-    // their aws-cdk-lib version ships.
-    test('no function this repo owns runs nodejs20.x', () => {
+    // deprecated runtime, so no function in the stack may run nodejs20.x. That
+    // includes the helpers aws-cdk-lib injects (log retention, auto-delete,
+    // bucket notifications, bucket deployment): they carried nodejs20.x until
+    // the library upgrade to 2.197+, and a pin that exempted them would let a
+    // downgrade of aws-cdk-lib bring the deprecated runtime back unnoticed.
+    test('no function in the stack runs nodejs20.x, injected CDK helpers included', () => {
       const isInjected = (logicalId: string) => CDK_HELPER_PREFIXES.some((prefix) => logicalId.startsWith(prefix));
       const functions = Object.entries(getTemplate().findResources('AWS::Lambda::Function'))
         .map(([logicalId, fn]: [string, any]) => ({ logicalId, runtime: fn.Properties.Runtime }));
+      expect(functions.filter(({ runtime }) => runtime === DEPRECATED_NODE_RUNTIME)).toEqual([]);
+
       const owned = functions.filter(({ logicalId }) => !isInjected(logicalId));
       expect(owned.length).toBeGreaterThanOrEqual(20);
-
-      // The CDK helpers resolve their runtime through a FindInMap, so it is
-      // not a literal in the in-memory template. Every owned function's is.
       expect(owned.filter(({ runtime }) => typeof runtime !== 'string')).toEqual([]);
       expect(owned.filter(({ runtime }) => (runtime as string).startsWith('nodejs')).length).toBeGreaterThanOrEqual(15);
-      expect(owned.filter(({ runtime }) => runtime === CDK_INJECTED_NODE_RUNTIME)).toEqual([]);
 
-      // Non-vacuity: the exemption above must match something, or it is not
-      // exempting anything and the pin is hiding nothing.
-      expect(functions.filter(({ logicalId }) => isInjected(logicalId)).length).toBeGreaterThanOrEqual(2);
+      // Non-vacuity: the helpers are present, and any Node helper is on a
+      // runtime at or above nodejs22.x.
+      const helpers = functions.filter(({ logicalId }) => isInjected(logicalId));
+      expect(helpers.length).toBeGreaterThanOrEqual(2);
+      const helperNode = helpers.filter(({ runtime }) => typeof runtime === 'string' && runtime.startsWith('nodejs'));
+      expect(helperNode.length).toBeGreaterThanOrEqual(1);
+      for (const { runtime } of helperNode) {
+        expect(parseInt((runtime as string).slice('nodejs'.length), 10)).toBeGreaterThanOrEqual(22);
+      }
     });
   });
 }
