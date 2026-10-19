@@ -95,12 +95,12 @@ const ParentRightsBanner: React.FC<ParentRightsBannerProps> = ({ slides, classNa
                         activeIndex <= 1 ? 
                         <div className="banner-card banner-card--green">
                         <h1>{displayHeaderGreenTitle}</h1>
-                        <img src={displaySlides[activeIndex].image} className="banner-slide-image" alt={displaySlides[activeIndex].title} /> 
+                        <img loading="lazy" decoding="async" src={displaySlides[activeIndex].image} className="banner-slide-image" alt={displaySlides[activeIndex].title} /> 
                     </div>
                         : (
                         <div className="banner-card banner-card--pink">
                         <h1>{displayHeaderPinkTitle}</h1>
-                        <img src={displaySlides[activeIndex].image} className="banner-slide-image" alt={displaySlides[activeIndex].title} /> 
+                        <img loading="lazy" decoding="async" src={displaySlides[activeIndex].image} className="banner-slide-image" alt={displaySlides[activeIndex].title} /> 
                         </div>
                         )
                     }
@@ -138,13 +138,13 @@ const ParentRightsBanner: React.FC<ParentRightsBannerProps> = ({ slides, classNa
                             disabled={activeIndex === 0}
                             className='banner-nav-button banner-prev-button'
                         >
-                            <img src="/images/arrow.svg" alt="Previous" className="banner-arrow-prev" />
+                            <img loading="lazy" decoding="async" src="/images/arrow.svg" alt="Previous" className="banner-arrow-prev" />
                         </button>
                         <button 
                             onClick={handleNext}
                             className='banner-nav-button banner-next-button'
                         >
-                            <img src="/images/arrow.svg" alt="Next" className="banner-arrow-next" />
+                            <img loading="lazy" decoding="async" src="/images/arrow.svg" alt="Next" className="banner-arrow-next" />
                         </button>
                     </div>
 

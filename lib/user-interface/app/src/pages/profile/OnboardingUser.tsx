@@ -117,9 +117,13 @@ const OnboardingUser: React.FC = () => {
             {slideImages.map((image, index) => (
               <SwiperSlide key={index}>
                 <div className="image-container">
-                  <img 
-                  src={image.src} 
+                  {/* The first slide is on screen at load; the rest sit off
+                      to the side in the swiper track and wait for their turn. */}
+                  <img
+                  src={image.src}
                   alt={image.alt}
+                  loading={index === 0 ? 'eager' : 'lazy'}
+                  decoding="async"
                 />
                 </div>
               </SwiperSlide>

@@ -15,7 +15,7 @@ const HowToBanner: React.FC = () => {
             </div>
             <div className="how-to-cards-container">
                 <div className="how-to-card">
-                    <img src="/images/tutorial_upload.jpg" alt="Upload IEP document" className="how-to-card-image" />
+                    <img loading="lazy" decoding="async" src="/images/tutorial_upload.jpg" alt="Upload IEP document" className="how-to-card-image" />
                     <h2 className="how-to-card-title">{t("landing.howTo.card1.title")}</h2>
                     <p className="how-to-card-text">
                         {t("landing.howTo.card1.text")}
@@ -23,7 +23,7 @@ const HowToBanner: React.FC = () => {
                 </div>
 
                 <div className="how-to-card">
-                    <img src="/images/tutorial_select-language.jpg" alt="Select language" className="how-to-card-image" />
+                    <img loading="lazy" decoding="async" src="/images/tutorial_select-language.jpg" alt="Select language" className="how-to-card-image" />
                     <h2 className="how-to-card-title">{t("landing.howTo.card2.title")}</h2>
                     <p className="how-to-card-text">
                         {t("landing.howTo.card2.text")}
@@ -31,7 +31,7 @@ const HowToBanner: React.FC = () => {
                 </div>
 
                 <div className="how-to-card">
-                    <img src="/images/tutorial_summary.jpg" alt="View summary" className="how-to-card-image" />
+                    <img loading="lazy" decoding="async" src="/images/tutorial_summary.jpg" alt="View summary" className="how-to-card-image" />
                     <h2 className="how-to-card-title">{t("landing.howTo.card3.title")}</h2>
                     <p className="how-to-card-text">
                         {t("landing.howTo.card3.text")}
@@ -40,7 +40,7 @@ const HowToBanner: React.FC = () => {
             </div>
             <div className="how-to-cards-container">
                 <div className="how-to-card">
-                    <img src="/images/tutorial_insights.jpg" alt="Key insights" className="how-to-card-image" />
+                    <img loading="lazy" decoding="async" src="/images/tutorial_insights.jpg" alt="Key insights" className="how-to-card-image" />
                     <h2 className="how-to-card-title">{t("landing.howTo.card4.title")}</h2>
                     <p className="how-to-card-text">
                         {t("landing.howTo.card4.text")}
@@ -48,7 +48,7 @@ const HowToBanner: React.FC = () => {
                 </div>
 
                 <div className="how-to-card">
-                    <img src="/images/tutorial_glossary.jpg" alt="Complex terms" className="how-to-card-image" />
+                    <img loading="lazy" decoding="async" src="/images/tutorial_glossary.jpg" alt="Complex terms" className="how-to-card-image" />
                     <h2 className="how-to-card-title">{t("landing.howTo.card5.title")}</h2>
                     <p className="how-to-card-text">
                         {t("landing.howTo.card5.text")}
@@ -56,7 +56,7 @@ const HowToBanner: React.FC = () => {
                 </div>
 
                 <div className="how-to-card">
-                    <img src="/images/tutorial_page-numbers.jpg" alt="Contrast with original" className="how-to-card-image" />
+                    <img loading="lazy" decoding="async" src="/images/tutorial_page-numbers.jpg" alt="Contrast with original" className="how-to-card-image" />
                     <h2 className="how-to-card-title">{t("landing.howTo.card6.title")}</h2>
                     <p className="how-to-card-text">
                         {t("landing.howTo.card6.text")}

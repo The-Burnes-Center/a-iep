@@ -47,7 +47,7 @@ const LandingContainerBottom = () => {
           <li className="landing-content-list-item">{t('landingContainer.privacyAndTrust.item4')}</li>
         </ul>
         <p className="landing-content-title">{t('landingContainer.privacyAndTrust.conclusion')}</p>
-        <img
+        <img loading="lazy" decoding="async"
           src={privacyDiagramSrc}
           alt={t('landingContainer.privacyAndTrust.diagramAlt')}
           className="privacy-diagram"

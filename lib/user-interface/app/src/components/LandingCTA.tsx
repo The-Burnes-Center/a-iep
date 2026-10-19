@@ -15,7 +15,7 @@ const LandingCTA = ({ pretext, title, link }: LandingCTAProps) => {
         <p className="landing-content-title">{title}</p>
       </div>
       <span className="landing-cta-arrow" aria-hidden="true">
-        <img className="landing-cta-arrow-icon" src="/images/arrow-icon.svg" alt="" />
+        <img loading="lazy" decoding="async" className="landing-cta-arrow-icon" src="/images/arrow-icon.svg" alt="" />
       </span>
     </>
   );
