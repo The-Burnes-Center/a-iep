@@ -912,3 +912,61 @@ describe("telling a parent a code went out", () => {
     expect(await screen.findByTestId("sms-code-input")).toHaveValue("");
   });
 });
+
+/**
+ * WebOTP on the code step: the first text and every resend each get a fresh
+ * request, so a resent code is read as the first one was. OTPCredential is
+ * stubbed here, and restored after each test.
+ */
+describe("WebOTP on the code step", () => {
+  const originalCredentials = Object.getOwnPropertyDescriptor(navigator, "credentials");
+  let otpGet: ReturnType<typeof vi.fn<[unknown?], Promise<unknown>>>;
+
+  beforeEach(() => {
+    Object.defineProperty(window, "OTPCredential", { configurable: true, value: class {} });
+    otpGet = vi.fn<[unknown?], Promise<unknown>>(() => new Promise(() => {}));
+    Object.defineProperty(navigator, "credentials", { configurable: true, value: { get: otpGet } });
+  });
+
+  afterEach(() => {
+    delete (window as { OTPCredential?: unknown }).OTPCredential;
+    if (originalCredentials) {
+      Object.defineProperty(navigator, "credentials", originalCredentials);
+    } else {
+      delete (navigator as { credentials?: unknown }).credentials;
+    }
+  });
+
+  const signalOf = (call: number) => (otpGet.mock.calls[call][0] as { signal: AbortSignal }).signal;
+
+  test("a resend aborts the first text's request and arms a fresh one", async () => {
+    const { user } = renderLogin();
+    await startPhoneFlow(user);
+    await waitFor(() => expect(otpGet).toHaveBeenCalledTimes(1));
+    const firstSignal = signalOf(0);
+    expect(firstSignal.aborted).toBe(false);
+
+    await waitOutCooldown();
+    authFetch.queue("start", started("sms", "c2"));
+    await user.click(resendButton());
+
+    await waitFor(() => expect(authFetch.countOf("start")).toBe(2));
+    await waitFor(() => expect(otpGet).toHaveBeenCalledTimes(2));
+    expect(firstSignal.aborted).toBe(true);
+    expect(signalOf(1).aborted).toBe(false);
+    expect(otpGet.mock.calls[1][0]).toMatchObject({ otp: { transport: ["sms"] } });
+  });
+
+  test("a failed resend does not re-arm, because no new text was sent", async () => {
+    const { user } = renderLogin();
+    await startPhoneFlow(user);
+    await waitFor(() => expect(otpGet).toHaveBeenCalledTimes(1));
+
+    await waitOutCooldown();
+    authFetch.queue("start", { status: 503, body: { ok: false, code: "unavailable", message: "english fallback" } });
+    await user.click(resendButton());
+
+    await waitFor(() => expect(authFetch.countOf("start")).toBe(2));
+    expect(otpGet).toHaveBeenCalledTimes(1);
+  });
+});
