@@ -453,3 +453,27 @@ def test_content_without_a_placeholder_translates_as_before(handler_module, monk
 
     assert result['languages_processed'] == ['es']
     assert fake.payloads('save_content_to_s3')
+
+
+def test_the_handler_hands_its_api_key_to_the_agent_so_the_client_gets_time_limits(
+        handler_module, monkeypatch):
+    # The agent can only bound the OpenAI client if it is given the key; a
+    # handler that went back to OptimizedTranslationAgent() would quietly
+    # restore the SDK's 600s timeout.
+    _wire(handler_module, monkeypatch)
+    seen = {}
+
+    class RecordingAgent:
+        def __init__(self, api_key=None):
+            seen['api_key'] = api_key
+
+        def translate_content_with_agent(self, content, target_language,
+                                         content_type='parsing_result', model='gpt-4.1'):
+            return {'summary': 'Resumen', 'sections': [], 'document_index': '', 'abbreviations': []}
+
+    monkeypatch.setattr(handler_module, 'OptimizedTranslationAgent', RecordingAgent)
+
+    handler_module.lambda_handler(
+        {**IDS, 'target_languages': ['es'], 'content_type': 'parsing_result'}, None)
+
+    assert seen['api_key'] == 'test-key-not-encrypted'

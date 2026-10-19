@@ -4,8 +4,8 @@ import json
 import traceback
 from pydantic import ValidationError
 from data_model import SingleLanguageIEP
-from openai import OpenAI
-from agents import Agent, Runner, function_tool, ModelSettings
+from openai import AsyncOpenAI, OpenAI, Timeout
+from agents import Agent, Runner, function_tool, ModelSettings, set_default_openai_client
 from config import get_english_only_prompt, IEP_SECTIONS, SECTION_KEY_POINTS
 from agents.exceptions import MaxTurnsExceeded
 try:
@@ -46,6 +46,41 @@ def _safe_error_summary(e):
         return _validation_error_summary(e)
     return type(e).__name__
 
+# The SDK's own defaults are a 600s read timeout and two retries, so a request
+# OpenAI never answers holds this lambda for up to 30 minutes, past the state
+# machine's TimeoutSeconds for ParsingAgent and with the lambda's own 900s
+# limit as the only other stop. A single model call has never come near these
+# numbers (the whole step's slowest prod run was 73s); one retry plus the
+# per-request limit stays inside the state's 240s, so a wedged call fails here
+# with a clean APITimeoutError and Step Functions' Retry/Catch takes over.
+OPENAI_REQUEST_TIMEOUT_SECONDS = 100
+OPENAI_CONNECT_TIMEOUT_SECONDS = 10
+OPENAI_MAX_RETRIES = 1
+
+_configured_client_key = None
+
+
+def _use_bounded_openai_client(api_key):
+    """Make the Agents SDK's default client one with explicit time limits.
+
+    Cached per key: the lambda container is reused, and the SDK keeps whatever
+    default client it was last given. Tracing keeps using OPENAI_API_KEY from
+    the environment exactly as before (use_for_tracing=False).
+    """
+    global _configured_client_key
+    if not api_key or api_key == _configured_client_key:
+        return
+    set_default_openai_client(
+        AsyncOpenAI(
+            api_key=api_key,
+            timeout=Timeout(OPENAI_REQUEST_TIMEOUT_SECONDS, connect=OPENAI_CONNECT_TIMEOUT_SECONDS),
+            max_retries=OPENAI_MAX_RETRIES,
+        ),
+        use_for_tracing=False,
+    )
+    _configured_client_key = api_key
+
+
 class OpenAIAgent:
     def __init__(self, ocr_data=None, api_key=None):
         """
@@ -56,6 +91,7 @@ class OpenAIAgent:
         """
         self.ocr_data = ocr_data
         self.api_key = api_key or self._get_openai_api_key()
+        _use_bounded_openai_client(self.api_key)
         # Tools
         self.ocr_text_tool = self._create_ocr_text_tool()
         self.ocr_page_tool = self._create_ocr_page_tool()

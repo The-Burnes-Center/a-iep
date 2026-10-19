@@ -162,7 +162,10 @@ def test_finalize_results_retries_before_anything_is_recorded_as_failed(states):
     task = states['FinalizeResults']
     retrier = next(r for r in task['Retry'] if r['ErrorEquals'] == ['States.ALL'])
     assert retrier['MaxAttempts'] == 3
-    assert [c['ErrorEquals'] for c in task['Catch']] == [['States.ALL']]
+    # A timeout is the one other Catch (see the per-state timeout tests below):
+    # it must come first, since the first matching entry wins, and it names the
+    # same FailedAt marker, so there is still one route to RecordFailure.
+    assert [c['ErrorEquals'] for c in task['Catch']] == [['States.Timeout'], ['States.ALL']]
 
 
 def test_finalize_results_has_exactly_one_route_to_record_failure(states):
@@ -171,8 +174,11 @@ def test_finalize_results_has_exactly_one_route_to_record_failure(states):
     # once here: up to five RECORD_FAILURE markers, which is what
     # MonitoringStack's DocumentFailureFilter counts. A second route added here
     # would recreate the same double-count from the other side.
-    catcher, = states['FinalizeResults']['Catch']
+    timeout_catcher, catcher = states['FinalizeResults']['Catch']
+    assert catcher['ErrorEquals'] == ['States.ALL']
     assert catcher['Next'] == 'FailedAtFinalizeResults'
+    # The timeout entry reaches the very same marker, one Pass later.
+    assert states[timeout_catcher['Next']]['Next'] == 'FailedAtFinalizeResults'
 
     namer = states['FailedAtFinalizeResults']
     assert namer['Type'] == 'Pass'
@@ -341,3 +347,111 @@ def test_the_on_demand_machine_still_fails_a_skipped_language(states):
         'languages_processed.$': '$.languages_processed'}
     assert [c['Variable'] for c in single['VerifyLanguageProduced']['Choices']] == [
         '$.translation_result.languages_processed[0]']
+
+
+# ---------------------------------------------------------------------------
+# Per-state timeouts
+#
+# Measured in prod (15 executions, 30 days): ParsingAgent's slowest run was
+# 73s, against a lambda timeout of 900s and no TimeoutSeconds on the state. A
+# call that hangs rather than fails therefore sat for fifteen minutes, times
+# four attempts, before anything was recorded. Each Task is now bounded at
+# about three times the slowest run seen.
+# ---------------------------------------------------------------------------
+
+#: seconds. Anything not listed is a small step (a DynamoDB write or a lookup).
+SLOW_STEP_TIMEOUTS = {
+    'ParsingAgent': 240,
+    'TranslateParsingResult': 240,
+    'MistralOCR': 120,
+    'RedactOCR': 120,
+}
+SMALL_STEP_TIMEOUT = 60
+
+
+def _tasks(states):
+    return {name: state for name, state in states.items() if state['Type'] == 'Task'}
+
+
+def test_every_task_has_a_timeout(states):
+    for name, task in _tasks(states).items():
+        assert isinstance(task.get('TimeoutSeconds'), int) and task['TimeoutSeconds'] > 0, (
+            f'{name} has no TimeoutSeconds, so a hung call waits for the lambda timeout')
+
+
+def test_each_task_gets_the_budget_its_measured_run_time_earns(states):
+    for name, task in _tasks(states).items():
+        assert task['TimeoutSeconds'] == SLOW_STEP_TIMEOUTS.get(name, SMALL_STEP_TIMEOUT), name
+
+
+def _follow_catch(states, step, error):
+    """Replay a failure the way Step Functions routes it.
+
+    The first Catch whose ErrorEquals matches wins (States.ALL matches every
+    error except the two it cannot catch). The error object is written at the
+    catch's ResultPath, then Pass states are applied until RecordFailure.
+    Returns the execution state RecordFailure would receive.
+    """
+    execution = {'iep_id': 'iep-1'}
+    catch = next(c for c in states[step]['Catch']
+                 if error['Error'] in c['ErrorEquals'] or 'States.ALL' in c['ErrorEquals'])
+    assert catch['ResultPath'] == '$.error'
+    execution['error'] = dict(error)
+    current = catch['Next']
+    for _ in range(10):
+        if current == 'RecordFailure':
+            return execution
+        node = states[current]
+        assert node['Type'] == 'Pass', f'{current} is {node["Type"]}, expected a Pass hop'
+        if 'Result' in node:
+            assert node['ResultPath'].startswith('$.')
+            execution[node['ResultPath'][2:]] = node['Result']
+        current = node['Next']
+    pytest.fail(f'{step} never reached RecordFailure')
+
+
+STEPS_THAT_RECORD_A_FAILURE = [
+    'InitializeProcessing', 'MistralOCR', 'UpdateOCRProgress', 'RedactOCR',
+    'UpdateRedactionProgress', 'DeleteOriginal', 'UpdateCleanupProgress',
+    'ParsingAgent', 'UpdateAnalysisProgress', 'CheckLanguagePrefs',
+    'TranslateParsingResult', 'UpdateTranslationProgress', 'FinalizeResults',
+]
+
+
+@pytest.mark.parametrize('step', STEPS_THAT_RECORD_A_FAILURE)
+def test_a_timed_out_step_still_reaches_record_failure_with_everything_it_reads(states, step):
+    # RecordFailure reads $.error.Cause and $.failed_step. If either path is
+    # missing, the Parameters fail with States.Runtime INSIDE RecordFailure, the
+    # execution fails, and nothing marks the document FAILED or purges its
+    # unredacted artifacts. A timeout may arrive with no Cause at all, so the
+    # route must supply one rather than rely on Step Functions to.
+    execution = _follow_catch(states, step, {'Error': 'States.Timeout'})
+
+    assert isinstance(execution['error'].get('Cause'), str) and execution['error']['Cause']
+    assert execution['failed_step'] == step
+
+
+@pytest.mark.parametrize('step', STEPS_THAT_RECORD_A_FAILURE)
+def test_a_timeout_is_caught_before_the_generic_catch(states, step):
+    # First match wins, so the States.Timeout entry has to come first or the
+    # generic one swallows it and the Cause above is never supplied.
+    errors = [c['ErrorEquals'] for c in states[step]['Catch']]
+    assert errors.index(['States.Timeout']) < errors.index(['States.ALL'])
+
+
+def test_every_step_that_records_a_failure_is_covered_by_the_list_above(states):
+    # Guards the parametrized lists against a renamed or added step hollowing
+    # them out: every Task with a FailedAt marker must be named there.
+    with_marker = sorted(name for name in _tasks(states) if f'FailedAt{name}' in states)
+    assert with_marker == sorted(STEPS_THAT_RECORD_A_FAILURE)
+
+
+def test_the_on_demand_machine_bounds_its_tasks_too():
+    import json, os
+    path = os.path.join(os.path.dirname(__file__), '..', '..', 'lib', 'chatbot-api',
+                        'state-machines', 'single-language-translation.asl.json')
+    single = json.load(open(path))['States']
+    assert single['TranslateRequestedLanguage']['TimeoutSeconds'] == 240
+    for name, state in single.items():
+        if state['Type'] == 'Task':
+            assert isinstance(state.get('TimeoutSeconds'), int), name

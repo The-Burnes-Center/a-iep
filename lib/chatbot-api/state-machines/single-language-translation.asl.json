@@ -6,6 +6,7 @@
     "TranslateRequestedLanguage": {
       "Type": "Task",
       "Resource": "${TranslateContentArn}",
+      "TimeoutSeconds": 240,
       "Comment": "The pipeline's own translate_content, with a single-element target_languages; its event shape is fixed by that handler. ResultSelector is load-bearing rather than tidiness: translate_content returns the full translated summary and sections, and Step Functions keeps every state's output in execution history for 90 days, so narrowing the result to languages_processed is what keeps FERPA-protected content out of the console. The main pipeline avoids the same leak with ResultPath: null; here the next state needs that one field. One retry, not the pipeline's three, because every attempt is a paid OpenAI run: enough to ride out a transient 5xx, not enough to triple the bill on a real outage.",
       "Parameters": {
         "iep_id.$": "$.iep_id",
@@ -50,6 +51,7 @@
     "MarkTranslationComplete": {
       "Type": "Task",
       "Resource": "${DDBServiceArn}",
+      "TimeoutSeconds": 60,
       "Comment": "translate_content does not reset status; without this the document would poll at PROCESSING_TRANSLATIONS forever.",
       "Parameters": {
         "operation": "update_progress",
@@ -83,6 +85,7 @@
     "RecordTranslationFailure": {
       "Type": "Task",
       "Resource": "${DDBServiceArn}",
+      "TimeoutSeconds": 60,
       "Comment": "This machine's RecordFailure, and it deliberately does NOT set status FAILED the way the main pipeline's does. The document here is already fully processed: the parent has readable English content in front of them and only an optional extra language failed. FAILED would hide that content behind the error screen and make the UI refuse to ever offer a retry, i.e. destroy working data because an add-on failed. So status returns to PROCESSED and the failure is recorded in last_error and current_step. last_error is a fixed string rather than $.error.Cause because the cause is an exception message from the translation step and an upstream provider error can echo prompt content; the full cause lives in the execution history and CloudWatch. The execution still ends in Fail below, so it shows red in the console and counts on the Step Functions failure metric.",
       "Parameters": {
         "operation": "update_progress",

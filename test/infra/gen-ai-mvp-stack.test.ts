@@ -1886,6 +1886,23 @@ describe('IEP processing state machine', () => {
     expect(timeout).toBeGreaterThan(WORST_CASE_RUN_SECONDS);
   });
 
+  // WHY: ParsingAgent's slowest prod run was 73s against a 900s lambda timeout
+  // and no state timeout, so a call that hung (as opposed to failing) held the
+  // document at PROCESSING for 15 minutes per attempt before any Catch ran.
+  // Pinned on the synthesized definition, i.e. after the ARN substitution in
+  // functions.ts, because that is what Step Functions actually executes.
+  test('every task is bounded by its own TimeoutSeconds', () => {
+    const states: Record<string, any> = stateMachineDefinition().States;
+    const slow: Record<string, number> = {
+      ParsingAgent: 240, TranslateParsingResult: 240, MistralOCR: 120, RedactOCR: 120,
+    };
+    const tasks = Object.entries(states).filter(([, s]) => s.Type === 'Task');
+    expect(tasks.length).toBeGreaterThanOrEqual(10);
+    for (const [name, state] of tasks) {
+      expect({ name, timeout: state.TimeoutSeconds }).toEqual({ name, timeout: slow[name] ?? 60 });
+    }
+  });
+
   // WHY: failed_step was `$$.State.Name` read INSIDE RecordFailure, so it
   // resolved to the literal string "RecordFailure" for every failure the
   // pipeline has ever recorded. All six failures in production carry that
@@ -1901,11 +1918,23 @@ describe('IEP processing state machine', () => {
     test('every Catch is routed through a marker that injects its own step name', () => {
       const states = stateMachineDefinition().States;
       const caught = Object.entries<any>(states)
-        .flatMap(([name, state]) => (state.Catch ?? []).map((c: any) => [name, c.Next]));
+        .flatMap(([name, state]) => (state.Catch ?? []).map((c: any) => [name, c.Next, c.ErrorEquals]));
 
       expect(caught.length).toBeGreaterThan(0);
-      for (const [source, next] of caught) {
+      for (const [source, next, errors] of caught) {
         if (CATCH_EXEMPT_STATES.includes(source as string)) continue;
+        if ((errors as string[]).includes('States.Timeout')) {
+          // A timeout may carry no Cause, and RecordFailure reads
+          // $.error.Cause: one Pass supplies it, then hands on to the very
+          // same marker, so there is still exactly one route to RecordFailure.
+          expect(next).toBe(`TimedOutAt${source}`);
+          const hop = states[next as string];
+          expect(hop.Type).toBe('Pass');
+          expect(typeof hop.Result.Cause).toBe('string');
+          expect(hop.ResultPath).toBe('$.error');
+          expect(hop.Next).toBe(`FailedAt${source}`);
+          continue;
+        }
         // Never straight to RecordFailure: that is what made failed_step a lie.
         expect(next).toBe(`FailedAt${source}`);
         const marker = states[next as string];
