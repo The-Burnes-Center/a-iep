@@ -19,6 +19,11 @@ import * as kms from 'aws-cdk-lib/aws-kms';
 import { getEnvironment } from '../tags';
 
 
+// Requests per second, and the burst allowed above it, for the unauthenticated
+// POST /referral/click. See where it is applied for the reasoning.
+const REFERRAL_CLICK_RATE_LIMIT = 5;
+const REFERRAL_CLICK_BURST_LIMIT = 10;
+
 export interface ChatBotApiProps {
   readonly authentication?: NewAuthorizationStack;
 }
@@ -256,10 +261,22 @@ export class ChatBotApi extends Construct {
     // Click beacon is deliberately unauthenticated: visitors are not signed
     // in yet. It only increments counters for known active codes and stores
     // no PII, so exposure is limited to counter noise.
-    this.httpAPI.restAPI.addRoutes({
+    //
+    // No authorizer means nothing turns a flood away, and every call that
+    // names a real code costs a counter update and a click write, so the route
+    // is throttled. The cap is per route, not per caller (see throttleRoute).
+    // Sized from traffic: production saw about one click in 30 days, and a
+    // staging test run sends a few at once. 5 requests/s sustained with a
+    // burst of 10 is orders of magnitude above that, and still covers a
+    // conference QR code scanned by a room full of people.
+    const [clickRoute] = this.httpAPI.restAPI.addRoutes({
       path: "/referral/click",
       methods: [apigwv2.HttpMethod.POST],
       integration: referralAPIIntegration,
+    });
+    this.httpAPI.throttleRoute(clickRoute, {
+      rateLimit: REFERRAL_CLICK_RATE_LIMIT,
+      burstLimit: REFERRAL_CLICK_BURST_LIMIT,
     });
 
     this.httpAPI.restAPI.addRoutes({

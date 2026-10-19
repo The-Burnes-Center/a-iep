@@ -491,6 +491,29 @@ describe('HTTP API authorization', () => {
     }
   });
 
+  // The click beacon has no authorizer, so nothing else turns a flood away and
+  // every call that names a real code writes to DynamoDB. Throttling is the
+  // only control in front of it, and it must be on THIS route alone: a
+  // stage-wide default would cap every parent's authenticated calls too.
+  test('the public click beacon is throttled on its own route, and no other route is', () => {
+    const stages = Object.values(template.findResources('AWS::ApiGatewayV2::Stage'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => p.StageName === '$default');
+    expect(stages).toHaveLength(1);
+    const [stage] = stages;
+
+    expect(Object.keys(stage.RouteSettings ?? {})).toEqual(['POST /referral/click']);
+    const click = stage.RouteSettings['POST /referral/click'];
+    expect(click.ThrottlingRateLimit).toBeGreaterThan(0);
+    expect(click.ThrottlingRateLimit).toBeLessThanOrEqual(10);
+    expect(click.ThrottlingBurstLimit).toBeGreaterThanOrEqual(click.ThrottlingRateLimit);
+    expect(click.ThrottlingBurstLimit).toBeLessThanOrEqual(50);
+
+    // Not a stage-wide cap: that would throttle every authenticated route.
+    expect(stage.DefaultRouteSettings?.ThrottlingRateLimit).toBeUndefined();
+    expect(stage.DefaultRouteSettings?.ThrottlingBurstLimit).toBeUndefined();
+  });
+
   // Routes with no handler or no callers. The first two were declared but no
   // lambda registered them, so every call 404ed; the last two had zero calls in
   // 30 days in prod and staging and no frontend caller. A route that exists is
