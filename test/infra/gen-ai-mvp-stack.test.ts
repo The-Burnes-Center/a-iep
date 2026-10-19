@@ -1084,6 +1084,24 @@ describe('Cognito custom-auth wiring', () => {
     for (const c of conditions) expect(c).toBe(address);
   });
 
+  // Delivery time of a login code is only measurable if SES reports the
+  // Delivery event, so the SNS destination carries it alongside the four
+  // failure events. The CloudWatch destination must NOT grow: it is the
+  // destination that was left alone, and its alarms were sized for the four.
+  test('the auth configuration set reports Delivery on its SNS destination only', () => {
+    const destinations = Object.values(template.findResources('AWS::SES::ConfigurationSetEventDestination'))
+      .map((d: any) => d.Properties.EventDestination);
+    const sns = destinations.filter((d: any) => d.SnsDestination);
+    const cloudWatch = destinations.filter((d: any) => d.CloudWatchDestination);
+    expect(sns).toHaveLength(1);
+    expect(cloudWatch).toHaveLength(1);
+
+    expect([...sns[0].MatchingEventTypes].sort())
+      .toEqual(['bounce', 'complaint', 'deliveryDelay', 'delivery', 'reject'].sort());
+    expect([...cloudWatch[0].MatchingEventTypes].sort())
+      .toEqual(['bounce', 'complaint', 'deliveryDelay', 'reject'].sort());
+  });
+
   // The optional pinned origination number is read from this same subtree
   // (`<prefix>/origination-number`), so the existing grant must keep covering
   // it and must not widen beyond it to make it work.

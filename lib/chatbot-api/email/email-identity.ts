@@ -321,9 +321,9 @@ export class EmailIdentityStack extends Construct {
     this.configurationSetArn = `arn:${cdk.Aws.PARTITION}:ses:${stack.region}:${stack.account}:configuration-set/${this.configurationSetName}`;
 
     // The four events that mean something went wrong. Deliberately NOT
-    // `send`, `delivery`, `open` or `click`: this destination feeds a lambda
-    // that writes to a suppression list, and every event it does not need is
-    // an invocation, a log line and a recipient address we had no reason to
+    // `send`, `open` or `click`: the SNS destination below feeds a lambda that
+    // writes to a suppression list, and every event it does not need is an
+    // invocation, a log line and a recipient address we had no reason to
     // handle. Open and click tracking would also rewrite links in the mail,
     // which is not something to do to a parent reading a login code.
     const failureEvents = [
@@ -333,11 +333,19 @@ export class EmailIdentityStack extends Construct {
       ses.EmailSendingEvent.DELIVERY_DELAY,
     ];
 
+    // `delivery` is the one deliberate exception, added to the SNS destination
+    // only so a login code's delivery time can be measured: the event carries
+    // the provider's own processing and delivery timestamps, which the
+    // CloudWatch counts below cannot. The suppression handler ignores event
+    // types it has no use for, so this adds an invocation per delivered code
+    // and changes no list. The CloudWatch destination keeps the four above.
+    const snsEvents = [...failureEvents, ses.EmailSendingEvent.DELIVERY];
+
     new ses.ConfigurationSetEventDestination(this, 'FailureEventsToSns', {
       configurationSet: this.configurationSet,
       configurationSetEventDestinationName: getResourceName('a-iep-email-failures'),
       destination: ses.EventDestination.snsTopic(this.eventTopic),
-      events: failureEvents,
+      events: snsEvents,
     });
 
     // The same events again, as CloudWatch counts. Two destinations rather
