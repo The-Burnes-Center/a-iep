@@ -913,7 +913,7 @@
       "Type": "Task",
       "Resource": "${DDBServiceArn}",
       "TimeoutSeconds": 60,
-      "Comment": "Record processing failure using DDB service",
+      "Comment": "Record processing failure using DDB service, then end the execution as FAILED. Ending here with End: true made every failed document a SUCCEEDED execution, so the Step Functions console and the ExecutionsFailed metric never showed one. The result is kept under $.record_failure_result so the Choice below can tell a recorded failure from a RecordFailure that did not work: the DDB service reports its own errors as a 500 in the result rather than raising.",
       "Parameters": {
         "operation": "record_failure",
         "params": {
@@ -924,6 +924,7 @@
           "failed_step.$": "$.failed_step"
         }
       },
+      "ResultPath": "$.record_failure_result",
       "Retry": [
         {
           "ErrorEquals": [
@@ -934,7 +935,16 @@
           "BackoffRate": 2
         }
       ],
-      "End": true
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "RecordFailureFailed",
+          "ResultPath": "$.record_failure_error"
+        }
+      ],
+      "Next": "CheckRecordFailureResult"
     },
     "PurgeReplacedDocuments": {
       "Type": "Task",
@@ -1016,6 +1026,38 @@
       "Type": "Pass",
       "Comment": "The purge failed and the document is still complete, so the run ends normally rather than marking a finished document failed. This state is reached only when the service RAISES; when it reports the failure in a 500 instead, the run never gets here at all. Either way the OCR_PURGE_FAILED marker is what actually surfaces it, at a threshold of one.",
       "End": true
+    },
+    "CheckRecordFailureResult": {
+      "Type": "Choice",
+      "Comment": "A 200 means the failure was written and the unredacted artifacts purged: the document is FAILED and the execution ends as DocumentProcessingFailed. Anything else (a 500 the DDB service reported in its result, or no status at all) means the document may still read as PROCESSING, which is a different problem for a different person, so it ends as RecordFailureFailed.",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.record_failure_result.statusCode",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.record_failure_result.statusCode",
+              "NumericEquals": 200
+            }
+          ],
+          "Next": "DocumentProcessingFailed"
+        }
+      ],
+      "Default": "RecordFailureFailed"
+    },
+    "DocumentProcessingFailed": {
+      "Type": "Fail",
+      "Comment": "End a document that failed (and was recorded as FAILED) as a FAILED execution, so it is visible in the console and counted by ExecutionsFailed. Error and Cause are static on purpose: they carry no document data and no exception text, which can quote the document. The failing step and its cause are in this execution's history and in the document's row.",
+      "Error": "DocumentProcessingFailed",
+      "Cause": "A document failed processing and was recorded as FAILED. The failing step is in this execution's history."
+    },
+    "RecordFailureFailed": {
+      "Type": "Fail",
+      "Comment": "RecordFailure itself did not work, so the document may still read as PROCESSING and its unredacted artifacts may not have been purged. A different Error name from DocumentProcessingFailed, so this is separable from an ordinary failed document. Static Cause for the same reason.",
+      "Error": "RecordFailureFailed",
+      "Cause": "A document failed processing and recording that failure did not complete. The document may still show as processing."
     }
   }
 }

@@ -187,15 +187,145 @@ def test_finalize_results_has_exactly_one_route_to_record_failure(states):
     assert namer['Next'] == 'RecordFailure'
 
     # And RecordFailure is terminal, so the row cannot be written twice by the
-    # machine looping back through it.
-    assert states['RecordFailure']['End'] is True
+    # machine looping back through it. It no longer says so with End: true (that
+    # ended every failed document as a SUCCEEDED execution); the whole of what
+    # can follow it is pinned in the next test.
+    assert 'End' not in states['RecordFailure']
+
+
+def reachable_from(states, start):
+    """Every state name reachable from `start`, following Next, Catch and Choice."""
+    seen, stack = set(), [start]
+    while stack:
+        name = stack.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        state = states[name]
+        stack.extend(filter(None, [state.get('Next'), state.get('Default')]))
+        stack.extend(c['Next'] for c in state.get('Catch', []))
+        stack.extend(c['Next'] for c in state.get('Choices', []))
+    return seen
 
 
 def test_no_step_lambda_is_reachable_after_record_failure(states):
-    # RecordFailure ends the execution. If it ever gained a Next, every state
-    # downstream would run after the document had already been marked FAILED
-    # and its unredacted artifacts purged.
-    assert 'Next' not in states['RecordFailure']
+    # RecordFailure ends the execution. If it ever gained a route to a step,
+    # every state downstream would run after the document had already been
+    # marked FAILED and its unredacted artifacts purged. Pinned as the exact
+    # set, so a new state hung off RecordFailure has to be a decision.
+    assert reachable_from(states, 'RecordFailure') == {
+        'RecordFailure', 'CheckRecordFailureResult',
+        'DocumentProcessingFailed', 'RecordFailureFailed',
+    }
+
+
+# ---------------------------------------------------------------------------
+# A failed document is a failed execution
+#
+# RecordFailure used to end with End: true, so every failed document was a
+# SUCCEEDED execution: the Step Functions console never showed one and the
+# ExecutionsFailed metric stayed at zero through a total outage. It now ends in
+# a Fail state. The error names are static and the causes are fixed strings, so
+# the console's Error/Cause columns can never carry document text.
+
+def next_after_record_failure(states, record_failure_result):
+    """Walk RecordFailure's tail for a given lambda result, the way Step
+    Functions would: the Choice reads the result stored under
+    $.record_failure_result. Returns the Fail state it lands on."""
+    choice = states['CheckRecordFailureResult']
+    state_input = {} if record_failure_result is None else {'record_failure_result': record_failure_result}
+
+    def holds(rule):
+        if 'And' in rule:
+            return all(holds(r) for r in rule['And'])
+        value = state_input
+        for part in rule['Variable'].removeprefix('$.').split('.'):
+            value = value.get(part) if isinstance(value, dict) else None
+            if value is None:
+                break
+        if 'IsPresent' in rule:
+            return (value is not None) == rule['IsPresent']
+        if 'NumericEquals' in rule:
+            return value == rule['NumericEquals']
+        raise AssertionError(f'unhandled choice rule {rule}')
+
+    for rule in choice['Choices']:
+        if holds(rule):
+            return rule['Next']
+    return choice['Default']
+
+
+def test_a_recorded_failure_ends_the_execution_as_failed(states):
+    landed = next_after_record_failure(states, {'statusCode': 200})
+    assert landed == 'DocumentProcessingFailed'
+    assert states[landed]['Type'] == 'Fail'
+    assert states[landed]['Error'] == 'DocumentProcessingFailed'
+
+
+@pytest.mark.parametrize('result', [
+    {'statusCode': 500},        # the DDB service reports its own errors this way
+    {'statusCode': 404},
+    {},                         # a result with no status at all
+    None,                       # nothing stored
+])
+def test_a_record_failure_that_did_not_work_is_a_different_failure(states, result):
+    landed = next_after_record_failure(states, result)
+    assert landed == 'RecordFailureFailed'
+    assert states[landed]['Type'] == 'Fail'
+    assert states[landed]['Error'] == 'RecordFailureFailed'
+    assert states[landed]['Error'] != states['DocumentProcessingFailed']['Error']
+
+
+def test_record_failure_raising_ends_as_record_failure_failed(states):
+    catches = states['RecordFailure']['Catch']
+    assert len(catches) == 1
+    assert catches[0]['ErrorEquals'] == ['States.ALL']
+    assert catches[0]['Next'] == 'RecordFailureFailed'
+
+
+def test_record_failure_keeps_its_result_for_the_choice(states):
+    task = states['RecordFailure']
+    assert task['ResultPath'] == '$.record_failure_result'
+    assert task['Next'] == 'CheckRecordFailureResult'
+
+
+def test_the_fail_states_carry_static_text_and_no_document_data(states):
+    # A `.$` suffix on Error or Cause would read from the execution state,
+    # which holds the failing step's exception text (it can quote the document).
+    for name in ('DocumentProcessingFailed', 'RecordFailureFailed'):
+        fail = states[name]
+        assert set(fail) <= {'Type', 'Comment', 'Error', 'Cause'}
+        assert 'Error.$' not in fail and 'Cause.$' not in fail
+        assert fail['Cause'] and '$' not in fail['Cause']
+        assert fail['Error'].isidentifier()
+
+
+def test_every_failure_route_ends_in_a_fail_state(states):
+    # From each step's own failure marker down to the end of the run: the only
+    # terminal states reachable are the two Fail states, never an End: true.
+    failure_entries = [name for name in states
+                       if name.startswith(('FailedAt', 'TimedOutAt', 'NoLanguageProducedFor'))]
+    assert failure_entries
+    for entry in failure_entries:
+        terminals = {name for name in reachable_from(states, entry)
+                     if states[name].get('End') or states[name]['Type'] in ('Fail', 'Succeed')}
+        assert terminals == {'DocumentProcessingFailed', 'RecordFailureFailed'}, entry
+
+
+def test_a_finished_document_still_ends_normally(states):
+    # The success path (Next only, never a Catch) from FinalizeResults to the
+    # end of the run must not pass through a Fail: a document that was finalized
+    # and then had a best-effort cleanup go wrong is not a failed document.
+    name, path = 'FinalizeResults', []
+    while True:
+        path.append(name)
+        if states[name].get('End'):
+            break
+        name = states[name]['Next']
+    assert path[-1] == 'PurgeRedactedOCR'
+    assert all(states[step]['Type'] != 'Fail' for step in path)
+    assert states['RedactedOCRPurgeSkipped']['End'] is True
+
 
 
 def test_a_partial_translation_success_is_not_caught_by_this_narrow_guard(states):

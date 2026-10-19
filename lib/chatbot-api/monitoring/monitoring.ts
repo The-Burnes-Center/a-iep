@@ -33,15 +33,17 @@ import { getEnvironment, getMetricNamespace, getResourceName, tagResource } from
  *
  * Three things shape the design:
  *
- * 1. **Pipeline failures do not look like failures.** Every Task in
- *    iep-processing.asl.json catches into RecordFailure, RecordFailure ends
- *    with "End": true, and the machine has no state of type Fail. A failed
- *    document therefore produces a SUCCESSFUL execution, and
- *    ExecutionsFailed sits at zero through a total OCR outage. So there is
- *    deliberately no alarm on ExecutionsFailed: it would be the alarm that
- *    cannot fire. The signals used instead are the per-step lambda Errors
- *    (which also say WHICH stage broke) and a metric filter counting the
- *    failure marker record_failure now logs.
+ * 1. **A failed document is one signal, not two.** Every Task in
+ *    iep-processing.asl.json catches into RecordFailure, which logs the
+ *    RECORD_FAILURE marker and then ends the execution in a Fail state
+ *    (DocumentProcessingFailed; a RecordFailure that itself fails ends as
+ *    RecordFailureFailed). So ExecutionsFailed now moves once per failed
+ *    document and the console lists them. It used to stay at zero, because
+ *    RecordFailure ended the machine normally. There is still deliberately no
+ *    alarm on ExecutionsFailed: the marker filter below already alarms on the
+ *    same event, and a second alarm would page twice per failure. The signals
+ *    used are the per-step lambda Errors (which also say WHICH stage broke)
+ *    and the metric filter counting the failure marker.
  *
  * 2. **The alarm description is the one line a person reads.** The formatter
  *    uses it verbatim as the impact statement under the headline, so each one

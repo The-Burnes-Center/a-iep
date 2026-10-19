@@ -2279,6 +2279,73 @@ describe('IEP processing state machine', () => {
     }
   });
 
+  // A failed document used to be a SUCCEEDED execution: RecordFailure ended
+  // the machine with End: true, so the Step Functions console never listed one
+  // and ExecutionsFailed stayed at zero through a total outage. It now ends in
+  // a Fail state. The Error names are static and the Causes fixed strings, so
+  // the console's Error/Cause columns cannot carry document text; a
+  // RecordFailure that itself fails gets its own Error name.
+  describe('a failed document is a failed execution', () => {
+    test('RecordFailure no longer ends the run: it hands over to a Choice', () => {
+      const states: Record<string, any> = stateMachineDefinition().States;
+      expect(states.RecordFailure.End).toBeUndefined();
+      expect(states.RecordFailure.Next).toBe('CheckRecordFailureResult');
+      expect(states.RecordFailure.ResultPath).toBe('$.record_failure_result');
+      expect(states.CheckRecordFailureResult.Type).toBe('Choice');
+    });
+
+    test('the only ways the run can end are the success purges and two Fail states', () => {
+      const states: Record<string, any> = stateMachineDefinition().States;
+      const terminal = Object.entries(states)
+        .filter(([, state]: [string, any]) => state.End === true || state.Type === 'Fail' || state.Type === 'Succeed')
+        .map(([name]) => name)
+        .sort();
+      expect(terminal).toEqual([
+        'DocumentProcessingFailed',
+        'PurgeRedactedOCR',
+        'RecordFailureFailed',
+        'RedactedOCRPurgeSkipped',
+      ]);
+    });
+
+    test('a recorded failure and a failed RecordFailure end under different Error names', () => {
+      const states: Record<string, any> = stateMachineDefinition().States;
+      expect(states.DocumentProcessingFailed).toMatchObject({
+        Type: 'Fail', Error: 'DocumentProcessingFailed' });
+      expect(states.RecordFailureFailed).toMatchObject({
+        Type: 'Fail', Error: 'RecordFailureFailed' });
+
+      // The choice sends a 200 to the first and everything else to the second;
+      // a raise from the task itself goes to the second as well.
+      const choice = states.CheckRecordFailureResult;
+      expect(choice.Choices).toHaveLength(1);
+      expect(choice.Choices[0].Next).toBe('DocumentProcessingFailed');
+      expect(JSON.stringify(choice.Choices[0])).toContain('"NumericEquals":200');
+      expect(JSON.stringify(choice.Choices[0])).toContain('"IsPresent":true');
+      expect(choice.Default).toBe('RecordFailureFailed');
+      expect(states.RecordFailure.Catch).toEqual([
+        expect.objectContaining({ ErrorEquals: ['States.ALL'], Next: 'RecordFailureFailed' }),
+      ]);
+    });
+
+    test('Error and Cause are static: no document data can reach the console', () => {
+      const states: Record<string, any> = stateMachineDefinition().States;
+      for (const name of ['DocumentProcessingFailed', 'RecordFailureFailed']) {
+        expect(Object.keys(states[name]).filter((key) => key.endsWith('.$'))).toEqual([]);
+        expect(typeof states[name].Cause).toBe('string');
+        expect(states[name].Cause).not.toContain('$');
+      }
+    });
+
+    // The translation machine already ends this way (TranslationFailed), so
+    // the two machines now read the same in the console.
+    test('it matches how the on-demand translation machine ends', () => {
+      const translation = parseStateMachineDefinition(template, 'SingleLanguageTranslationStateMachine').States;
+      expect(translation.TranslationFailed.Type).toBe('Fail');
+      expect(stateMachineDefinition().States.DocumentProcessingFailed.Type).toBe('Fail');
+    });
+  });
+
   // Guards the catch-all test against renames hollowing it out: the OCR,
   // redaction, and parsing tasks must exist under these names, and each must
   // be a top-level state so its Catch can route to RecordFailure (a state
@@ -2382,6 +2449,15 @@ describe('IEP processing state machine', () => {
       expect(caught.length).toBeGreaterThan(0);
       for (const [source, next, errors] of caught) {
         if (CATCH_EXEMPT_STATES.includes(source as string)) continue;
+        // RecordFailure's own Catch cannot go through a FailedAt marker: it IS
+        // the destination of those markers, and there is no later stage to name.
+        // It routes to the RecordFailureFailed Fail state instead, which is
+        // pinned in 'a failed document is a failed execution' and nowhere else
+        // may route a Catch there.
+        if (source === 'RecordFailure') {
+          expect(next).toBe('RecordFailureFailed');
+          continue;
+        }
         if ((errors as string[]).includes('States.Timeout')) {
           // A timeout may carry no Cause, and RecordFailure reads
           // $.error.Cause: one Pass supplies it, then hands on to the very
