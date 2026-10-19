@@ -782,6 +782,22 @@ describe('Cognito custom-auth wiring', () => {
     }
   });
 
+  // The AUTH_TIMING line is how a cold sign-in gets diagnosed, so staging must
+  // carry it on all four lambdas a parent waits on.
+  test('staging turns on AUTH_TIMING for every auth endpoint', () => {
+    const AUTH_HANDLERS = [
+      'auth-start.handler', 'auth-verify.handler', 'auth-dispatch.handler', 'auth-session.handler',
+    ];
+    const functions = Object.values(template.findResources('AWS::Lambda::Function'))
+      .map((fn: any) => fn.Properties)
+      .filter((p: any) => AUTH_HANDLERS.includes(p.Handler));
+
+    expect(functions.map((p: any) => p.Handler).sort()).toEqual([...AUTH_HANDLERS].sort());
+    for (const p of functions) {
+      expect(p.Environment?.Variables?.AUTH_TIMING).toBe('1');
+    }
+  });
+
   // The confidential client's secret is read from Cognito at runtime, which
   // only works if the role is allowed to ask. Without this every /auth/*
   // Cognito call throws NotAuthorizedException with nothing in the message
@@ -2838,6 +2854,18 @@ describe('production synth: the OTP test backdoor must not exist', () => {
     // IAM grant.
     expect(JSON.stringify(prodTemplate.toJSON()))
       .not.toContain('/a-iep/staging/e2e-turnstile-bypass');
+  });
+
+  // Per-request timing is a staging diagnostic. In production it would be a log
+  // line per sign-in nobody asked for, so no production lambda may carry it.
+  test('no production lambda turns on AUTH_TIMING', () => {
+    const functions = Object.entries(prodTemplate.findResources('AWS::Lambda::Function'));
+    expect(functions.length).toBeGreaterThanOrEqual(20);
+
+    const offenders = functions
+      .filter(([, fn]: [string, any]) => 'AUTH_TIMING' in (fn.Properties?.Environment?.Variables ?? {}))
+      .map(([logicalId]) => logicalId);
+    expect(offenders).toEqual([]);
   });
 
   // Cloudflare's server-side recommendation: check the hostname a token was
