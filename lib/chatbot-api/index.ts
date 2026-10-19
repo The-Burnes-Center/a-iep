@@ -358,7 +358,6 @@ export class ChatBotApi extends Construct {
         { label: 'PII redaction', fn: this.lambdaFunctions.redactOCRFunction, purpose: 'strips personal details before anything reaches an LLM; runs once per upload' },
         { label: 'delete original', fn: this.lambdaFunctions.deleteOriginalFunction, purpose: 'deletes the unredacted upload once text is extracted; runs once per upload' },
         { label: 'parsing agent', fn: this.lambdaFunctions.parsingAgentFunction, purpose: 'writes the plain-language summary and sections; runs once per upload' },
-        { label: 'language prefs', fn: this.lambdaFunctions.checkLanguagePrefsFunction, purpose: 'decides which languages a summary is translated into' },
         { label: 'translation', fn: this.lambdaFunctions.translateContentFunction, purpose: 'translates the summary into the languages a family asked for' },
         { label: 'finalize results', fn: this.lambdaFunctions.finalizeResultsFunction, purpose: 'assembles the finished summary and marks the document ready' },
         { label: 'orchestrator', fn: this.lambdaFunctions.orchestratorFunction, purpose: 'starts the pipeline when a document lands' },

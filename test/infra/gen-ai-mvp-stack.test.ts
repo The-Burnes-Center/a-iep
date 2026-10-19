@@ -1854,6 +1854,7 @@ describeLambdaRuntimes('staging', () => template);
 describeLogRetention('staging', () => template);
 describeStepTimeouts('staging', () => template);
 describeBucketLifecycle('staging', () => template);
+describeRetiredLanguageStep('staging', () => template);
 
 /**
  * Lambda runtimes that must hold in BOTH synthesized templates. Staging and
@@ -2014,6 +2015,22 @@ function describeBucketLifecycle(envLabel: EnvLabel, getTemplate: () => Template
         .map(([logicalId]) => logicalId);
       expect(expiring).toHaveLength(1);
       expect(expiring[0]).toContain('AuditLogBucket');
+    });
+  });
+}
+
+/**
+ * The language-prefs step left the pipeline, but its function stays because
+ * scripts/recover-orphaned-documents.py still invokes it by name.
+ */
+function describeRetiredLanguageStep(envLabel: EnvLabel, getTemplate: () => Template) {
+  describe(`retired language step (${envLabel})`, () => {
+    // WHY: deleting the function would break that recovery path. Its alarm is
+    // removed in monitoring.ts; the function itself stays.
+    test('the language-prefs lambda is kept for the recovery script', () => {
+      const fns = resourcesMatching(getTemplate(), 'AWS::Lambda::Function', 'CheckLanguagePrefsFunction');
+      expect(fns).toHaveLength(1);
+      expect(fns[0][1].Properties.Runtime).toBe('python3.12');
     });
   });
 }
@@ -2927,6 +2944,7 @@ describe('production synth: the OTP test backdoor must not exist', () => {
   describeLogRetention('production', () => prodTemplate);
   describeStepTimeouts('production', () => prodTemplate);
   describeBucketLifecycle('production', () => prodTemplate);
+  describeRetiredLanguageStep('production', () => prodTemplate);
 });
 
 describe('custom-certificate synth: the CloudFront TLS floor', () => {

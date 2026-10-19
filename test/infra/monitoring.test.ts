@@ -367,6 +367,29 @@ describe.each([
     }
   });
 
+  // WHY: the language-prefs step left the state machine when its decision moved
+  // into the OCR step. Its Errors alarm then had no invocations to count, so it
+  // could only ever sit at OK and read as a healthy stage the pipeline no longer
+  // runs. The alarm was removed with it. The list below is the stages the
+  // pipeline actually invokes, so an alarm for a removed stage fails here.
+  test('the pipeline step alarms cover exactly the stages the pipeline runs', () => {
+    const prefix = `${namePrefix}pipeline step failing: `;
+    const stages = alarms
+      .map((a) => String(a.AlarmName))
+      .filter((name) => name.startsWith(prefix))
+      .map((name) => name.slice(prefix.length))
+      .sort();
+    expect(stages).toEqual([
+      'Mistral OCR',
+      'PII redaction',
+      'delete original',
+      'finalize results',
+      'orchestrator',
+      'parsing agent',
+      'translation',
+    ]);
+  });
+
   // Signup volume and SMS spend are the two leading indicators of abuse of
   // the phone-signup flow, and the harm lands on families: once SMS delivery
   // stops, no parent can receive a login code until the month rolls over.
