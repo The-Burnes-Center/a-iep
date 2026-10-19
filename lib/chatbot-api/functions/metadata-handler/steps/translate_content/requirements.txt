@@ -1,5 +1,6 @@
 # Pinned 2026-07-28 for reproducible deploys (SOURCE-based asset hashes; see metadata-handler/requirements.txt)
 boto3==1.43.108
+botocore==1.43.108
 requests==2.34.2
 urllib3==2.8.0
 certifi==2026.7.22

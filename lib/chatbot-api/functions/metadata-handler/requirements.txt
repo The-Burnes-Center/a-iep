@@ -1,5 +1,6 @@
 # Pinned 2026-07-28 so deploys are reproducible: the asset hash is SOURCE-based, so unpinned floors made lambda deps depend on cache luck.
 boto3==1.43.108
+botocore==1.43.108
 requests==2.34.2
 urllib3==2.8.0
 certifi==2026.7.22
