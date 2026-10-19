@@ -1055,6 +1055,30 @@ class DocumentContentUnavailable(RuntimeError):
         self.cause = cause
 
 
+# Statuses at which a document's content is complete and readable as it stands.
+# PROCESSING_TRANSLATIONS is an add-on translation running on a finished
+# document (the upload pipeline never uses it), so it still reads.
+READABLE_STATUSES = ('PROCESSED', 'PROCESSING_TRANSLATIONS')
+
+
+def _newest_document(documents: List[Dict]) -> Optional[Dict]:
+    """The row with the latest createdAt, or None. A row needs a creation time
+    to be the latest, so one without is never chosen."""
+    newest = None
+    newest_created_at = 0
+    for doc in documents:
+        created_at = doc.get('createdAt', 0)
+        if created_at > newest_created_at:
+            newest, newest_created_at = doc, created_at
+    return newest
+
+
+def _display_status(doc: Dict) -> str:
+    """The status the frontend is told: PENDING_UPLOAD (and no status at all,
+    on rows older than that value) read as PROCESSING."""
+    return 'PROCESSING' if doc.get('status') in (None, 'PENDING_UPLOAD') else doc['status']
+
+
 def _document_with_content(doc: Dict, user_id: str) -> Dict:
     """The API shape of one document row, with its four content fields filled.
 
@@ -1073,7 +1097,7 @@ def _document_with_content(doc: Dict, user_id: str) -> Dict:
         'documentId': doc['iepId'],  # Also include documentId for frontend compatibility
         'childId': doc['childId'],
         'documentUrl': doc.get('documentUrl', f"s3://{os.environ.get('BUCKET', '')}/{doc['iepId']}"),
-        'status': 'PROCESSING' if doc.get('status') in (None, 'PENDING_UPLOAD') else doc['status'],
+        'status': _display_status(doc),
         'progress': doc.get('progress', 0),
         'current_step': doc.get('current_step', 'initializing'),
         'createdAt': doc.get('createdAt', ''),
@@ -1214,19 +1238,25 @@ def get_child_documents(event: Dict) -> Dict:
         except AWS_FAULTS as e:
             return service_unavailable(event, 'get_child_documents query', e)
 
-        # Find the latest document
-        latest_row = None
-        latest_timestamp = 0
-        for doc in documents:
-            # Strict ownership: require an explicit userId match. Documents without
-            # a userId field are not returned to avoid IDOR via missing fields.
-            if doc.get('userId') != user_id:
-                continue
-            # Find the document with the latest createdAt timestamp
-            created_at = doc.get('createdAt', 0)
-            if created_at > latest_timestamp:
-                latest_timestamp = created_at
-                latest_row = doc
+        # Strict ownership: require an explicit userId match. Documents without
+        # a userId field are not returned to avoid IDOR via missing fields.
+        owned = [doc for doc in documents if doc.get('userId') == user_id]
+        latest_row = _newest_document(owned)
+        replacement_row = None
+
+        # A parent who replaces their IEP keeps the old one until the new one
+        # is ready (the pipeline deletes it only once the new one is PROCESSED).
+        # So while the newest document is still being processed, or failed, the
+        # parent is shown the newest one they can already read, and the newer
+        # one is only reported alongside it. Without an older readable
+        # document (a first upload) nothing changes: the newest is returned
+        # whatever its status, which is what drives the processing screen.
+        if latest_row is not None and latest_row.get('status') not in READABLE_STATUSES:
+            # Every readable row is older than latest_row, which is the newest.
+            readable_before = _newest_document([
+                doc for doc in owned if doc.get('status') in READABLE_STATUSES])
+            if readable_before is not None:
+                replacement_row, latest_row = latest_row, readable_before
 
         # Only the winner's content is fetched. Each newer-than-so-far row used
         # to be read from S3 (or migrated) as the loop met it, so a child with
@@ -1237,6 +1267,14 @@ def get_child_documents(event: Dict) -> Dict:
                 latest_doc = _document_with_content(latest_row, user_id)
             except DocumentContentUnavailable as e:
                 return service_unavailable(event, 'get_child_documents content read', e.cause)
+        if latest_doc is not None and replacement_row is not None:
+            # Id and status only, never anything from the row's content.
+            latest_doc['replacement'] = {
+                'iepId': replacement_row['iepId'],
+                'status': _display_status(replacement_row),
+            }
+            print(f"Showing {latest_doc['iepId']} while {replacement_row['iepId']} is "
+                  f"{latest_doc['replacement']['status']}")
 
         # If no document found
         if not latest_doc:

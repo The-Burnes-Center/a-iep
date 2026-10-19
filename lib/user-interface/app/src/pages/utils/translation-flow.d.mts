@@ -27,6 +27,10 @@ export declare const shouldPollForUpdates: (
   forcePolling?: boolean,
 ) => boolean;
 
+export declare const isReplacementInFlight: (
+  document: { replacement?: { status?: string | null } | null } | null | undefined,
+) => boolean;
+
 export declare const buildLanguageMenuOptions: <T extends { value: string }>(
   enabledOptions: readonly T[] | null | undefined,
   translatedLanguages: readonly string[] | null | undefined,

@@ -151,6 +151,16 @@ export interface IEPDocument {
   failureReason?: string;
   createdAt?: number; // Unix timestamp (seconds since epoch)
   /**
+   * A newer document being processed behind this one. Present only while the
+   * parent is shown their previous IEP because a replacement has not finished
+   * (or has failed): the documents endpoint returns the newest document the
+   * parent can read, and names the newer one here. Id and status only.
+   */
+  replacement?: {
+    iepId: string;
+    status: "PROCESSING" | "PROCESSING_TRANSLATIONS" | "FAILED";
+  };
+  /**
    * Unix timestamp (seconds since epoch), normalized server-side.
    *
    * The DynamoDB row carries this in two attributes that are not
