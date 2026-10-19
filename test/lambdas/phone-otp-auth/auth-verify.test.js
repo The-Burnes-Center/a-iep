@@ -416,4 +416,58 @@ describe('auth verify', () => {
         expect(all).not.toContain(HANDLE);
         expect(all).not.toContain(bodyOf(response).session);
     });
+
+    // ── Headers and copy ─────────────────────────────────────────────────
+    test('no verify answer is cacheable: success, refusal, not-ready and send-failed alike', async () => {
+        const answers = [await load()(request())]; // the session handle itself
+
+        store({ row: null });
+        answers.push(await load()(request())); // 401
+        store({ row: challengeRow({ status: 'pending' }) });
+        answers.push(await load()(request())); // 202
+        store({ row: challengeRow({ status: 'failed', reason: 'delivery_failed' }) });
+        answers.push(await load()(request())); // 409
+        store({ row: challengeRow(), failureCount: 10 });
+        answers.push(await load()(request())); // 429
+
+        expect(answers.map((r) => r.statusCode)).toEqual([200, 401, 202, 409, 429]);
+        for (const response of answers) {
+            expect(response.headers['Cache-Control']).toBe('no-store');
+        }
+    });
+
+    test('the 429 carries Retry-After, equal to the body figure', async () => {
+        store({ row: challengeRow(), failureCount: 10 });
+        const response = await load()(request());
+
+        expect(response.headers['Retry-After']).toBe(String(bodyOf(response).retryAfterSeconds));
+    });
+
+    test.each([
+        ['a malformed body', { body: '{' }],
+        ['no code', { body: JSON.stringify({ challenge: HANDLE }) }],
+        ['no challenge', { body: JSON.stringify({ code: '482913' }) }],
+    ])('%s is told about the code, not about a phone number', async (_l, event) => {
+        const response = await load()(event);
+
+        expect(bodyOf(response).code).toBe('invalid_request');
+        expect(bodyOf(response).message).toBe('Enter the code we sent you.');
+    });
+
+    test('a challenge that cannot be cleared after a spent session is logged, and the answer is unchanged', async () => {
+        mockCognitoSend.mockImplementation((cmd) => (cmd.kind === 'describe'
+            ? Promise.resolve({ UserPoolClient: { ClientSecret: CLIENT_SECRET } })
+            : Promise.reject(Object.assign(new Error('spent'), { name: 'NotAuthorizedException' }))));
+        const base = mockDdbSend.getMockImplementation();
+        mockDdbSend.mockImplementation((cmd) => (cmd.kind === 'delete'
+            ? Promise.reject(Object.assign(new Error('down'), { name: 'InternalServerError' }))
+            : base(cmd)));
+
+        const response = await load()(request());
+
+        expect(response.statusCode).toBe(401);
+        expect(bodyOf(response).code).toBe('bad_code');
+        expect(logged.join('\n')).toContain('AUTH_VERIFY_CHALLENGE_NOT_CLEARED kind=InternalServerError');
+        expect(logged.join('\n')).not.toContain(HANDLE);
+    });
 });

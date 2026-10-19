@@ -390,6 +390,43 @@ describe('signup endpoint', () => {
         expect(out).toContain('SIGNUP_REFUSED');
         logged.mockRestore();
     });
+
+    // ── Headers ──────────────────────────────────────────────────────────
+    test('every answer says not to cache it', async () => {
+        const ok = await load()(request());
+        const bad = await load()(request({ phoneNumber: 'x' }));
+        const unavailable = await (async () => {
+            mockDdbSend.mockRejectedValue(new Error('down'));
+            return load()(request());
+        })();
+
+        expect([ok.statusCode, bad.statusCode, unavailable.statusCode]).toEqual([200, 400, 503]);
+        for (const response of [ok, bad, unavailable]) {
+            expect(response.headers['Cache-Control']).toBe('no-store');
+            expect(response.headers['Access-Control-Allow-Origin']).toBe('*');
+        }
+    });
+
+    test.each([
+        ['the per-source limit', () => mockDdbSend.mockResolvedValue({ Attributes: { attempts: 99 } })],
+        ['the service-wide limit', () => {
+            let call = 0;
+            mockDdbSend.mockImplementation(async () => {
+                call += 1;
+                return { Attributes: { attempts: call === 1 ? 1 : 9999 } };
+            });
+        }],
+    ])('a 429 from %s carries Retry-After in whole seconds, within the hour', async (_l, arrange) => {
+        arrange();
+        const response = await load()(request());
+
+        expect(response.statusCode).toBe(429);
+        const seconds = Number(response.headers['Retry-After']);
+        expect(Number.isInteger(seconds)).toBe(true);
+        expect(seconds).toBeGreaterThan(0);
+        expect(seconds).toBeLessThanOrEqual(3600);
+    });
+
 });
 
 describe('the staging-only Turnstile bypass', () => {

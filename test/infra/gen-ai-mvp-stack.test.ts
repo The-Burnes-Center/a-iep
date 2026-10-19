@@ -1066,6 +1066,81 @@ describe('Cognito custom-auth wiring', () => {
     expect(writers).toHaveLength(0);
   });
 
+  // The lambda adds the "A-IEP" display name around SES_FROM_ADDRESS, so the
+  // variable and the IAM ses:FromAddress condition must both stay the BARE
+  // address: a display name in either would stop matching the other, and the
+  // send would fail with an authorization error rather than a bad From line.
+  test('the email sender address and its IAM condition are the same bare address', () => {
+    const fn: any = Object.values(template.findResources('AWS::Lambda::Function'))
+      .find((f: any) => f.Properties?.Handler === 'create-auth-challenge.handler');
+    const address = fn.Properties.Environment.Variables.SES_FROM_ADDRESS;
+    expect(address).toMatch(/^[^<>"\s]+@[^<>"\s]+$/);
+
+    const conditions = Object.values(template.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[])
+      .filter((st) => JSON.stringify(st.Action ?? '').includes('ses:SendEmail'))
+      .map((st) => st.Condition?.StringEquals?.['ses:FromAddress']);
+    expect(conditions.length).toBeGreaterThan(0);
+    for (const c of conditions) expect(c).toBe(address);
+  });
+
+  // Delivery time of a login code is only measurable if SES reports the
+  // Delivery event, so the SNS destination carries it alongside the four
+  // failure events. The CloudWatch destination must NOT grow: it is the
+  // destination that was left alone, and its alarms were sized for the four.
+  test('the auth configuration set reports Delivery on its SNS destination only', () => {
+    const destinations = Object.values(template.findResources('AWS::SES::ConfigurationSetEventDestination'))
+      .map((d: any) => d.Properties.EventDestination);
+    const sns = destinations.filter((d: any) => d.SnsDestination);
+    const cloudWatch = destinations.filter((d: any) => d.CloudWatchDestination);
+    expect(sns).toHaveLength(1);
+    expect(cloudWatch).toHaveLength(1);
+
+    expect([...sns[0].MatchingEventTypes].sort())
+      .toEqual(['bounce', 'complaint', 'deliveryDelay', 'delivery', 'reject'].sort());
+    expect([...cloudWatch[0].MatchingEventTypes].sort())
+      .toEqual(['bounce', 'complaint', 'deliveryDelay', 'reject'].sort());
+  });
+
+  // /auth/token and /auth/logout count calls per source in the OTP rate-limit
+  // table, failing closed. The count is read back from UpdateItem, so write
+  // access is enough; the grant must not grow into a read of anything else.
+  test('the session function meters per-source calls on the rate-limit table, write-only', () => {
+    const fn: any = Object.values(template.findResources('AWS::Lambda::Function'))
+      .find((f: any) => f.Properties?.Handler === 'auth-session.handler');
+    expect(JSON.stringify(fn.Properties.Environment.Variables.OTP_RATE_LIMIT_TABLE))
+      .toContain('OtpRateLimitTable');
+
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .filter((p: any) => JSON.stringify(p.Properties.Roles ?? '').includes('AuthSessionFunctionServiceRole'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[])
+      .filter((st) => JSON.stringify(st.Resource ?? '').includes('OtpRateLimitTable'));
+    expect(statements.length).toBeGreaterThan(0);
+
+    const actions = statements.flatMap((st) => ([] as string[]).concat(st.Action));
+    expect(actions).toContain('dynamodb:UpdateItem');
+    for (const forbidden of ['dynamodb:Scan', 'dynamodb:Query', 'dynamodb:GetItem']) {
+      expect(actions).not.toContain(forbidden);
+    }
+    for (const st of statements) {
+      expect(JSON.stringify(st.Resource)).not.toContain('"*"');
+    }
+  });
+
+  // The optional pinned origination number is read from this same subtree
+  // (`<prefix>/origination-number`), so the existing grant must keep covering
+  // it and must not widen beyond it to make it work.
+  test('the optional origination-number parameter is inside the granted SMS policy subtree', () => {
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[])
+      .filter((st) => JSON.stringify(st.Resource ?? '').includes('sms-policy'));
+    expect(statements.length).toBeGreaterThan(0);
+    const resources = statements.flatMap((st) => ([] as any[]).concat(st.Resource).map((r) => JSON.stringify(r)));
+    expect(resources.some((r) => r.includes('/sms-policy/*'))).toBe(true);
+    // Never the wider hierarchy, which holds the API keys.
+    expect(resources.every((r) => r.includes('sms-policy'))).toBe(true);
+  });
+
   // create-auth-challenge fails open (or falls back to English SMS) when its
   // table wiring is missing, so the env vars are load-bearing: the rate-limit
   // counter and the profile lookup for OTP localization.
@@ -1098,6 +1173,19 @@ describe('Cognito custom-auth wiring', () => {
                           'dynamodb:DeleteItem', 'dynamodb:UpdateItem']) {
       expect(referralActions).toContain(action);
     }
+  });
+
+  // The login SMS ends in `@<host> #<code>` so a phone offers the code only to
+  // a page on that host. A wrong host does not error: the autofill just never
+  // appears, so the value is pinned. Production is pinned in its own synth
+  // below; neither stands in for the other.
+  test('staging names dev.a-iep.org in the SMS domain-bound code line', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
+      Handler: 'create-auth-challenge.handler',
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({ OTP_SMS_DOMAIN: 'dev.a-iep.org' }),
+      }),
+    }));
   });
 
   test('create-auth-challenge lambda is wired to the rate-limit and profiles tables', () => {
@@ -2491,6 +2579,39 @@ describe('production synth: the OTP test backdoor must not exist', () => {
     expect(verifiers.length).toBe(3);
     for (const vars of verifiers) {
       expect(vars.TURNSTILE_EXPECTED_HOSTNAMES).toBe('a-iep.org');
+    }
+  });
+
+  test('production names a-iep.org in the SMS domain-bound code line', () => {
+    prodTemplate.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
+      Handler: 'create-auth-challenge.handler',
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({ OTP_SMS_DOMAIN: 'a-iep.org' }),
+      }),
+    }));
+  });
+
+  // Lambda CPU scales with memory, and a cold start on the sign-in path is
+  // CPU-bound (SDK load, first TLS handshakes): at the 128 MB default a cold
+  // sign-in measured 5-9 s. Every function a parent waits on must keep the
+  // larger size, so a refactor that drops the property fails here instead of
+  // showing up as a slow login.
+  test('every production sign-in lambda has at least 1024 MB', () => {
+    const SIGN_IN_HANDLERS = [
+      'auth-start.handler', 'auth-dispatch.handler', 'auth-verify.handler',
+      'auth-session.handler', 'signup-endpoint.handler',
+      'define-auth-challenge.handler', 'create-auth-challenge.handler',
+      'verify-auth-challenge.handler', 'pre-sign-up.handler',
+      'pre-authentication.handler', 'custom-message.handler',
+    ];
+    const functions = Object.values(prodTemplate.findResources('AWS::Lambda::Function'))
+      .map((fn: any) => fn.Properties)
+      .filter((p: any) => SIGN_IN_HANDLERS.includes(p.Handler));
+
+    // Vacuity floor: all eleven, or a renamed handler hollowed this out.
+    expect(functions.map((p: any) => p.Handler).sort()).toEqual([...SIGN_IN_HANDLERS].sort());
+    for (const p of functions) {
+      expect(p.MemorySize).toBeGreaterThanOrEqual(1024);
     }
   });
 

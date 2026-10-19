@@ -130,6 +130,14 @@ const TEST_OTP_PARAM_PREFIX = '/a-iep/staging/test-otp';
 // functions at twenty costs 80 and leaves 860 for everything else.
 const AUTH_RESERVED_CONCURRENCY = 20;
 
+// Memory for every lambda on the parent-facing sign-in path. Lambda hands out
+// CPU in proportion to memory, and a cold start here is CPU-bound (loading the
+// AWS SDK, then the first TLS handshakes), so the 128 MB default made a cold
+// sign-in take 5-9 s on a CPU share a fraction of one core. The extra memory is
+// what buys the CPU; cost stays negligible because sign-in is brief and rare.
+// Pinned in test/infra so a refactor cannot quietly drop back to the default.
+const AUTH_LAMBDA_MEMORY_MB = 1024;
+
 // Staging-only bypass for the signup bot check, same gate and same reasoning
 // as the OTP backdoor above. Turnstile refuses automated browsers by design,
 // so the real widget and an automated signup cannot both work; staging keeps
@@ -596,6 +604,7 @@ export class NewAuthorizationStack extends Construct {
     // it is not reachable from the internet.
     this.authDispatchFunction = new lambda.Function(this, 'AuthDispatchFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(assetPath),
       handler: 'auth-dispatch.handler',
       environment: sharedEnvironment,
@@ -632,6 +641,7 @@ export class NewAuthorizationStack extends Construct {
     // ── /auth/start ──────────────────────────────────────────────────────
     this.authStartFunction = new lambda.Function(this, 'AuthStartFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(assetPath),
       handler: 'auth-start.handler',
       environment: {
@@ -669,6 +679,7 @@ export class NewAuthorizationStack extends Construct {
     // ── /auth/verify ─────────────────────────────────────────────────────
     this.authVerifyFunction = new lambda.Function(this, 'AuthVerifyFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(assetPath),
       handler: 'auth-verify.handler',
       environment: {
@@ -704,15 +715,28 @@ export class NewAuthorizationStack extends Construct {
     // ── /auth/token and /auth/logout ─────────────────────────────────────
     this.authSessionFunction = new lambda.Function(this, 'AuthSessionFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(assetPath),
       handler: 'auth-session.handler',
-      environment: sharedEnvironment,
+      environment: {
+        ...sharedEnvironment,
+        // The per-source limit on /auth/token and /auth/logout.
+        OTP_RATE_LIMIT_TABLE: this.otpRateLimitTable.tableName,
+        // Staging only, for the same reason as the start and signup limits:
+        // the E2E suite signs in repeatedly from one CI address.
+        ...(getEnvironment() !== 'prod' ? { MAX_AUTH_SESSION_CALLS_PER_IP_HOUR: '1200' } : {}),
+      },
       timeout: cdk.Duration.seconds(30),
       reservedConcurrentExecutions: AUTH_RESERVED_CONCURRENCY,
       logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
       description: 'Exchanges a session handle for short-lived tokens, and revokes it',
     });
     tagResource(this.authSessionFunction, { Resource: 'Lambda', Function: 'AuthSession' });
+
+    // UpdateItem is all the counter needs, and grantWriteData is the same
+    // grant /auth/start holds on this table. No read grant: the count comes
+    // back from the update itself.
+    this.otpRateLimitTable.grantWriteData(this.authSessionFunction);
 
     // AdminInitiateAuth here is REFRESH_TOKEN_AUTH only in practice, but IAM
     // cannot express "only that flow", so the narrowing that IS available is
@@ -762,6 +786,7 @@ export class NewAuthorizationStack extends Construct {
     // still worked would be an account-takeover vector.
     const preSignUpFunction = new lambda.Function(this, 'PreSignUpFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'pre-sign-up.handler',
       environment: {
@@ -789,6 +814,7 @@ export class NewAuthorizationStack extends Construct {
     // Define Auth Challenge Function
     const defineAuthChallengeFunction = new lambda.Function(this, 'DefineAuthChallengeFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'define-auth-challenge.handler',
       timeout: cdk.Duration.seconds(30),
@@ -819,6 +845,7 @@ export class NewAuthorizationStack extends Construct {
     // Create Auth Challenge Function
     const createAuthChallengeFunction = new lambda.Function(this, 'CreateAuthChallengeFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'create-auth-challenge.handler',
       environment: {
@@ -828,6 +855,11 @@ export class NewAuthorizationStack extends Construct {
         // test/infra rather than resting on the lambda default alone.
         SMS_ALLOWED_COUNTRY_CODES: SMS_ALLOWED_COUNTRY_CODES.join(','),
         SMS_POLICY_PARAM_PREFIX,
+        // The host the login SMS's last line names (`@host #code`), so a phone
+        // offers the code only to a page on that host. Chosen here, at
+        // construct time, rather than at import, because the host differs per
+        // deploy and a wrong one would silently stop the autofill working.
+        OTP_SMS_DOMAIN: getEnvironment() === 'prod' ? 'a-iep.org' : 'dev.a-iep.org',
         ...(userProfilesTable && { USER_PROFILES_TABLE: userProfilesTable.tableName })
       },
       timeout: cdk.Duration.seconds(30),
@@ -888,6 +920,7 @@ export class NewAuthorizationStack extends Construct {
     // signup, in one place where it can be read.
     const signupFunction = new lambda.Function(this, 'SignupEndpointFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'signup-endpoint.handler',
       environment: {
@@ -972,6 +1005,7 @@ export class NewAuthorizationStack extends Construct {
     // password / MFA messages (SMS and email) to the user's language
     const customMessageFunction = new lambda.Function(this, 'CustomMessageFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'custom-message.handler',
       environment: {
@@ -994,6 +1028,7 @@ export class NewAuthorizationStack extends Construct {
     // path from the login screen's language picker to the SMS.
     const preAuthenticationFunction = new lambda.Function(this, 'PreAuthenticationFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'pre-authentication.handler',
       environment: {
@@ -1013,6 +1048,7 @@ export class NewAuthorizationStack extends Construct {
     // Verify Auth Challenge Function
     const verifyAuthChallengeFunction = new lambda.Function(this, 'VerifyAuthChallengeFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'verify-auth-challenge.handler',
       environment: {

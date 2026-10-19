@@ -123,6 +123,8 @@ describe('auth session', () => {
         process.env.USER_POOL_ID = 'us-east-1_test';
         process.env.AUTH_CLIENT_ID = CLIENT_ID;
         process.env.AUTH_SESSION_TABLE = 'auth-sessions';
+        process.env.OTP_RATE_LIMIT_TABLE = 'rate-limits';
+        delete process.env.MAX_AUTH_SESSION_CALLS_PER_IP_HOUR;
     });
 
     afterEach(() => jest.restoreAllMocks());
@@ -148,7 +150,9 @@ describe('auth session', () => {
         const response = await load()(tokenRequest());
 
         expect(bodyOf(response).accessToken).toBe('fresh.access.token');
-        const [update] = ddbOfKind('update');
+        // The first update is the per-source counter; the one under test is
+        // the write to the session row.
+        const update = ddbOfKind('update').find((cmd) => cmd.input.TableName === 'auth-sessions');
         expect(update.input.ExpressionAttributeValues[':a']).toBe('fresh.access.token');
         // Sliding expiry: an active parent is never signed out mid-use.
         expect(update.input.ExpressionAttributeValues[':e']).toBeGreaterThan(now() + 2592000 - 60);
@@ -238,6 +242,9 @@ describe('auth session', () => {
         store(sessionRow({ tokenExpiresAt: now() + 60 }));
         mockDdbSend.mockImplementation((cmd) => {
             if (cmd.kind === 'get') return Promise.resolve({ Item: sessionRow({ tokenExpiresAt: now() + 60 }) });
+            // Only the session-row write fails: the per-source counter has to
+            // succeed or the route is refused before a refresh is attempted.
+            if (cmd.input.TableName === 'rate-limits') return Promise.resolve({ Attributes: { attempts: 1 } });
             return Promise.reject(Object.assign(new Error('down'), { name: 'InternalServerError' }));
         });
 
@@ -323,5 +330,129 @@ describe('auth session', () => {
         expect(all).not.toContain('stored.access.token');
         expect(all).not.toContain(HANDLE);
         expect(all).not.toContain(PHONE);
+    });
+
+    // ── Response headers ─────────────────────────────────────────────────
+    test('token bodies are never cacheable, on success or refusal', async () => {
+        const ok = await load()(tokenRequest());
+        expect(bodyOf(ok).accessToken).toBeDefined();
+        expect(ok.headers['Cache-Control']).toBe('no-store');
+
+        store(null);
+        const refused = await load()(tokenRequest());
+        expect(refused.statusCode).toBe(401);
+        expect(refused.headers['Cache-Control']).toBe('no-store');
+
+        const logout = await load()(logoutRequest());
+        expect(logout.headers['Cache-Control']).toBe('no-store');
+    });
+
+    test.each([
+        ['a malformed body', { routeKey: 'POST /auth/token', body: '{' }],
+        ['no handle', { routeKey: 'POST /auth/logout', body: '{}' }],
+    ])('%s gets a message about the session, not about a phone number', async (_l, event) => {
+        const response = await load()(event);
+        expect(bodyOf(response).code).toBe('invalid_request');
+        expect(bodyOf(response).message).toBe('This request could not be read. Please sign in again.');
+        expect(bodyOf(response).message).not.toMatch(/phone|email/i);
+    });
+
+    // ── Per-source limit ─────────────────────────────────────────────────
+    describe('per-source limit', () => {
+        const counterRows = () => ddbOfKind('update').filter((cmd) => cmd.input.TableName === 'rate-limits');
+
+        const countingAt = (attempts) => mockDdbSend.mockImplementation((cmd) => {
+            if (cmd.kind === 'update' && cmd.input.TableName === 'rate-limits') {
+                return Promise.resolve({ Attributes: { attempts } });
+            }
+            return Promise.resolve(cmd.kind === 'get' ? { Item: sessionRow() } : {});
+        });
+
+        const withSource = (event, sourceIp = '203.0.113.7') => ({
+            ...event, requestContext: { http: { sourceIp } },
+        });
+
+        test.each([['token', tokenRequest], ['logout', logoutRequest]])(
+            '%s is counted per source, keyed on a hash and never the raw address', async (_l, build) => {
+                countingAt(1);
+                await load()(withSource(build(), '203.0.113.7'));
+
+                const [row] = counterRows();
+                expect(row.input.Key.pk).toMatch(/^AUTHSESSION#IP#[0-9a-f]{64}#\d+$/);
+                expect(row.input.Key.pk).not.toContain('203.0.113.7');
+                expect(JSON.stringify(logged)).not.toContain('203.0.113.7');
+            },
+        );
+
+        test.each([['token', tokenRequest], ['logout', logoutRequest]])(
+            'over the ceiling, %s is a 429 with Retry-After matching the body, and costs nothing', async (_l, build) => {
+                countingAt(301); // the floor is 300 an hour
+
+                const response = await load()(withSource(build()));
+                const body = bodyOf(response);
+
+                expect(response.statusCode).toBe(429);
+                expect(body.code).toBe('rate_limited');
+                expect(Number.isInteger(body.retryAfterSeconds)).toBe(true);
+                expect(body.retryAfterSeconds).toBeGreaterThan(0);
+                expect(body.retryAfterSeconds).toBeLessThanOrEqual(3600);
+                expect(response.headers['Retry-After']).toBe(String(body.retryAfterSeconds));
+                // Refused before the session is even read, and before Cognito.
+                expect(ddbOfKind('get')).toHaveLength(0);
+                expect(mockCognitoSend).not.toHaveBeenCalled();
+                expect(logged.join('\n')).toContain('AUTH_SESSION_REFUSED reason=rate_limited detail=source-rate-limit');
+            },
+        );
+
+        test('at the ceiling is still allowed: a real parent is not the one counted out', async () => {
+            countingAt(300);
+            const response = await load()(withSource(tokenRequest()));
+            expect(response.statusCode).toBe(200);
+        });
+
+        test('the ceiling is overridable per environment', async () => {
+            process.env.MAX_AUTH_SESSION_CALLS_PER_IP_HOUR = '2';
+            countingAt(3);
+            expect((await load()(withSource(tokenRequest()))).statusCode).toBe(429);
+            countingAt(2);
+            expect((await load()(withSource(tokenRequest()))).statusCode).toBe(200);
+        });
+
+        test('an unreadable counter fails CLOSED: 503, no session read, no Cognito call', async () => {
+            mockDdbSend.mockImplementation((cmd) => (cmd.kind === 'update'
+                ? Promise.reject(Object.assign(new Error('down'), { name: 'ProvisionedThroughputExceededException' }))
+                : Promise.resolve({ Item: sessionRow() })));
+
+            const response = await load()(withSource(tokenRequest()));
+
+            expect(response.statusCode).toBe(503);
+            expect(bodyOf(response).code).toBe('unavailable');
+            expect(ddbOfKind('get')).toHaveLength(0);
+            expect(mockCognitoSend).not.toHaveBeenCalled();
+            expect(logged.join('\n')).toContain('rate-limit-unavailable');
+        });
+
+        test('malformed requests are refused before the counter is touched', async () => {
+            await load()({ routeKey: 'POST /auth/token', body: '{' });
+            expect(mockDdbSend).not.toHaveBeenCalled();
+        });
+    });
+
+    test('a failed delete after a dead refresh token is logged, and the answer is still 401', async () => {
+        store(sessionRow({ tokenExpiresAt: now() + 60 }));
+        mockCognitoSend.mockImplementation((cmd) => (cmd.kind === 'describe'
+            ? Promise.resolve({ UserPoolClient: { ClientSecret: CLIENT_SECRET } })
+            : Promise.reject(Object.assign(new Error('revoked'), { name: 'NotAuthorizedException' }))));
+        mockDdbSend.mockImplementation((cmd) => {
+            if (cmd.kind === 'get') return Promise.resolve({ Item: sessionRow({ tokenExpiresAt: now() + 60 }) });
+            if (cmd.kind === 'delete') return Promise.reject(Object.assign(new Error('down'), { name: 'InternalServerError' }));
+            return Promise.resolve({ Attributes: { attempts: 1 } });
+        });
+
+        const response = await load()(tokenRequest());
+
+        expect(response.statusCode).toBe(401);
+        expect(logged.join('\n')).toContain('AUTH_SESSION_NOT_DELETED kind=InternalServerError');
+        expect(logged.join('\n')).not.toContain(HANDLE);
     });
 });

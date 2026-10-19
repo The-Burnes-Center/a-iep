@@ -93,8 +93,12 @@ copy for a code it has not seen before.
 | 429 | `rate_limited` | The per-source or service-wide start budget is spent. | `Too many attempts. Please try again in a little while.` |
 | 503 | `unavailable` | A fail-closed dependency is down: the rate-limit table, the Turnstile secret, Cloudflare's siteverify (after one retry), a rejected Turnstile secret, or the session store. | `Sign-in is temporarily unavailable. Please try again in a little while.` |
 
-A `429` carries one extra field, `retryAfterSeconds` (an integer). Nothing
-else does.
+A `429` carries one extra field, `retryAfterSeconds` (an integer), and the same
+figure in a `Retry-After` header. Nothing else does.
+
+**Every response from every `/auth/*` route, and from `/auth/signup`, carries
+`Cache-Control: no-store`.** The bodies are credentials or the answer to a
+one-time code, and must never be stored by a browser or a shared cache.
 
 Every one of these is logged server-side with a reason before it is returned.
 There are no silent 4xx paths.
@@ -155,7 +159,7 @@ Retry at most six times (three seconds), then treat it as `unavailable`.
 | 400 | `invalid_request` | Body is not JSON, or `challenge`/`code` is missing or empty. | `Enter the code we sent you.` |
 | 401 | `bad_code` | The code is wrong, **or** the challenge handle is unknown, **or** it has expired, **or** the three attempts Cognito allows in one session are spent. All four collapse into one answer on purpose. | `That code did not work. Check the code and try again, or ask for a new one.` |
 | 409 | `send_failed` | The code could never be delivered. Carries `reason` (below). | varies, see `reason` |
-| 429 | `too_many_codes` | Ten wrong codes for this destination in one hour. Carries `retryAfterSeconds`. | `You have tried too many codes. Please try again in an hour.` |
+| 429 | `too_many_codes` | Ten wrong codes for this destination in one hour. Carries `retryAfterSeconds` and `Retry-After`. | `You have tried too many codes. Please try again in an hour.` |
 | 503 | `unavailable` | The session store could not be read or written. | `Sign-in is temporarily unavailable. Please try again in a little while.` |
 
 On `bad_code`, **keep the challenge handle and let the parent retype**. Cognito
@@ -221,7 +225,8 @@ tolerates its absence.
 
 | HTTP | `code` | When |
 |---|---|---|
-| 400 | `invalid_request` | `session` missing or empty. |
+| 400 | `invalid_request` | Body is not JSON, or `session` is missing or empty. Message: `This request could not be read. Please sign in again.` |
+| 429 | `rate_limited` | More than 300 `/auth/token` and `/auth/logout` calls an hour from one source address (shared with logout). Carries `retryAfterSeconds` and `Retry-After`. Do **not** clear the handle; retry after the delay. |
 | 401 | `session_invalid` | Unknown handle, expired handle, or Cognito refused the refresh (the account was disabled, deleted, or globally signed out). Clear the stored handle and go to the start screen. |
 | 503 | `unavailable` | The session store could not be read. Do **not** clear the handle; retry. |
 
@@ -238,11 +243,15 @@ means sign in again, the other means try again.
 {"session":"m7Kq2s0Xb1fLpA6uVe4tYc9RdN8gHjZwQ3vM5nB7xTk"}
 ```
 
-### Response — `200`, always
+### Response — `200`
 
 ```json
 {"ok":true}
 ```
+
+Failures use the same table as `/auth/token` (`400 invalid_request`,
+`429 rate_limited` from the shared per-source limit, `503 unavailable`), and the
+`200` is identical for a handle that is valid, expired or never existed.
 
 Idempotent, and identical for a valid handle, an expired one and one that never
 existed. Deleting the row is immediate: a revoked handle stops working on the

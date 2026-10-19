@@ -47,6 +47,15 @@ jest.mock('@aws-crypto/client-node', () => ({
     },
 }), { virtual: true });
 
+// messages.js builds its DynamoDB client at load, and this suite
+// never reads a table, so stub the SDK rather than constructing the real one.
+jest.mock('@aws-sdk/client-dynamodb', () => ({ DynamoDBClient: class {} }), { virtual: true });
+jest.mock('@aws-sdk/lib-dynamodb', () => ({
+    DynamoDBDocumentClient: { from: () => ({ send: async () => ({}) }) },
+    GetCommand: class {},
+    UpdateCommand: class {},
+}), { virtual: true });
+
 const { PublishCommand } = require('@aws-sdk/client-sns');
 const { PutParameterCommand } = require('@aws-sdk/client-ssm');
 const { handler } = require('../../../lib/chatbot-api/functions/custom-sms-sender/index');

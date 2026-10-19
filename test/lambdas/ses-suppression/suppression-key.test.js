@@ -11,6 +11,15 @@
  *
  * suppression-key.js's own docblock names this file. This is that test.
  */
+// email-suppression.js builds its DynamoDB client at load, and this suite
+// never reads a table, so stub the SDK rather than constructing the real one.
+jest.mock('@aws-sdk/client-dynamodb', () => ({ DynamoDBClient: class {} }), { virtual: true });
+jest.mock('@aws-sdk/lib-dynamodb', () => ({
+    DynamoDBDocumentClient: { from: () => ({ send: async () => ({}) }) },
+    GetCommand: class {},
+    UpdateCommand: class {},
+}), { virtual: true });
+
 const write = require('../../../lib/chatbot-api/functions/ses-suppression/suppression-key');
 const read = require('../../../lib/chatbot-api/functions/phone-otp-auth/email-suppression');
 
