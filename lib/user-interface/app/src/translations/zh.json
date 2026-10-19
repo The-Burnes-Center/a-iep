@@ -101,6 +101,7 @@
     "summary.processing.title": "文档正在处理中",
     "summary.processing.message": "这可能需要几分钟时间。同时，请查看您作为家长的权利：",
     "summary.processing.hangTight": "请稍候！我们正在处理文档 . . .",
+    "summary.processing.stalled": "这比平时花的时间更长。我们暂时停止了查询。请重试，以查看您的文档情况。",
     "summary.processing.step.reading": "我们正在阅读您的文档",
     "summary.processing.step.protecting": "我们正在移除个人信息",
     "summary.processing.step.summarizing": "我们正在为您撰写通俗易懂的摘要",

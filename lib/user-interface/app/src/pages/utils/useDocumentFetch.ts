@@ -73,6 +73,12 @@ export const useDocumentFetch = ({
   const [refreshCounter, setRefreshCounter] = useState<number>(0);
 
   /**
+   * True once the poller has given up on a document that stayed in processing
+   * past its visible-time budget. The page shows a check-again control then.
+   */
+  const [pollingStopped, setPollingStopped] = useState<boolean>(false);
+
+  /**
    * The last status the SERVER gave us, kept across ticks.
    *
    * The effect's cleanup stops the interval on every dependency change, and
@@ -218,7 +224,9 @@ export const useDocumentFetch = ({
 
         pollingManager.startPollingIfProcessing(lastKnownDocumentRef.current, () => {
           setRefreshCounter(prev => prev + 1);
-        }, forcePolling || shouldRetryAfterFailure);
+        }, forcePolling || shouldRetryAfterFailure, () => {
+          setPollingStopped(true);
+        });
 
         if (initialLoading) {
           setInitialLoading(false);
@@ -227,11 +235,21 @@ export const useDocumentFetch = ({
     };
     
     fetchDocument();
-    
+
     // Clean up interval
     return () => {
       pollingManager.stopPolling();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch is driven by refreshCounter/translationsLoaded/forcePolling only; apiClient, pollingManager and the callbacks are recreated every render
   }, [refreshCounter, translationsLoaded, forcePolling]);
+
+  // Starts a fresh polling budget and asks for one read now, which restarts
+  // the poller if the document is still processing.
+  const checkAgain = () => {
+    pollingManager.resetCap();
+    setPollingStopped(false);
+    setRefreshCounter(prev => prev + 1);
+  };
+
+  return { pollingStopped, checkAgain };
 };

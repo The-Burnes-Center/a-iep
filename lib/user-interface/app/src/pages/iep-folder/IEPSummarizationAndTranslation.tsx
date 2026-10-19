@@ -26,6 +26,7 @@ import type { TranslationRequestState } from '../utils/translation-flow.mjs';
 import { processingStepKey } from '../utils/processing-progress.mjs';
 import { canRetryFailedDocument } from './document-failure';
 import AIEPSpinner from '../../components/AIEPSpinner';
+import PollingStalledNotice from '../../components/PollingStalledNotice';
 import PageLoading from '../../components/PageLoading';
 import TTSPlayButton from '../../components/TTSPlayButton';
 import { SlideData } from '../../components/ParentRightsCarousel';
@@ -508,7 +509,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     }
   };
 
-    useDocumentFetch({
+    const { pollingStopped, checkAgain } = useDocumentFetch({
     translationsLoaded,
     document,
     initialLoading,
@@ -1067,6 +1068,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         // lands where they left instead of watching the bar restart.
         progressDocument={document}
         progressStepLabel={t(processingStepKey(document))}
+        pollingStopped={pollingStopped}
+        onCheckAgain={checkAgain}
       />
     );
   }
@@ -1191,20 +1194,34 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                                 </h6>
                                 {isTranslatingOnDemand ? (
                                   <div data-testid="translation-progress">
-                                    <p className="mb-2" id="translation-progress-message">
-                                      {t(translationRequest.messageKey ?? 'summary.processing.almostThere')}
-                                    </p>
-                                    {/* Indeterminate: no `now`, so no aria-valuenow, which is how
-                                        ARIA marks a progressbar as unknown-length. The width is
-                                        set by the sliding animation in the page CSS. */}
-                                    <ProgressBar className="translation-progress-track">
-                                      <ProgressBar
-                                        aria-labelledby="translation-progress-message"
-                                        className="translation-progress-indeterminate"
-                                        style={{ width: '40%' }}
-                                        data-testid="translation-progress-bar"
+                                    {/* Mounted with the wait, so the stop is announced when it happens. */}
+                                    <div aria-live="polite" aria-atomic="true" className="visually-hidden">
+                                      {pollingStopped ? t('summary.processing.stalled') : ''}
+                                    </div>
+                                    {pollingStopped ? (
+                                      <PollingStalledNotice
+                                        message={t('summary.processing.stalled')}
+                                        buttonLabel={t('common.tryAgain')}
+                                        onCheckAgain={checkAgain}
                                       />
-                                    </ProgressBar>
+                                    ) : (
+                                      <>
+                                        <p className="mb-2" id="translation-progress-message">
+                                          {t(translationRequest.messageKey ?? 'summary.processing.almostThere')}
+                                        </p>
+                                        {/* Indeterminate: no `now`, so no aria-valuenow, which is how
+                                            ARIA marks a progressbar as unknown-length. The width is
+                                            set by the sliding animation in the page CSS. */}
+                                        <ProgressBar className="translation-progress-track">
+                                          <ProgressBar
+                                            aria-labelledby="translation-progress-message"
+                                            className="translation-progress-indeterminate"
+                                            style={{ width: '40%' }}
+                                            data-testid="translation-progress-bar"
+                                          />
+                                        </ProgressBar>
+                                      </>
+                                    )}
                                   </div>
                                 ) : (
                                   <>
