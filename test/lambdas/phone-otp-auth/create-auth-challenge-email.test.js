@@ -134,7 +134,7 @@ describe('create-auth-challenge, email branch', () => {
         const [sent] = sesCalls();
 
         expect(sent.ConfigurationSetName).toBe('a-iep-auth-staging');
-        expect(sent.FromEmailAddress).toBe('no-reply@a-iep.org');
+        expect(sent.FromEmailAddress).toBe('"A-IEP" <no-reply@a-iep.org>');
     });
 
     test('with no configuration set configured it refuses to send at all', async () => {

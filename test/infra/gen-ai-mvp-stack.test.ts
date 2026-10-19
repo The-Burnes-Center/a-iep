@@ -1066,6 +1066,24 @@ describe('Cognito custom-auth wiring', () => {
     expect(writers).toHaveLength(0);
   });
 
+  // The lambda adds the "A-IEP" display name around SES_FROM_ADDRESS, so the
+  // variable and the IAM ses:FromAddress condition must both stay the BARE
+  // address: a display name in either would stop matching the other, and the
+  // send would fail with an authorization error rather than a bad From line.
+  test('the email sender address and its IAM condition are the same bare address', () => {
+    const fn: any = Object.values(template.findResources('AWS::Lambda::Function'))
+      .find((f: any) => f.Properties?.Handler === 'create-auth-challenge.handler');
+    const address = fn.Properties.Environment.Variables.SES_FROM_ADDRESS;
+    expect(address).toMatch(/^[^<>"\s]+@[^<>"\s]+$/);
+
+    const conditions = Object.values(template.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[])
+      .filter((st) => JSON.stringify(st.Action ?? '').includes('ses:SendEmail'))
+      .map((st) => st.Condition?.StringEquals?.['ses:FromAddress']);
+    expect(conditions.length).toBeGreaterThan(0);
+    for (const c of conditions) expect(c).toBe(address);
+  });
+
   // The optional pinned origination number is read from this same subtree
   // (`<prefix>/origination-number`), so the existing grant must keep covering
   // it and must not widen beyond it to make it work.
