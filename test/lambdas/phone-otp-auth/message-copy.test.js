@@ -21,6 +21,14 @@
  *    name or a document title in one of them is a disclosure, so the bodies
  *    are pinned to their own copy plus a code and a number.
  */
+// messages.js builds its DynamoDB client at load. This suite never reads a
+// profile, so stub the SDK rather than constructing the real client here.
+jest.mock('@aws-sdk/client-dynamodb', () => ({ DynamoDBClient: class {} }), { virtual: true });
+jest.mock('@aws-sdk/lib-dynamodb', () => ({
+    DynamoDBDocumentClient: { from: () => ({ send: async () => ({}) }) },
+    GetCommand: class {},
+}), { virtual: true });
+
 const {
     getMessages,
     SUPPORTED_LANGUAGES,
