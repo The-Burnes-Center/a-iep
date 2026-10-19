@@ -63,7 +63,9 @@ const PUBLIC_ROUTE_KEYS = [
 // parent's upload cannot be undone.
 //
 // Named rather than pattern-matched, so a second state cannot quietly join it.
-const CATCH_EXEMPT_STATES = ['PurgeRedactedOCR'];
+// States whose failure is deliberately NOT a document failure: the purge is
+// best effort, and the two pre-warm invokes only start a container early.
+const CATCH_EXEMPT_STATES = ['PurgeRedactedOCR', 'WarmParsingAgent', 'WarmTranslateContent'];
 
 // Lambdas aws-cdk-lib injects for its own custom resources (log retention,
 // auto-delete-objects, bucket notifications, bucket deployment). Their
@@ -1886,6 +1888,34 @@ describe('IEP processing state machine', () => {
     expect(timeout).toBeGreaterThan(WORST_CASE_RUN_SECONDS);
   });
 
+  // WHY: the pre-warm invokes name ParsingAgent and TranslateContent by ARN and
+  // run as the state machine's role. The grant already existed for the real
+  // invocations; this makes it load-bearing for the warm-ups too, so dropping
+  // either function from the grant list fails here rather than as a silently
+  // ignored AccessDenied (the warm-up's Catch swallows it) and a slower run.
+  test('the warm-up invokes name both functions, and the role may invoke them', () => {
+    const states: Record<string, any> = stateMachineDefinition().States;
+    const named = (state: string) => JSON.stringify(states[state].Parameters.FunctionName);
+    const machine: any = Object.entries(template.findResources('AWS::StepFunctions::StateMachine'))
+      .find(([id]) => id.includes('IEPProcessingStateMachine'))![1];
+    const rawDefinition = JSON.stringify(machine.Properties.DefinitionString);
+    const policies = JSON.stringify(
+      Object.values(template.findResources('AWS::IAM::Policy'))
+        .filter((p: any) => JSON.stringify(p.Properties.Roles ?? []).includes('IEPProcessingStateMachineRole')));
+
+    expect(states.WarmParsingAgent.Parameters.InvocationType).toBe('Event');
+    expect(states.WarmParsingAgent.Parameters.Payload).toEqual({ warmup: true });
+    expect(states.WarmTranslateContent.Parameters.Payload).toEqual({ warmup: true });
+    for (const [state, fn] of [['WarmParsingAgent', 'ParsingAgentFunction'], ['WarmTranslateContent', 'TranslateContentFunction']]) {
+      // The ARN placeholder was substituted with a real reference (the helper
+      // renders every reference as "ARN"), not left as literal text.
+      expect(named(state)).toBe('"ARN"');
+      expect(rawDefinition).toContain(fn);
+      expect(policies).toContain('lambda:InvokeFunction');
+      expect(policies).toContain(fn);
+    }
+  });
+
   // WHY: ParsingAgent's slowest prod run was 73s against a 900s lambda timeout
   // and no state timeout, so a call that hung (as opposed to failing) held the
   // document at PROCESSING for 15 minutes per attempt before any Catch ran.
@@ -1899,7 +1929,9 @@ describe('IEP processing state machine', () => {
     const tasks = Object.entries(states).filter(([, s]) => s.Type === 'Task');
     expect(tasks.length).toBeGreaterThanOrEqual(10);
     for (const [name, state] of tasks) {
-      expect({ name, timeout: state.TimeoutSeconds }).toEqual({ name, timeout: slow[name] ?? 60 });
+      // The pre-warm invokes are asynchronous and return in milliseconds.
+      const expected = name.startsWith('Warm') ? 10 : (slow[name] ?? 60);
+      expect({ name, timeout: state.TimeoutSeconds }).toEqual({ name, timeout: expected });
     }
   });
 

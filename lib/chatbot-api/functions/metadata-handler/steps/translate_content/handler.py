@@ -28,6 +28,10 @@ _SAFE_LOG_FIELDS = (
 )
 
 
+# Sent by iep-processing.asl.json; see lambda_handler.
+WARMUP_EVENT = {'warmup': True}
+
+
 def _safe_key(key):
     """An S3 key with the parent-chosen filename removed.
 
@@ -60,6 +64,13 @@ def lambda_handler(event, context):
     - target_languages: list of language codes
     - Other standard parameters (iep_id, user_id, child_id)
     """
+    # The state machine invokes this function with exactly this payload while
+    # the document is still being OCR'd, so the container's cold start (module
+    # imports, ~4s here) is paid off the critical path. It carries no document
+    # data and must stay inert: no client, no table, no key lookup.
+    if event == WARMUP_EVENT:
+        return {'warmed': True}
+
     print(f"TranslateContent handler received: {json.dumps(_safe_event_meta(event))}")
     
     try:

@@ -78,6 +78,30 @@
         "current_step": "start",
         "status": "PROCESSING"
       },
+      "Next": "WarmParsingAgent"
+    },
+    "WarmParsingAgent": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "TimeoutSeconds": 10,
+      "Comment": "Pre-warm. Starts a ParsingAgent container now, while MistralOCR runs, so the ~4s cold start (14 of 15 prod invocations were cold) is paid off the critical path. An asynchronous (Event) invoke returns in milliseconds, and the payload is the constant {\"warmup\": true}: no document data, no ids. The handler returns on it right after module import. Best effort: any failure here is ignored and the document proceeds, so this state deliberately does not route to RecordFailure.",
+      "Parameters": {
+        "FunctionName": "${ParsingAgentArn}",
+        "InvocationType": "Event",
+        "Payload": {
+          "warmup": true
+        }
+      },
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "MistralOCR",
+          "ResultPath": null
+        }
+      ],
       "Next": "MistralOCR"
     },
     "MistralOCR": {
@@ -218,6 +242,42 @@
         "translation_needed.$": "$.language_prefs.translation_needed",
         "target_languages.$": "$.language_prefs.target_languages"
       },
+      "Next": "WarmTranslationChoice"
+    },
+    "WarmTranslationChoice": {
+      "Type": "Choice",
+      "Comment": "Only a document that will be translated needs TranslateContent warm. Whether it will be is known from here (MistralOCR returned the language decision), and the translation step is more than a minute away, so the container is ready when it is needed.",
+      "Choices": [
+        {
+          "Variable": "$.translation_needed",
+          "BooleanEquals": true,
+          "Next": "WarmTranslateContent"
+        }
+      ],
+      "Default": "RedactOCR"
+    },
+    "WarmTranslateContent": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "TimeoutSeconds": 10,
+      "Comment": "Pre-warm TranslateContent (see WarmParsingAgent): constant payload, no document data, failure ignored.",
+      "Parameters": {
+        "FunctionName": "${TranslateContentArn}",
+        "InvocationType": "Event",
+        "Payload": {
+          "warmup": true
+        }
+      },
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "RedactOCR",
+          "ResultPath": null
+        }
+      ],
       "Next": "RedactOCR"
     },
     "RedactOCR": {

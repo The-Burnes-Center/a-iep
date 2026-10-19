@@ -367,6 +367,10 @@ SLOW_STEP_TIMEOUTS = {
     'RedactOCR': 120,
 }
 SMALL_STEP_TIMEOUT = 60
+#: The pre-warm invokes are asynchronous and return in milliseconds; a hang
+#: there holds the document for nothing, so they get far less than a real step.
+WARMUP_STEP_TIMEOUT = 10
+WARMUP_STEPS = ('WarmParsingAgent', 'WarmTranslateContent')
 
 
 def _tasks(states):
@@ -381,7 +385,8 @@ def test_every_task_has_a_timeout(states):
 
 def test_each_task_gets_the_budget_its_measured_run_time_earns(states):
     for name, task in _tasks(states).items():
-        assert task['TimeoutSeconds'] == SLOW_STEP_TIMEOUTS.get(name, SMALL_STEP_TIMEOUT), name
+        expected = WARMUP_STEP_TIMEOUT if name in WARMUP_STEPS else SLOW_STEP_TIMEOUTS.get(name, SMALL_STEP_TIMEOUT)
+        assert task['TimeoutSeconds'] == expected, name
 
 
 def _follow_catch(states, step, error):
@@ -494,15 +499,22 @@ def _run_to_translation_choice(states, handler_output):
 
     Tasks other than MistralOCR are taken to return nothing the machine keeps
     (their real outputs are discarded by ResultPath: null); MistralOCR returns
-    `handler_output`. Returns the state TranslationChoice is evaluated on.
+    `handler_output`. Returns the state TranslationChoice is evaluated on and
+    the names of the states visited on the way.
     """
     state = {'iep_id': 'iep-1', 'child_id': 'child-1', 'user_id': 'user-1',
              's3_bucket': 'bucket', 's3_key': 'user/child/iep/file.pdf'}
     current = 'SetInitialProgress'
+    visited = []
     for _ in range(40):
         node = states[current]
         if current == 'TranslationChoice':
-            return state
+            return state, visited
+        visited.append(current)
+        if node['Type'] == 'Choice':
+            current = next((c['Next'] for c in node['Choices']
+                            if _lookup(state, c['Variable']) == c['BooleanEquals']), node['Default'])
+            continue
         if node['Type'] == 'Pass':
             state = _resolve(node['Parameters'], state)
         elif current == 'MistralOCR':
@@ -524,7 +536,7 @@ def test_the_language_decision_survives_to_the_translation_choice(states, langua
     handler_output = {'iep_id': 'iep-1', 'ocr_status': 'completed', 'page_count': 3,
                       'ddb_save_result': {'statusCode': 200}, **decision}
 
-    state = _run_to_translation_choice(states, handler_output)
+    state, _ = _run_to_translation_choice(states, handler_output)
 
     assert state['translation_needed'] is decision['translation_needed']
     assert state['target_languages'] == languages
@@ -533,7 +545,7 @@ def test_the_language_decision_survives_to_the_translation_choice(states, langua
 
 
 def test_what_the_translate_and_finalize_steps_read_is_still_there(states):
-    state = _run_to_translation_choice(states, {
+    state, _ = _run_to_translation_choice(states, {
         'translation_needed': True, 'target_languages': ['es']})
 
     translate = states['TranslateParsingResult']['Parameters']
@@ -556,3 +568,86 @@ def test_there_is_no_separate_language_step_left_to_pay_a_cold_start_for(states)
                 if 'CheckLanguagePrefs' in json.dumps(state)
                 and 'the CheckLanguagePrefs step used to do' not in json.dumps(state)]
     assert states['SetAnalysisProgress']['Next'] == 'TranslationChoice'
+
+
+# ---------------------------------------------------------------------------
+# Pre-warming ParsingAgent and TranslateContent while OCR runs
+#
+# The handlers' half (return at once on the payload) is test_warmup.py. This is
+# the state machine's: the payload is a constant that carries no document data,
+# the invoke is asynchronous, a failure never fails the document, and
+# TranslateContent is only warmed for a document that will be translated.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize('name, function_arn', [
+    ('WarmParsingAgent', '${ParsingAgentArn}'),
+    ('WarmTranslateContent', '${TranslateContentArn}'),
+])
+def test_a_warmup_invoke_is_asynchronous_and_carries_no_document_data(states, name, function_arn):
+    task = states[name]
+
+    assert task['Resource'] == 'arn:aws:states:::lambda:invoke'
+    parameters = task['Parameters']
+    assert set(parameters) == {'FunctionName', 'InvocationType', 'Payload'}
+    assert parameters['FunctionName'] == function_arn
+    # Event: Step Functions does not wait for the function to run, so the
+    # container starts while OCR is in flight and nothing here is on the path.
+    assert parameters['InvocationType'] == 'Event'
+    # Constant, and nothing but the flag: no iep_id, no user, no key, no `.$`
+    # reference into the execution state. A path here would copy document
+    # metadata into a payload that exists only to start a container.
+    assert parameters['Payload'] == {'warmup': True}
+    assert task['ResultPath'] is None  # the 202 response is discarded, state untouched
+
+
+@pytest.mark.parametrize('name', WARMUP_STEPS)
+def test_a_failed_warmup_never_fails_the_document(states, name):
+    task = states[name]
+
+    assert 'Retry' not in task  # an optimisation is not worth waiting on
+    catcher, = task['Catch']
+    assert catcher['ErrorEquals'] == ['States.ALL']
+    assert catcher['ResultPath'] is None
+    # Straight on to whatever it would have gone to anyway, never RecordFailure:
+    # a document must not be marked FAILED, and its artifacts purged, because a
+    # container failed to warm up.
+    assert catcher['Next'] == task['Next']
+    assert 'RecordFailure' not in (catcher['Next'], task['Next'])
+
+
+def test_parsing_agent_is_warmed_before_ocr_starts_not_after(states):
+    _, visited = _run_to_translation_choice(
+        states, {'translation_needed': False, 'target_languages': []})
+
+    # Warmed while OCR is the long pole. Warmed any later and the cold start
+    # would again sit between redaction and the summary.
+    assert visited.index('WarmParsingAgent') < visited.index('MistralOCR')
+    assert states['SetInitialProgress']['Next'] == 'WarmParsingAgent'
+    assert states['WarmParsingAgent']['Next'] == 'MistralOCR'
+
+
+def test_translate_content_is_warmed_only_for_a_document_that_will_be_translated(states):
+    _, english_only = _run_to_translation_choice(
+        states, {'translation_needed': False, 'target_languages': []})
+    _, translated = _run_to_translation_choice(
+        states, {'translation_needed': True, 'target_languages': ['es']})
+
+    assert 'WarmTranslateContent' not in english_only
+    assert 'WarmTranslateContent' in translated
+    # Known only once OCR has returned the language decision, so after it...
+    assert translated.index('WarmTranslateContent') > translated.index('MistralOCR')
+    # ...and still well ahead of the translation, behind redaction, deletion
+    # and the ~40s summary.
+    assert translated.index('WarmTranslateContent') < translated.index('RedactOCR')
+    assert 'ParsingAgent' in translated and 'TranslateParsingResult' not in translated
+
+
+def test_the_deliberate_order_of_delete_then_summarize_is_untouched(states):
+    # The warm-ups must not have been wired between the privacy-ordered steps.
+    order = ['RedactOCR', 'DeleteOriginal', 'ParsingAgent']
+    cursor, seen = 'RedactOCR', []
+    while cursor != 'TranslationChoice':
+        seen.append(cursor)
+        cursor = states[cursor]['Next']
+    assert [name for name in seen if name in order] == order
+    assert seen.index('DeleteOriginal') < seen.index('ParsingAgent')
