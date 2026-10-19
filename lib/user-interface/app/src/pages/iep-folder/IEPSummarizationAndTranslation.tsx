@@ -32,6 +32,7 @@ import TTSPlayButton from '../../components/TTSPlayButton';
 import { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
 import DocumentFailureState from './DocumentFailureState';
+import ReplacementBanner from './ReplacementBanner';
 import { ApiClient } from '../../common/api-client/api-client';
 import {
   IEPDocumentClient,
@@ -1157,7 +1158,17 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         <Row className="mt-2">
           <Col>
             {error && <Alert variant="danger">{error}</Alert>}
-            
+
+            {/* What is happening to the IEP the parent just replaced: the old
+                one stays on screen until the new one is ready. */}
+            <ReplacementBanner
+              replacement={document.replacement}
+              pollingStopped={pollingStopped}
+              t={t}
+              onCheckAgain={checkAgain}
+              onUploadAgain={() => navigate('/iep-documents')}
+            />
+
             <Card className="summary-card">
               <Card.Body className="summary-card-body pt-2 pb-0">
                 <Row className="g-0">

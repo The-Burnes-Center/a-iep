@@ -31,7 +31,8 @@ The IEP processing workflow uses comprehensive status tracking with real-time pr
 | **TranslationChoice** | - | - | `PROCESSING` | Decide if translations are needed |
 | **TranslateParsingResult** | 85% | `"translation_complete"` | `PROCESSING` | Translate parsing results (if needed) |
 | **FinalizeResults** | 100% | `"completed"` | `PROCESSED` | Mark document as completed |
-| **RecordFailure** | 0% | `"error"` | `FAILED` | Record failure state and error details |
+| **PurgeReplacedDocuments** | - | - | `PROCESSED` | Delete the child's older documents (one active IEP per child). Only here, after success; best effort, never fails the document |
+| **RecordFailure** | 0% | `"error"` | `FAILED` | Record failure state and error details, then end the execution as a failed one (`DocumentProcessingFailed`) |
 
 ### Key Transition Points
 
@@ -137,6 +138,8 @@ The system automatically extracts and organizes abbreviations found throughout I
 - Each step has automatic retry policy: 3 attempts with exponential backoff
 - Any unhandled errors route to `RecordFailure` step
 - Failure state sets `status="FAILED"`, `current_step="error"`, and `last_error` message
+- After recording, the execution ends in a `Fail` state (`DocumentProcessingFailed`; `RecordFailureFailed` if the recording itself failed), so a failed document shows as a failed execution
+- A failed run never touches the child's previous document: it is deleted only by `PurgeReplacedDocuments`, after a newer one reaches `PROCESSED`
 - All errors are logged with detailed context for debugging
 
 ---

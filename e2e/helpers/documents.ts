@@ -13,7 +13,7 @@
  * (language-context.ts persists it to localStorage; the summary page also
  * re-syncs it from the profile on every load).
  */
-import { Page, Locator, expect } from '@playwright/test';
+import { Page, Locator, Response, expect } from '@playwright/test';
 import * as path from 'path';
 import { appUrl } from './config';
 import { ensureTestUser } from './aws';
@@ -410,6 +410,66 @@ export async function ensureTranslationLanguage(
   ).toBe(language);
 }
 
+/**
+ * What the documents endpoint answers with, as far as these journeys read it.
+ *
+ * Replacing an IEP no longer deletes the old one up front: the endpoint keeps
+ * answering with the old, finished document until the new one is PROCESSED,
+ * naming the newer one as `replacement`. So "the summary is on screen" no
+ * longer says WHICH document it is, and the journeys read the API to tell.
+ */
+export interface ApiDocument {
+  iepId?: string;
+  status?: string;
+  replacement?: { iepId: string; status: string };
+}
+
+const DOCUMENTS_PATH = /\/profile\/children\/[^/]+\/documents$/;
+
+/**
+ * Record the latest answer the page's own requests get from the documents
+ * endpoint. The summary page polls it, so this follows the run without the
+ * journey making a second, authenticated request of its own.
+ */
+export function watchDocuments(page: Page): { latest: () => ApiDocument | null; stop: () => void } {
+  let latest: ApiDocument | null = null;
+  const onResponse = async (response: Response) => {
+    if (response.request().method() !== 'GET') return;
+    if (!DOCUMENTS_PATH.test(new URL(response.url()).pathname)) return;
+    try {
+      const body = await response.json();
+      // "No document" answers with { documents: [] }, which has no iepId.
+      latest = body && typeof body === 'object' ? (body as ApiDocument) : null;
+    } catch {
+      // An unreadable answer (a redirect, an aborted request) says nothing.
+    }
+  };
+  page.on('response', onResponse);
+  return { latest: () => latest, stop: () => page.off('response', onResponse) };
+}
+
+/**
+ * The iepId of the document the parent is shown right now, or null when there
+ * is none. Read BEFORE an upload, so the run can tell the new document from
+ * the one it replaces.
+ */
+export async function documentOnFileId(page: Page, timeoutMs: number = 60_000): Promise<string | null> {
+  const watcher = watchDocuments(page);
+  try {
+    await gotoSummaryPage(page);
+    const deadline = Date.now() + timeoutMs;
+    while (watcher.latest() === null && Date.now() < deadline) {
+      await sleep(page, 1_000);
+    }
+    if (watcher.latest() === null) {
+      throw new Error('the summary page never read the documents endpoint, so which document is on file is unknown');
+    }
+    return watcher.latest()?.iepId ?? null;
+  } finally {
+    watcher.stop();
+  }
+}
+
 /** Upload the synthetic fixture from /iep-documents and follow the redirect. */
 export async function uploadFixture(page: Page): Promise<void> {
   await gotoDocumentsPage(page);
@@ -458,6 +518,49 @@ export async function waitForProcessingMilestone(
 }
 
 /**
+ * Milestone 1 when the upload REPLACES a document: the new upload registered
+ * and is being processed while the parent is still shown the old one.
+ *
+ * There is no processing screen to wait for here, by design: the old IEP stays
+ * on screen until the new one is ready. What proves the new upload was picked
+ * up is the documents endpoint still answering with the old document and
+ * naming a replacement that is in progress. A replacement that is already
+ * FAILED fails the run, and one that is already finished is accepted (a fast
+ * pipeline can beat the first poll).
+ */
+export async function waitForReplacementInProgress(
+  page: Page,
+  previousIepId: string,
+  timeoutMs: number = PROCESSING_APPEARS_MS
+): Promise<void> {
+  const watcher = watchDocuments(page);
+  const deadline = Date.now() + timeoutMs;
+  let lastNavigation = Date.now();
+  try {
+    while (Date.now() < deadline) {
+      const answer = watcher.latest();
+      if (answer?.replacement?.status === 'FAILED') {
+        throw new Error('the pipeline reported FAILED for the replacement document');
+      }
+      if (answer?.iepId === previousIepId && answer.replacement) return;
+      if (answer?.iepId && answer.iepId !== previousIepId) return;
+      if (Date.now() - lastNavigation > 15_000) {
+        await gotoSummaryPage(page);
+        lastNavigation = Date.now();
+      }
+      await sleep(page, 3_000);
+    }
+  } finally {
+    watcher.stop();
+  }
+
+  throw new Error(
+    `the documents endpoint never reported a replacement for ${previousIepId} within ` +
+    `${timeoutMs / 60_000} minutes of the upload (did the S3 event -> metadata-handler hookup break?)`
+  );
+}
+
+/**
  * Milestone 2: the pipeline finished and the processed summary is on screen.
  *
  * The summary page polls its own API every few seconds; the occasional
@@ -466,26 +569,44 @@ export async function waitForProcessingMilestone(
  */
 export async function waitForProcessedSummary(
   page: Page,
-  timeoutMs: number = SUMMARY_APPEARS_MS
+  timeoutMs: number = SUMMARY_APPEARS_MS,
+  /**
+   * The document this upload replaced, when there was one. The old document's
+   * summary is on screen the whole time the new one runs, so a summary panel
+   * proves nothing until the endpoint has moved on to a different, finished
+   * document.
+   */
+  previousIepId: string | null = null
 ): Promise<string> {
   const anyPanel = page.locator('[data-testid^="summary-tab-panel-"]:visible').first();
   const failed = page.getByTestId(TESTID.failed);
+  const watcher = watchDocuments(page);
   const deadline = Date.now() + timeoutMs;
   let lastNavigation = Date.now();
 
-  while (Date.now() < deadline) {
-    if (await failed.isVisible()) {
-      throw new Error('the pipeline reported FAILED for the uploaded document');
+  try {
+    while (Date.now() < deadline) {
+      if (await failed.isVisible()) {
+        throw new Error('the pipeline reported FAILED for the uploaded document');
+      }
+      const answer = watcher.latest();
+      if (previousIepId && answer?.replacement?.status === 'FAILED') {
+        throw new Error('the pipeline reported FAILED for the replacement document');
+      }
+      const replaced = !previousIepId
+        || (Boolean(answer?.iepId) && answer?.iepId !== previousIepId && answer?.status === 'PROCESSED');
+      if (replaced && await anyPanel.isVisible()) {
+        const testId = await anyPanel.getAttribute('data-testid');
+        return (testId ?? '').replace('summary-tab-panel-', '');
+      }
+      if (Date.now() - lastNavigation > 60_000) {
+        await gotoSummaryPage(page);
+        lastNavigation = Date.now();
+      }
+      await sleep(page, 5_000);
     }
-    if (await anyPanel.isVisible()) {
-      const testId = await anyPanel.getAttribute('data-testid');
-      return (testId ?? '').replace('summary-tab-panel-', '');
-    }
-    if (Date.now() - lastNavigation > 60_000) {
-      await gotoSummaryPage(page);
-      lastNavigation = Date.now();
-    }
-    await sleep(page, 5_000);
+  } finally {
+    watcher.stop();
   }
 
   throw new Error(

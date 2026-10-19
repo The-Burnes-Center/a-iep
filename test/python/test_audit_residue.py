@@ -249,6 +249,56 @@ def test_recent_failure_is_reported_and_old_one_is_not(audit_mod):
 # ---------------------------------------------------------------------------
 # Rendering
 
+# ---------------------------------------------------------------------------
+# Replaced documents: the cleanup that runs after a re-upload finishes
+
+def done_row(iep_id, created_minutes_ago, finished_minutes_ago, child='child-1', user='user-1'):
+    return {'iepId': iep_id, 'childId': child, 'userId': user, 'status': 'PROCESSED',
+            'createdAt': int((NOW - timedelta(minutes=created_minutes_ago)).timestamp()),
+            'updated_at': iso(minutes_ago=finished_minutes_ago)}
+
+
+def test_an_older_document_behind_a_finished_replacement_is_flagged(audit_mod):
+    findings = []
+    audit_mod.check_superseded_documents([
+        done_row('iep-old', created_minutes_ago=5000, finished_minutes_ago=4990),
+        done_row('iep-new', created_minutes_ago=200, finished_minutes_ago=180),
+    ], findings, reference=NOW)
+    f = only(findings, 'superseded_documents')
+    assert f['level'] == 'warn'
+    assert f['detail'] == ['iep-old']
+
+
+def test_a_replacement_finished_moments_ago_gets_its_grace_period(audit_mod):
+    findings = []
+    audit_mod.check_superseded_documents([
+        done_row('iep-old', created_minutes_ago=5000, finished_minutes_ago=4990),
+        done_row('iep-new', created_minutes_ago=20, finished_minutes_ago=5),
+    ], findings, reference=NOW)
+    assert only(findings, 'superseded_documents')['level'] is None
+
+
+def test_the_previous_document_is_not_residue_while_its_replacement_is_in_flight_or_failed(audit_mod):
+    # The old document is the one the parent is looking at: it must never be
+    # reported as something to clean up until a newer one has FINISHED.
+    for status in ('PROCESSING', 'PROCESSING_TRANSLATIONS', 'PENDING_UPLOAD', 'FAILED'):
+        findings = []
+        newer = {**done_row('iep-new', 200, 180), 'status': status}
+        audit_mod.check_superseded_documents(
+            [done_row('iep-old', 5000, 4990), newer], findings, reference=NOW)
+        assert only(findings, 'superseded_documents')['level'] is None, status
+
+
+def test_documents_of_other_children_and_users_are_not_superseded(audit_mod):
+    findings = []
+    audit_mod.check_superseded_documents([
+        done_row('iep-a', 5000, 4990, child='child-1'),
+        done_row('iep-b', 200, 180, child='child-2'),
+        done_row('iep-c', 200, 180, child='child-1', user='user-2'),
+    ], findings, reference=NOW)
+    assert only(findings, 'superseded_documents')['level'] is None
+
+
 def test_render_collapses_a_clean_environment_to_one_line(audit_mod):
     findings = [{'check': 'a', 'level': None, 'count': 0, 'detail': [], 'message': 'ok'}]
     out = audit_mod.render('staging', findings)

@@ -15,6 +15,9 @@ Every check here exists because the thing it looks for actually happened:
   pipeline died between the upload handler's write and InitializeProcessing.
 - An execution timeout runs no Catch, so RecordFailure never fires and the
   document sits at PROCESSING forever behind a spinner.
+- Replacing an IEP deletes the previous document only after the new one has
+  finished. If that cleanup failed, the old document is still in the table and
+  the bucket, behind the new one (DELETION_INCOMPLETE scope=replaced-document).
 
 Read-only: this script never deletes or writes anything. It is safe to run
 against prod. Pair it with recover-orphaned-documents.py, which is the tool
@@ -64,6 +67,10 @@ STUCK_AFTER_MIN = 45
 NONCURRENT_GRACE_MIN = 60
 # Long enough that a healthy row has certainly been given a status.
 STATUSLESS_AFTER_MIN = 15
+# The purge runs seconds after a document is finalized and retries on the next
+# successful upload. An older document still present this long after the newer
+# one finished means the cleanup did not complete.
+SUPERSEDED_AFTER_MIN = 60
 RECENT_FAILURE_HOURS = 24
 
 ERROR, WARN = 'error', 'warn'
@@ -224,7 +231,7 @@ def check_stale_noncurrent_originals(versions, markers, findings, reference=None
         if v['Key'].startswith(DERIVED_PREFIXES) or v.get('IsLatest'):
             continue
         # Fall back to the version's own timestamp only when no marker exists
-        # (superseded by a newer upload rather than deleted).
+        # (the object was overwritten rather than deleted).
         became_noncurrent = newest_marker.get(v['Key']) or stamp_of(v['LastModified'])
         age = age_minutes(became_noncurrent, reference)
         if age is not None and age > NONCURRENT_GRACE_MIN:
@@ -290,6 +297,48 @@ def check_statusless_documents(docs, findings, reference=None):
         'detail': orphaned[:10],
         'message': (f"{len(orphaned)} row(s) never received a status"
                     if orphaned else 'every row has a status'),
+    })
+
+
+def check_superseded_documents(docs, findings, reference=None):
+    """Older documents left behind after a replacement finished.
+
+    One active IEP per child: once a new document is PROCESSED the pipeline
+    deletes the child's older ones (ddb-service purge_replaced_documents). The
+    new document is complete and visible by then, so a cleanup that failed
+    leaves nothing visibly wrong, only a previous IEP still stored.
+
+    Only documents older than the child's newest PROCESSED one count, and only
+    once it has been done for SUPERSEDED_AFTER_MIN. A newer upload still in
+    flight, or one that failed, does not make the previous document residue:
+    that previous document is the one the parent is looking at.
+    """
+    newest_done = {}
+    for d in docs:
+        if d.get('status') != 'PROCESSED' or d.get('createdAt') is None:
+            continue
+        key = (d.get('userId'), d.get('childId'))
+        if key not in newest_done or d['createdAt'] > newest_done[key]['createdAt']:
+            newest_done[key] = d
+
+    left = []
+    for d in docs:
+        done = newest_done.get((d.get('userId'), d.get('childId')))
+        if done is None or d['iepId'] == done['iepId']:
+            continue
+        if d.get('createdAt') is None or d['createdAt'] >= done['createdAt']:
+            continue
+        age = age_minutes(done.get('updated_at'), reference)
+        if age is not None and age > SUPERSEDED_AFTER_MIN:
+            left.append(d['iepId'])
+    findings.append({
+        'check': 'superseded_documents',
+        'level': WARN if left else None,
+        'count': len(left),
+        'detail': left[:10],
+        'message': (f"{len(left)} document(s) outlive the newer document that "
+                    'replaced them (the replace cleanup did not finish)'
+                    if left else 'no replaced documents left behind'),
     })
 
 
@@ -417,6 +466,7 @@ def audit(env, dynamodb=None, s3=None, sfn=None, reference=None):
     check_stuck_documents(docs, findings, reference)
     check_statusless_documents(docs, findings, reference)
     check_unreachable_documents(docs, findings)
+    check_superseded_documents(docs, findings, reference)
     check_orphaned_artifacts(objects, docs, findings)
     check_recent_failures(docs, findings, reference)
     check_long_running_executions(sfn, res['state_machine'], findings, reference)

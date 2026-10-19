@@ -15,7 +15,12 @@
  * night, and a failure names the stage it died in.
  *
  * Self-cleaning by design: an upload REPLACES the child's previous document,
- * so repeated runs never accumulate anything. Stage 9 deliberately waits for
+ * so repeated runs never accumulate anything. The previous one is deleted by
+ * the pipeline only once the new one has finished, so until then the parent is
+ * still shown the old IEP and there is no processing screen: the stages that
+ * upload read the documents API to tell the two apart (documentOnFileId,
+ * waitForReplacementInProgress, waitForProcessedSummary's previousIepId).
+ * Stage 9 deliberately waits for
  * the replacement to finish processing, which leaves +15555550114 holding a
  * healthy PROCESSED document for tts.spec.ts (and for the next night's first
  * assertions); stages 10 and 11 then add a third language to that same
@@ -57,6 +62,7 @@ import {
   TRANSLATION_LANGUAGE,
   ensureTranslationLanguage,
   expectOnDemandTranslation,
+  documentOnFileId,
   expectSpanishAndDifferent,
   gotoDocumentsPage,
   gotoSummaryPage,
@@ -69,6 +75,7 @@ import {
   uploadFixture,
   waitForProcessedSummary,
   waitForProcessingMilestone,
+  waitForReplacementInProgress,
 } from '../helpers/documents';
 
 // Serial: every stage depends on the one before it, and they share the signed
@@ -96,6 +103,11 @@ const STAGE_TIMEOUT_MS = {
 
 let context: BrowserContext;
 let page: Page;
+
+/** The document on file when stage 3 uploaded, or null on the very first run. */
+let documentBeforeUpload: string | null = null;
+/** The document stage 8 replaces. */
+let documentBeforeReplacement: string | null = null;
 
 test.describe('document lifecycle (upload -> summary -> translations -> replace -> translate on demand)', { tag: '@pipeline' }, () => {
   // Group-level modifier: evaluated per test, before the stages run, so an
@@ -146,14 +158,25 @@ test.describe('document lifecycle (upload -> summary -> translations -> replace 
   test('3. uploading the synthetic IEP starts the pipeline', async () => {
     test.setTimeout(STAGE_TIMEOUT_MS.upload);
 
+    // After any previous night the user already has a document, so this
+    // upload is a replacement: the old IEP stays on screen and there is no
+    // processing screen to wait for. Only the very first run sees one.
+    documentBeforeUpload = await documentOnFileId(page);
     await uploadFixture(page);
-    await waitForProcessingMilestone(page);
+    if (documentBeforeUpload) {
+      await waitForReplacementInProgress(page, documentBeforeUpload);
+    } else {
+      await waitForProcessingMilestone(page);
+    }
   });
 
   test('4. the pipeline produces a summary in the preferred language', async () => {
     test.setTimeout(STAGE_TIMEOUT_MS.processing);
 
-    console.log(`[documents] processed summary first rendered in: ${await waitForProcessedSummary(page)}`);
+    console.log(
+      '[documents] processed summary first rendered in: ' +
+      `${await waitForProcessedSummary(page, SUMMARY_APPEARS_MS, documentBeforeUpload)}`
+    );
 
     // The page settles on the profile's language once a translation for it
     // exists (it renders the English pane for a frame first, hence the
@@ -236,8 +259,11 @@ test.describe('document lifecycle (upload -> summary -> translations -> replace 
   test('8. replacing the document restarts the pipeline', async () => {
     test.setTimeout(STAGE_TIMEOUT_MS.upload);
 
-    // The processed summary offers its own way back to the upload form.
-    await gotoSummaryPage(page);
+    // The processed summary offers its own way back to the upload form. Which
+    // document it is showing is read here, so stage 9 can tell the replacement
+    // from it.
+    documentBeforeReplacement = await documentOnFileId(page);
+    expect(documentBeforeReplacement, 'stage 8 starts from a processed document').toBeTruthy();
     const replaceLink = page.getByTestId(TESTID.replaceDocument);
     await expect(replaceLink).toBeVisible({ timeout: 60_000 });
     await replaceLink.click();
@@ -251,7 +277,21 @@ test.describe('document lifecycle (upload -> summary -> translations -> replace 
     ).toBe(true);
 
     await uploadFixture(page);
-    await waitForProcessingMilestone(page);
+    await waitForReplacementInProgress(page, documentBeforeReplacement as string);
+
+    // The product rule: the parent keeps their old IEP until the new one is
+    // ready, so the old summary is still on screen and nothing says "processing".
+    await expect(
+      summaryPanel(page, TRANSLATION_LANGUAGE),
+      'the old IEP left the screen while its replacement was still being processed'
+    ).toBeVisible();
+    await expect(page.getByTestId(TESTID.processing)).toHaveCount(0);
+    // ...and a note says the new one is on its way, so the parent is not left
+    // guessing whether the upload did anything.
+    await expect(
+      page.getByTestId('replacement-processing'),
+      'no note said the replacement was being processed'
+    ).toBeVisible({ timeout: 60_000 });
   });
 
   test('9. the replacement finishes processing', async () => {
@@ -261,7 +301,7 @@ test.describe('document lifecycle (upload -> summary -> translations -> replace 
     // use, and it proves a replacement is processed exactly like a first
     // upload. Drop this stage if the nightly ever needs to be cheaper: the
     // milestone in stage 8 is what pins the replace behaviour.
-    await waitForProcessedSummary(page);
+    await waitForProcessedSummary(page, SUMMARY_APPEARS_MS, documentBeforeReplacement);
     await expect(summaryPanel(page, TRANSLATION_LANGUAGE)).toBeVisible();
     await expect(page.getByTestId(TESTID.failed)).toHaveCount(0);
     console.log(`[documents] left ${DOCUMENTS_USER} with a freshly processed document at ${appUrl('/summary-and-translations')}`);

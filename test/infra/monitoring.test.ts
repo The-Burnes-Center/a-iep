@@ -14,10 +14,11 @@
  *     (MISSING) renders a dead schedule as healthy. That is the exact failure
  *     the heartbeat exists to catch.
  *   - There must be NO alarm on the pipeline's ExecutionsFailed. Every Task in
- *     iep-processing.asl.json catches into RecordFailure, which ends the
- *     machine normally, so a failed document produces a SUCCESSFUL execution
- *     and that metric stays at zero through a total outage. An alarm on it
- *     would be pure theatre, and a future change adding one should fail here.
+ *     iep-processing.asl.json catches into RecordFailure, which now ends the
+ *     execution in a Fail state, so that metric moves once per failed document.
+ *     RECORD_FAILURE (DocumentFailureAlarm) already pages for exactly the same
+ *     event, so a second alarm on the metric would alert twice per failure. A
+ *     future change adding one should fail here.
  *
  * Synthesizes staging once, then production once, because the alarm and topic
  * names are environment-derived and prod is the one that pages a human.
@@ -291,21 +292,24 @@ describe.each([
     expect(heartbeat!.Threshold).toBe(1);
   });
 
-  // Scoped to the pipeline, not to the metric. Every pipeline state catches
-  // into RecordFailure and the machine then ends successfully, so
-  // ExecutionsFailed can never move there and an alarm on it would be one
-  // that cannot fire. The single-language translation machine is different:
-  // it ends in a Fail state, so the same metric is the correct signal. Which
-  // machine it is, is the whole distinction.
-  test('the pipeline is not alarmed on ExecutionsFailed, which cannot move for it', () => {
+  // Scoped to the pipeline, not to the metric. Every pipeline failure goes
+  // through RecordFailure, which logs the RECORD_FAILURE marker that
+  // DocumentFailureAlarm counts, and then ends the execution in a Fail state,
+  // so ExecutionsFailed moves too, for the same event. An alarm on it would
+  // page twice per failed document. (Before the Fail state existed the metric
+  // could not move at all, and the pin was there for the opposite reason.)
+  // The single-language translation machine has no such marker, so there the
+  // same metric is the only signal and is alarmed. Which machine it is, is the
+  // whole distinction.
+  test('the pipeline is not alarmed on ExecutionsFailed, which would double RECORD_FAILURE', () => {
     const pipelineFailed = alarms.filter(
       (a) =>
         a.MetricName === 'ExecutionsFailed' &&
         JSON.stringify(a.Dimensions ?? []).includes('IEPProcessing'),
     );
     expect(pipelineFailed).toEqual([]);
-    // The real signal for a stuck document is the timeout, which RecordFailure
-    // does NOT catch.
+    // A stuck document is the timeout, which RecordFailure does NOT catch and
+    // which therefore has no failed execution or marker of its own.
     expect(alarms.some((a) => a.MetricName === 'ExecutionsTimedOut')).toBe(true);
   });
 
@@ -484,14 +488,32 @@ describe('a deletion that only partly happened', () => {
       .map((r: any) => r.Properties)
       .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'));
 
-    // One per watched handler: the account/profile path and the document path.
-    expect(filters.length).toBeGreaterThanOrEqual(2);
+    // One per watched handler: the account/profile path, the document path,
+    // and the DDB service, which deletes the child's previous IEP once a
+    // re-upload has finished (scope=replaced-document).
+    expect(filters.length).toBeGreaterThanOrEqual(3);
     for (const filter of filters) {
       // Both terms, load-bearing: matching the marker alone would page for an
       // orphaned audio file.
       expect(filter.FilterPattern).toContain('DELETION_INCOMPLETE');
       expect(filter.FilterPattern).toContain('essential=yes');
     }
+  });
+
+  // Replacing an IEP deletes the old document AFTER the new one is complete.
+  // The new document is already visible by then, so nothing fails visibly when
+  // that cleanup does: the marker is the only way anyone learns an old IEP is
+  // still in the bucket. Pinned on the lambda side in
+  // test/python/test_replaced_documents.py.
+  test('the DDB service log group is watched for an unfinished replace-cleanup', () => {
+    const filters = Object.values(synth('production').findResources('AWS::Logs::MetricFilter'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'));
+
+    const ddbService = filters.filter((p: any) => JSON.stringify(p.LogGroupName).includes('DDBService'));
+    expect(ddbService).toHaveLength(1);
+    expect(ddbService[0].FilterPattern).toContain('DELETION_INCOMPLETE');
+    expect(ddbService[0].FilterPattern).toContain('essential=yes');
   });
 
   test('one incomplete deletion is enough to alarm, at critical', () => {

@@ -2327,3 +2327,178 @@ def test_a_row_with_no_createdat_is_never_chosen_as_the_latest(api):
 
     assert status == 200
     assert body['documents'] == []
+
+
+# ---------------------------------------------------------------------------
+# Replacing an IEP: the parent keeps seeing the old one until the new one is ready
+#
+# The upload handler no longer deletes the previous document, and the pipeline
+# deletes it only once the new one is PROCESSED. So for a while a child has two
+# documents, and the endpoint has to answer with the one the parent can read:
+# the old complete document while the new one is being processed (or has
+# failed), then the new one the moment it is ready. With nothing older to fall
+# back to (a first upload) the newest document is returned whatever its
+# status, which is what drives the processing and failure screens.
+
+REPLACEMENT_URL = '/profile/children/child-1/documents'
+
+
+def seed_old_and_new(api, new_status, new_extra=None):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-old', created_at=1000, status='PROCESSED',
+                 content={'summaries': {'en': 'Old summary'}})
+    put_document(api, iep_id='iep-new', created_at=2000, status=new_status,
+                 content={'summaries': {'en': 'New summary'}}, **(new_extra or {}))
+
+
+def test_the_old_document_is_shown_while_the_new_one_is_processing(api):
+    seed_old_and_new(api, 'PROCESSING', {'progress': 40, 'current_step': 'redacting'})
+
+    status, body = call(api, REPLACEMENT_URL, 'GET')
+
+    assert status == 200
+    assert body['iepId'] == 'iep-old'
+    assert body['status'] == 'PROCESSED'
+    assert body['summaries']['en'] == 'Old summary'
+    assert body['replacement'] == {'iepId': 'iep-new', 'status': 'PROCESSING'}
+
+
+def test_a_new_upload_that_has_not_reached_the_pipeline_reads_as_processing(api):
+    seed_old_and_new(api, 'PENDING_UPLOAD')
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-old'
+    assert body['replacement'] == {'iepId': 'iep-new', 'status': 'PROCESSING'}
+
+
+def test_the_old_document_is_still_shown_when_the_new_one_failed(api):
+    seed_old_and_new(api, 'FAILED', {'error_message': 'Jordan quoted in a provider error',
+                                     'failed_step': 'MistralOCR'})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-old'
+    assert body['status'] == 'PROCESSED'
+    assert body['summaries']['en'] == 'Old summary'
+    assert body['replacement'] == {'iepId': 'iep-new', 'status': 'FAILED'}
+    # The failure's own text is not the parent's to read here.
+    assert 'Jordan' not in json.dumps(body)
+    assert 'MistralOCR' not in json.dumps(body)
+
+
+def test_the_new_document_is_shown_as_soon_as_it_is_ready(api):
+    seed_old_and_new(api, 'PROCESSED')
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-new'
+    assert body['summaries']['en'] == 'New summary'
+    assert 'replacement' not in body
+
+
+def test_the_transition_from_old_to_new_needs_no_client_state(api):
+    # The server owns the state of server work: the same request, repeated
+    # (a poll, or a page remounted after the parent tapped away), answers from
+    # the rows alone.
+    seed_old_and_new(api, 'PROCESSING')
+    assert call(api, REPLACEMENT_URL, 'GET')[1]['iepId'] == 'iep-old'
+    assert call(api, REPLACEMENT_URL, 'GET')[1]['iepId'] == 'iep-old'
+
+    api.documents.update_item(
+        Key={'iepId': 'iep-new', 'childId': 'child-1'},
+        UpdateExpression='SET #s = :done',
+        ExpressionAttributeNames={'#s': 'status'},
+        ExpressionAttributeValues={':done': 'PROCESSED'})
+
+    assert call(api, REPLACEMENT_URL, 'GET')[1]['iepId'] == 'iep-new'
+
+
+def test_a_first_upload_in_flight_is_returned_as_before(api):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-only', created_at=1000, status='PROCESSING',
+                 progress=30, content={'summaries': {}})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-only'
+    assert body['status'] == 'PROCESSING'
+    assert 'replacement' not in body
+
+
+def test_a_first_upload_that_failed_is_returned_as_before(api):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-only', created_at=1000, status='FAILED',
+                 content={'summaries': {}})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-only'
+    assert body['status'] == 'FAILED'
+    assert 'replacement' not in body
+
+
+def test_a_failed_older_document_is_not_a_fallback(api):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-failed', created_at=1000, status='FAILED',
+                 content={'summaries': {}})
+    put_document(api, iep_id='iep-new', created_at=2000, status='PROCESSING',
+                 content={'summaries': {}})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-new'
+    assert 'replacement' not in body
+
+
+def test_an_old_document_translating_on_demand_is_still_a_fallback(api):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-old', created_at=1000, status='PROCESSING_TRANSLATIONS',
+                 content={'summaries': {'en': 'Old summary'}})
+    put_document(api, iep_id='iep-new', created_at=2000, status='PROCESSING',
+                 content={'summaries': {}})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-old'
+    assert body['replacement']['iepId'] == 'iep-new'
+
+
+def test_the_only_document_translating_on_demand_is_returned_as_before(api):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-only', created_at=1000, status='PROCESSING_TRANSLATIONS',
+                 content={'summaries': {'en': 'Summary'}})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-only'
+    assert body['status'] == 'PROCESSING_TRANSLATIONS'
+    assert 'replacement' not in body
+
+
+def test_another_users_finished_document_is_never_the_fallback(api):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-theirs', user=OTHER_USER, created_at=1000,
+                 status='PROCESSED', content={'summaries': {'en': 'Theirs'}})
+    put_document(api, iep_id='iep-new', created_at=2000, status='PROCESSING',
+                 content={'summaries': {}})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-new'
+    assert 'Theirs' not in json.dumps(body)
+
+
+def test_the_fallback_is_the_newest_readable_document_older_than_the_in_flight_one(api):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-a', created_at=1000, status='PROCESSED',
+                 content={'summaries': {'en': 'A'}})
+    put_document(api, iep_id='iep-b', created_at=2000, status='PROCESSED',
+                 content={'summaries': {'en': 'B'}})
+    put_document(api, iep_id='iep-c', created_at=3000, status='PROCESSING',
+                 content={'summaries': {}})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-b'
+    assert body['replacement']['iepId'] == 'iep-c'

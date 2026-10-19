@@ -59,9 +59,14 @@ const PUBLIC_ROUTE_KEYS = [
 // parent's upload cannot be undone.
 //
 // Named rather than pattern-matched, so a second state cannot quietly join it.
-// States whose failure is deliberately NOT a document failure: the purge is
-// best effort, and the two pre-warm invokes only start a container early.
-const CATCH_EXEMPT_STATES = ['PurgeRedactedOCR', 'WarmParsingAgent', 'WarmTranslateContent'];
+// States whose failure is deliberately NOT a document failure: the two purges
+// are best effort (PurgeReplacedDocuments deletes the child's previous IEP
+// after the new one is complete, so recording a failure there would mark the
+// parent's brand-new document FAILED over a cleanup problem), and the two
+// pre-warm invokes only start a container early.
+const CATCH_EXEMPT_STATES = [
+  'PurgeRedactedOCR', 'PurgeReplacedDocuments', 'WarmParsingAgent', 'WarmTranslateContent',
+];
 
 // Lambdas aws-cdk-lib injects for its own custom resources (log retention,
 // auto-delete-objects, bucket notifications, bucket deployment). Their
@@ -913,7 +918,8 @@ describe('Cognito custom-auth wiring', () => {
 
     // AFTER the summary is written, never before: the parsing agent reads
     // this text, so purging earlier would break the product itself.
-    expect(states.FinalizeResults.Next).toBe('PurgeRedactedOCR');
+    expect(states.FinalizeResults.Next).toBe('PurgeReplacedDocuments');
+    expect(states.PurgeReplacedDocuments.Next).toBe('PurgeRedactedOCR');
     expect(states.PurgeRedactedOCR.Parameters.params.data_type).toBe('redacted_ocr_result');
     expect(states.PurgeRedactedOCR.Parameters.operation).toBe('delete_ocr_data');
   });
@@ -932,6 +938,69 @@ describe('Cognito custom-auth wiring', () => {
     // Anywhere but RecordFailure: the document is already finished.
     expect(catches[0].Next).toBe('RedactedOCRPurgeSkipped');
     expect(states.RedactedOCRPurgeSkipped).toMatchObject({ Type: 'Pass', End: true });
+  });
+
+  // One active IEP per child, and the previous one goes only AFTER the new one
+  // is complete. The purge state is therefore reachable from exactly one
+  // place, the success path out of FinalizeResults. Before this the upload
+  // handler deleted the old document when the presigned URL was requested,
+  // so a cancelled upload or a failed run left a family with no IEP.
+  describe('replacing a child\'s IEP', () => {
+    const states = () => parseStateMachineDefinition(template, 'IEPProcessingStateMachine').States;
+
+    /** Every state that can transition into `target`, by Next, Catch or Choice. */
+    const predecessorsOf = (all: Record<string, any>, target: string): string[] =>
+      Object.entries(all)
+        .filter(([, state]: [string, any]) =>
+          state.Next === target
+          || (state.Catch ?? []).some((c: any) => c.Next === target)
+          || (state.Choices ?? []).some((c: any) => c.Next === target)
+          || state.Default === target)
+        .map(([name]) => name);
+
+    test('the old document is deleted only on the success path, straight after FinalizeResults', () => {
+      const all = states();
+      expect(predecessorsOf(all, 'PurgeReplacedDocuments')).toEqual(['FinalizeResults']);
+      expect(all.PurgeReplacedDocuments.Parameters.operation).toBe('purge_replaced_documents');
+    });
+
+    test('nothing downstream of a failure can reach the purge', () => {
+      const all = states();
+      const reachable = new Set<string>();
+      const walk = (name: string) => {
+        if (reachable.has(name) || !all[name]) return;
+        reachable.add(name);
+        const state = all[name];
+        [state.Next, state.Default,
+          ...(state.Catch ?? []).map((c: any) => c.Next),
+          ...(state.Choices ?? []).map((c: any) => c.Next)]
+          .filter(Boolean).forEach(walk);
+      };
+      walk('RecordFailure');
+      expect(reachable.has('PurgeReplacedDocuments')).toBe(false);
+    });
+
+    test('the purge names the new document so it can be excluded', () => {
+      const params = states().PurgeReplacedDocuments.Parameters.params;
+      expect(params).toEqual({
+        'iep_id.$': '$.iep_id',
+        'child_id.$': '$.child_id',
+        'user_id.$': '$.user_id',
+      });
+    });
+
+    test('a failed purge does not mark the new document failed, and the run carries on', () => {
+      const all = states();
+      const purge = all.PurgeReplacedDocuments;
+      const catches: any[] = purge.Catch ?? [];
+      expect(catches).toHaveLength(1);
+      expect(catches[0].ErrorEquals).toContain('States.ALL');
+      expect(catches[0].Next).toBe('ReplacedDocumentsPurgeSkipped');
+      expect(all.ReplacedDocumentsPurgeSkipped).toMatchObject({ Type: 'Pass', Next: 'PurgeRedactedOCR' });
+      // The purge result must not overwrite the execution state the next
+      // state reads its ids from.
+      expect(purge.ResultPath).toBeNull();
+    });
   });
 
   // The change that actually closes the hole. Cognito's SignUp API is public
@@ -1460,12 +1529,40 @@ describe('S3 data protection', () => {
     // get-s3 only lists a caller's own prefix.
     expect(s3ActionsFor('GetS3FilesHandlerFunctionServiceRole')).toEqual(['s3:ListBucket']);
 
-    // upload-s3 presigns a PUT and a GET, and clears the child's previous
-    // document (list + delete) before writing the new one.
+    // upload-s3 presigns a PUT and a GET and nothing else. It used to clear the
+    // child's previous document (list + delete) when the upload URL was
+    // requested, which left a family with no IEP if the upload then failed;
+    // replacing a document is now the pipeline's job once the new one has
+    // finished, so this role holds no delete or list action at all. Narrowed,
+    // not widened: the old pin listed six actions, this lists two.
     expect(s3ActionsFor('UploadS3KnowledgeFilesHandlerFunctionServiceRole')).toEqual([
-      's3:DeleteObject', 's3:DeleteObjectVersion', 's3:GetObject', 's3:ListBucket',
-      's3:ListBucketVersions', 's3:PutObject',
+      's3:GetObject', 's3:PutObject',
     ]);
+  });
+
+  // The same narrowing on the DynamoDB side. upload-s3 writes the
+  // PENDING_UPLOAD row and nothing more: no Query (the first half of a
+  // delete-the-previous-document), no DeleteItem, and no access at all to the
+  // user profiles table, which only the old replace flow touched.
+  test('upload-s3 can only put the new document row', () => {
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .filter((policy: any) =>
+        JSON.stringify(policy.Properties?.Roles ?? []).includes('UploadS3KnowledgeFilesHandlerFunctionServiceRole'))
+      .flatMap((policy: any) => policy.Properties?.PolicyDocument?.Statement ?? [])
+      .filter((statement: any) => statement.Effect === 'Allow');
+
+    const dynamoActions = statements
+      .flatMap((statement: any) => [statement.Action ?? []].flat())
+      .filter((action: unknown) => typeof action === 'string' && action.startsWith('dynamodb:'));
+    expect(dynamoActions).toEqual(['dynamodb:PutItem']);
+
+    const tables = statements
+      .filter((statement: any) => [statement.Action ?? []].flat().includes('dynamodb:PutItem'))
+      .map((statement: any) => JSON.stringify(statement.Resource));
+    expect(tables).toHaveLength(1);
+    expect(tables[0]).toContain('IepDocumentsTable');
+    expect(tables[0]).not.toContain('UserProfilesTable');
+    expect(tables[0]).not.toContain('/index/');
   });
 
   // The bucket is versioned, so DeleteObject alone writes a delete marker and
@@ -1489,11 +1586,13 @@ describe('S3 data protection', () => {
     };
     const deleters = [
       'DeleteOriginalFunction',          // the original, once redaction succeeds
-      'DDBServiceFunction',              // RecordFailure's purge on any failure
+      'DDBServiceFunction',              // RecordFailure's purge, and the previous IEP once a re-upload finishes
       'DeleteS3FilesHandlerFunction',    // a parent deleting one document
-      'UploadS3KnowledgeFilesHandler',   // re-upload replacing the previous one
       'UserProfileHandlerFunction',      // child and account deletion
     ];
+    // Not in the list, on purpose: UploadS3KnowledgeFilesHandler. It used to
+    // delete the previous document when the upload URL was requested; it now
+    // holds neither action, and the sum below fails if it ever gets them back.
 
     for (const action of ['s3:DeleteObjectVersion', 's3:ListBucketVersions']) {
       const roles = rolesHolding(action);
@@ -1502,6 +1601,41 @@ describe('S3 data protection', () => {
           .toEqual({ action, fn, held: 1 });
       }
       expect({ action, roles: roles.length }).toEqual({ action, roles: deleters.length });
+    }
+  });
+
+  // The replace-after-success purge runs inside the DDB service, so that is
+  // the one role that can list a child's documents through the byChildId index
+  // and delete their rows. FinalizeResults, which marks the new document
+  // complete, must hold neither: if it did, a bug in the step that tells a
+  // parent their document is ready could also delete a family's records.
+  test('only the DDB service can delete document rows and list them by child', () => {
+    const statementsFor = (roleHint: string): any[] =>
+      Object.values(template.findResources('AWS::IAM::Policy'))
+        .filter((policy: any) => JSON.stringify(policy.Properties?.Roles ?? []).includes(roleHint))
+        .flatMap((policy: any) => policy.Properties?.PolicyDocument?.Statement ?? [])
+        .filter((statement: any) => statement.Effect === 'Allow');
+    const grants = (roleHint: string, action: string, resourceHint: string): boolean =>
+      statementsFor(roleHint).some((statement: any) =>
+        [statement.Action ?? []].flat().includes(action)
+        && JSON.stringify(statement.Resource).includes(resourceHint));
+
+    expect(grants('DDBServiceFunctionServiceRole', 'dynamodb:DeleteItem', 'IepDocumentsTable')).toBe(true);
+    expect(grants('DDBServiceFunctionServiceRole', 'dynamodb:Query', '/index/byChildId')).toBe(true);
+
+    for (const role of [
+      'FinalizeResultsFunctionServiceRole',
+      'DeleteOriginalFunctionServiceRole',
+      'ParsingAgentFunctionServiceRole',
+      'TranslateContentFunctionServiceRole',
+      'MistralOCRFunctionServiceRole',
+      'RedactOCRFunctionServiceRole',
+      'CheckLanguagePrefsFunctionServiceRole',
+    ]) {
+      expect({ role, canDeleteRows: grants(role, 'dynamodb:DeleteItem', 'IepDocumentsTable') })
+        .toEqual({ role, canDeleteRows: false });
+      expect({ role, canQueryByChild: grants(role, 'dynamodb:Query', '/index/byChildId') })
+        .toEqual({ role, canQueryByChild: false });
     }
   });
 });
@@ -2195,6 +2329,73 @@ describe('IEP processing state machine', () => {
     }
   });
 
+  // A failed document used to be a SUCCEEDED execution: RecordFailure ended
+  // the machine with End: true, so the Step Functions console never listed one
+  // and ExecutionsFailed stayed at zero through a total outage. It now ends in
+  // a Fail state. The Error names are static and the Causes fixed strings, so
+  // the console's Error/Cause columns cannot carry document text; a
+  // RecordFailure that itself fails gets its own Error name.
+  describe('a failed document is a failed execution', () => {
+    test('RecordFailure no longer ends the run: it hands over to a Choice', () => {
+      const states: Record<string, any> = stateMachineDefinition().States;
+      expect(states.RecordFailure.End).toBeUndefined();
+      expect(states.RecordFailure.Next).toBe('CheckRecordFailureResult');
+      expect(states.RecordFailure.ResultPath).toBe('$.record_failure_result');
+      expect(states.CheckRecordFailureResult.Type).toBe('Choice');
+    });
+
+    test('the only ways the run can end are the success purges and two Fail states', () => {
+      const states: Record<string, any> = stateMachineDefinition().States;
+      const terminal = Object.entries(states)
+        .filter(([, state]: [string, any]) => state.End === true || state.Type === 'Fail' || state.Type === 'Succeed')
+        .map(([name]) => name)
+        .sort();
+      expect(terminal).toEqual([
+        'DocumentProcessingFailed',
+        'PurgeRedactedOCR',
+        'RecordFailureFailed',
+        'RedactedOCRPurgeSkipped',
+      ]);
+    });
+
+    test('a recorded failure and a failed RecordFailure end under different Error names', () => {
+      const states: Record<string, any> = stateMachineDefinition().States;
+      expect(states.DocumentProcessingFailed).toMatchObject({
+        Type: 'Fail', Error: 'DocumentProcessingFailed' });
+      expect(states.RecordFailureFailed).toMatchObject({
+        Type: 'Fail', Error: 'RecordFailureFailed' });
+
+      // The choice sends a 200 to the first and everything else to the second;
+      // a raise from the task itself goes to the second as well.
+      const choice = states.CheckRecordFailureResult;
+      expect(choice.Choices).toHaveLength(1);
+      expect(choice.Choices[0].Next).toBe('DocumentProcessingFailed');
+      expect(JSON.stringify(choice.Choices[0])).toContain('"NumericEquals":200');
+      expect(JSON.stringify(choice.Choices[0])).toContain('"IsPresent":true');
+      expect(choice.Default).toBe('RecordFailureFailed');
+      expect(states.RecordFailure.Catch).toEqual([
+        expect.objectContaining({ ErrorEquals: ['States.ALL'], Next: 'RecordFailureFailed' }),
+      ]);
+    });
+
+    test('Error and Cause are static: no document data can reach the console', () => {
+      const states: Record<string, any> = stateMachineDefinition().States;
+      for (const name of ['DocumentProcessingFailed', 'RecordFailureFailed']) {
+        expect(Object.keys(states[name]).filter((key) => key.endsWith('.$'))).toEqual([]);
+        expect(typeof states[name].Cause).toBe('string');
+        expect(states[name].Cause).not.toContain('$');
+      }
+    });
+
+    // The translation machine already ends this way (TranslationFailed), so
+    // the two machines now read the same in the console.
+    test('it matches how the on-demand translation machine ends', () => {
+      const translation = parseStateMachineDefinition(template, 'SingleLanguageTranslationStateMachine').States;
+      expect(translation.TranslationFailed.Type).toBe('Fail');
+      expect(stateMachineDefinition().States.DocumentProcessingFailed.Type).toBe('Fail');
+    });
+  });
+
   // Guards the catch-all test against renames hollowing it out: the OCR,
   // redaction, and parsing tasks must exist under these names, and each must
   // be a top-level state so its Catch can route to RecordFailure (a state
@@ -2298,6 +2499,15 @@ describe('IEP processing state machine', () => {
       expect(caught.length).toBeGreaterThan(0);
       for (const [source, next, errors] of caught) {
         if (CATCH_EXEMPT_STATES.includes(source as string)) continue;
+        // RecordFailure's own Catch cannot go through a FailedAt marker: it IS
+        // the destination of those markers, and there is no later stage to name.
+        // It routes to the RecordFailureFailed Fail state instead, which is
+        // pinned in 'a failed document is a failed execution' and nowhere else
+        // may route a Catch there.
+        if (source === 'RecordFailure') {
+          expect(next).toBe('RecordFailureFailed');
+          continue;
+        }
         if ((errors as string[]).includes('States.Timeout')) {
           // A timeout may carry no Cause, and RecordFailure reads
           // $.error.Cause: one Pass supplies it, then hands on to the very

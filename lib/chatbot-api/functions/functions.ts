@@ -228,70 +228,40 @@ export class LambdaFunctionStack extends cdk.Stack {
       handler: 'index.handler',
       environment: {
         "BUCKET": props.knowledgeBucket.bucketName,
-        "IEP_DOCUMENTS_TABLE": props.iepDocumentsTable.tableName,
-        "USER_PROFILES_TABLE": props.userProfilesTable.tableName
+        "IEP_DOCUMENTS_TABLE": props.iepDocumentsTable.tableName
       },
       timeout: cdk.Duration.seconds(300),
       logRetention: logs.RetentionDays.ONE_YEAR,
       ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
     });
 
-    // Least privilege. Object-level actions cover the presigned upload URL
-    // (PutObject), the presigned download URL (GetObject) and the
-    // replace-before-put flow in utils/iep-document-utils.mjs, which clears
-    // the child's previous document (DeleteObject). Presigned URLs are
-    // evaluated against THIS role at request time, so the grants must cover
-    // what the URLs do, not just what the handler calls directly.
+    // Least privilege. This handler presigns a PUT and a GET and writes one
+    // row, and that is all it does. Presigned URLs are evaluated against THIS
+    // role at request time, so the object grants must cover what the URLs do.
+    //
+    // It holds NO delete, list or version permission, and no read of the
+    // documents table or the user profiles table. It used to clear the child's
+    // previous document when the upload URL was requested, which needed all of
+    // those, and which left a family with no IEP if the upload then failed.
+    // Replacing a document is now the pipeline's job, once the new one has
+    // finished (the DDB service's purge_replaced_documents). test/infra pins
+    // the absence.
     uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         's3:PutObject',
-        's3:GetObject',
-        's3:DeleteObject'
+        's3:GetObject'
       ],
       resources: [props.knowledgeBucket.bucketArn + "/*"]
     }));
 
-    // The same replace flow lists the child's existing objects first;
-    // ListBucket is bucket-level, hence the separate statement.
+    // The PENDING_UPLOAD row written before the browser's PUT.
     uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: [
-        's3:ListBucket'
-      ],
-      resources: [props.knowledgeBucket.bucketArn]
+      actions: ['dynamodb:PutItem'],
+      resources: [props.iepDocumentsTable.tableArn]
     }));
 
-    // The replace flow deletes the child's previous document permanently.
-    grantPermanentDelete(uploadS3KnowledgeAPIHandlerFunction, props.knowledgeBucket);
-
-    // Add DynamoDB permissions for IEP documents table
-    uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'dynamodb:PutItem',
-        'dynamodb:GetItem',
-        'dynamodb:DeleteItem',
-        'dynamodb:Query',
-        'dynamodb:UpdateItem'
-      ],
-      resources: [
-        props.iepDocumentsTable.tableArn,
-        `${props.iepDocumentsTable.tableArn}/index/byChildId`
-      ]
-    }));
-    
-    // Add DynamoDB permissions for user profiles table
-    uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'dynamodb:GetItem',
-        'dynamodb:Query',
-        'dynamodb:UpdateItem'
-      ],
-      resources: [props.userProfilesTable.tableArn]
-    }));
-    
     this.uploadS3KnowledgeFunction = uploadS3KnowledgeAPIHandlerFunction;
 
     // Note: legacy monolithic metadata handler removed in favor of Step Functions orchestrator
@@ -506,6 +476,26 @@ export class LambdaFunctionStack extends cdk.Stack {
     // in stepFunctionPolicies, which every step lambda shares.
     grantPermanentDelete(this.deleteOriginalFunction, props.knowledgeBucket);
     grantPermanentDelete(this.ddbServiceFunction, props.knowledgeBucket);
+
+    // The third: purge_replaced_documents, which the pipeline's
+    // PurgeReplacedDocuments state runs once a re-uploaded document has
+    // finished, to delete the child's older documents. It lists them through
+    // the byChildId index (stepFunctionPolicies grants Query on the table
+    // ARN only, which does not cover an index) and deletes each row. Held by
+    // the DDB service alone: no step lambda, FinalizeResults included, can
+    // delete a document row. The S3 side needs nothing new: DeleteObject and
+    // ListBucket come from stepFunctionPolicies and the version-level
+    // deletes from grantPermanentDelete above.
+    this.ddbServiceFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:DeleteItem'],
+      resources: [props.iepDocumentsTable.tableArn],
+    }));
+    this.ddbServiceFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:Query'],
+      resources: [`${props.iepDocumentsTable.tableArn}/index/byChildId`],
+    }));
 
     // Reclaim documents whose upload never reached S3: the presigned-URL
     // upload path (knowledge-management/upload-s3) writes the DynamoDB row

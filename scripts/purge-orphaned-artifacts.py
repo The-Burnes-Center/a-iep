@@ -9,7 +9,8 @@ Two target classes, both reported separately and purgeable independently:
             with no row in the documents table. Nothing in the app can reach
             them; they are retained PII and nothing else. Created by the two
             delete paths that swept only the {userId}/ prefix (fixed in
-            4d56e0b for account/child deletion and in the upload replace path).
+            4d56e0b for account/child deletion and in the replace-after-
+            success purge, ddb-service purge_replaced_documents).
 
   originals Unredacted uploaded documents still in the bucket. The pipeline
             deletes these on success (DeleteOriginal) and on failure

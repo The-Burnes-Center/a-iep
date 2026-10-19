@@ -29,7 +29,7 @@ def _delete_every_version(s3, bucket, prefix, exact=False):
     noncurrent lifecycle rule reaches them, which measured 1 to 3 days on
     staging (2026-10-14). Deleting each version by id is immediate and final.
     Duplicated in each lambda that deletes from the bucket (each folder is
-    its own asset); deleteEveryVersion in upload-s3/utils is the JS twin.
+    its own asset).
 
     exact=True takes only the one key named by prefix. Version listing is by
     prefix, so report.pdf would otherwise also take report.pdf2.

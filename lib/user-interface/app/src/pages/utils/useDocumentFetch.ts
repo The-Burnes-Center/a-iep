@@ -3,6 +3,7 @@ import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { IEPDocument } from '../../common/types';
 import { usePollingManager } from './polling-utility';
 import { hasProgressChanged } from './processing-progress.mjs';
+import { isReplacementInFlight } from './translation-flow.mjs';
 import { AppContext } from '../../common/app-context';
 
 
@@ -28,6 +29,9 @@ export interface FetchedIEPDocument extends Partial<Omit<IEPDocument, 'sections'
  * they are actually here for.
  */
 const MAX_CONSECUTIVE_FETCH_RETRIES = 5;
+
+/** What the page starts with for every language, before a document has any. */
+const EMPTY_SECTIONS: IEPDocument['sections'] = { en: [], es: [], vi: [], zh: [], ar: [] };
 
 interface UseDocumentFetchParams {
   translationsLoaded: boolean;
@@ -90,7 +94,7 @@ export const useDocumentFetch = ({
    * is made from the last thing the server said, not from whether this one read
    * happened to succeed.
    */
-  const lastKnownDocumentRef = useRef<Pick<IEPDocument, 'status'> | null>(null);
+  const lastKnownDocumentRef = useRef<Pick<IEPDocument, 'status' | 'replacement'> | null>(null);
   const consecutiveFailuresRef = useRef<number>(0);
 
 
@@ -129,6 +133,10 @@ export const useDocumentFetch = ({
             if (!prev || 
                 prev.status !== retrievedDocument.status || 
                 prev.createdAt !== retrievedDocument.createdAt ||
+                // The replacement behind a finished document is news too: its
+                // status moves while the document on screen stays PROCESSED.
+                prev.replacement?.iepId !== retrievedDocument.replacement?.iepId ||
+                prev.replacement?.status !== retrievedDocument.replacement?.status ||
                 hasProgressChanged(prev, retrievedDocument)) {
                   
               // console.log("if (prev) is true");
@@ -149,10 +157,18 @@ export const useDocumentFetch = ({
                 }
               }
               
+              // Sections already processed for THIS document are kept between
+              // polls. When the endpoint moves from the parent's old IEP to
+              // the one that replaced it, the page stays mounted and the
+              // incoming document is a different one: carrying the old
+              // document's sections across would show its translations under
+              // the new document's summary in any language the new one lacks.
+              const isSameDocument = !prev.documentId
+                || prev.documentId === retrievedDocument.documentId;
               return {
                 ...retrievedDocument,
                 sections: {
-                  ...prev.sections, // Keep existing processed sections
+                  ...(isSameDocument ? prev.sections : EMPTY_SECTIONS), // Keep existing processed sections
                   ...(retrievedDocument.sections || {}) // Add new sections if available
                 }
               };
@@ -222,9 +238,12 @@ export const useDocumentFetch = ({
           consecutiveFailuresRef.current > 0 &&
           consecutiveFailuresRef.current <= MAX_CONSECUTIVE_FETCH_RETRIES;
 
+        // A replacement still running behind the document on screen keeps
+        // the poll alive too: the parent is looking at their old, finished
+        // IEP, whose own status says nothing is in flight.
         pollingManager.startPollingIfProcessing(lastKnownDocumentRef.current, () => {
           setRefreshCounter(prev => prev + 1);
-        }, forcePolling || shouldRetryAfterFailure, () => {
+        }, forcePolling || shouldRetryAfterFailure || isReplacementInFlight(lastKnownDocumentRef.current), () => {
           setPollingStopped(true);
         });
 

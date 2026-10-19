@@ -295,11 +295,11 @@ s3://<bucket>/<userId>/<childId>/<iepId>/<fileName>
 
 ### 3. Document Processing
 After upload:
-1. Document record is created in IepDocumentsTable (replacing any existing documents for that child)
+1. Document record is created in IepDocumentsTable with status PENDING_UPLOAD
 2. Automatic processing begins for generating summaries
 3. Status is tracked and can be monitored via API
 
-**Note**: Each child can only have one active IEP document at a time. When a new document is uploaded, any existing document for that child is automatically deleted and replaced with the new one.
+**Note**: Each child has one active IEP document at a time. A new upload does not delete the previous document: the previous one stays (and is the one shown) until the new one has finished processing, and is then deleted by the pipeline's PurgeReplacedDocuments step. If the upload or the run fails, the previous document is untouched.
 
 ## API Endpoints
 

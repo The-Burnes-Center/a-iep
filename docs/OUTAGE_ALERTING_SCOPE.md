@@ -30,13 +30,17 @@ This is the single most important design constraint, and the naive version of
 this project gets it wrong.
 
 Every `Task` in `iep-processing.asl.json` catches into `RecordFailure`.
-`RecordFailure` ends with `"End": true`, and the machine contains **no state of
-type `Fail`**. So when a document fails, the Step Functions execution
-**completes successfully**.
+`RecordFailure` used to end with `"End": true`, and the machine contained **no
+state of type `Fail`**, so when a document failed the Step Functions execution
+**completed successfully** and `ExecutionsFailed` sat at zero while every
+document in the system was failing.
 
-`ExecutionsFailed` will therefore sit at zero while every document in the
-system is failing. An alarm on "the pipeline failed" would stay green through a
-total OCR outage.
+That is no longer true: `RecordFailure` now ends the execution in a `Fail` state
+(`DocumentProcessingFailed`, or `RecordFailureFailed` when recording the failure
+itself did not work), so the console lists failed documents and
+`ExecutionsFailed` moves once per failure. There is still deliberately **no
+alarm on `ExecutionsFailed`**: `RECORD_FAILURE` already alarms on the same event,
+and a second alarm would page twice per failed document.
 
 The real signals are:
 
