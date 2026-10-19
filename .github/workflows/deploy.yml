@@ -37,11 +37,11 @@ jobs:
     steps:
     # Step 1: Check out the repository's code
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     # Step 2: Set up Node.js with the version required by your project
     - name: Set up Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         node-version: '22'  # Node 22 LTS, bundles npm 10.9.x
         cache: 'npm'
@@ -61,7 +61,7 @@ jobs:
 
     # Step 5: Configure AWS credentials
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -75,7 +75,7 @@ jobs:
     # skips Docker bundling for any asset already staged in a restored cdk.out;
     # only assets whose source actually changed are re-bundled.
     - name: Cache CDK bundled assets
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: cdk.out
         key: cdk-out-${{ hashFiles('lib/chatbot-api/functions/**') }}
@@ -101,10 +101,10 @@ jobs:
     timeout-minutes: 10
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
