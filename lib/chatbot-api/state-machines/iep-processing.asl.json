@@ -1,11 +1,12 @@
 {
-  "Comment": "IEP Document Processing State Machine - orchestrated steps with centralized DDB service. TimeoutSeconds is declared here, in the ASL, and deliberately NOT as the CDK `timeout` prop on the StateMachine construct: with DefinitionBody.fromString, CDK silently discards that prop, so the 30 minutes this machine used to declare in functions.ts rendered no TimeoutSeconds at all (neither in the definition nor as a CloudFormation property) and the execution was in truth unbounded. A Standard execution with no timeout can linger up to the Standard maximum of one year, so a lambda that wedges rather than errors holds the document at PROCESSING and the parent on an eternal spinner for as long as it likes. 21600s (6h) is a backstop against that, not a performance budget. The slowest legitimate run is the translation branch with every task exhausting its retries: MaxAttempts 3 counts retries AFTER the initial attempt, so 4 attempts at the lambda's own timeout plus 2+4+8=14s of backoff waits per task, which sums to 12902s over the 13 tasks on that path (2414 MistralOCR + 3614 ParsingAgent + 2414 TranslateParsingResult + 1214 RedactOCR + 1214 FinalizeResults + 8 x 254 for the 60s DDB/cleanup/language tasks), or 13156s once a terminal RecordFailure is added: about 3h40m. Real runs finish in minutes, but killing an execution that would still have succeeded strands a family's document for no reason, which is the worse failure here, so the bound sits well above the worst case rather than near it. Note that an execution timeout does not run any Catch, so RecordFailure will not fire: the document stays PROCESSING and the run surfaces on the ExecutionsTimedOut metric. That is the point, and it is still strictly better than a zombie execution nobody can see.",
+  "Comment": "IEP Document Processing State Machine - orchestrated steps with centralized DDB service. TimeoutSeconds is declared here, in the ASL, and deliberately NOT as the CDK `timeout` prop on the StateMachine construct: with DefinitionBody.fromString, CDK silently discards that prop, so the 30 minutes this machine used to declare in functions.ts rendered no TimeoutSeconds at all (neither in the definition nor as a CloudFormation property) and the execution was in truth unbounded. A Standard execution with no timeout can linger up to the Standard maximum of one year, so a lambda that wedges rather than errors holds the document at PROCESSING and the parent on an eternal spinner for as long as it likes. 21600s (6h) is a backstop against that, not a performance budget. The slowest legitimate run is the translation branch with every task exhausting its retries: MaxAttempts 3 counts retries AFTER the initial attempt, so 4 attempts at the lambda's own timeout plus 2+4+8=14s of backoff waits per task, which sums to 12902s over the 13 tasks on that path (2414 MistralOCR + 3614 ParsingAgent + 2414 TranslateParsingResult + 1214 RedactOCR + 1214 FinalizeResults + 8 x 254 for the 60s DDB/cleanup/language tasks), or 13156s once a terminal RecordFailure is added: about 3h40m. Real runs finish in minutes, but killing an execution that would still have succeeded strands a family's document for no reason, which is the worse failure here, so the bound sits well above the worst case rather than near it. Note that an execution timeout does not run any Catch, so RecordFailure will not fire: the document stays PROCESSING and the run surfaces on the ExecutionsTimedOut metric. That is the point, and it is still strictly better than a zombie execution nobody can see. Every Task also carries its own TimeoutSeconds (about 3x the slowest run measured in prod: 240s for ParsingAgent and TranslateParsingResult, 120s for MistralOCR and RedactOCR, 60s for everything else), so one wedged call is cut off and retried long before this backstop, and the worst-case sum above is now a loose upper bound. Unlike the execution timeout, a task timeout DOES run the Catch: each Task routes States.Timeout through TimedOutAt<Step>, which supplies the Cause that RecordFailure reads from $.error.Cause (a timeout may arrive with none), so a timed-out document is still recorded FAILED and purged. Step Functions does not cancel the lambda it stopped waiting for; the lambdas bound their own OpenAI calls for that reason.",
   "TimeoutSeconds": 21600,
   "StartAt": "InitializeProcessing",
   "States": {
     "InitializeProcessing": {
       "Type": "Task",
       "Resource": "${DDBServiceArn}",
+      "TimeoutSeconds": 60,
       "Comment": "Initialize processing status and progress tracking using DDB service",
       "Parameters": {
         "operation": "update_progress",
@@ -32,6 +33,13 @@
       "Catch": [
         {
           "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Next": "TimedOutAtInitializeProcessing",
+          "ResultPath": "$.error"
+        },
+        {
+          "ErrorEquals": [
             "States.ALL"
           ],
           "Next": "FailedAtInitializeProcessing",
@@ -47,6 +55,16 @@
       "ResultPath": "$.failed_step",
       "Next": "RecordFailure"
     },
+    "TimedOutAtInitializeProcessing": {
+      "Type": "Pass",
+      "Comment": "A step that times out may report no Cause, and RecordFailure reads $.error.Cause, so supply one before naming the step (InitializeProcessing)",
+      "Result": {
+        "Error": "States.Timeout",
+        "Cause": "The step did not finish within its time limit."
+      },
+      "ResultPath": "$.error",
+      "Next": "FailedAtInitializeProcessing"
+    },
     "SetInitialProgress": {
       "Type": "Pass",
       "Comment": "Set initial progress values in state",
@@ -60,13 +78,42 @@
         "current_step": "start",
         "status": "PROCESSING"
       },
+      "Next": "WarmParsingAgent"
+    },
+    "WarmParsingAgent": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "TimeoutSeconds": 10,
+      "Comment": "Pre-warm. Starts a ParsingAgent container now, while MistralOCR runs, so the ~4s cold start (14 of 15 prod invocations were cold) is paid off the critical path. An asynchronous (Event) invoke returns in milliseconds, and the payload is the constant {\"warmup\": true}: no document data, no ids. The handler returns on it right after module import. Best effort: any failure here is ignored and the document proceeds, so this state deliberately does not route to RecordFailure.",
+      "Parameters": {
+        "FunctionName": "${ParsingAgentArn}",
+        "InvocationType": "Event",
+        "Payload": {
+          "warmup": true
+        }
+      },
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "MistralOCR",
+          "ResultPath": null
+        }
+      ],
       "Next": "MistralOCR"
     },
     "MistralOCR": {
       "Type": "Task",
       "Resource": "${MistralOCRArn}",
-      "Comment": "Extract text from document using Mistral OCR API. mistral_ocr/handler.py raises OcrClientError for a 4xx (other than 429) from Mistral: that means the file itself was rejected -- a password-protected PDF is the incident this was written for -- so retrying an unchanged request is guaranteed to fail three more times. That error is retried zero times, below. Everything else (5xx, 429, or a timeout/connection error that never got a response) falls through to the States.ALL retrier and keeps the original 3-attempt policy.",
-      "ResultPath": null,
+      "TimeoutSeconds": 120,
+      "Comment": "Extract text from document using Mistral OCR API. mistral_ocr/handler.py raises OcrClientError for a 4xx (other than 429) from Mistral: that means the file itself was rejected -- a password-protected PDF is the incident this was written for -- so retrying an unchanged request is guaranteed to fail three more times. That error is retried zero times, below. Everything else (5xx, 429, or a timeout/connection error that never got a response) falls through to the States.ALL retrier and keeps the original 3-attempt policy. The handler also reads the parent's language preferences (what the CheckLanguagePrefs step used to do, one lambda and one cold start later) and returns translation_needed and target_languages; only those two fields are kept, under $.language_prefs, and SetOCRProgress lifts them to the top level.",
+      "ResultSelector": {
+        "translation_needed.$": "$.translation_needed",
+        "target_languages.$": "$.target_languages"
+      },
+      "ResultPath": "$.language_prefs",
       "Retry": [
         {
           "ErrorEquals": [
@@ -86,6 +133,13 @@
       "Catch": [
         {
           "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Next": "TimedOutAtMistralOCR",
+          "ResultPath": "$.error"
+        },
+        {
+          "ErrorEquals": [
             "States.ALL"
           ],
           "Next": "FailedAtMistralOCR",
@@ -101,9 +155,20 @@
       "ResultPath": "$.failed_step",
       "Next": "RecordFailure"
     },
+    "TimedOutAtMistralOCR": {
+      "Type": "Pass",
+      "Comment": "A step that times out may report no Cause, and RecordFailure reads $.error.Cause, so supply one before naming the step (MistralOCR)",
+      "Result": {
+        "Error": "States.Timeout",
+        "Cause": "The step did not finish within its time limit."
+      },
+      "ResultPath": "$.error",
+      "Next": "FailedAtMistralOCR"
+    },
     "UpdateOCRProgress": {
       "Type": "Task",
       "Resource": "${DDBServiceArn}",
+      "TimeoutSeconds": 60,
       "Comment": "Update progress after OCR completion",
       "Parameters": {
         "operation": "update_progress",
@@ -130,6 +195,13 @@
       "Catch": [
         {
           "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Next": "TimedOutAtUpdateOCRProgress",
+          "ResultPath": "$.error"
+        },
+        {
+          "ErrorEquals": [
             "States.ALL"
           ],
           "Next": "FailedAtUpdateOCRProgress",
@@ -145,6 +217,16 @@
       "ResultPath": "$.failed_step",
       "Next": "RecordFailure"
     },
+    "TimedOutAtUpdateOCRProgress": {
+      "Type": "Pass",
+      "Comment": "A step that times out may report no Cause, and RecordFailure reads $.error.Cause, so supply one before naming the step (UpdateOCRProgress)",
+      "Result": {
+        "Error": "States.Timeout",
+        "Cause": "The step did not finish within its time limit."
+      },
+      "ResultPath": "$.error",
+      "Next": "FailedAtUpdateOCRProgress"
+    },
     "SetOCRProgress": {
       "Type": "Pass",
       "Comment": "Set OCR progress values in state",
@@ -156,13 +238,52 @@
         "s3_key.$": "$.s3_key",
         "progress": 15,
         "current_step": "ocr_complete",
-        "status": "PROCESSING"
+        "status": "PROCESSING",
+        "translation_needed.$": "$.language_prefs.translation_needed",
+        "target_languages.$": "$.language_prefs.target_languages"
       },
+      "Next": "WarmTranslationChoice"
+    },
+    "WarmTranslationChoice": {
+      "Type": "Choice",
+      "Comment": "Only a document that will be translated needs TranslateContent warm. Whether it will be is known from here (MistralOCR returned the language decision), and the translation step is more than a minute away, so the container is ready when it is needed.",
+      "Choices": [
+        {
+          "Variable": "$.translation_needed",
+          "BooleanEquals": true,
+          "Next": "WarmTranslateContent"
+        }
+      ],
+      "Default": "RedactOCR"
+    },
+    "WarmTranslateContent": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "TimeoutSeconds": 10,
+      "Comment": "Pre-warm TranslateContent (see WarmParsingAgent): constant payload, no document data, failure ignored.",
+      "Parameters": {
+        "FunctionName": "${TranslateContentArn}",
+        "InvocationType": "Event",
+        "Payload": {
+          "warmup": true
+        }
+      },
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "RedactOCR",
+          "ResultPath": null
+        }
+      ],
       "Next": "RedactOCR"
     },
     "RedactOCR": {
       "Type": "Task",
       "Resource": "${RedactOCRArn}",
+      "TimeoutSeconds": 120,
       "Comment": "Redact PII from OCR text using AWS Comprehend",
       "ResultPath": null,
       "Retry": [
@@ -176,6 +297,13 @@
         }
       ],
       "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Next": "TimedOutAtRedactOCR",
+          "ResultPath": "$.error"
+        },
         {
           "ErrorEquals": [
             "States.ALL"
@@ -193,9 +321,20 @@
       "ResultPath": "$.failed_step",
       "Next": "RecordFailure"
     },
+    "TimedOutAtRedactOCR": {
+      "Type": "Pass",
+      "Comment": "A step that times out may report no Cause, and RecordFailure reads $.error.Cause, so supply one before naming the step (RedactOCR)",
+      "Result": {
+        "Error": "States.Timeout",
+        "Cause": "The step did not finish within its time limit."
+      },
+      "ResultPath": "$.error",
+      "Next": "FailedAtRedactOCR"
+    },
     "UpdateRedactionProgress": {
       "Type": "Task",
       "Resource": "${DDBServiceArn}",
+      "TimeoutSeconds": 60,
       "Comment": "Update progress after PII redaction completion",
       "Parameters": {
         "operation": "update_progress",
@@ -222,6 +361,13 @@
       "Catch": [
         {
           "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Next": "TimedOutAtUpdateRedactionProgress",
+          "ResultPath": "$.error"
+        },
+        {
+          "ErrorEquals": [
             "States.ALL"
           ],
           "Next": "FailedAtUpdateRedactionProgress",
@@ -237,6 +383,16 @@
       "ResultPath": "$.failed_step",
       "Next": "RecordFailure"
     },
+    "TimedOutAtUpdateRedactionProgress": {
+      "Type": "Pass",
+      "Comment": "A step that times out may report no Cause, and RecordFailure reads $.error.Cause, so supply one before naming the step (UpdateRedactionProgress)",
+      "Result": {
+        "Error": "States.Timeout",
+        "Cause": "The step did not finish within its time limit."
+      },
+      "ResultPath": "$.error",
+      "Next": "FailedAtUpdateRedactionProgress"
+    },
     "SetRedactionProgress": {
       "Type": "Pass",
       "Comment": "Set redaction progress values in state",
@@ -248,13 +404,16 @@
         "s3_key.$": "$.s3_key",
         "progress": 20,
         "current_step": "pii_redaction_complete",
-        "status": "PROCESSING"
+        "status": "PROCESSING",
+        "translation_needed.$": "$.translation_needed",
+        "target_languages.$": "$.target_languages"
       },
       "Next": "DeleteOriginal"
     },
     "DeleteOriginal": {
       "Type": "Task",
       "Resource": "${DeleteOriginalArn}",
+      "TimeoutSeconds": 60,
       "Comment": "Delete original uploaded file from S3",
       "ResultPath": null,
       "Retry": [
@@ -268,6 +427,13 @@
         }
       ],
       "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Next": "TimedOutAtDeleteOriginal",
+          "ResultPath": "$.error"
+        },
         {
           "ErrorEquals": [
             "States.ALL"
@@ -285,9 +451,20 @@
       "ResultPath": "$.failed_step",
       "Next": "RecordFailure"
     },
+    "TimedOutAtDeleteOriginal": {
+      "Type": "Pass",
+      "Comment": "A step that times out may report no Cause, and RecordFailure reads $.error.Cause, so supply one before naming the step (DeleteOriginal)",
+      "Result": {
+        "Error": "States.Timeout",
+        "Cause": "The step did not finish within its time limit."
+      },
+      "ResultPath": "$.error",
+      "Next": "FailedAtDeleteOriginal"
+    },
     "UpdateCleanupProgress": {
       "Type": "Task",
       "Resource": "${DDBServiceArn}",
+      "TimeoutSeconds": 60,
       "Comment": "Update progress after file cleanup completion",
       "Parameters": {
         "operation": "update_progress",
@@ -314,6 +491,13 @@
       "Catch": [
         {
           "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Next": "TimedOutAtUpdateCleanupProgress",
+          "ResultPath": "$.error"
+        },
+        {
+          "ErrorEquals": [
             "States.ALL"
           ],
           "Next": "FailedAtUpdateCleanupProgress",
@@ -329,6 +513,16 @@
       "ResultPath": "$.failed_step",
       "Next": "RecordFailure"
     },
+    "TimedOutAtUpdateCleanupProgress": {
+      "Type": "Pass",
+      "Comment": "A step that times out may report no Cause, and RecordFailure reads $.error.Cause, so supply one before naming the step (UpdateCleanupProgress)",
+      "Result": {
+        "Error": "States.Timeout",
+        "Cause": "The step did not finish within its time limit."
+      },
+      "ResultPath": "$.error",
+      "Next": "FailedAtUpdateCleanupProgress"
+    },
     "SetCleanupProgress": {
       "Type": "Pass",
       "Comment": "Set cleanup progress values in state",
@@ -340,13 +534,16 @@
         "s3_key.$": "$.s3_key",
         "progress": 22,
         "current_step": "cleanup_complete",
-        "status": "PROCESSING"
+        "status": "PROCESSING",
+        "translation_needed.$": "$.translation_needed",
+        "target_languages.$": "$.target_languages"
       },
       "Next": "ParsingAgent"
     },
     "ParsingAgent": {
       "Type": "Task",
       "Resource": "${ParsingAgentArn}",
+      "TimeoutSeconds": 240,
       "Comment": "Generate English summary, sections, and document index using OpenAI",
       "Retry": [
         {
@@ -359,6 +556,13 @@
         }
       ],
       "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Next": "TimedOutAtParsingAgent",
+          "ResultPath": "$.error"
+        },
         {
           "ErrorEquals": [
             "States.ALL"
@@ -377,9 +581,20 @@
       "ResultPath": "$.failed_step",
       "Next": "RecordFailure"
     },
+    "TimedOutAtParsingAgent": {
+      "Type": "Pass",
+      "Comment": "A step that times out may report no Cause, and RecordFailure reads $.error.Cause, so supply one before naming the step (ParsingAgent)",
+      "Result": {
+        "Error": "States.Timeout",
+        "Cause": "The step did not finish within its time limit."
+      },
+      "ResultPath": "$.error",
+      "Next": "FailedAtParsingAgent"
+    },
     "UpdateAnalysisProgress": {
       "Type": "Task",
       "Resource": "${DDBServiceArn}",
+      "TimeoutSeconds": 60,
       "Comment": "Update progress after analysis completion",
       "Parameters": {
         "operation": "update_progress",
@@ -406,6 +621,13 @@
       "Catch": [
         {
           "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Next": "TimedOutAtUpdateAnalysisProgress",
+          "ResultPath": "$.error"
+        },
+        {
+          "ErrorEquals": [
             "States.ALL"
           ],
           "Next": "FailedAtUpdateAnalysisProgress",
@@ -421,6 +643,16 @@
       "ResultPath": "$.failed_step",
       "Next": "RecordFailure"
     },
+    "TimedOutAtUpdateAnalysisProgress": {
+      "Type": "Pass",
+      "Comment": "A step that times out may report no Cause, and RecordFailure reads $.error.Cause, so supply one before naming the step (UpdateAnalysisProgress)",
+      "Result": {
+        "Error": "States.Timeout",
+        "Cause": "The step did not finish within its time limit."
+      },
+      "ResultPath": "$.error",
+      "Next": "FailedAtUpdateAnalysisProgress"
+    },
     "SetAnalysisProgress": {
       "Type": "Pass",
       "Comment": "Set analysis progress values in state",
@@ -432,51 +664,11 @@
         "s3_key.$": "$.s3_key",
         "progress": 75,
         "current_step": "analysis_complete",
-        "status": "PROCESSING"
+        "status": "PROCESSING",
+        "translation_needed.$": "$.translation_needed",
+        "target_languages.$": "$.target_languages"
       },
-      "Next": "CheckLanguagePrefs"
-    },
-    "CheckLanguagePrefs": {
-      "Type": "Task",
-      "Resource": "${CheckLanguagePrefsArn}",
-      "Comment": "Check user language preferences to determine if translations are needed",
-      "Parameters": {
-        "iep_id.$": "$.iep_id",
-        "child_id.$": "$.child_id",
-        "user_id.$": "$.user_id",
-        "s3_bucket.$": "$.s3_bucket",
-        "s3_key.$": "$.s3_key",
-        "progress.$": "$.progress",
-        "current_step.$": "$.current_step",
-        "status.$": "$.status"
-      },
-      "Retry": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "MaxAttempts": 3,
-          "IntervalSeconds": 2,
-          "BackoffRate": 2
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "Next": "FailedAtCheckLanguagePrefs",
-          "ResultPath": "$.error"
-        }
-      ],
       "Next": "TranslationChoice"
-    },
-    "FailedAtCheckLanguagePrefs": {
-      "Type": "Pass",
-      "Comment": "Name the failing step for record_failure (CheckLanguagePrefs)",
-      "Result": "CheckLanguagePrefs",
-      "ResultPath": "$.failed_step",
-      "Next": "RecordFailure"
     },
     "TranslationChoice": {
       "Type": "Choice",
@@ -493,6 +685,7 @@
     "TranslateParsingResult": {
       "Type": "Task",
       "Resource": "${TranslateContentArn}",
+      "TimeoutSeconds": 240,
       "Comment": "Translate parsing agent results to target languages. ResultSelector narrows the output to languages_processed only: translate_content returns the full translated summary/sections, and Step Functions keeps every state's output in execution history for 90 days, so without this the translated document content (FERPA-protected) would sit in the console. Mirrors single-language-translation.asl.json's TranslateRequestedLanguage state.",
       "Parameters": {
         "iep_id.$": "$.iep_id",
@@ -517,6 +710,13 @@
         }
       ],
       "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Next": "TimedOutAtTranslateParsingResult",
+          "ResultPath": "$.error"
+        },
         {
           "ErrorEquals": [
             "States.ALL"
@@ -560,9 +760,20 @@
       "ResultPath": "$.failed_step",
       "Next": "RecordFailure"
     },
+    "TimedOutAtTranslateParsingResult": {
+      "Type": "Pass",
+      "Comment": "A step that times out may report no Cause, and RecordFailure reads $.error.Cause, so supply one before naming the step (TranslateParsingResult)",
+      "Result": {
+        "Error": "States.Timeout",
+        "Cause": "The step did not finish within its time limit."
+      },
+      "ResultPath": "$.error",
+      "Next": "FailedAtTranslateParsingResult"
+    },
     "UpdateTranslationProgress": {
       "Type": "Task",
       "Resource": "${DDBServiceArn}",
+      "TimeoutSeconds": 60,
       "Comment": "Update progress after translation completion",
       "Parameters": {
         "operation": "update_progress",
@@ -589,6 +800,13 @@
       "Catch": [
         {
           "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Next": "TimedOutAtUpdateTranslationProgress",
+          "ResultPath": "$.error"
+        },
+        {
+          "ErrorEquals": [
             "States.ALL"
           ],
           "Next": "FailedAtUpdateTranslationProgress",
@@ -603,6 +821,16 @@
       "Result": "UpdateTranslationProgress",
       "ResultPath": "$.failed_step",
       "Next": "RecordFailure"
+    },
+    "TimedOutAtUpdateTranslationProgress": {
+      "Type": "Pass",
+      "Comment": "A step that times out may report no Cause, and RecordFailure reads $.error.Cause, so supply one before naming the step (UpdateTranslationProgress)",
+      "Result": {
+        "Error": "States.Timeout",
+        "Cause": "The step did not finish within its time limit."
+      },
+      "ResultPath": "$.error",
+      "Next": "FailedAtUpdateTranslationProgress"
     },
     "SetTranslationProgress": {
       "Type": "Pass",
@@ -624,6 +852,7 @@
     "FinalizeResults": {
       "Type": "Task",
       "Resource": "${FinalizeResultsArn}",
+      "TimeoutSeconds": 60,
       "Comment": "Combined step: combine results, save to DDB, and mark as completed",
       "Parameters": {
         "iep_id.$": "$.iep_id",
@@ -648,6 +877,13 @@
       "Catch": [
         {
           "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Next": "TimedOutAtFinalizeResults",
+          "ResultPath": "$.error"
+        },
+        {
+          "ErrorEquals": [
             "States.ALL"
           ],
           "Next": "FailedAtFinalizeResults",
@@ -663,9 +899,20 @@
       "ResultPath": "$.failed_step",
       "Next": "RecordFailure"
     },
+    "TimedOutAtFinalizeResults": {
+      "Type": "Pass",
+      "Comment": "A step that times out may report no Cause, and RecordFailure reads $.error.Cause, so supply one before naming the step (FinalizeResults)",
+      "Result": {
+        "Error": "States.Timeout",
+        "Cause": "The step did not finish within its time limit."
+      },
+      "ResultPath": "$.error",
+      "Next": "FailedAtFinalizeResults"
+    },
     "RecordFailure": {
       "Type": "Task",
       "Resource": "${DDBServiceArn}",
+      "TimeoutSeconds": 60,
       "Comment": "Record processing failure using DDB service",
       "Parameters": {
         "operation": "record_failure",
@@ -692,6 +939,7 @@
     "PurgeRedactedOCR": {
       "Type": "Task",
       "Resource": "${DDBServiceArn}",
+      "TimeoutSeconds": 60,
       "Comment": "Delete the redacted OCR once the summary exists. The summary, sections and translations are the product; the redacted text is an intermediate we have no further use for, and redaction is best-effort rather than a guarantee.",
       "Parameters": {
         "operation": "delete_ocr_data",

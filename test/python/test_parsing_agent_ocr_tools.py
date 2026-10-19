@@ -37,12 +37,15 @@ def _install_import_stubs(monkeypatch):
     """
     openai_stub = ModuleType('openai')
     openai_stub.OpenAI = object
+    openai_stub.AsyncOpenAI = lambda **kwargs: object()
+    openai_stub.Timeout = lambda *args, **kwargs: object()
 
     agents_stub = ModuleType('agents')
     agents_stub.Agent = object
     agents_stub.Runner = object
     agents_stub.ModelSettings = object
     agents_stub.function_tool = lambda *args, **kwargs: (lambda fn: fn)
+    agents_stub.set_default_openai_client = lambda client, use_for_tracing=True: None
 
     exceptions_stub = ModuleType('agents.exceptions')
 

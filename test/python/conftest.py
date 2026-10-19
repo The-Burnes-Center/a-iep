@@ -130,14 +130,33 @@ def install_agents_sdk_stubs(monkeypatch):
         def error_count(self):
             return len(self._errors)
 
+    class _FakeAsyncOpenAI:
+        """Records how the lambda configured its client, so a test can assert
+        the time limits without a real openai install."""
+        instances = []
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            _FakeAsyncOpenAI.instances.append(self)
+
+    class _FakeTimeout:
+        def __init__(self, timeout=None, connect=None):
+            self.timeout = timeout
+            self.connect = connect
+
     openai_stub = ModuleType('openai')
     openai_stub.OpenAI = object
+    openai_stub.AsyncOpenAI = _FakeAsyncOpenAI
+    openai_stub.Timeout = _FakeTimeout
 
     agents_stub = ModuleType('agents')
     agents_stub.Agent = _PermissiveClass
     agents_stub.Runner = _PermissiveClass
     agents_stub.ModelSettings = _PermissiveClass
     agents_stub.function_tool = lambda *args, **kwargs: (lambda fn: fn)
+    agents_stub.default_clients = []
+    agents_stub.set_default_openai_client = (
+        lambda client, use_for_tracing=True: agents_stub.default_clients.append((client, use_for_tracing)))
 
     exceptions_stub = ModuleType('agents.exceptions')
 

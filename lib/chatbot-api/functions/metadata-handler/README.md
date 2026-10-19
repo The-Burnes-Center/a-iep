@@ -24,11 +24,10 @@ The IEP processing workflow uses comprehensive status tracking with real-time pr
 | **Step** | **Progress** | **Current Step** | **Status** | **Description** |
 |----------|-------------|------------------|------------|-----------------|
 | **InitializeProcessing** | 5% | `"start"` | `PROCESSING` | Initialize processing status and progress tracking |
-| **MistralOCR** | 15% | `"ocr_complete"` | `PROCESSING` | Extract text using Mistral OCR API |
+| **MistralOCR** | 15% | `"ocr_complete"` | `PROCESSING` | Extract text using Mistral OCR API; also reads the parent's language preferences (`language_prefs.py`) |
 | **RedactOCR** | 20% | `"pii_redaction_complete"` | `PROCESSING` | Remove PII using AWS Comprehend |
 | **DeleteOriginal** | 22% | `"cleanup_complete"` | `PROCESSING` | Delete uploaded S3 file |
 | **ParsingAgent** | 65% | `"analysis_complete"` | `PROCESSING` | Generate English summary/sections using OpenAI |
-| **CheckLanguagePrefs** | - | - | `PROCESSING` | Check user language preferences |
 | **TranslationChoice** | - | - | `PROCESSING` | Decide if translations are needed |
 | **TranslateParsingResult** | 85% | `"translation_complete"` | `PROCESSING` | Translate parsing results (if needed) |
 | **FinalizeResults** | 100% | `"completed"` | `PROCESSED` | Mark document as completed |
@@ -70,8 +69,7 @@ The IEP processing workflow uses comprehensive status tracking with real-time pr
 - **Model**: OpenAI GPT-4.1 (default)
 - **Instructions**: Translation-specific prompts in `steps/translate_content/translation_agent.py`
 - **Tools**:
-  - `get_language_context_for_translation`: Provides language context for translation
-  - `get_iep_terminology`: Look up specific IEP term translations
+  - `get_iep_terminology`: Look up specific IEP term translations (the language guidelines and glossary are in the prompt itself, not behind a tool)
 
 ### Agent Execution Flow
 - The parsing agent extracts the English structure (summaries, sections, document index, abbreviations)
@@ -93,11 +91,11 @@ The IEP processing workflow uses comprehensive status tracking with real-time pr
 
 ### Step Functions
 - `steps/update_ddb_start/`: Initialize processing status
-- `steps/mistral_ocr/`: Extract text using Mistral OCR API
+- `steps/mistral_ocr/`: Extract text using Mistral OCR API, and decide the translation languages
 - `steps/redact_ocr/`: Remove PII using AWS Comprehend
 - `steps/delete_original/`: Delete uploaded S3 file
 - `steps/parsing_agent/`: Generate English summary/sections using OpenAI
-- `steps/check_language_prefs/`: Check user language preferences
+- `steps/check_language_prefs/`: Check user language preferences (no longer a state in the main pipeline; its decision now runs inside `mistral_ocr`)
 - `steps/translate_content/`: Translate content to target languages
 - `steps/finalize_results/`: Combine results and mark as completed
 - `steps/record_failure/`: Record failure state and error details
