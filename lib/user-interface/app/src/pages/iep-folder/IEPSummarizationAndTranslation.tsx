@@ -27,6 +27,7 @@ import type { TranslationRequestState } from '../utils/translation-flow.mjs';
 import { processingStepKey } from '../utils/processing-progress.mjs';
 import { canRetryFailedDocument } from './document-failure';
 import AIEPSpinner from '../../components/AIEPSpinner';
+import PollingStalledNotice from '../../components/PollingStalledNotice';
 import PageLoading from '../../components/PageLoading';
 import TTSPlayButton from '../../components/TTSPlayButton';
 import { SlideData } from '../../components/ParentRightsCarousel';
@@ -1194,10 +1195,24 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                                 </h6>
                                 {isTranslatingOnDemand ? (
                                   <div data-testid="translation-progress">
-                                    <p className="mb-2">
-                                      {t(translationRequest.messageKey ?? 'summary.processing.almostThere')}
-                                    </p>
-                                    <LinearProgress color="success" />
+                                    {/* Mounted with the wait, so the stop is announced when it happens. */}
+                                    <div aria-live="polite" aria-atomic="true" className="visually-hidden">
+                                      {pollingStopped ? t('summary.processing.stalled') : ''}
+                                    </div>
+                                    {pollingStopped ? (
+                                      <PollingStalledNotice
+                                        message={t('summary.processing.stalled')}
+                                        buttonLabel={t('common.tryAgain')}
+                                        onCheckAgain={checkAgain}
+                                      />
+                                    ) : (
+                                      <>
+                                        <p className="mb-2">
+                                          {t(translationRequest.messageKey ?? 'summary.processing.almostThere')}
+                                        </p>
+                                        <LinearProgress color="success" />
+                                      </>
+                                    )}
                                   </div>
                                 ) : (
                                   <>

@@ -24,10 +24,38 @@ import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
 import type { AppConfig } from "../../common/types";
 import type { SupportedLanguage } from "../../common/languages";
+import { MAX_VISIBLE_POLL_MS } from "../utils/polling-utility";
 
 const Auth = vi.hoisted(() => ({ getCurrentUser: vi.fn(),
   fetchAuthSession: vi.fn() }));
 vi.mock("aws-amplify/auth", () => Auth);
+
+/**
+ * The real poller runs underneath. The only thing overridden is whether it
+ * reports itself stopped, so a test can show the stalled notice without waiting
+ * out the visible-time cap. `checkAgain` still reaches the real hook, so a press
+ * really asks for a fresh read.
+ */
+const Polling = vi.hoisted(() => ({
+  forceStopped: false,
+  checkAgain: vi.fn(),
+}));
+vi.mock("../utils/useDocumentFetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils/useDocumentFetch")>();
+  return {
+    ...actual,
+    useDocumentFetch: (params: Parameters<typeof actual.useDocumentFetch>[0]) => {
+      const real = actual.useDocumentFetch(params);
+      return {
+        pollingStopped: Polling.forceStopped || real.pollingStopped,
+        checkAgain: () => {
+          Polling.checkAgain();
+          real.checkAgain();
+        },
+      };
+    },
+  };
+});
 
 const API_BASE = "https://api.example.test/api";
 const CHILD_ID = "child-abc";
@@ -304,6 +332,64 @@ describe("the translate button", () => {
     // Changing the preference mid-flight would leave the running request
     // pointing at a language the parent no longer wants.
     expect(screen.getByRole("button", { name: "ENGLISH" })).toBeDisabled();
+  });
+});
+
+describe("a stalled on-demand translation", () => {
+  beforeEach(() => {
+    Polling.forceStopped = false;
+    Polling.checkAgain.mockClear();
+  });
+
+  afterEach(() => {
+    Polling.forceStopped = false;
+  });
+
+  test("the inline wait becomes a notice and a try-again button, not a bar", async () => {
+    Polling.forceStopped = true;
+    renderPage();
+    await settle();
+    await clickTranslate();
+
+    const progress = screen.getByTestId("translation-progress");
+    expect(progress.querySelector('[role="progressbar"]')).toBeNull();
+    expect(progress).toHaveTextContent("summary.processing.stalled");
+    expect(screen.getByRole("button", { name: "common.tryAgain" })).toBeInTheDocument();
+    // The announcement region was mounted with the wait, so the stop is spoken.
+    expect(progress.querySelector('[aria-live="polite"]')).toHaveTextContent(
+      "summary.processing.stalled",
+    );
+  });
+
+  test("try again asks for a fresh read of the document", async () => {
+    Polling.forceStopped = true;
+    renderPage();
+    await settle();
+    await clickTranslate();
+    const readsBefore = countCalls(DOCUMENTS_URL);
+
+    fireEvent.click(screen.getByRole("button", { name: "common.tryAgain" }));
+    await settle();
+
+    expect(Polling.checkAgain).toHaveBeenCalledTimes(1);
+    expect(countCalls(DOCUMENTS_URL)).toBeGreaterThan(readsBefore);
+  });
+
+  test("the backstop ends a stuck wait with a retryable error before the poll cap could", async () => {
+    // The wait is 10 minutes of wall-clock time; the poll cap counts only visible
+    // minutes, so it can never fire first. Raising the timeout past the cap would
+    // make the notice reachable on this path, and this test would then need a real
+    // cap case.
+    expect(TRANSLATION_TIMEOUT_MS).toBeLessThan(MAX_VISIBLE_POLL_MS);
+
+    renderPage();
+    await settle();
+    await clickTranslate();
+    documentPayload = englishOnlyDocument({ status: "PROCESSING_TRANSLATIONS" });
+    await settle(TRANSLATION_TIMEOUT_MS);
+
+    expect(screen.getByTestId("translation-error")).toBeInTheDocument();
+    expect(screen.queryByText("summary.processing.stalled")).toBeNull();
   });
 });
 

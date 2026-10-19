@@ -77,31 +77,6 @@
   }
 }
 
-/* What the wait shows once polling has stopped: the message and a way to ask
-   again. The button is a light pill with a dark outline so it reads on both the
-   cream card and the dark-green band, and at least 44px tall to hit comfortably. */
-.processing-stalled-notice {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding: 1.5rem 1rem;
-  text-align: center;
-}
-
-.processing-stalled-button {
-  min-height: 44px;
-  min-width: 44px;
-  padding-inline: 1.5rem;
-  border: 2px solid var(--aiep-ink);
-}
-
-/* Two rings, so the focus outline is visible on both the cream and the green. */
-.processing-stalled-button:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--aiep-ink);
-}
-
 /* Desktop mode: Modal dialog effect (ONLY on desktop) */
 @media (min-width: 992px) and (min-height: 700px) {
   /* The fill comes from the base rule above; this adds the centring. With a

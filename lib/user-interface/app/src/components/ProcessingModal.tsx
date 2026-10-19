@@ -1,7 +1,8 @@
 import React from 'react';
-import { Card, Alert, Button } from 'react-bootstrap';
+import { Card, Alert } from 'react-bootstrap';
 import AIEPSpinner from './AIEPSpinner';
 import ParentRightsCarousel, { SlideData } from './ParentRightsCarousel';
+import PollingStalledNotice from './PollingStalledNotice';
 import ProcessingStatusBar from './ProcessingStatusBar';
 import './ProcessingModal.css';
 
@@ -64,12 +65,11 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
    * the step and the bar, so nothing on screen still claims to be moving.
    */
   const stalledNotice = (
-    <div className="processing-stalled-notice">
-      <p className="processing-status-headline">{t('summary.processing.stalled')}</p>
-      <Button className="processing-stalled-button" variant="light" onClick={onCheckAgain}>
-        {t('common.tryAgain')}
-      </Button>
-    </div>
+    <PollingStalledNotice
+      message={t('summary.processing.stalled')}
+      buttonLabel={t('common.tryAgain')}
+      onCheckAgain={onCheckAgain}
+    />
   );
 
   return (

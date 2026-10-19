@@ -1,0 +1,28 @@
+/* What a wait shows once polling has stopped: the message and a way to ask
+   again. The button is a light pill with a dark outline so it reads on both the
+   cream card and the dark-green band, and at least 44px tall to hit comfortably. */
+.polling-stalled-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem 1rem;
+  text-align: center;
+}
+
+.polling-stalled-message {
+  margin: 0;
+}
+
+.polling-stalled-button {
+  min-height: 44px;
+  min-width: 44px;
+  padding-inline: 1.5rem;
+  border: 2px solid var(--aiep-ink);
+}
+
+/* Two rings, so the focus outline is visible on both the cream and the green. */
+.polling-stalled-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--aiep-ink);
+}
