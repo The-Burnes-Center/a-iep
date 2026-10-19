@@ -2204,6 +2204,28 @@ describe('Lambda runtimes', () => {
   });
 });
 
+describe('user-profile-handler memory', () => {
+  // Lambda gives CPU in proportion to memory, and this function's cold start
+  // is CPU-bound Python import (~550 ms at 128 MB) that every profile and
+  // document request waits on whenever a new container starts. 512 MB is the
+  // setting that removes most of it, so it is pinned: a regression to the 128
+  // MB default would raise nothing but p90 latency. Found by the three env
+  // vars no other function carries together.
+  test('runs with 512 MB', () => {
+    const matches = Object.values(template.findResources('AWS::Lambda::Function'))
+      .filter((fn: any) => {
+        const vars = fn.Properties?.Environment?.Variables ?? {};
+        return fn.Properties?.Handler === 'lambda_function.lambda_handler'
+          && 'REFERRALS_TABLE' in vars
+          && 'DDB_SERVICE_FUNCTION_NAME' in vars
+          && 'USER_POOL_ID' in vars;
+      });
+
+    expect(matches).toHaveLength(1);
+    expect((matches[0] as any).Properties.MemorySize).toBe(512);
+  });
+});
+
 describe('Python lambda assets exclude __pycache__', () => {
   const FUNCTIONS_DIR = path.join(__dirname, '../../lib/chatbot-api/functions');
   const SOURCE = fs.readFileSync(path.join(FUNCTIONS_DIR, 'functions.ts'), 'utf8');

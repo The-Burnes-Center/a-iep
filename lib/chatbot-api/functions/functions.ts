@@ -774,6 +774,14 @@ export class LambdaFunctionStack extends cdk.Stack {
           return env === 'dev' ? 'alias/aiep/app' : 'alias/aiep/app-prod';
         })()
       },
+      // 512 MB, not the 128 MB default. Lambda allocates CPU in proportion to
+      // memory, and this function's cold start is CPU-bound Python import
+      // (boto3 and botocore, ~550 ms at 128 MB), which a profile or document
+      // request waits on whenever a new container starts. It also decrypts
+      // several KMS fields in parallel threads, which a fractional vCPU
+      // serializes. Billing is memory x duration, and a shorter run offsets
+      // most of the higher rate on a function this small.
+      memorySize: 512,
       timeout: cdk.Duration.seconds(300),
       logRetention: logs.RetentionDays.ONE_YEAR,
       ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
