@@ -1851,6 +1851,7 @@ describe('encryption at rest and in transit', () => {
 describeDurableStoreRetention('staging', () => template);
 describeAppClientContract('staging', () => template);
 describeLambdaRuntimes('staging', () => template);
+describeLogRetention('staging', () => template);
 describeStepTimeouts('staging', () => template);
 
 /**
@@ -1879,6 +1880,39 @@ function describeLambdaRuntimes(envLabel: EnvLabel, getTemplate: () => Template)
       // Non-vacuity: the exemption above must match something, or it is not
       // exempting anything and the pin is hiding nothing.
       expect(functions.filter(({ logicalId }) => isInjected(logicalId)).length).toBeGreaterThanOrEqual(2);
+    });
+  });
+}
+
+/**
+ * Log retention that must hold in BOTH synthesized templates.
+ */
+function describeLogRetention(envLabel: EnvLabel, getTemplate: () => Template) {
+  describe(`log retention (${envLabel})`, () => {
+    // WHY: a function with no retention keeps its log group forever, and the
+    // pipeline step lambdas had none. The default lives in createTaggedLambda,
+    // so every function, present or future, gets a RetentionInDays through
+    // CDK's LogRetention resource. A LogRetention with no RetentionInDays means
+    // "never expire", which is what `fn.logGroup` used to create on its own.
+    test('every app lambda has a log retention, and none keeps logs forever', () => {
+      const t = getTemplate();
+      const retained = new Set<string>();
+      const forever: string[] = [];
+      for (const [logicalId, resource] of Object.entries(t.findResources('Custom::LogRetention'))) {
+        const { LogGroupName, RetentionInDays } = (resource as any).Properties;
+        if (RetentionInDays === undefined) {
+          forever.push(logicalId);
+          continue;
+        }
+        const ref = LogGroupName['Fn::Join'][1].find((part: any) => typeof part === 'object' && 'Ref' in part)?.Ref;
+        if (ref) retained.add(ref);
+      }
+      expect(forever).toEqual([]);
+
+      const appFunctions = Object.keys(t.findResources('AWS::Lambda::Function'))
+        .filter((id) => !CDK_HELPER_PREFIXES.some((prefix) => id.startsWith(prefix)));
+      expect(appFunctions.length).toBeGreaterThanOrEqual(20);
+      expect(appFunctions.filter((id) => !retained.has(id))).toEqual([]);
     });
   });
 }
@@ -2823,6 +2857,7 @@ describe('production synth: the OTP test backdoor must not exist', () => {
   describeDurableStoreRetention('production', () => prodTemplate);
   describeAppClientContract('production', () => prodTemplate);
   describeLambdaRuntimes('production', () => prodTemplate);
+  describeLogRetention('production', () => prodTemplate);
   describeStepTimeouts('production', () => prodTemplate);
 });
 

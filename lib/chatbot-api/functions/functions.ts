@@ -41,6 +41,11 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 // an exclude for exactly the same reason.
 const PYTHON_ASSET_EXCLUDES = ['__pycache__'];
 
+// Log retention for every Lambda that does not choose its own. The app's
+// functions already use ONE_YEAR; the pipeline step lambdas had none, so their
+// log groups grew without bound.
+const DEFAULT_LOG_RETENTION = logs.RetentionDays.ONE_YEAR;
+
 // Step lambda timeouts, each above its state's TimeoutSeconds (see the
 // comment where they are used).
 const MISTRAL_OCR_TIMEOUT_SECONDS = 150;
@@ -119,6 +124,10 @@ export class LambdaFunctionStack extends cdk.Stack {
     // Create a helper function to add standard tags and handle Lambda function creation
     const createTaggedLambda = (id: string, config: lambda.FunctionProps): lambda.Function => {
       const func = new lambda.Function(scope, id, {
+        // Without this the function's log group never expires, and the
+        // pipeline step lambdas had no retention at all. A function that
+        // sets its own logRetention keeps it.
+        logRetention: DEFAULT_LOG_RETENTION,
         ...config
       });
       
