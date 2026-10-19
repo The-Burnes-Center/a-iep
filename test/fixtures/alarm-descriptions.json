@@ -1,0 +1,798 @@
+{
+ "staging": [
+  {
+   "AlarmName": "a-iep-staging a bounced or complained address was not recorded",
+   "AlarmDescription": "[STAGING] [WARNING] A bounced address could not be added to the do-not-email list\nImpact: Staging only. No real families are affected.\nFires when: at least 1 unrecorded address in 15 minutes.\nCheck first:\n1. Open the bounce handler logs and search for SES_SUPPRESSION_WRITE_FAILED.\n2. Check the suppression table for throttling or a permissions change.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#email-sending-reputation"
+  },
+  {
+   "AlarmName": "a-iep-staging a document failed to process",
+   "AlarmDescription": "[STAGING] [WARNING] A document failed to process\nImpact: Staging only. No real families are affected.\nFires when: at least 1 failed document in 15 minutes.\nCheck first:\n1. Open the logs for the pipeline database writes function and search for RECORD_FAILURE to see which step failed.\n2. If several documents failed, check the status pages for Mistral, OpenAI and AWS Comprehend.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#documents-are-failing-to-process\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging a document kept text we said we would delete",
+   "AlarmDescription": "[STAGING] [WARNING] Extracted IEP text was not deleted after a summary was made\nImpact: Staging only. No real families are affected.\nFires when: at least 1 failed text deletion in 15 minutes.\nCheck first:\n1. Run scripts/audit-residue.py (read-only) to list the documents that still hold the text.\n2. Remove it with scripts/purge-redacted-ocr.py, which does a dry run first.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#student-records-were-not-removed\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging a failed document kept its unredacted copy",
+   "AlarmDescription": "[STAGING] [WARNING] Unredacted student information was left in storage after a failed document\nImpact: Staging only. No real families are affected.\nFires when: at least 1 retained copy in 15 minutes.\nCheck first:\n1. Run scripts/audit-residue.py (read-only) to list what was left behind.\n2. Remove it with scripts/purge-orphaned-artifacts.py, which does a dry run first.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#student-records-were-not-removed\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging a family got English only: a requested translation was left out",
+   "AlarmDescription": "[STAGING] [WARNING] A requested translation was left out of a summary\nImpact: Staging only. No real families are affected.\nFires when: at least 1 skipped translation in 15 minutes.\nCheck first:\n1. Open the translation step logs and search for TRANSLATION_SKIPPED to see which language was affected.\n2. If it repeats for one language, test that language with a synthetic document on staging.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep-staging a parent asked us to delete their records and we did not",
+   "AlarmDescription": "[STAGING] [WARNING] A deletion request was only partly carried out\nImpact: Staging only. No real families are affected.\nFires when: at least 1 incomplete deletion in 15 minutes.\nCheck first:\n1. Open the logs for the document delete and user profile functions and search for DELETION_INCOMPLETE to find the user and step.\n2. Remove what is left by hand and confirm it is gone before telling the parent (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#student-records-were-not-removed\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging alerting itself is broken",
+   "AlarmDescription": "[STAGING] [WARNING] Alerts are not being formatted, so Slack may look quiet\nImpact: Staging only. No real families are affected.\nFires when: at least 1 formatter error in 5 minutes.\nCheck first:\n1. Open the CloudWatch alarms page and look for any alarms in the ALARM state.\n2. Open the alert formatter logs and read the latest error.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-alerting-itself-is-broken\nRecovery: Alerts are being formatted again"
+  },
+  {
+   "AlarmName": "a-iep-staging alerts are not reaching the formatter",
+   "AlarmDescription": "[STAGING] [WARNING] Alerts are not being delivered, so Slack may look quiet\nImpact: Staging only. No real families are affected.\nFires when: at least 1 failed delivery in 5 minutes.\nCheck first:\n1. Open the CloudWatch alarms page and look for any alarms in the ALARM state.\n2. Check that the alarm topic still has its subscription to the alert formatter function.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-alerting-itself-is-broken\nRecovery: Alerts are being delivered again"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler failing: document delete",
+   "AlarmDescription": "[STAGING] [WARNING] Errors in document deletion\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler failing: documents list",
+   "AlarmDescription": "[STAGING] [WARNING] Errors in the document list\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler failing: PDF download",
+   "AlarmDescription": "[STAGING] [WARNING] Errors in PDF download\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler failing: pipeline database writes",
+   "AlarmDescription": "[STAGING] [WARNING] Errors in pipeline progress saving\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler failing: referrals",
+   "AlarmDescription": "[STAGING] [WARNING] Errors in referrals\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler failing: translation request",
+   "AlarmDescription": "[STAGING] [WARNING] Errors in translation requests\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler failing: TTS",
+   "AlarmDescription": "[STAGING] [WARNING] Errors in read-aloud audio\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler failing: upload",
+   "AlarmDescription": "[STAGING] [WARNING] Errors in document upload\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler failing: user profile",
+   "AlarmDescription": "[STAGING] [WARNING] Errors in the account screen\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler throttled: document delete",
+   "AlarmDescription": "[STAGING] [WARNING] Requests to document deletion are being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler throttled: documents list",
+   "AlarmDescription": "[STAGING] [WARNING] Requests to the document list are being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler throttled: PDF download",
+   "AlarmDescription": "[STAGING] [WARNING] Requests to PDF download are being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler throttled: pipeline database writes",
+   "AlarmDescription": "[STAGING] [WARNING] Requests to pipeline progress saving are being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler throttled: referrals",
+   "AlarmDescription": "[STAGING] [WARNING] Requests to referrals are being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler throttled: translation request",
+   "AlarmDescription": "[STAGING] [WARNING] Requests to translation requests are being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler throttled: TTS",
+   "AlarmDescription": "[STAGING] [WARNING] Requests to read-aloud audio are being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler throttled: upload",
+   "AlarmDescription": "[STAGING] [WARNING] Requests to document upload are being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API handler throttled: user profile",
+   "AlarmDescription": "[STAGING] [WARNING] Requests to the account screen are being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep-staging API returning 5xx",
+   "AlarmDescription": "[STAGING] [WARNING] The app is returning server errors\nImpact: Staging only. No real families are affected.\nFires when: at least 5 server errors in 5 minutes.\nCheck first:\n1. Open the API Gateway access logs and find which route is failing.\n2. Open that route's function logs, or check for a recent deploy that could have caused it.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors\nRecovery: The app has stopped returning server errors"
+  },
+  {
+   "AlarmName": "a-iep-staging AWS is refusing to send A-IEP login emails",
+   "AlarmDescription": "[STAGING] [WARNING] AWS is refusing to send some sign-in emails\nImpact: Staging only. No real families are affected.\nFires when: at least 1 rejected email in 15 minutes.\nCheck first:\n1. Open the SES console and read the reject reason.\n2. Check the email content and the sending identity have not changed.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#email-sending-reputation\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging document stuck: pipeline execution timed out",
+   "AlarmDescription": "[STAGING] [WARNING] A document has been processing for six hours without finishing\nImpact: Staging only. No real families are affected.\nFires when: at least 1 timed-out run in 15 minutes.\nCheck first:\n1. Find the timed-out execution in the Step Functions console for the document pipeline and note the step it stopped at.\n2. Mark the document as failed by hand so the parent can retry (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep-staging DynamoDB throttling: IEP documents",
+   "AlarmDescription": "[STAGING] [WARNING] The IEP documents database is throttling requests\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the table in the DynamoDB console, Monitoring tab, and see which of reads or writes is throttled.\n2. Look for a traffic spike or a runaway script, then see the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#database-throttling\nRecovery: The IEP documents database is no longer throttling"
+  },
+  {
+   "AlarmName": "a-iep-staging DynamoDB throttling: login rate limiting",
+   "AlarmDescription": "[STAGING] [WARNING] The login rate limiting database is throttling requests\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the table in the DynamoDB console, Monitoring tab, and see which of reads or writes is throttled.\n2. Look for a traffic spike or a runaway script, then see the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#database-throttling\nRecovery: The login rate limiting database is no longer throttling"
+  },
+  {
+   "AlarmName": "a-iep-staging DynamoDB throttling: referrals",
+   "AlarmDescription": "[STAGING] [WARNING] The referrals database is throttling requests\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the table in the DynamoDB console, Monitoring tab, and see which of reads or writes is throttled.\n2. Look for a traffic spike or a runaway script, then see the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#database-throttling\nRecovery: The referrals database is no longer throttling"
+  },
+  {
+   "AlarmName": "a-iep-staging DynamoDB throttling: sign-in sessions",
+   "AlarmDescription": "[STAGING] [WARNING] The sign-in sessions database is throttling requests\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the table in the DynamoDB console, Monitoring tab, and see which of reads or writes is throttled.\n2. Look for a traffic spike or a runaway script, then see the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#database-throttling\nRecovery: The sign-in sessions database is no longer throttling"
+  },
+  {
+   "AlarmName": "a-iep-staging DynamoDB throttling: user profiles",
+   "AlarmDescription": "[STAGING] [WARNING] The user profiles database is throttling requests\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the table in the DynamoDB console, Monitoring tab, and see which of reads or writes is throttled.\n2. Look for a traffic spike or a runaway script, then see the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#database-throttling\nRecovery: The user profiles database is no longer throttling"
+  },
+  {
+   "AlarmName": "a-iep-staging email bounce rate is climbing",
+   "AlarmDescription": "[STAGING] [WARNING] Many sign-in emails are bouncing\nImpact: This reads an account-wide signal, so production is affected too.\nFires when: a bounce rate of 2% or more.\nCheck first:\n1. Open the SES console reputation page and see which messages bounced.\n2. Check the do-not-email list is being updated, and look for abuse (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#email-sending-reputation"
+  },
+  {
+   "AlarmName": "a-iep-staging email bounce rate near the limit AWS suspends accounts over",
+   "AlarmDescription": "[STAGING] [WARNING] The email bounce rate is close to the suspension limit\nImpact: This reads an account-wide signal, so production is affected too.\nFires when: a bounce rate of 3.5% or more.\nCheck first:\n1. Open the SES console reputation page and see which messages bounced.\n2. Pause or tighten email sign-in if the cause is abuse (see the runbook), and open an AWS Support case early.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#email-sending-reputation\nRecovery: The email bounce rate has dropped"
+  },
+  {
+   "AlarmName": "a-iep-staging email complaint rate is climbing",
+   "AlarmDescription": "[STAGING] [WARNING] People are marking sign-in emails as spam\nImpact: This reads an account-wide signal, so production is affected too.\nFires when: a spam complaint rate of 0.05% or more.\nCheck first:\n1. Open the SES console reputation page and see the complaint rate.\n2. Look for abuse sending codes to addresses that did not ask for them (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#email-sending-reputation"
+  },
+  {
+   "AlarmName": "a-iep-staging email complaint rate near the limit AWS suspends accounts over",
+   "AlarmDescription": "[STAGING] [WARNING] The spam complaint rate is close to the suspension limit\nImpact: This reads an account-wide signal, so production is affected too.\nFires when: a spam complaint rate of 0.08% or more.\nCheck first:\n1. Open the SES console reputation page and see the complaint rate.\n2. Stop the source of the complaints (see the runbook) and open an AWS Support case early.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#email-sending-reputation\nRecovery: The spam complaint rate has dropped"
+  },
+  {
+   "AlarmName": "a-iep-staging email login codes are arriving late",
+   "AlarmDescription": "[STAGING] [INFO] Sign-in emails are being delivered late\nImpact: Staging only. No real families are affected.\nFires when: at least 3 delayed emails in 15 minutes.\nCheck first:\n1. Open the SES console and see which receiving providers are delaying delivery.\n2. No action is needed unless it continues for hours.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#email-sending-reputation\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging email login codes are being refused: the sending limit is reached",
+   "AlarmDescription": "[STAGING] [WARNING] Email sign-in codes are refused because the sending limit was reached\nImpact: Staging only. No real families are affected.\nFires when: at least 1 refused email in 5 minutes.\nCheck first:\n1. Open the sign-in code creation logs and search for EMAIL_BUDGET_EXHAUSTED to see how fast it was used.\n2. Decide whether this is abuse (see the runbook) or real demand.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-codes-are-not-arriving\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging email login codes are not being delivered",
+   "AlarmDescription": "[STAGING] [WARNING] Emailing a sign-in code is failing\nImpact: Staging only. No real families are affected.\nFires when: at least 1 failed email in 5 minutes.\nCheck first:\n1. Open the sign-in code creation logs and search for EMAIL_SEND_FAILED to see the error.\n2. Check the SES console for a sending pause, and the AWS Health dashboard.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-codes-are-not-arriving\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging email sign-in is refusing everyone: the do-not-email check is down",
+   "AlarmDescription": "[STAGING] [WARNING] Email sign-in is refusing everyone\nImpact: Staging only. No real families are affected.\nFires when: at least 1 failed list check in 5 minutes.\nCheck first:\n1. Open the sign-in code creation logs and search for EMAIL_SUPPRESSION_UNAVAILABLE.\n2. Check the email suppression table for throttling or a permissions change.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-codes-are-not-arriving\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging login broken: CreateAuthChallenge (sends the SMS code) trigger failing",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in and sign-up are failing at the code creation step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in and sign-up are working again at the code creation step"
+  },
+  {
+   "AlarmName": "a-iep-staging login broken: CustomMessage trigger failing",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in and sign-up are failing at the sign-in message step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in and sign-up are working again at the sign-in message step"
+  },
+  {
+   "AlarmName": "a-iep-staging login broken: DefineAuthChallenge trigger failing",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in and sign-up are failing at the sign-in flow control step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in and sign-up are working again at the sign-in flow control step"
+  },
+  {
+   "AlarmName": "a-iep-staging login broken: PostConfirmation (secures a new account) trigger failing",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in and sign-up are failing at the new-account security step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in and sign-up are working again at the new-account security step"
+  },
+  {
+   "AlarmName": "a-iep-staging login broken: PreAuthentication trigger failing",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in and sign-up are failing at the pre-sign-in check step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in and sign-up are working again at the pre-sign-in check step"
+  },
+  {
+   "AlarmName": "a-iep-staging login broken: PreSignUp trigger failing",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in and sign-up are failing at the new-account approval step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in and sign-up are working again at the new-account approval step"
+  },
+  {
+   "AlarmName": "a-iep-staging login broken: VerifyAuthChallenge (checks the SMS code) trigger failing",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in and sign-up are failing at the code verification step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in and sign-up are working again at the code verification step"
+  },
+  {
+   "AlarmName": "a-iep-staging login codes are being accepted and then not delivered",
+   "AlarmDescription": "[STAGING] [WARNING] Several sign-in codes were accepted by the provider and never delivered\nImpact: Staging only. No real families are affected.\nFires when: at least 4 undelivered codes in 15 minutes.\nCheck first:\n1. Check whether the failures are all for one country or carrier in the SNS delivery failure log group.\n2. If they are spread out, check the SNS service health.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-codes-are-not-arriving\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging login codes are being emailed to addresses that do not exist",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in codes are being emailed to addresses that do not exist\nImpact: Staging only. No real families are affected.\nFires when: at least 5 bounced emails in 15 minutes.\nCheck first:\n1. Open the SES console and look at the bounced addresses for a pattern.\n2. Follow the abuse steps in the runbook to slow the source.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#email-sending-reputation\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging login codes are being refused: the sending limit is reached",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in codes are refused because the sending limit was reached\nImpact: Staging only. No real families are affected.\nFires when: at least 1 refused code in 5 minutes.\nCheck first:\n1. Open the sign-in code creation logs and search for SMS_BUDGET_EXHAUSTED to see how fast the limit was used.\n2. Decide whether this is abuse (see the runbook) or real demand before changing any limit.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sms-spend-and-the-monthly-cap\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging login codes are not being delivered",
+   "AlarmDescription": "[STAGING] [WARNING] Texting a sign-in code is failing\nImpact: Staging only. No real families are affected.\nFires when: at least 1 failed text in 5 minutes.\nCheck first:\n1. Open the sign-in code creation logs and search for SMS_SEND_FAILED to see the error.\n2. Check AWS SNS for an incident and confirm the SMS spend is under its monthly cap.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-codes-are-not-arriving\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging login codes are not being sent",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in codes are not being sent\nImpact: Staging only. No real families are affected.\nFires when: at least 3 failed code sends in 5 minutes.\nCheck first:\n1. Open the sign-in code sender logs and search for AUTH_DISPATCH_FAILED to see the reason.\n2. Check the SMS and email providers for an incident, and the SMS spend against its monthly cap.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-codes-are-not-arriving\nRecovery: Sign-in codes are being sent again"
+  },
+  {
+   "AlarmName": "a-iep-staging login codes being requested for addresses we may not email",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in codes are being requested for addresses that bounced before\nImpact: Staging only. No real families are affected.\nFires when: at least 10 refused addresses in 5 minutes.\nCheck first:\n1. Open the sign-in code creation logs and search for EMAIL_SUPPRESSED_DESTINATION.\n2. Look for one source repeating many addresses.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#suspected-abuse"
+  },
+  {
+   "AlarmName": "a-iep-staging login codes being requested for numbers we do not serve",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in codes are being requested for phone numbers outside our countries\nImpact: Staging only. No real families are affected.\nFires when: at least 10 refused phone numbers in 5 minutes.\nCheck first:\n1. Open the sign-in code creation logs and search for SMS_REFUSED_DESTINATION to see the country prefixes.\n2. Watch the SMS spend and the \"signup flood\" alert over the next hour.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#suspected-abuse"
+  },
+  {
+   "AlarmName": "a-iep-staging login slow: CreateAuthChallenge (sends the SMS code) trigger nearing Cognito's 5-second limit",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is running slow at the code creation step\nImpact: Staging only. No real families are affected.\nFires when: a step taking 4 seconds or longer.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and look at the slowest requests.\n2. Check whether a service it depends on (DynamoDB, SNS, SES) is slow.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in speed is back to normal at the code creation step"
+  },
+  {
+   "AlarmName": "a-iep-staging login slow: CustomMessage trigger nearing Cognito's 5-second limit",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is running slow at the sign-in message step\nImpact: Staging only. No real families are affected.\nFires when: a step taking 4 seconds or longer.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and look at the slowest requests.\n2. Check whether a service it depends on (DynamoDB, SNS, SES) is slow.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in speed is back to normal at the sign-in message step"
+  },
+  {
+   "AlarmName": "a-iep-staging login slow: DefineAuthChallenge trigger nearing Cognito's 5-second limit",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is running slow at the sign-in flow control step\nImpact: Staging only. No real families are affected.\nFires when: a step taking 4 seconds or longer.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and look at the slowest requests.\n2. Check whether a service it depends on (DynamoDB, SNS, SES) is slow.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in speed is back to normal at the sign-in flow control step"
+  },
+  {
+   "AlarmName": "a-iep-staging login slow: PostConfirmation (secures a new account) trigger nearing Cognito's 5-second limit",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is running slow at the new-account security step\nImpact: Staging only. No real families are affected.\nFires when: a step taking 4 seconds or longer.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and look at the slowest requests.\n2. Check whether a service it depends on (DynamoDB, SNS, SES) is slow.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in speed is back to normal at the new-account security step"
+  },
+  {
+   "AlarmName": "a-iep-staging login slow: PreAuthentication trigger nearing Cognito's 5-second limit",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is running slow at the pre-sign-in check step\nImpact: Staging only. No real families are affected.\nFires when: a step taking 4 seconds or longer.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and look at the slowest requests.\n2. Check whether a service it depends on (DynamoDB, SNS, SES) is slow.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in speed is back to normal at the pre-sign-in check step"
+  },
+  {
+   "AlarmName": "a-iep-staging login slow: PreSignUp trigger nearing Cognito's 5-second limit",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is running slow at the new-account approval step\nImpact: Staging only. No real families are affected.\nFires when: a step taking 4 seconds or longer.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and look at the slowest requests.\n2. Check whether a service it depends on (DynamoDB, SNS, SES) is slow.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in speed is back to normal at the new-account approval step"
+  },
+  {
+   "AlarmName": "a-iep-staging login slow: VerifyAuthChallenge (checks the SMS code) trigger nearing Cognito's 5-second limit",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is running slow at the code verification step\nImpact: Staging only. No real families are affected.\nFires when: a step taking 4 seconds or longer.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and look at the slowest requests.\n2. Check whether a service it depends on (DynamoDB, SNS, SES) is slow.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in speed is back to normal at the code verification step"
+  },
+  {
+   "AlarmName": "a-iep-staging new accounts may be reachable by whoever created them",
+   "AlarmDescription": "[STAGING] [WARNING] A new account could not be secured\nImpact: Staging only. No real families are affected.\nFires when: at least 1 unsecured account in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_ORPHANED to find the account.\n2. Disable or delete that account in Cognito, then find out why the cleanup failed (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging on-demand translations are failing",
+   "AlarmDescription": "[STAGING] [WARNING] \"Translate it now\" requests are failing\nImpact: Staging only. No real families are affected.\nFires when: at least 3 failed translations in 15 minutes.\nCheck first:\n1. Open the on-demand translation state machine in Step Functions and read the error on the failed runs.\n2. Check the AWS Translate service health.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep-staging pending-upload sweep failing to invoke",
+   "AlarmDescription": "[STAGING] [WARNING] The check for stalled uploads cannot start\nImpact: Staging only. No real families are affected.\nFires when: at least 1 failed start in 15 minutes.\nCheck first:\n1. Open the pending-upload sweep schedule in EventBridge and look at its failed invocations.\n2. Check that the sweep function exists and its permissions have not changed since the last deploy.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep-staging pending-upload sweep has stopped running",
+   "AlarmDescription": "[STAGING] [WARNING] The check for stalled uploads has stopped running\nImpact: Staging only. No real families are affected.\nFires when: the 10-minute sweep did not run in 30 minutes.\nCheck first:\n1. Open the pending-upload sweep schedule in EventBridge and confirm the rule is enabled.\n2. Open the sweep function logs and look for errors on its last runs.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep-staging pipeline step failing: delete original",
+   "AlarmDescription": "[STAGING] [WARNING] Uploaded documents are failing at the original-upload deletion step\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this pipeline step (the Logs link below) and read the latest error.\n2. If the step calls an outside provider (Mistral, OpenAI, AWS Comprehend or Translate), check its status page.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep-staging pipeline step failing: finalize results",
+   "AlarmDescription": "[STAGING] [WARNING] Uploaded documents are failing at the final assembly step\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this pipeline step (the Logs link below) and read the latest error.\n2. If the step calls an outside provider (Mistral, OpenAI, AWS Comprehend or Translate), check its status page.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep-staging pipeline step failing: Mistral OCR",
+   "AlarmDescription": "[STAGING] [WARNING] Uploaded documents are failing at the text extraction step\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this pipeline step (the Logs link below) and read the latest error.\n2. If the step calls an outside provider (Mistral, OpenAI, AWS Comprehend or Translate), check its status page.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep-staging pipeline step failing: orchestrator",
+   "AlarmDescription": "[STAGING] [WARNING] Uploaded documents are failing at the pipeline start step\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this pipeline step (the Logs link below) and read the latest error.\n2. If the step calls an outside provider (Mistral, OpenAI, AWS Comprehend or Translate), check its status page.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep-staging pipeline step failing: parsing agent",
+   "AlarmDescription": "[STAGING] [WARNING] Uploaded documents are failing at the summary writing step\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this pipeline step (the Logs link below) and read the latest error.\n2. If the step calls an outside provider (Mistral, OpenAI, AWS Comprehend or Translate), check its status page.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep-staging pipeline step failing: PII redaction",
+   "AlarmDescription": "[STAGING] [WARNING] Uploaded documents are failing at the privacy redaction step\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this pipeline step (the Logs link below) and read the latest error.\n2. If the step calls an outside provider (Mistral, OpenAI, AWS Comprehend or Translate), check its status page.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep-staging pipeline step failing: translation",
+   "AlarmDescription": "[STAGING] [WARNING] Uploaded documents are failing at the translation step\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this pipeline step (the Logs link below) and read the latest error.\n2. If the step calls an outside provider (Mistral, OpenAI, AWS Comprehend or Translate), check its status page.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep-staging sign-in broken: auth send",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is failing at the code sending step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is working again at the code sending step"
+  },
+  {
+   "AlarmName": "a-iep-staging sign-in broken: auth session",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is failing at the session renewal step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is working again at the session renewal step"
+  },
+  {
+   "AlarmName": "a-iep-staging sign-in broken: auth start",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is failing at the sign-in start step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is working again at the sign-in start step"
+  },
+  {
+   "AlarmName": "a-iep-staging sign-in broken: auth verify",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is failing at the code checking step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is working again at the code checking step"
+  },
+  {
+   "AlarmName": "a-iep-staging sign-in throttled: auth send",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is being throttled at the code sending step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and check whether the volume is a flood or real demand.\n2. If it is a flood, see the abuse steps in the runbook; if it is real, raise the reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is no longer being throttled at the code sending step"
+  },
+  {
+   "AlarmName": "a-iep-staging sign-in throttled: auth session",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is being throttled at the session renewal step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and check whether the volume is a flood or real demand.\n2. If it is a flood, see the abuse steps in the runbook; if it is real, raise the reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is no longer being throttled at the session renewal step"
+  },
+  {
+   "AlarmName": "a-iep-staging sign-in throttled: auth start",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is being throttled at the sign-in start step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and check whether the volume is a flood or real demand.\n2. If it is a flood, see the abuse steps in the runbook; if it is real, raise the reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is no longer being throttled at the sign-in start step"
+  },
+  {
+   "AlarmName": "a-iep-staging sign-in throttled: auth verify",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-in is being throttled at the code checking step\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and check whether the volume is a flood or real demand.\n2. If it is a flood, see the abuse steps in the runbook; if it is real, raise the reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is no longer being throttled at the code checking step"
+  },
+  {
+   "AlarmName": "a-iep-staging sign-ins are being refused in bulk",
+   "AlarmDescription": "[STAGING] [WARNING] Many sign-in attempts are being turned away\nImpact: Staging only. No real families are affected.\nFires when: at least 25 refused sign-ins in 5 minutes.\nCheck first:\n1. Open the sign-in start logs and search for AUTH_START_REFUSED to see the reason and whether the requests come from one source.\n2. Ask a parent or test a sign-in yourself to rule out real users being blocked.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#suspected-abuse"
+  },
+  {
+   "AlarmName": "a-iep-staging sign-ups are being refused in bulk",
+   "AlarmDescription": "[STAGING] [WARNING] Many sign-ups are being turned away\nImpact: Staging only. No real families are affected.\nFires when: at least 10 refused sign-ups in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_REFUSED to see the reasons and whether they come from one source.\n2. Test a normal signup yourself to rule out real families being blocked.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#suspected-abuse"
+  },
+  {
+   "AlarmName": "a-iep-staging signup broken: accounts are not being created",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-ups are failing when the account is created\nImpact: Staging only. No real families are affected.\nFires when: at least 3 failed sign-ups in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_FAILED to see the Cognito error.\n2. Check for a recent change to the user pool or the signup function.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Accounts are being created again"
+  },
+  {
+   "AlarmName": "a-iep-staging signup broken: nobody can create an account",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-up is down\nImpact: Staging only. No real families are affected.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the signup function logs and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Sign-up is working again"
+  },
+  {
+   "AlarmName": "a-iep-staging signup flood: someone is abusing the signup form",
+   "AlarmDescription": "[STAGING] [WARNING] A flood of new accounts is being created\nImpact: Staging only. No real families are affected.\nFires when: at least 20 new accounts in 5 minutes.\nCheck first:\n1. Open the signup logs and look at the phone prefixes and timing of the new accounts.\n2. Confirm the bot check is on, then follow the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#suspected-abuse\nRecovery: Account creation is back to a normal rate"
+  },
+  {
+   "AlarmName": "a-iep-staging signup throttled: nobody can create an account",
+   "AlarmDescription": "[STAGING] [WARNING] Sign-up is being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the signup logs and check whether the volume is a flood (see the runbook) or real demand.\n2. If it is real demand, raise the function's reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Sign-up is no longer being throttled"
+  },
+  {
+   "AlarmName": "a-iep-staging someone marked an A-IEP login code as spam",
+   "AlarmDescription": "[STAGING] [WARNING] Someone marked a sign-in email as spam\nImpact: Staging only. No real families are affected.\nFires when: at least 1 spam complaint in 15 minutes.\nCheck first:\n1. Open the SES console and see the complaint details.\n2. Check whether that address was entered on the sign-in form by someone else.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#email-sending-reputation\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep-staging the daily health brief has stopped running",
+   "AlarmDescription": "[STAGING] [INFO] The daily health summary did not go out\nImpact: Staging only. No real families are affected.\nFires when: no daily summary sent in 24 hours.\nCheck first:\n1. Open the daily brief schedule in EventBridge and confirm the rule is enabled.\n2. Open the daily brief function logs and look for errors.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-alerting-itself-is-broken"
+  },
+  {
+   "AlarmName": "a-iep-staging the daily health brief is failing",
+   "AlarmDescription": "[STAGING] [WARNING] The daily health summary failed to send\nImpact: Staging only. No real families are affected.\nFires when: at least 1 failed summary in 1 hour.\nCheck first:\n1. Open the daily brief function logs and read the latest error.\n2. Check that it can still publish to the alert topic.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-alerting-itself-is-broken"
+  },
+  {
+   "AlarmName": "a-iep-staging the do-not-email list is not being maintained",
+   "AlarmDescription": "[STAGING] [WARNING] The do-not-email list is not being updated\nImpact: Staging only. No real families are affected.\nFires when: at least 3 handler errors in 15 minutes.\nCheck first:\n1. Open the bounce handler logs and read the latest error.\n2. Check that the handler is still subscribed to the SES event topic.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#email-sending-reputation"
+  },
+  {
+   "AlarmName": "a-iep-staging the pipeline cannot write to its database",
+   "AlarmDescription": "[STAGING] [WARNING] Document progress is not being saved\nImpact: Staging only. No real families are affected.\nFires when: at least 5 failed database writes in 15 minutes.\nCheck first:\n1. Open the logs for the pipeline database writes function and search for DDB_SERVICE_ERROR to see which write failed.\n2. Check the AWS Health dashboard and the DynamoDB console for a service event or throttling.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep-staging the signup bot check is switched off",
+   "AlarmDescription": "[STAGING] [WARNING] The sign-up bot check is switched off\nImpact: Staging only. No real families are affected.\nFires when: at least 1 unchecked sign-up in 5 minutes.\nCheck first:\n1. Check that the Turnstile secret parameter exists for this environment in Parameter Store.\n2. If it is missing, create it (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing"
+  },
+  {
+   "AlarmName": "a-iep-staging the wrong-code limit is not being enforced",
+   "AlarmDescription": "[STAGING] [WARNING] The limit on wrong sign-in codes is switched off\nImpact: Staging only. No real families are affected.\nFires when: at least 5 missed checks in 5 minutes.\nCheck first:\n1. Open the sign-in verify logs and search for AUTH_VERIFY_COUNTER_UNAVAILABLE.\n2. Check the login rate limiting table for throttling or access errors.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-is-failing-or-slow"
+  },
+  {
+   "AlarmName": "a-iep-staging undelivered login codes are not being counted",
+   "AlarmDescription": "[STAGING] [WARNING] The counter for undelivered sign-in codes is broken\nImpact: Staging only. No real families are affected.\nFires when: at least 1 classifier error in 15 minutes.\nCheck first:\n1. Open the SMS failure classifier logs and read the latest error.\n2. Check that its permissions and the log subscription were not changed by a recent deploy.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-in-codes-are-not-arriving"
+  },
+  {
+   "AlarmName": "a-iep-staging unusual AWS API volume",
+   "AlarmDescription": "[STAGING] [INFO] Something is making unusually many calls to AWS\nImpact: This reads an account-wide signal, so production is affected too.\nFires when: at least 10000 encryption calls in 1 hour.\nCheck first:\n1. Look in CloudTrail for the identity making the most KMS calls in the last hour.\n2. Stop it if it is a script or agent you recognise.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#unusual-aws-api-volume"
+  }
+ ],
+ "production": [
+  {
+   "AlarmName": "a-iep a bounced or complained address was not recorded",
+   "AlarmDescription": "[PROD] [WARNING] A bounced address could not be added to the do-not-email list\nImpact: No parent is affected yet. That address will be emailed again, which is how an email suspension starts.\nFires when: at least 1 unrecorded address in 15 minutes.\nCheck first:\n1. Open the bounce handler logs and search for SES_SUPPRESSION_WRITE_FAILED.\n2. Check the suppression table for throttling or a permissions change.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#email-sending-reputation"
+  },
+  {
+   "AlarmName": "a-iep a document failed to process",
+   "AlarmDescription": "[PROD] [WARNING] A document failed to process\nImpact: The parent who uploaded it sees an error instead of a summary. One unreadable file is common; several in a short time points to a provider outage.\nFires when: at least 1 failed document in 15 minutes.\nCheck first:\n1. Open the logs for the pipeline database writes function and search for RECORD_FAILURE to see which step failed.\n2. If several documents failed, check the status pages for Mistral, OpenAI and AWS Comprehend.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#documents-are-failing-to-process\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep a document kept text we said we would delete",
+   "AlarmDescription": "[PROD] [CRITICAL] Extracted IEP text was not deleted after a summary was made\nImpact: Administrators must act: the family's summary is fine, but the leftover text should not exist and needs removing.\nFires when: at least 1 failed text deletion in 15 minutes.\nCheck first:\n1. Run scripts/audit-residue.py (read-only) to list the documents that still hold the text.\n2. Remove it with scripts/purge-redacted-ocr.py, which does a dry run first.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#student-records-were-not-removed\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep a failed document kept its unredacted copy",
+   "AlarmDescription": "[PROD] [CRITICAL] Unredacted student information was left in storage after a failed document\nImpact: Administrators must act: one family's original upload or raw text should have been deleted and was not. Nothing is visible to parents.\nFires when: at least 1 retained copy in 15 minutes.\nCheck first:\n1. Run scripts/audit-residue.py (read-only) to list what was left behind.\n2. Remove it with scripts/purge-orphaned-artifacts.py, which does a dry run first.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#student-records-were-not-removed\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep a family got English only: a requested translation was left out",
+   "AlarmDescription": "[PROD] [WARNING] A requested translation was left out of a summary\nImpact: One family has the English summary instead of their language. The app offers them \"Translate it now\", but they may not notice.\nFires when: at least 1 skipped translation in 15 minutes.\nCheck first:\n1. Open the translation step logs and search for TRANSLATION_SKIPPED to see which language was affected.\n2. If it repeats for one language, test that language with a synthetic document on staging.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep a parent asked us to delete their records and we did not",
+   "AlarmDescription": "[PROD] [CRITICAL] A deletion request was only partly carried out\nImpact: Administrators must act: a parent asked for a child's documents or profile to be removed, and some of it still exists.\nFires when: at least 1 incomplete deletion in 15 minutes.\nCheck first:\n1. Open the logs for the document delete and user profile functions and search for DELETION_INCOMPLETE to find the user and step.\n2. Remove what is left by hand and confirm it is gone before telling the parent (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#student-records-were-not-removed\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep alerting itself is broken",
+   "AlarmDescription": "[PROD] [CRITICAL] Alerts are not being formatted, so Slack may look quiet\nImpact: Administrators may miss real problems. Alarms still fire in CloudWatch, but their Slack messages are failing.\nFires when: at least 1 formatter error in 5 minutes.\nCheck first:\n1. Open the CloudWatch alarms page and look for any alarms in the ALARM state.\n2. Open the alert formatter logs and read the latest error.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-alerting-itself-is-broken\nRecovery: Alerts are being formatted again"
+  },
+  {
+   "AlarmName": "a-iep alerts are not reaching the formatter",
+   "AlarmDescription": "[PROD] [CRITICAL] Alerts are not being delivered, so Slack may look quiet\nImpact: Administrators may miss real problems. Alarms fire in CloudWatch but never reach Slack.\nFires when: at least 1 failed delivery in 5 minutes.\nCheck first:\n1. Open the CloudWatch alarms page and look for any alarms in the ALARM state.\n2. Check that the alarm topic still has its subscription to the alert formatter function.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-alerting-itself-is-broken\nRecovery: Alerts are being delivered again"
+  },
+  {
+   "AlarmName": "a-iep API handler failing: document delete",
+   "AlarmDescription": "[PROD] [WARNING] Errors in document deletion\nImpact: Parents using document deletion get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler failing: documents list",
+   "AlarmDescription": "[PROD] [WARNING] Errors in the document list\nImpact: Parents using the document list get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler failing: PDF download",
+   "AlarmDescription": "[PROD] [WARNING] Errors in PDF download\nImpact: Parents using PDF download get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler failing: pipeline database writes",
+   "AlarmDescription": "[PROD] [WARNING] Errors in pipeline progress saving\nImpact: Parents using pipeline progress saving get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler failing: referrals",
+   "AlarmDescription": "[PROD] [WARNING] Errors in referrals\nImpact: Parents using referrals get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler failing: translation request",
+   "AlarmDescription": "[PROD] [WARNING] Errors in translation requests\nImpact: Parents using translation requests get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler failing: TTS",
+   "AlarmDescription": "[PROD] [WARNING] Errors in read-aloud audio\nImpact: Parents using read-aloud audio get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler failing: upload",
+   "AlarmDescription": "[PROD] [WARNING] Errors in document upload\nImpact: Parents using document upload get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler failing: user profile",
+   "AlarmDescription": "[PROD] [WARNING] Errors in the account screen\nImpact: Parents using the account screen get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler throttled: document delete",
+   "AlarmDescription": "[PROD] [WARNING] Requests to document deletion are being throttled\nImpact: Parents using document deletion get errors because the function is at its capacity limit, not because of a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler throttled: documents list",
+   "AlarmDescription": "[PROD] [WARNING] Requests to the document list are being throttled\nImpact: Parents using the document list get errors because the function is at its capacity limit, not because of a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler throttled: PDF download",
+   "AlarmDescription": "[PROD] [WARNING] Requests to PDF download are being throttled\nImpact: Parents using PDF download get errors because the function is at its capacity limit, not because of a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler throttled: pipeline database writes",
+   "AlarmDescription": "[PROD] [WARNING] Requests to pipeline progress saving are being throttled\nImpact: Parents using pipeline progress saving get errors because the function is at its capacity limit, not because of a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler throttled: referrals",
+   "AlarmDescription": "[PROD] [WARNING] Requests to referrals are being throttled\nImpact: Parents using referrals get errors because the function is at its capacity limit, not because of a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler throttled: translation request",
+   "AlarmDescription": "[PROD] [WARNING] Requests to translation requests are being throttled\nImpact: Parents using translation requests get errors because the function is at its capacity limit, not because of a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler throttled: TTS",
+   "AlarmDescription": "[PROD] [WARNING] Requests to read-aloud audio are being throttled\nImpact: Parents using read-aloud audio get errors because the function is at its capacity limit, not because of a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler throttled: upload",
+   "AlarmDescription": "[PROD] [WARNING] Requests to document upload are being throttled\nImpact: Parents using document upload get errors because the function is at its capacity limit, not because of a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API handler throttled: user profile",
+   "AlarmDescription": "[PROD] [WARNING] Requests to the account screen are being throttled\nImpact: Parents using the account screen get errors because the function is at its capacity limit, not because of a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+  },
+  {
+   "AlarmName": "a-iep API returning 5xx",
+   "AlarmDescription": "[PROD] [CRITICAL] The app is returning server errors\nImpact: Parents cannot load summaries, save a profile or start an upload.\nFires when: at least 5 server errors in 5 minutes.\nCheck first:\n1. Open the API Gateway access logs and find which route is failing.\n2. Open that route's function logs, or check for a recent deploy that could have caused it.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors\nRecovery: The app has stopped returning server errors"
+  },
+  {
+   "AlarmName": "a-iep AWS is refusing to send A-IEP login emails",
+   "AlarmDescription": "[PROD] [WARNING] AWS is refusing to send some sign-in emails\nImpact: Those parents get no code. Sign-in emails should never be rejected, so this is about what is being sent.\nFires when: at least 1 rejected email in 15 minutes.\nCheck first:\n1. Open the SES console and read the reject reason.\n2. Check the email content and the sending identity have not changed.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#email-sending-reputation\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep document stuck: pipeline execution timed out",
+   "AlarmDescription": "[PROD] [WARNING] A document has been processing for six hours without finishing\nImpact: The parent is still on the processing screen and has no error message.\nFires when: at least 1 timed-out run in 15 minutes.\nCheck first:\n1. Find the timed-out execution in the Step Functions console for the document pipeline and note the step it stopped at.\n2. Mark the document as failed by hand so the parent can retry (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep DynamoDB throttling: IEP documents",
+   "AlarmDescription": "[PROD] [CRITICAL] The IEP documents database is throttling requests\nImpact: Parents see random errors rather than a clean outage.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the table in the DynamoDB console, Monitoring tab, and see which of reads or writes is throttled.\n2. Look for a traffic spike or a runaway script, then see the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#database-throttling\nRecovery: The IEP documents database is no longer throttling"
+  },
+  {
+   "AlarmName": "a-iep DynamoDB throttling: login rate limiting",
+   "AlarmDescription": "[PROD] [CRITICAL] The login rate limiting database is throttling requests\nImpact: Parents see random errors rather than a clean outage.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the table in the DynamoDB console, Monitoring tab, and see which of reads or writes is throttled.\n2. Look for a traffic spike or a runaway script, then see the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#database-throttling\nRecovery: The login rate limiting database is no longer throttling"
+  },
+  {
+   "AlarmName": "a-iep DynamoDB throttling: referrals",
+   "AlarmDescription": "[PROD] [CRITICAL] The referrals database is throttling requests\nImpact: Parents see random errors rather than a clean outage.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the table in the DynamoDB console, Monitoring tab, and see which of reads or writes is throttled.\n2. Look for a traffic spike or a runaway script, then see the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#database-throttling\nRecovery: The referrals database is no longer throttling"
+  },
+  {
+   "AlarmName": "a-iep DynamoDB throttling: sign-in sessions",
+   "AlarmDescription": "[PROD] [CRITICAL] The sign-in sessions database is throttling requests\nImpact: Parents see random errors rather than a clean outage.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the table in the DynamoDB console, Monitoring tab, and see which of reads or writes is throttled.\n2. Look for a traffic spike or a runaway script, then see the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#database-throttling\nRecovery: The sign-in sessions database is no longer throttling"
+  },
+  {
+   "AlarmName": "a-iep DynamoDB throttling: user profiles",
+   "AlarmDescription": "[PROD] [CRITICAL] The user profiles database is throttling requests\nImpact: Parents see random errors rather than a clean outage.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the table in the DynamoDB console, Monitoring tab, and see which of reads or writes is throttled.\n2. Look for a traffic spike or a runaway script, then see the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#database-throttling\nRecovery: The user profiles database is no longer throttling"
+  },
+  {
+   "AlarmName": "a-iep email bounce rate is climbing",
+   "AlarmDescription": "[PROD] [WARNING] Many sign-in emails are bouncing\nImpact: No one yet. At 5% AWS puts the account under review; this fires at 2%, while there is room to act.\nFires when: a bounce rate of 2% or more.\nCheck first:\n1. Open the SES console reputation page and see which messages bounced.\n2. Check the do-not-email list is being updated, and look for abuse (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#email-sending-reputation"
+  },
+  {
+   "AlarmName": "a-iep email bounce rate near the limit AWS suspends accounts over",
+   "AlarmDescription": "[PROD] [CRITICAL] The email bounce rate is close to the suspension limit\nImpact: If AWS suspends email sending, no parent can sign in by email, and getting it back means an appeal to AWS.\nFires when: a bounce rate of 3.5% or more.\nCheck first:\n1. Open the SES console reputation page and see which messages bounced.\n2. Pause or tighten email sign-in if the cause is abuse (see the runbook), and open an AWS Support case early.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#email-sending-reputation\nRecovery: The email bounce rate has dropped"
+  },
+  {
+   "AlarmName": "a-iep email complaint rate is climbing",
+   "AlarmDescription": "[PROD] [WARNING] People are marking sign-in emails as spam\nImpact: No one yet. Someone is receiving codes they did not ask for. At 0.1% AWS puts the account under review.\nFires when: a spam complaint rate of 0.05% or more.\nCheck first:\n1. Open the SES console reputation page and see the complaint rate.\n2. Look for abuse sending codes to addresses that did not ask for them (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#email-sending-reputation"
+  },
+  {
+   "AlarmName": "a-iep email complaint rate near the limit AWS suspends accounts over",
+   "AlarmDescription": "[PROD] [CRITICAL] The spam complaint rate is close to the suspension limit\nImpact: If AWS suspends email sending, no parent can sign in by email, and getting it back means an appeal to AWS.\nFires when: a spam complaint rate of 0.08% or more.\nCheck first:\n1. Open the SES console reputation page and see the complaint rate.\n2. Stop the source of the complaints (see the runbook) and open an AWS Support case early.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#email-sending-reputation\nRecovery: The spam complaint rate has dropped"
+  },
+  {
+   "AlarmName": "a-iep email login codes are arriving late",
+   "AlarmDescription": "[PROD] [INFO] Sign-in emails are being delivered late\nImpact: Parents wait on an empty inbox and may ask for another code. The code usually still arrives.\nFires when: at least 3 delayed emails in 15 minutes.\nCheck first:\n1. Open the SES console and see which receiving providers are delaying delivery.\n2. No action is needed unless it continues for hours.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#email-sending-reputation\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep email login codes are being refused: the sending limit is reached",
+   "AlarmDescription": "[PROD] [CRITICAL] Email sign-in codes are refused because the sending limit was reached\nImpact: Parents who sign in by email are turned away. The service-wide limit on emailed codes has been used up.\nFires when: at least 1 refused email in 5 minutes.\nCheck first:\n1. Open the sign-in code creation logs and search for EMAIL_BUDGET_EXHAUSTED to see how fast it was used.\n2. Decide whether this is abuse (see the runbook) or real demand.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-codes-are-not-arriving\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep email login codes are not being delivered",
+   "AlarmDescription": "[PROD] [CRITICAL] Emailing a sign-in code is failing\nImpact: Parents who sign in by email get no code and cannot get in.\nFires when: at least 1 failed email in 5 minutes.\nCheck first:\n1. Open the sign-in code creation logs and search for EMAIL_SEND_FAILED to see the error.\n2. Check the SES console for a sending pause, and the AWS Health dashboard.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-codes-are-not-arriving\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep email sign-in is refusing everyone: the do-not-email check is down",
+   "AlarmDescription": "[PROD] [CRITICAL] Email sign-in is refusing everyone\nImpact: Parents who sign in by email get no code, because the do-not-email list cannot be read.\nFires when: at least 1 failed list check in 5 minutes.\nCheck first:\n1. Open the sign-in code creation logs and search for EMAIL_SUPPRESSION_UNAVAILABLE.\n2. Check the email suppression table for throttling or a permissions change.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-codes-are-not-arriving\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep login broken: CreateAuthChallenge (sends the SMS code) trigger failing",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in and sign-up are failing at the code creation step\nImpact: Parents cannot sign in or create an account.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in and sign-up are working again at the code creation step"
+  },
+  {
+   "AlarmName": "a-iep login broken: CustomMessage trigger failing",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in and sign-up are failing at the sign-in message step\nImpact: Parents cannot sign in or create an account.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in and sign-up are working again at the sign-in message step"
+  },
+  {
+   "AlarmName": "a-iep login broken: DefineAuthChallenge trigger failing",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in and sign-up are failing at the sign-in flow control step\nImpact: Parents cannot sign in or create an account.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in and sign-up are working again at the sign-in flow control step"
+  },
+  {
+   "AlarmName": "a-iep login broken: PostConfirmation (secures a new account) trigger failing",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in and sign-up are failing at the new-account security step\nImpact: Parents cannot sign in or create an account.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in and sign-up are working again at the new-account security step"
+  },
+  {
+   "AlarmName": "a-iep login broken: PreAuthentication trigger failing",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in and sign-up are failing at the pre-sign-in check step\nImpact: Parents cannot sign in or create an account.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in and sign-up are working again at the pre-sign-in check step"
+  },
+  {
+   "AlarmName": "a-iep login broken: PreSignUp trigger failing",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in and sign-up are failing at the new-account approval step\nImpact: Parents cannot sign in or create an account.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in and sign-up are working again at the new-account approval step"
+  },
+  {
+   "AlarmName": "a-iep login broken: VerifyAuthChallenge (checks the SMS code) trigger failing",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in and sign-up are failing at the code verification step\nImpact: Parents cannot sign in or create an account.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in and sign-up are working again at the code verification step"
+  },
+  {
+   "AlarmName": "a-iep login codes are being accepted and then not delivered",
+   "AlarmDescription": "[PROD] [WARNING] Several sign-in codes were accepted by the provider and never delivered\nImpact: Those parents got no code. A few a day is normal (landlines, dead phones); this is more.\nFires when: at least 4 undelivered codes in 15 minutes.\nCheck first:\n1. Check whether the failures are all for one country or carrier in the SNS delivery failure log group.\n2. If they are spread out, check the SNS service health.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-codes-are-not-arriving\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep login codes are being emailed to addresses that do not exist",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in codes are being emailed to addresses that do not exist\nImpact: No parent is affected yet. This is what someone feeding invented addresses to the sign-in form looks like, and it ends in AWS suspending email.\nFires when: at least 5 bounced emails in 15 minutes.\nCheck first:\n1. Open the SES console and look at the bounced addresses for a pattern.\n2. Follow the abuse steps in the runbook to slow the source.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#email-sending-reputation\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep login codes are being refused: the sending limit is reached",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in codes are refused because the sending limit was reached\nImpact: Parents are turned away at sign-in. The service-wide limit on texted codes has been used up.\nFires when: at least 1 refused code in 5 minutes.\nCheck first:\n1. Open the sign-in code creation logs and search for SMS_BUDGET_EXHAUSTED to see how fast the limit was used.\n2. Decide whether this is abuse (see the runbook) or real demand before changing any limit.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sms-spend-and-the-monthly-cap\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep login codes are not being delivered",
+   "AlarmDescription": "[PROD] [CRITICAL] Texting a sign-in code is failing\nImpact: Parents who sign in by phone get no code and cannot get in.\nFires when: at least 1 failed text in 5 minutes.\nCheck first:\n1. Open the sign-in code creation logs and search for SMS_SEND_FAILED to see the error.\n2. Check AWS SNS for an incident and confirm the SMS spend is under its monthly cap.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-codes-are-not-arriving\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep login codes are not being sent",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in codes are not being sent\nImpact: Parents ask for a sign-in code, none arrives, and they cannot get into the app.\nFires when: at least 3 failed code sends in 5 minutes.\nCheck first:\n1. Open the sign-in code sender logs and search for AUTH_DISPATCH_FAILED to see the reason.\n2. Check the SMS and email providers for an incident, and the SMS spend against its monthly cap.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-codes-are-not-arriving\nRecovery: Sign-in codes are being sent again"
+  },
+  {
+   "AlarmName": "a-iep login codes being requested for addresses we may not email",
+   "AlarmDescription": "[PROD] [WARNING] Sign-in codes are being requested for addresses that bounced before\nImpact: No one is affected, because no email is sent to them. This is what an attacker replaying old addresses looks like.\nFires when: at least 10 refused addresses in 5 minutes.\nCheck first:\n1. Open the sign-in code creation logs and search for EMAIL_SUPPRESSED_DESTINATION.\n2. Look for one source repeating many addresses.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#suspected-abuse"
+  },
+  {
+   "AlarmName": "a-iep login codes being requested for numbers we do not serve",
+   "AlarmDescription": "[PROD] [WARNING] Sign-in codes are being requested for phone numbers outside our countries\nImpact: No money is spent and no parent is affected. This is what an SMS abuse run looks like when it starts.\nFires when: at least 10 refused phone numbers in 5 minutes.\nCheck first:\n1. Open the sign-in code creation logs and search for SMS_REFUSED_DESTINATION to see the country prefixes.\n2. Watch the SMS spend and the \"signup flood\" alert over the next hour.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#suspected-abuse"
+  },
+  {
+   "AlarmName": "a-iep login slow: CreateAuthChallenge (sends the SMS code) trigger nearing Cognito's 5-second limit",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is running slow at the code creation step\nImpact: Cognito gives up on a sign-in step after 5 seconds, so parents may be turned away even though no error shows.\nFires when: a step taking 4 seconds or longer.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and look at the slowest requests.\n2. Check whether a service it depends on (DynamoDB, SNS, SES) is slow.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in speed is back to normal at the code creation step"
+  },
+  {
+   "AlarmName": "a-iep login slow: CustomMessage trigger nearing Cognito's 5-second limit",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is running slow at the sign-in message step\nImpact: Cognito gives up on a sign-in step after 5 seconds, so parents may be turned away even though no error shows.\nFires when: a step taking 4 seconds or longer.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and look at the slowest requests.\n2. Check whether a service it depends on (DynamoDB, SNS, SES) is slow.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in speed is back to normal at the sign-in message step"
+  },
+  {
+   "AlarmName": "a-iep login slow: DefineAuthChallenge trigger nearing Cognito's 5-second limit",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is running slow at the sign-in flow control step\nImpact: Cognito gives up on a sign-in step after 5 seconds, so parents may be turned away even though no error shows.\nFires when: a step taking 4 seconds or longer.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and look at the slowest requests.\n2. Check whether a service it depends on (DynamoDB, SNS, SES) is slow.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in speed is back to normal at the sign-in flow control step"
+  },
+  {
+   "AlarmName": "a-iep login slow: PostConfirmation (secures a new account) trigger nearing Cognito's 5-second limit",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is running slow at the new-account security step\nImpact: Cognito gives up on a sign-in step after 5 seconds, so parents may be turned away even though no error shows.\nFires when: a step taking 4 seconds or longer.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and look at the slowest requests.\n2. Check whether a service it depends on (DynamoDB, SNS, SES) is slow.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in speed is back to normal at the new-account security step"
+  },
+  {
+   "AlarmName": "a-iep login slow: PreAuthentication trigger nearing Cognito's 5-second limit",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is running slow at the pre-sign-in check step\nImpact: Cognito gives up on a sign-in step after 5 seconds, so parents may be turned away even though no error shows.\nFires when: a step taking 4 seconds or longer.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and look at the slowest requests.\n2. Check whether a service it depends on (DynamoDB, SNS, SES) is slow.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in speed is back to normal at the pre-sign-in check step"
+  },
+  {
+   "AlarmName": "a-iep login slow: PreSignUp trigger nearing Cognito's 5-second limit",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is running slow at the new-account approval step\nImpact: Cognito gives up on a sign-in step after 5 seconds, so parents may be turned away even though no error shows.\nFires when: a step taking 4 seconds or longer.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and look at the slowest requests.\n2. Check whether a service it depends on (DynamoDB, SNS, SES) is slow.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in speed is back to normal at the new-account approval step"
+  },
+  {
+   "AlarmName": "a-iep login slow: VerifyAuthChallenge (checks the SMS code) trigger nearing Cognito's 5-second limit",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is running slow at the code verification step\nImpact: Cognito gives up on a sign-in step after 5 seconds, so parents may be turned away even though no error shows.\nFires when: a step taking 4 seconds or longer.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and look at the slowest requests.\n2. Check whether a service it depends on (DynamoDB, SNS, SES) is slow.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in speed is back to normal at the code verification step"
+  },
+  {
+   "AlarmName": "a-iep new accounts may be reachable by whoever created them",
+   "AlarmDescription": "[PROD] [CRITICAL] A new account could not be secured\nImpact: Administrators must act: an account was created but could not be locked down, and removing it also failed. Treat accounts created now as untrusted until it is cleared.\nFires when: at least 1 unsecured account in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_ORPHANED to find the account.\n2. Disable or delete that account in Cognito, then find out why the cleanup failed (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep on-demand translations are failing",
+   "AlarmDescription": "[PROD] [WARNING] \"Translate it now\" requests are failing\nImpact: Parents who ask for a translation wait on a page and nothing arrives.\nFires when: at least 3 failed translations in 15 minutes.\nCheck first:\n1. Open the on-demand translation state machine in Step Functions and read the error on the failed runs.\n2. Check the AWS Translate service health.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep pending-upload sweep failing to invoke",
+   "AlarmDescription": "[PROD] [WARNING] The check for stalled uploads cannot start\nImpact: Parents whose upload stalls will sit on the processing screen with no error.\nFires when: at least 1 failed start in 15 minutes.\nCheck first:\n1. Open the pending-upload sweep schedule in EventBridge and look at its failed invocations.\n2. Check that the sweep function exists and its permissions have not changed since the last deploy.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep pending-upload sweep has stopped running",
+   "AlarmDescription": "[PROD] [WARNING] The check for stalled uploads has stopped running\nImpact: Parents whose upload stalls will sit on the processing screen with no error.\nFires when: the 10-minute sweep did not run in 30 minutes.\nCheck first:\n1. Open the pending-upload sweep schedule in EventBridge and confirm the rule is enabled.\n2. Open the sweep function logs and look for errors on its last runs.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep pipeline step failing: delete original",
+   "AlarmDescription": "[PROD] [WARNING] Uploaded documents are failing at the original-upload deletion step\nImpact: Parents who upload an IEP see an error instead of a summary, for every document that reaches this step.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this pipeline step (the Logs link below) and read the latest error.\n2. If the step calls an outside provider (Mistral, OpenAI, AWS Comprehend or Translate), check its status page.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep pipeline step failing: finalize results",
+   "AlarmDescription": "[PROD] [WARNING] Uploaded documents are failing at the final assembly step\nImpact: Parents who upload an IEP see an error instead of a summary, for every document that reaches this step.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this pipeline step (the Logs link below) and read the latest error.\n2. If the step calls an outside provider (Mistral, OpenAI, AWS Comprehend or Translate), check its status page.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep pipeline step failing: Mistral OCR",
+   "AlarmDescription": "[PROD] [WARNING] Uploaded documents are failing at the text extraction step\nImpact: Parents who upload an IEP see an error instead of a summary, for every document that reaches this step.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this pipeline step (the Logs link below) and read the latest error.\n2. If the step calls an outside provider (Mistral, OpenAI, AWS Comprehend or Translate), check its status page.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep pipeline step failing: orchestrator",
+   "AlarmDescription": "[PROD] [WARNING] Uploaded documents are failing at the pipeline start step\nImpact: Parents who upload an IEP see an error instead of a summary, for every document that reaches this step.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this pipeline step (the Logs link below) and read the latest error.\n2. If the step calls an outside provider (Mistral, OpenAI, AWS Comprehend or Translate), check its status page.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep pipeline step failing: parsing agent",
+   "AlarmDescription": "[PROD] [WARNING] Uploaded documents are failing at the summary writing step\nImpact: Parents who upload an IEP see an error instead of a summary, for every document that reaches this step.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this pipeline step (the Logs link below) and read the latest error.\n2. If the step calls an outside provider (Mistral, OpenAI, AWS Comprehend or Translate), check its status page.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep pipeline step failing: PII redaction",
+   "AlarmDescription": "[PROD] [WARNING] Uploaded documents are failing at the privacy redaction step\nImpact: Parents who upload an IEP see an error instead of a summary, for every document that reaches this step.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this pipeline step (the Logs link below) and read the latest error.\n2. If the step calls an outside provider (Mistral, OpenAI, AWS Comprehend or Translate), check its status page.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep pipeline step failing: translation",
+   "AlarmDescription": "[PROD] [WARNING] Uploaded documents are failing at the translation step\nImpact: Parents who upload an IEP see an error instead of a summary, for every document that reaches this step.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this pipeline step (the Logs link below) and read the latest error.\n2. If the step calls an outside provider (Mistral, OpenAI, AWS Comprehend or Translate), check its status page.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep sign-in broken: auth send",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is failing at the code sending step\nImpact: Parents cannot get into the app, and the ones already in will be signed out within an hour.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is working again at the code sending step"
+  },
+  {
+   "AlarmName": "a-iep sign-in broken: auth session",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is failing at the session renewal step\nImpact: Parents cannot get into the app, and the ones already in will be signed out within an hour.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is working again at the session renewal step"
+  },
+  {
+   "AlarmName": "a-iep sign-in broken: auth start",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is failing at the sign-in start step\nImpact: Parents cannot get into the app, and the ones already in will be signed out within an hour.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is working again at the sign-in start step"
+  },
+  {
+   "AlarmName": "a-iep sign-in broken: auth verify",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is failing at the code checking step\nImpact: Parents cannot get into the app, and the ones already in will be signed out within an hour.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the logs for this sign-in step (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is working again at the code checking step"
+  },
+  {
+   "AlarmName": "a-iep sign-in throttled: auth send",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is being throttled at the code sending step\nImpact: Parents are refused before any of our code runs, because this step is at its concurrency cap. This is capacity, not a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and check whether the volume is a flood or real demand.\n2. If it is a flood, see the abuse steps in the runbook; if it is real, raise the reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is no longer being throttled at the code sending step"
+  },
+  {
+   "AlarmName": "a-iep sign-in throttled: auth session",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is being throttled at the session renewal step\nImpact: Parents are refused before any of our code runs, because this step is at its concurrency cap. This is capacity, not a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and check whether the volume is a flood or real demand.\n2. If it is a flood, see the abuse steps in the runbook; if it is real, raise the reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is no longer being throttled at the session renewal step"
+  },
+  {
+   "AlarmName": "a-iep sign-in throttled: auth start",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is being throttled at the sign-in start step\nImpact: Parents are refused before any of our code runs, because this step is at its concurrency cap. This is capacity, not a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and check whether the volume is a flood or real demand.\n2. If it is a flood, see the abuse steps in the runbook; if it is real, raise the reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is no longer being throttled at the sign-in start step"
+  },
+  {
+   "AlarmName": "a-iep sign-in throttled: auth verify",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-in is being throttled at the code checking step\nImpact: Parents are refused before any of our code runs, because this step is at its concurrency cap. This is capacity, not a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and check whether the volume is a flood or real demand.\n2. If it is a flood, see the abuse steps in the runbook; if it is real, raise the reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow\nRecovery: Sign-in is no longer being throttled at the code checking step"
+  },
+  {
+   "AlarmName": "a-iep sign-ins are being refused in bulk",
+   "AlarmDescription": "[PROD] [WARNING] Many sign-in attempts are being turned away\nImpact: Either someone is attacking sign-in and our limits are holding, or the limits are too tight and real parents are locked out.\nFires when: at least 25 refused sign-ins in 5 minutes.\nCheck first:\n1. Open the sign-in start logs and search for AUTH_START_REFUSED to see the reason and whether the requests come from one source.\n2. Ask a parent or test a sign-in yourself to rule out real users being blocked.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#suspected-abuse"
+  },
+  {
+   "AlarmName": "a-iep sign-ups are being refused in bulk",
+   "AlarmDescription": "[PROD] [WARNING] Many sign-ups are being turned away\nImpact: Either an abuse run is under way and the limits are holding, or the limits are too tight and real families cannot join.\nFires when: at least 10 refused sign-ups in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_REFUSED to see the reasons and whether they come from one source.\n2. Test a normal signup yourself to rule out real families being blocked.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#suspected-abuse"
+  },
+  {
+   "AlarmName": "a-iep signup broken: accounts are not being created",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-ups are failing when the account is created\nImpact: Families fill in the form and are told it did not work.\nFires when: at least 3 failed sign-ups in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_FAILED to see the Cognito error.\n2. Check for a recent change to the user pool or the signup function.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Accounts are being created again"
+  },
+  {
+   "AlarmName": "a-iep signup broken: nobody can create an account",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-up is down\nImpact: No new family can create an account. This is the only way to join.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the signup function logs and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Sign-up is working again"
+  },
+  {
+   "AlarmName": "a-iep signup flood: someone is abusing the signup form",
+   "AlarmDescription": "[PROD] [CRITICAL] A flood of new accounts is being created\nImpact: No one yet. Each account sends a text, so this burns the monthly SMS budget and can leave parents without sign-in codes.\nFires when: at least 20 new accounts in 5 minutes.\nCheck first:\n1. Open the signup logs and look at the phone prefixes and timing of the new accounts.\n2. Confirm the bot check is on, then follow the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#suspected-abuse\nRecovery: Account creation is back to a normal rate"
+  },
+  {
+   "AlarmName": "a-iep signup throttled: nobody can create an account",
+   "AlarmDescription": "[PROD] [CRITICAL] Sign-up is being throttled\nImpact: New families are turned away because the signup function is at its capacity limit.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the signup logs and check whether the volume is a flood (see the runbook) or real demand.\n2. If it is real demand, raise the function's reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Sign-up is no longer being throttled"
+  },
+  {
+   "AlarmName": "a-iep SMS spend is climbing fast: an abuse run may be under way",
+   "AlarmDescription": "[PROD] [CRITICAL] SMS spending is climbing unusually fast\nImpact: No one yet. If it continues, the monthly cap is hit and no parent can receive a sign-in code.\nFires when: SMS spend above $2 an hour.\nCheck first:\n1. Open the sign-in code creation logs and look at the destinations and signup volume for the last hour.\n2. If it is abuse, tighten the signup limits before the cap is reached (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sms-spend-and-the-monthly-cap\nRecovery: SMS spending is back to a normal rate"
+  },
+  {
+   "AlarmName": "a-iep SMS spend is past 80% of the monthly cap",
+   "AlarmDescription": "[PROD] [WARNING] SMS spending is close to the monthly cap\nImpact: No one yet. At the cap, no parent can receive a sign-in code until the month rolls over.\nFires when: month-to-date SMS spend above $48.\nCheck first:\n1. Check whether this month's signups explain the spend, or whether it is abuse (see the runbook).\n2. Decide whether to raise the SNS monthly spend limit before the cap is hit.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sms-spend-and-the-monthly-cap"
+  },
+  {
+   "AlarmName": "a-iep someone marked an A-IEP login code as spam",
+   "AlarmDescription": "[PROD] [WARNING] Someone marked a sign-in email as spam\nImpact: No one is locked out. A code reached someone who did not ask for it. AWS allows about one complaint per thousand emails.\nFires when: at least 1 spam complaint in 15 minutes.\nCheck first:\n1. Open the SES console and see the complaint details.\n2. Check whether that address was entered on the sign-in form by someone else.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#email-sending-reputation\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep the daily health brief has stopped running",
+   "AlarmDescription": "[PROD] [INFO] The daily health summary did not go out\nImpact: No one is affected, but a quiet channel no longer means everything is fine.\nFires when: no daily summary sent in 24 hours.\nCheck first:\n1. Open the daily brief schedule in EventBridge and confirm the rule is enabled.\n2. Open the daily brief function logs and look for errors.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-alerting-itself-is-broken"
+  },
+  {
+   "AlarmName": "a-iep the daily health brief is failing",
+   "AlarmDescription": "[PROD] [WARNING] The daily health summary failed to send\nImpact: No one is affected, but a quiet channel no longer means everything is fine.\nFires when: at least 1 failed summary in 1 hour.\nCheck first:\n1. Open the daily brief function logs and read the latest error.\n2. Check that it can still publish to the alert topic.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-alerting-itself-is-broken"
+  },
+  {
+   "AlarmName": "a-iep the do-not-email list is not being maintained",
+   "AlarmDescription": "[PROD] [WARNING] The do-not-email list is not being updated\nImpact: No parent is affected yet. Addresses that bounced or complained will be emailed again, and the account is heading for an AWS review.\nFires when: at least 3 handler errors in 15 minutes.\nCheck first:\n1. Open the bounce handler logs and read the latest error.\n2. Check that the handler is still subscribed to the SES event topic.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#email-sending-reputation"
+  },
+  {
+   "AlarmName": "a-iep the monthly SMS cap is reached and login codes are being binned",
+   "AlarmDescription": "[PROD] [CRITICAL] The monthly SMS spending cap has been reached\nImpact: No parent in either environment can receive a sign-in code by text until the limit is raised or the month rolls over.\nFires when: at least 1 dropped text in 15 minutes.\nCheck first:\n1. Check for signup abuse first (see the runbook), because raising the cap during an attack pays for the attack.\n2. If the traffic is real, raise the SNS monthly spend limit and update SMS_MONTHLY_LIMIT_USD in monitoring.ts.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sms-spend-and-the-monthly-cap\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep the pipeline cannot write to its database",
+   "AlarmDescription": "[PROD] [WARNING] Document progress is not being saved\nImpact: Parents may see a progress bar that never moves, or an upload that never reports what went wrong.\nFires when: at least 5 failed database writes in 15 minutes.\nCheck first:\n1. Open the logs for the pipeline database writes function and search for DDB_SERVICE_ERROR to see which write failed.\n2. Check the AWS Health dashboard and the DynamoDB console for a service event or throttling.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#documents-are-failing-to-process"
+  },
+  {
+   "AlarmName": "a-iep the signup bot check is switched off",
+   "AlarmDescription": "[PROD] [WARNING] The sign-up bot check is switched off\nImpact: Sign-ups still work, but the defence against scripts is missing. The rate limits still apply.\nFires when: at least 1 unchecked sign-up in 5 minutes.\nCheck first:\n1. Check that the Turnstile secret parameter exists for this environment in Parameter Store.\n2. If it is missing, create it (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing"
+  },
+  {
+   "AlarmName": "a-iep the SMS provider is rejecting login codes",
+   "AlarmDescription": "[PROD] [CRITICAL] The SMS provider is rejecting sign-in codes\nImpact: Parents who sign in by phone are told a code is coming and none arrives, in both prod and staging. Often this is the monthly spend cap.\nFires when: at least 1 rejected text in 15 minutes.\nCheck first:\n1. Check the SMS spend against the monthly cap in the SNS console.\n2. Open the SNS delivery failure log group and read the provider response on the latest failures.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sms-spend-and-the-monthly-cap\nRecovery: quiet"
+  },
+  {
+   "AlarmName": "a-iep the wrong-code limit is not being enforced",
+   "AlarmDescription": "[PROD] [WARNING] The limit on wrong sign-in codes is switched off\nImpact: Parents can still sign in. Repeated wrong guesses are limited only by Cognito's own three tries per code.\nFires when: at least 5 missed checks in 5 minutes.\nCheck first:\n1. Open the sign-in verify logs and search for AUTH_VERIFY_COUNTER_UNAVAILABLE.\n2. Check the login rate limiting table for throttling or access errors.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-is-failing-or-slow"
+  },
+  {
+   "AlarmName": "a-iep undelivered login codes are not being counted",
+   "AlarmDescription": "[PROD] [WARNING] The counter for undelivered sign-in codes is broken\nImpact: No one yet. The alert for undelivered codes cannot fire until this is fixed.\nFires when: at least 1 classifier error in 15 minutes.\nCheck first:\n1. Open the SMS failure classifier logs and read the latest error.\n2. Check that its permissions and the log subscription were not changed by a recent deploy.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-in-codes-are-not-arriving"
+  },
+  {
+   "AlarmName": "a-iep unusual AWS API volume",
+   "AlarmDescription": "[PROD] [INFO] Something is making unusually many calls to AWS\nImpact: No one. It is usually a script or an automated agent left running.\nFires when: at least 10000 encryption calls in 1 hour.\nCheck first:\n1. Look in CloudTrail for the identity making the most KMS calls in the last hour.\n2. Stop it if it is a script or agent you recognise.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#unusual-aws-api-volume"
+  }
+ ]
+}
