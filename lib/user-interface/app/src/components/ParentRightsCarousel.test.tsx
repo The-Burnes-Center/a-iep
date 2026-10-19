@@ -470,6 +470,8 @@ describe("the processing screen's own slides", () => {
         sectionHint={t("carousel.section.hint")}
         progressDocument={{ status: "PROCESSING", progress: 22, current_step: "cleanup_complete" }}
         progressStepLabel={t("summary.processing.step.summarizing")}
+        pollingStopped={false}
+        onCheckAgain={() => undefined}
       />,
     );
 

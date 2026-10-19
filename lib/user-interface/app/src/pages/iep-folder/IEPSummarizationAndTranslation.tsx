@@ -509,7 +509,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     }
   };
 
-    useDocumentFetch({
+    const { pollingStopped, checkAgain } = useDocumentFetch({
     translationsLoaded,
     document,
     initialLoading,
@@ -1068,6 +1068,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         // lands where they left instead of watching the bar restart.
         progressDocument={document}
         progressStepLabel={t(processingStepKey(document))}
+        pollingStopped={pollingStopped}
+        onCheckAgain={checkAgain}
       />
     );
   }

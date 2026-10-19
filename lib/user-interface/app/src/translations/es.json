@@ -101,6 +101,7 @@
     "summary.processing.title": "El documento está siendo procesado",
     "summary.processing.message": "Esto puede tomar unos minutos. Mientras tanto, eche un vistazo a sus derechos como padre:",
     "summary.processing.hangTight": "¡Espera un momento! Estamos procesando el documento . . .",
+    "summary.processing.stalled": "Esto está tardando más de lo normal. Por ahora hemos dejado de revisarlo. Intenta de nuevo para revisar tu documento.",
     "summary.processing.step.reading": "Estamos leyendo su documento",
     "summary.processing.step.protecting": "Estamos quitando la información personal",
     "summary.processing.step.summarizing": "Estamos escribiendo su resumen en lenguaje sencillo",

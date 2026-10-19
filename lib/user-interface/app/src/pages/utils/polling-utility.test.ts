@@ -10,6 +10,7 @@ import type { IEPDocument } from '../../common/types';
 import {
   FAST_POLL_INTERVAL_MS,
   FAST_POLL_WINDOW_MS,
+  MAX_VISIBLE_POLL_MS,
   PollingManager,
   PollingSession,
   SLOW_POLL_INTERVAL_MS,
@@ -29,7 +30,13 @@ const setVisibility = (state: 'visible' | 'hidden') => {
 const setup = () => {
   const intervalRef = { current: null } as MutableRefObject<NodeJS.Timeout | null>;
   const sessionRef = {
-    current: { startedAt: null, onVisible: null },
+    current: {
+      startedAt: null,
+      onVisible: null,
+      visibleMs: 0,
+      visibleSince: null,
+      capReached: false,
+    },
   } as MutableRefObject<PollingSession>;
   const manager = new PollingManager(intervalRef, sessionRef);
   return { manager, intervalRef, sessionRef };
@@ -207,5 +214,111 @@ describe('PollingManager', () => {
     // stopPolling runs on every refetch; the run is still going, so the start
     // time survives it. Only a status that stops polling ends the run.
     expect(sessionRef.current.startedAt).not.toBeNull();
+  });
+});
+
+describe('visible polling cap', () => {
+  const MINUTE_MS = 60 * 1000;
+
+  test('stops polling once the visible budget is spent, and reports it once', () => {
+    const { manager } = setup();
+    const onCapReached = vi.fn();
+    const pollTimes: number[] = [];
+    // The consumer restarts the timer after each fetch lands, as the hook does.
+    const onPoll = (): void => {
+      pollTimes.push(Date.now());
+      manager.startPollingIfProcessing(PROCESSING, onPoll, false, onCapReached);
+    };
+
+    const started = Date.now();
+    manager.startPollingIfProcessing(PROCESSING, onPoll, false, onCapReached);
+    vi.advanceTimersByTime(MAX_VISIBLE_POLL_MS + SLOW_POLL_INTERVAL_MS * 4);
+
+    expect(onCapReached).toHaveBeenCalledTimes(1);
+    expect(pollTimes.length).toBeGreaterThan(0);
+    expect(pollTimes[pollTimes.length - 1] - started).toBeLessThan(MAX_VISIBLE_POLL_MS);
+
+    const pollsAtCap = pollTimes.length;
+    vi.advanceTimersByTime(SLOW_POLL_INTERVAL_MS * 10);
+    expect(pollTimes.length).toBe(pollsAtCap);
+    expect(onCapReached).toHaveBeenCalledTimes(1);
+  });
+
+  test('the cap is 15 minutes', () => {
+    expect(MAX_VISIBLE_POLL_MS).toBe(15 * MINUTE_MS);
+  });
+
+  test('hidden time does not count toward the cap', () => {
+    const { manager } = setup();
+    const onCapReached = vi.fn();
+    const onPoll = (): void => {
+      manager.startPollingIfProcessing(PROCESSING, onPoll, false, onCapReached);
+    };
+
+    manager.startPollingIfProcessing(PROCESSING, onPoll, false, onCapReached);
+    vi.advanceTimersByTime(10 * MINUTE_MS);
+    setVisibility('hidden');
+    vi.advanceTimersByTime(30 * MINUTE_MS);
+    setVisibility('visible');
+    // Ten visible minutes so far, plus four more after the resume: fourteen.
+    vi.advanceTimersByTime(4 * MINUTE_MS);
+
+    expect(onCapReached).not.toHaveBeenCalled();
+
+    // Two more visible minutes take the total past fifteen.
+    vi.advanceTimersByTime(2 * MINUTE_MS);
+    expect(onCapReached).toHaveBeenCalledTimes(1);
+  });
+
+  test('a refetch after the cap does not restart polling on its own', () => {
+    const { manager } = setup();
+    const onCapReached = vi.fn();
+    const onPoll = vi.fn();
+
+    manager.startPollingIfProcessing(PROCESSING, onPoll, false, onCapReached);
+    vi.advanceTimersByTime(MAX_VISIBLE_POLL_MS);
+    expect(onCapReached).toHaveBeenCalledTimes(1);
+    onPoll.mockClear();
+
+    manager.startPollingIfProcessing(PROCESSING, onPoll, false, onCapReached);
+    vi.advanceTimersByTime(SLOW_POLL_INTERVAL_MS * 4);
+
+    expect(onPoll).not.toHaveBeenCalled();
+  });
+
+  test('check again (resetCap, then a refetch) restarts polling with a fresh budget', () => {
+    const { manager } = setup();
+    const onCapReached = vi.fn();
+    const onPoll = vi.fn();
+
+    manager.startPollingIfProcessing(PROCESSING, onPoll, false, onCapReached);
+    vi.advanceTimersByTime(MAX_VISIBLE_POLL_MS);
+    onPoll.mockClear();
+
+    manager.resetCap();
+    manager.startPollingIfProcessing(PROCESSING, onPoll, false, onCapReached);
+    vi.advanceTimersByTime(FAST_POLL_INTERVAL_MS * 2);
+
+    expect(onPoll).toHaveBeenCalledTimes(2);
+
+    // The new run gets its own budget, so it is not capped straight away.
+    onCapReached.mockClear();
+    vi.advanceTimersByTime(MAX_VISIBLE_POLL_MS - FAST_POLL_INTERVAL_MS * 3);
+    expect(onCapReached).not.toHaveBeenCalled();
+  });
+
+  test('a status change before the cap stops normally and never reports the cap', () => {
+    const { manager } = setup();
+    const onCapReached = vi.fn();
+    const onPoll = vi.fn();
+
+    manager.startPollingIfProcessing(PROCESSING, onPoll, false, onCapReached);
+    vi.advanceTimersByTime(5 * MINUTE_MS);
+    manager.startPollingIfProcessing(PROCESSED, onPoll, false, onCapReached);
+    onPoll.mockClear();
+    vi.advanceTimersByTime(MAX_VISIBLE_POLL_MS * 2);
+
+    expect(onPoll).not.toHaveBeenCalled();
+    expect(onCapReached).not.toHaveBeenCalled();
   });
 });

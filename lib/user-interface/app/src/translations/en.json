@@ -101,6 +101,7 @@
     "summary.processing.title": "Document is being processed",
     "summary.processing.message": "This may take a few minutes. Meanwhile, please take a look at your rights as a parent:",
     "summary.processing.hangTight": "Hang tight! We are processing the document . . .",
+    "summary.processing.stalled": "This is taking longer than usual. We have stopped checking for now. Try again to check on your document.",
     "summary.processing.step.reading": "Reading your document",
     "summary.processing.step.protecting": "Removing personal information",
     "summary.processing.step.summarizing": "Writing your plain-language summary",

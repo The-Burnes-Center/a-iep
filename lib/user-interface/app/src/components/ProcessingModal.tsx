@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Alert } from 'react-bootstrap';
+import { Card, Alert, Button } from 'react-bootstrap';
 import AIEPSpinner from './AIEPSpinner';
 import ParentRightsCarousel, { SlideData } from './ParentRightsCarousel';
 import ProcessingStatusBar from './ProcessingStatusBar';
@@ -28,6 +28,10 @@ interface ProcessingModalProps {
   };
   /** Already-translated name of the step in flight, e.g. "Reading your document". */
   progressStepLabel: string;
+  /** True once polling has stopped on a document that stayed in processing. */
+  pollingStopped: boolean;
+  /** Restarts polling and asks for a fresh read of the document. */
+  onCheckAgain: () => void;
 }
 
 const ProcessingModal: React.FC<ProcessingModalProps> = ({
@@ -41,6 +45,8 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
   sectionHint,
   progressDocument,
   progressStepLabel,
+  pollingStopped,
+  onCheckAgain,
 }) => {
   /**
    * The step in flight and the bar, as one block.
@@ -53,6 +59,19 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
     <ProcessingStatusBar document={progressDocument} stepLabel={progressStepLabel} />
   );
 
+  /**
+   * What the screen says once polling has stopped. It replaces the headline,
+   * the step and the bar, so nothing on screen still claims to be moving.
+   */
+  const stalledNotice = (
+    <div className="processing-stalled-notice">
+      <p className="processing-status-headline">{t('summary.processing.stalled')}</p>
+      <Button className="processing-stalled-button" variant="light" onClick={onCheckAgain}>
+        {t('common.tryAgain')}
+      </Button>
+    </div>
+  );
+
   return (
     // Stable E2E hook: "the pipeline is running" is a milestone the document
     // journey must see before it may believe any summary, and every string on
@@ -60,15 +79,26 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
     <div className="page processing-modal-wrapper" data-testid="processing-modal">
       <div className="processing-modal-overlay"></div>
       <div className="processing-modal-container">
+        {/* The announcement. A visually hidden live region, as elsewhere in the
+            app: it is always mounted, so the stop is spoken when it happens. The
+            visible notice below is not itself a live region, which avoids a
+            second reading of the same words. */}
+        <div aria-live="polite" aria-atomic="true" className="visually-hidden">
+          {pollingStopped ? t('summary.processing.stalled') : ''}
+        </div>
         {error && <Alert variant="danger">{error}</Alert>}
         {tutorialPhase === 'parent-rights' ? (
           <Card className="processing-summary-parent-rights-card">
             <Card.Body className="processing-summary-card-body pt-0 pb-0">
               <div className="loading-while-parent-rights">
-                <p className="processing-status-headline">
-                  {t('summary.processing.hangTight')}
-                </p>
-                {statusBlock}
+                {pollingStopped ? stalledNotice : (
+                  <>
+                    <p className="processing-status-headline">
+                      {t('summary.processing.hangTight')}
+                    </p>
+                    {statusBlock}
+                  </>
+                )}
               </div>
               <div className="carousel-with-button">
                 {/* Loops for as long as this screen is up. Nothing the parent
@@ -88,16 +118,20 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
           <Card className="processing-summary-loader-card">
             <Card.Body className="processing-summary-card-body pt-0 pb-0">
               <div className="loading-final-screen">
-                <div className="desktop-only-spinner">
-                  {/* The heading below says what the wait is, so the mark
-                      here is decoration. Cream, because this card is dark
-                      green. */}
-                  <AIEPSpinner size="lg" className="aiep-spinner-inverse" />
-                </div>
-                <h3 className="processing-status-headline">
-                  {t('summary.processing.hangTight')}
-                </h3>
-                {statusBlock}
+                {pollingStopped ? stalledNotice : (
+                  <>
+                    <div className="desktop-only-spinner">
+                      {/* The heading below says what the wait is, so the mark
+                          here is decoration. Cream, because this card is dark
+                          green. */}
+                      <AIEPSpinner size="lg" className="aiep-spinner-inverse" />
+                    </div>
+                    <h3 className="processing-status-headline">
+                      {t('summary.processing.hangTight')}
+                    </h3>
+                    {statusBlock}
+                  </>
+                )}
               </div>
             </Card.Body>
           </Card>

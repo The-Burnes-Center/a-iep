@@ -10,16 +10,33 @@ export const SLOW_POLL_INTERVAL_MS = 15000;
 export const FAST_POLL_WINDOW_MS = 60000;
 
 /**
+ * Most visible time one run may poll before it stops and offers a check-again
+ * button. Hidden time does not count.
+ *
+ * Why 15 minutes: real runs take about three minutes, and each pipeline task
+ * has its own timeout that fails the document, so a document still processing
+ * after this long is unlikely to change while the parent is watching. Polling
+ * it forever cost 240 requests an hour per open tab.
+ */
+export const MAX_VISIBLE_POLL_MS = 15 * 60 * 1000;
+
+/**
  * What outlives each interval restart. The consumer refetches on every poll
  * and restarts the timer when the fetch lands, so the manager itself is rebuilt
- * on every render. The session lives in a ref to carry the start time and the
- * parked visibility listener across those rebuilds.
+ * on every render. The session lives in a ref to carry the start time, the
+ * visible-time budget and the parked visibility listener across those rebuilds.
  */
 export interface PollingSession {
   /** When this run of polling began. Null while nothing is polling. */
   startedAt: number | null;
-  /** The listener parked while the tab is hidden, kept so it can be removed. */
+  /** The visibility listener, kept so it can be removed. */
   onVisible: (() => void) | null;
+  /** Visible polling time banked by the stretches of this run already over. */
+  visibleMs: number;
+  /** When the visible stretch in progress began. Null while hidden or idle. */
+  visibleSince: number | null;
+  /** Set when the cap stops the run. Only resetCap() clears it. */
+  capReached: boolean;
 }
 
 const isDocumentHidden = (): boolean =>
@@ -47,22 +64,28 @@ export class PollingManager {
   // Polling pauses while the tab is hidden. When it becomes visible again the
   // next poll happens at once rather than after the interval, so a parent who
   // comes back to the tab sees the current state straight away.
+  //
+  // `onCapReached` runs once when the visible-time budget is spent. The run then
+  // stays stopped, and further calls here do not poll, until resetCap().
   startPollingIfProcessing = (
     doc: Pick<IEPDocument, 'status'> | null,
     onPoll: () => void,
-    forcePolling = false
+    forcePolling = false,
+    onCapReached: () => void = () => undefined
   ) => {
     this.clearTimers();
 
     if (!shouldPollForUpdates(doc?.status, forcePolling)) {
-      this.sessionRef.current.startedAt = null;
+      this.endRun();
       return;
     }
+
+    if (this.sessionRef.current.capReached) return;
 
     if (this.sessionRef.current.startedAt === null) {
       this.sessionRef.current.startedAt = Date.now();
     }
-    this.schedule(onPoll);
+    this.schedule(onPoll, onCapReached);
   };
 
   // Function to stop polling
@@ -70,15 +93,37 @@ export class PollingManager {
     this.clearTimers();
   };
 
-  private schedule(onPoll: () => void) {
-    if (isDocumentHidden()) {
-      this.pauseUntilVisible(onPoll);
-      return;
-    }
+  // Clears a stopped-at-cap run so the next startPollingIfProcessing begins a
+  // fresh one with its own visible-time budget.
+  resetCap = () => {
+    this.endRun();
+  };
 
-    this.pollingIntervalRef.current = setInterval(() => {
+  private schedule(onPoll: () => void, onCapReached: () => void) {
+    let paused = isDocumentHidden();
+
+    const onVisibilityChange = () => {
       if (isDocumentHidden()) {
-        this.pauseUntilVisible(onPoll);
+        this.pause();
+        paused = true;
+        return;
+      }
+      if (!paused) return;
+      paused = false;
+      this.detachVisibilityListener();
+      this.beginVisibleStretch();
+      onPoll();
+    };
+    this.sessionRef.current.onVisible = onVisibilityChange;
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    // Hidden at the start: nothing ticks until the listener sees the tab return.
+    if (paused) return;
+
+    this.beginVisibleStretch();
+    this.pollingIntervalRef.current = setInterval(() => {
+      if (this.visibleElapsedMs() >= MAX_VISIBLE_POLL_MS) {
+        this.stopAtCap(onCapReached);
         return;
       }
       onPoll();
@@ -92,16 +137,32 @@ export class PollingManager {
       : SLOW_POLL_INTERVAL_MS;
   }
 
-  private pauseUntilVisible(onPoll: () => void) {
-    this.cancelTick();
+  private visibleElapsedMs(): number {
+    const { visibleMs, visibleSince } = this.sessionRef.current;
+    return visibleMs + (visibleSince === null ? 0 : Date.now() - visibleSince);
+  }
 
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== 'visible') return;
-      this.detachVisibilityListener();
-      onPoll();
-    };
-    this.sessionRef.current.onVisible = onVisibilityChange;
-    document.addEventListener('visibilitychange', onVisibilityChange);
+  private beginVisibleStretch() {
+    const session = this.sessionRef.current;
+    if (session.visibleSince === null) session.visibleSince = Date.now();
+  }
+
+  private endVisibleStretch() {
+    const session = this.sessionRef.current;
+    if (session.visibleSince === null) return;
+    session.visibleMs += Date.now() - session.visibleSince;
+    session.visibleSince = null;
+  }
+
+  private pause() {
+    this.cancelTick();
+    this.endVisibleStretch();
+  }
+
+  private stopAtCap(onCapReached: () => void) {
+    this.clearTimers();
+    this.sessionRef.current.capReached = true;
+    onCapReached();
   }
 
   private cancelTick() {
@@ -119,16 +180,33 @@ export class PollingManager {
     }
   }
 
+  // Ending the stretch here means the gap until the consumer restarts (the
+  // refetch in flight) is not counted as visible polling time.
   private clearTimers() {
     this.cancelTick();
     this.detachVisibilityListener();
+    this.endVisibleStretch();
+  }
+
+  private endRun() {
+    const session = this.sessionRef.current;
+    session.startedAt = null;
+    session.visibleMs = 0;
+    session.visibleSince = null;
+    session.capReached = false;
   }
 }
 
 // Hook to use polling manager
 export const usePollingManager = () => {
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const sessionRef = useRef<PollingSession>({ startedAt: null, onVisible: null });
+  const sessionRef = useRef<PollingSession>({
+    startedAt: null,
+    onVisible: null,
+    visibleMs: 0,
+    visibleSince: null,
+    capReached: false,
+  });
   const pollingManager = new PollingManager(pollingIntervalRef, sessionRef);
 
   return {

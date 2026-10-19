@@ -101,6 +101,7 @@
     "summary.processing.title": "Tài liệu đang được xử lý",
     "summary.processing.message": "Điều này có thể mất vài phút. Trong khi chờ đợi, hãy xem quyền của bạn với tư cách là phụ huynh:",
     "summary.processing.hangTight": "Vui lòng chờ trong giây lát! Chúng tôi đang xử lý tài liệu . . .",
+    "summary.processing.stalled": "Việc này mất nhiều thời gian hơn bình thường. Hiện tại chúng tôi đã tạm dừng kiểm tra. Hãy thử lại để xem tình trạng tài liệu của bạn.",
     "summary.processing.step.reading": "Chúng tôi đang đọc tài liệu của bạn",
     "summary.processing.step.protecting": "Chúng tôi đang xóa thông tin cá nhân",
     "summary.processing.step.summarizing": "Chúng tôi đang viết bản tóm tắt dễ hiểu cho bạn",
