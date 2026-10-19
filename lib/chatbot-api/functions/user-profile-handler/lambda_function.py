@@ -117,6 +117,12 @@ def sanitize_event_for_logging(event: Dict) -> Dict:
     return sanitized
 
 
+# Every response here is one family's records or a refusal about them. A shared
+# cache or the browser's back/forward cache must never replay one to the next
+# person on the device, so nothing from this handler is storable.
+NO_STORE = 'no-store'
+
+
 def get_origin_from_event(event: Dict) -> str:
     """
     Extract origin from event headers in a case-insensitive way.
@@ -150,6 +156,7 @@ def create_response(event: Dict, status_code: int, body: Dict) -> Dict:
         'statusCode': status_code,
         'headers': {
             'Content-Type': 'application/json',
+            'Cache-Control': NO_STORE,
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS, POST, PUT, DELETE',
             'Access-Control-Allow-Headers': 'Content-Type, X-Amz-Date, Authorization, X-Api-Key, X-Amz-Security-Token, X-Amz-User-Agent, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers'
@@ -170,6 +177,7 @@ def handle_options(event: Dict) -> Dict:
     return {
         'statusCode': 200,
         'headers': {
+            'Cache-Control': NO_STORE,
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS, POST, PUT, DELETE',
             'Access-Control-Allow-Headers': 'Content-Type, X-Amz-Date, Authorization, X-Api-Key, X-Amz-Security-Token, X-Amz-User-Agent, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers'

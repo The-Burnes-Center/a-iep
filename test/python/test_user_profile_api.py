@@ -1861,3 +1861,35 @@ def test_a_crash_logs_the_failing_route_and_answers_generically(api, monkeypatch
     assert code == 500
     assert body == {'message': 'Internal server error. Please try again later.'}
     assert 'GET /profile -> 500 unhandled RuntimeError' in logged
+
+
+# ---------------------------------------------------------------------------
+# Cache-Control: no-store on every response
+
+def test_every_response_from_this_handler_is_no_store(api, monkeypatch):
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'Summary'}})
+    requests = [
+        ('GET', '/profile', None),                                    # 200
+        ('PUT', '/profile', {'consentGiven': True}),                  # 200
+        ('PUT', '/profile', {'email': 'x@y.org'}),                    # 400
+        ('POST', '/profile/children', {'name': 'Kid'}),               # 400
+        ('GET', '/profile/children/child-1/documents', None),         # 200
+        ('GET', '/profile/children/someone-elses/documents', None),   # refusal
+        ('DELETE', '/profile/children/someone-elses/documents', None),
+        ('GET', '/no/such/route', None),                              # 404
+        ('DELETE', '/profile', None),                                 # 200
+    ]
+    for method, path, body in requests:
+        response = api.module.lambda_handler(api_event(path, method, body), None)
+        assert response['headers'].get('Cache-Control') == 'no-store', (method, path, response['statusCode'])
+
+    options = api.module.lambda_handler(api_event('/profile', 'OPTIONS'), None)
+    assert options['headers'].get('Cache-Control') == 'no-store'
+
+    # The unhandled-exception path builds its response too.
+    monkeypatch.setitem(api.module._router.routes['/profile'], 'GET',
+                        lambda event: 1 / 0)
+    crashed = api.module.lambda_handler(api_event('/profile', 'GET'), None)
+    assert crashed['statusCode'] == 500
+    assert crashed['headers'].get('Cache-Control') == 'no-store'
