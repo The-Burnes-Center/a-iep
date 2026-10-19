@@ -2494,6 +2494,30 @@ describe('production synth: the OTP test backdoor must not exist', () => {
     }
   });
 
+  // Lambda CPU scales with memory, and a cold start on the sign-in path is
+  // CPU-bound (SDK load, first TLS handshakes): at the 128 MB default a cold
+  // sign-in measured 5-9 s. Every function a parent waits on must keep the
+  // larger size, so a refactor that drops the property fails here instead of
+  // showing up as a slow login.
+  test('every production sign-in lambda has at least 1024 MB', () => {
+    const SIGN_IN_HANDLERS = [
+      'auth-start.handler', 'auth-dispatch.handler', 'auth-verify.handler',
+      'auth-session.handler', 'signup-endpoint.handler',
+      'define-auth-challenge.handler', 'create-auth-challenge.handler',
+      'verify-auth-challenge.handler', 'pre-sign-up.handler',
+      'pre-authentication.handler', 'custom-message.handler',
+    ];
+    const functions = Object.values(prodTemplate.findResources('AWS::Lambda::Function'))
+      .map((fn: any) => fn.Properties)
+      .filter((p: any) => SIGN_IN_HANDLERS.includes(p.Handler));
+
+    // Vacuity floor: all eleven, or a renamed handler hollowed this out.
+    expect(functions.map((p: any) => p.Handler).sort()).toEqual([...SIGN_IN_HANDLERS].sort());
+    for (const p of functions) {
+      expect(p.MemorySize).toBeGreaterThanOrEqual(1024);
+    }
+  });
+
   // A custom SMS sender takes over ALL of a pool's SMS delivery. On staging
   // that is the point; in production it would put every parent's login and
   // signup code behind a lambda that exists to divert codes into SSM. The
