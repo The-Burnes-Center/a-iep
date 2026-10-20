@@ -25,7 +25,8 @@
  * deltas from a baseline read at the start), the burner is healed at the top
  * of the test body and admin-deleted in an afterEach.
  */
-import { test, expect, Page, BrowserContext } from '@playwright/test';
+import { Page, BrowserContext } from '@playwright/test';
+import { test, expect, watchCsp, expectNoCspViolations } from '../helpers/fixtures';
 import { EN, loginWithOtp } from '../helpers/app';
 import { appUrl } from '../helpers/config';
 import { deleteTestUserIfExists, ensureTestUser } from '../helpers/aws';
@@ -138,6 +139,7 @@ test('a new parent joining through an invite link is counted, anonymously', asyn
   // ---- Act 2: a new parent arrives through the link ----------------------
 
   const invitedContext: BrowserContext = await browser.newContext();
+  const invitedCsp = await watchCsp(invitedContext);
   try {
     const invited = await invitedContext.newPage();
 
@@ -187,6 +189,7 @@ test('a new parent joining through an invite link is counted, anonymously', asyn
   } finally {
     await invitedContext.close();
   }
+  expectNoCspViolations(invitedCsp);
 
   // The attribution survives on the referrer's stats even though the invited
   // account is removed (the afterEach admin-deletes it): counters and events

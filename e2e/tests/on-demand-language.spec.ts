@@ -16,7 +16,7 @@
  * looks under test/lambdas and test/infra, and this is the only suite that
  * ever loads e2e/helpers.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
 import {

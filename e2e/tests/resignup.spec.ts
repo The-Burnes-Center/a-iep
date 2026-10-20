@@ -60,7 +60,8 @@
  * parts that are genuinely screen-shaped: the mid-flow UI signal, and what
  * the browser is expected to have called over the wire.
  */
-import { test, expect, Page } from '@playwright/test';
+import { Page } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import {
   EN,
   EN_PASSWORDLESS,

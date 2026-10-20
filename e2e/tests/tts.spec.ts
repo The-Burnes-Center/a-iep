@@ -16,7 +16,7 @@
  * Gateway 504s with its own retry loop). Two clips per run, cached
  * afterwards.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import {
   DOCUMENTS_USER,
   TESTID,

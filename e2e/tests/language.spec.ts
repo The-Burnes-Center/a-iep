@@ -15,7 +15,7 @@
  * button and the send-succeeded signal are both different strings on each
  * screen, in both languages.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { gotoLogin, fillPhone, EN_PASSWORDLESS } from '../helpers/app';
 import { fetchOtp } from '../helpers/aws';
 import { STABLE_USER } from '../helpers/phones';

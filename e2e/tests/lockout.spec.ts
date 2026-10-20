@@ -24,7 +24,7 @@
  * Tagged @destructive-session: it deliberately burns an auth session for
  * the lockout user (but leaves the account itself untouched).
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import {
   startPhoneLogin,
   submitOtpCode,

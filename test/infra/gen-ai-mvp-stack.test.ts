@@ -2235,6 +2235,25 @@ function describeWebsiteHeaders(envLabel: EnvLabel, getTemplate: () => Template)
       }
       expect(headers.find((h) => h.Header === 'Permissions-Policy')?.Value).toMatch(/camera=\(\)/);
     });
+
+    test('the Content-Security-Policy is sent report-only, naming this stack\'s API', () => {
+      // Report-only until the E2E suite has run clean against it
+      // (e2e/helpers/fixtures.ts). Enforcing it means renaming this header
+      // to Content-Security-Policy, deliberately, in its own change.
+      const { config } = policyOf(getTemplate());
+      const headers = (config.CustomHeadersConfig?.Items ?? []) as { Header: string; Value: unknown }[];
+      expect(headers.find((h) => h.Header === 'Content-Security-Policy')).toBeUndefined();
+      const csp = headers.find((h) => h.Header === 'Content-Security-Policy-Report-Only');
+      expect(csp).toBeDefined();
+      // The API origin is a token, so the value renders as Fn::Join with a
+      // GetAtt of the HTTP API's ApiEndpoint: proof the policy names this
+      // stack's API rather than a pasted-in literal.
+      const rendered = JSON.stringify(csp!.Value);
+      expect(rendered).toContain('Fn::Join');
+      expect(rendered).toMatch(/"Fn::GetAtt":\["ChatbotAPI\w*HTTPAPI\w*","ApiEndpoint"\]/);
+      expect(rendered).toContain("default-src 'self'");
+      expect(rendered).toContain("object-src 'none'");
+    });
   });
 }
 

@@ -6,6 +6,8 @@ import { Construct } from "constructs";
 import { ChatBotApi } from "../chatbot-api";
 import { NagSuppressions } from "cdk-nag";
 import { getEnvironment, getTagProps, tagResource } from '../tags';
+import * as path from 'node:path';
+import { buildContentSecurityPolicy, inlineScriptHashes } from './content-security-policy';
 
 
 export interface WebsiteProps {  
@@ -152,11 +154,16 @@ export class Website extends Construct {
     //
     // HSTS leaves out includeSubDomains on purpose: it would bind every
     // a-iep.org subdomain, including ones this stack does not serve, and it
-    // cannot be taken back for a year. No CSP yet: the app loads Turnstile,
-    // Typekit, analytics and the API from other origins, so a policy needs
-    // its own inventory and a report-only run first. Staging adds
-    // X-Robots-Tag so it stays out of search results.
+    // cannot be taken back for a year. The CSP is report-only until it has run
+    // clean (content-security-policy.ts says why and how to enforce it).
+    // Staging adds X-Robots-Tag so it stays out of search results.
     const isProduction = getEnvironment() === 'prod';
+    const contentSecurityPolicy = buildContentSecurityPolicy({
+      apiUrl: props.api.httpAPI.restAPI.apiEndpoint,
+      region: cdk.Aws.REGION,
+      isProduction,
+      inlineScriptHashes: inlineScriptHashes(path.join(__dirname, 'app', 'index.html')),
+    });
     const securityHeaders = new cf.ResponseHeadersPolicy(this, 'SecurityHeaders', {
       comment: 'A-IEP web app security headers',
       securityHeadersBehavior: {
@@ -176,6 +183,7 @@ export class Website extends Construct {
         customHeaders: [
           // Features the app never uses. Clipboard and WebOTP are left alone.
           { header: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()', override: true },
+          { header: 'Content-Security-Policy-Report-Only', value: contentSecurityPolicy, override: true },
           ...(isProduction ? [] : [{ header: 'X-Robots-Tag', value: 'noindex, nofollow', override: true }]),
         ],
       },

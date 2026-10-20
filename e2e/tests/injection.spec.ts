@@ -29,7 +29,8 @@
  * costs nothing: a scan that cannot find a leak would make the journey pass
  * on any pipeline.
  */
-import { test, expect, BrowserContext, Page } from '@playwright/test';
+import { BrowserContext, Page } from '@playwright/test';
+import { test, expect, watchCsp, expectNoCspViolations } from '../helpers/fixtures';
 import playwrightConfig from '../playwright.config';
 import { loginWithOtp } from '../helpers/app';
 import { ensureTestUser } from '../helpers/aws';
@@ -100,6 +101,8 @@ test.describe('the planted-code scan', () => {
 });
 
 let context: BrowserContext;
+/** CSP violations in the context this file builds itself (see fixtures.ts). */
+let cspViolations: string[] = [];
 let page: Page;
 let documentBeforeUpload: string | null = null;
 
@@ -117,11 +120,13 @@ test.describe('instructions planted in an uploaded IEP', { tag: '@pipeline' }, (
     // Same reason as documents.spec.ts: newContext() ignores the config's
     // `use` block, and this app hides controls at desktop widths.
     context = await browser.newContext({ viewport: playwrightConfig.use?.viewport ?? null });
+    cspViolations = await watchCsp(context);
     page = await context.newPage();
   });
 
   test.afterAll(async () => {
     await context?.close();
+    expectNoCspViolations(cspViolations);
   });
 
   test('1. the injection user signs in with Spanish as its translation language', async () => {

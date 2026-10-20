@@ -17,7 +17,8 @@
  * nothing of this file's subject to exercise there, and lockout.spec.ts
  * already covers that screen's own wrong-code behaviour.
  */
-import { test, expect, Page } from '@playwright/test';
+import { Page } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import {
   EN_PASSWORDLESS,
   detectLoginScreen,

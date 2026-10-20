@@ -27,7 +27,7 @@
  * Fast by design (~1.5 min): no document pipeline, no account deletion, so
  * this runs on every staging deploy rather than nightly.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginWithOtp } from '../helpers/app';
 import { appUrl } from '../helpers/config';
 import { PROFILE_USER } from '../helpers/phones';

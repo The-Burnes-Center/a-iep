@@ -47,7 +47,8 @@
  * account. The empty state this journey CAN reach honestly is the one before
  * the first upload, asserted in stage 1.
  */
-import { test, expect, BrowserContext, Page } from '@playwright/test';
+import { BrowserContext, Page } from '@playwright/test';
+import { test, expect, watchCsp, expectNoCspViolations } from '../helpers/fixtures';
 import * as fs from 'fs';
 import playwrightConfig from '../playwright.config';
 import { appUrl } from '../helpers/config';
@@ -102,6 +103,8 @@ const STAGE_TIMEOUT_MS = {
 };
 
 let context: BrowserContext;
+/** CSP violations in the context this file builds itself (see fixtures.ts). */
+let cspViolations: string[] = [];
 let page: Page;
 
 /** The document on file when stage 3 uploaded, or null on the very first run. */
@@ -123,11 +126,13 @@ test.describe('document lifecycle (upload -> summary -> translations -> replace 
     // mobile viewport: this is a mobile-first app and some controls are
     // CSS-hidden at desktop widths.
     context = await browser.newContext({ viewport: playwrightConfig.use?.viewport ?? null });
+    cspViolations = await watchCsp(context);
     page = await context.newPage();
   });
 
   test.afterAll(async () => {
     await context?.close();
+    expectNoCspViolations(cspViolations);
   });
 
   test('1. the documents user signs in and the documents page reflects its state', async () => {
