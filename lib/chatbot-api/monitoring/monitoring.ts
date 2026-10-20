@@ -207,6 +207,16 @@ interface BriefComponent {
 }
 
 /** A lambda plus the human name used in the alarm and its description. */
+/**
+ * The log patterns for an unfinished deletion, exported so the infra suite
+ * pins the same strings the stack uses. The two cases are disjoint by
+ * construction: the first excludes exactly what the second requires.
+ */
+export const DELETION_ESSENTIAL_PATTERN =
+  '"DELETION_INCOMPLETE" "essential=yes" -"scope=replaced-document"';
+export const DELETION_REPLACED_PATTERN =
+  '"DELETION_INCOMPLETE" "scope=replaced-document" "essential=yes"';
+
 export interface MonitoredFunction {
   readonly label: string;
   readonly fn: lambda.Function;
@@ -1473,7 +1483,9 @@ export class MonitoringStack extends Construct {
     // deletes the child's older documents (purge_replaced_documents) and logs
     // the same marker, scope=replaced-document, when any of that survived. The
     // new document is already complete by then, so the log line is the only
-    // way anyone learns an old IEP is still in the bucket.
+    // way anyone learns an old IEP is still in the bucket. That case is NOT a
+    // parent's deletion request, so it has its own metric and alarm below and
+    // is excluded from the essential one: one event must not page twice.
     const watched: Array<{ label: string; fn: lambda.Function }> = [
       ...apiFunctions.filter((f) => f.label === 'user profile'),
       { label: 'replaced documents', fn: ddbServiceFunction },
@@ -1483,14 +1495,37 @@ export class MonitoringStack extends Construct {
       new logs.MetricFilter(this, `DeletionIncompleteFilter${label.replace(/[^A-Za-z0-9]/g, '')}`, {
         logGroup: fn.logGroup,
         // Both halves must match: the marker AND essential=yes. A metric
-        // filter on the marker alone would page for an orphaned mp3.
-        filterPattern: logs.FilterPattern.allTerms('DELETION_INCOMPLETE', 'essential=yes'),
+        // filter on the marker alone would page for an orphaned mp3. The
+        // replaced-document scope is carved out and counted separately.
+        filterPattern: logs.FilterPattern.literal(DELETION_ESSENTIAL_PATTERN),
         metricNamespace,
         metricName: 'DeletionIncompleteEssential',
         metricValue: '1',
         defaultValue: 0,
       });
     }
+
+    new logs.MetricFilter(this, 'ReplacedDocumentIncompleteFilter', {
+      logGroup: ddbServiceFunction.logGroup,
+      filterPattern: logs.FilterPattern.literal(DELETION_REPLACED_PATTERN),
+      metricNamespace,
+      metricName: 'ReplacedDocumentIncomplete',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
+    this.alarm('ReplacedDocumentIncompleteAlarm', {
+      copy: ALERT_COPY.ReplacedDocumentIncompleteAlarm,
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'ReplacedDocumentIncomplete',
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(15),
+      }),
+      // One is enough: the old IEP stays stored until someone removes it.
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
 
     this.alarm('DeletionIncompleteAlarm', {
       copy: ALERT_COPY.DeletionIncompleteAlarm,

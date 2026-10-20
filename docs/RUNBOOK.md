@@ -254,6 +254,41 @@ child's records exist that should not, and an administrator has to remove them.
 
 Never paste a document, a summary or a name into Slack or a ticket while doing this.
 
+## An old IEP was not cleaned up after a replacement
+
+**Alerts:** an old IEP was not cleaned up after a replacement.
+
+**Who is affected:** no parent sees anything. A parent replaced their child's
+IEP and the new one is working, but the cleanup that deletes the previous one
+did not finish, so its data is still stored. It needs removing by hand. This is
+not a parent's deletion request, so it does not raise the "a parent asked us to
+delete their records" alert.
+
+**Find it**
+
+1. Search the pipeline database writes function logs for
+   `DELETION_INCOMPLETE scope=replaced-document`. The line carries the user,
+   child and new document ids, the old (`superseded`) document ids and what
+   survived (`raw-upload`, `derived-artifacts`, `document-row`). It holds ids
+   only, never content.
+2. Run `scripts/audit-residue.py --env <env>` (read-only) and look at the
+   `superseded_documents` check. It lists the document rows that are older than
+   the child's newest finished one, so it confirms what the marker reported and
+   also finds a cleanup that never logged at all.
+
+**Fix it**
+
+1. The row is kept on purpose when anything survived: it holds the only pointer
+   to the summary object. Delete the old document's S3 artifacts first (every
+   version of the raw upload prefix, the summary object, and the legacy
+   `iep-data/` and `iep-audio/` prefixes for that document), then its row.
+2. The cleanup also reruns, for every older document of the child, the next
+   time a replacement for that child finishes. Do not wait for that: the data
+   should not stay stored.
+3. Run the audit again and confirm `superseded_documents` is clean.
+
+Never paste a document, a summary or a name into Slack or a ticket while doing this.
+
 ## Database throttling
 
 **Alerts:** a named table is throttling requests.

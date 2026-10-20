@@ -33,6 +33,10 @@
    "AlarmDescription": "[STAGING] [WARNING] Alerts are not being delivered, so Slack may look quiet\nImpact: Staging only. No real families are affected.\nFires when: at least 1 failed delivery in 5 minutes.\nCheck first:\n1. Open the CloudWatch alarms page and look for any alarms in the ALARM state.\n2. Check that the alarm topic still has its subscription to the alert formatter function.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-alerting-itself-is-broken\nRecovery: Alerts are being delivered again"
   },
   {
+   "AlarmName": "a-iep-staging an old IEP was not cleaned up after a replacement",
+   "AlarmDescription": "[STAGING] [WARNING] An old IEP was not cleaned up after a replacement\nImpact: Staging only. No real families are affected.\nFires when: at least 1 incomplete cleanup in 15 minutes.\nCheck first:\n1. Open the pipeline database writes function logs and search for DELETION_INCOMPLETE scope=replaced-document to find the child and the old document.\n2. Run scripts/audit-residue.py (read-only) and look at the superseded_documents check to confirm what is still stored.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#an-old-iep-was-not-cleaned-up-after-a-replacement\nRecovery: quiet"
+  },
+  {
    "AlarmName": "a-iep-staging API handler failing: PDF download",
    "AlarmDescription": "[STAGING] [WARNING] Errors in PDF download\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
   },
@@ -409,6 +413,10 @@
   {
    "AlarmName": "a-iep alerts are not reaching the formatter",
    "AlarmDescription": "[PROD] [CRITICAL] Alerts are not being delivered, so Slack may look quiet\nImpact: Administrators may miss real problems. Alarms fire in CloudWatch but never reach Slack.\nFires when: at least 1 failed delivery in 5 minutes.\nCheck first:\n1. Open the CloudWatch alarms page and look for any alarms in the ALARM state.\n2. Check that the alarm topic still has its subscription to the alert formatter function.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-alerting-itself-is-broken\nRecovery: Alerts are being delivered again"
+  },
+  {
+   "AlarmName": "a-iep an old IEP was not cleaned up after a replacement",
+   "AlarmDescription": "[PROD] [CRITICAL] An old IEP was not cleaned up after a replacement\nImpact: Administrators must act: a parent replaced their IEP and the new one is working, but the previous one could not be fully deleted. Its data is still stored and needs removing by hand.\nFires when: at least 1 incomplete cleanup in 15 minutes.\nCheck first:\n1. Open the pipeline database writes function logs and search for DELETION_INCOMPLETE scope=replaced-document to find the child and the old document.\n2. Run scripts/audit-residue.py (read-only) and look at the superseded_documents check to confirm what is still stored.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#an-old-iep-was-not-cleaned-up-after-a-replacement\nRecovery: quiet"
   },
   {
    "AlarmName": "a-iep API handler failing: PDF download",

@@ -91,6 +91,7 @@ export const RUNBOOK_SECTIONS = {
   api: 'the-app-is-returning-errors',
   documents: 'documents-are-failing-to-process',
   privacy: 'student-records-were-not-removed',
+  replacedDocument: 'an-old-iep-was-not-cleaned-up-after-a-replacement',
   database: 'database-throttling',
   email: 'email-sending-reputation',
   alerting: 'the-alerting-itself-is-broken',

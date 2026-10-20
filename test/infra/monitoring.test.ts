@@ -57,6 +57,7 @@ const EXPECTED_ALARM_SUFFIXES = [
   'a failed document kept its unredacted copy',
   'a document kept text we said we would delete',
   'a parent asked us to delete their records and we did not',
+  'an old IEP was not cleaned up after a replacement',
   'a family got English only: a requested translation was left out',
   // Account creation lives in the auth send function now (the signup endpoint
   // and its four alarms are gone); these two are fed by markers it and
@@ -514,8 +515,7 @@ describe('a deletion that only partly happened', () => {
       .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'));
 
     // One per watched handler: the account/profile path, and the DDB service,
-    // which deletes the child's previous IEP once a re-upload has finished
-    // (scope=replaced-document). The floor was 3 while the unrouted
+    // which deletes the child's previous IEP once a re-upload has finished. The floor was 3 while the unrouted
     // document-delete lambda still had its own filter; it was removed with the
     // lambda, so 2 is the real number and the guard against a vanished filter.
     expect(filters.length).toBeGreaterThanOrEqual(2);
@@ -524,6 +524,9 @@ describe('a deletion that only partly happened', () => {
       // orphaned audio file.
       expect(filter.FilterPattern).toContain('DELETION_INCOMPLETE');
       expect(filter.FilterPattern).toContain('essential=yes');
+      // And the replaced-document scope is excluded, or one event would page
+      // twice: here, and again on its own alarm.
+      expect(filter.FilterPattern).toContain('-"scope=replaced-document"');
     }
   });
 
@@ -532,15 +535,41 @@ describe('a deletion that only partly happened', () => {
   // that cleanup does: the marker is the only way anyone learns an old IEP is
   // still in the bucket. Pinned on the lambda side in
   // test/python/test_replaced_documents.py.
-  test('the DDB service log group is watched for an unfinished replace-cleanup', () => {
-    const filters = Object.values(synth('production').findResources('AWS::Logs::MetricFilter'))
-      .map((r: any) => r.Properties)
-      .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'));
+  test.each(['production', 'staging'])(
+    'the DDB service log group is watched for an unfinished replace-cleanup (%s)', (environment) => {
+      const template = synth(environment);
+      const replaced = Object.values(template.findResources('AWS::Logs::MetricFilter'))
+        .map((r: any) => r.Properties)
+        .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('ReplacedDocumentIncomplete'));
 
-    const ddbService = filters.filter((p: any) => JSON.stringify(p.LogGroupName).includes('DDBService'));
-    expect(ddbService).toHaveLength(1);
-    expect(ddbService[0].FilterPattern).toContain('DELETION_INCOMPLETE');
-    expect(ddbService[0].FilterPattern).toContain('essential=yes');
+      expect(replaced).toHaveLength(1);
+      expect(JSON.stringify(replaced[0].LogGroupName)).toContain('DDBService');
+      expect(replaced[0].FilterPattern).toContain('DELETION_INCOMPLETE');
+      expect(replaced[0].FilterPattern).toContain('"scope=replaced-document"');
+      expect(replaced[0].FilterPattern).not.toContain('-"scope=replaced-document"');
+      expect(replaced[0].MetricTransformations[0].MetricNamespace).toBe(ns(environment, 'Pipeline'));
+
+      // The old essential metric on the same log group must not also count it.
+      const essentialOnDdb = Object.values(template.findResources('AWS::Logs::MetricFilter'))
+        .map((r: any) => r.Properties)
+        .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'))
+        .filter((p: any) => JSON.stringify(p.LogGroupName).includes('DDBService'));
+      for (const filter of essentialOnDdb) {
+        expect(filter.FilterPattern).toContain('-"scope=replaced-document"');
+      }
+    });
+
+  test('one unfinished replace-cleanup is enough to alarm, at critical, with its own words', () => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes('an old IEP was not cleaned up after a replacement'));
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Threshold).toBe(1);
+    expect(alarm.MetricName).toBe('ReplacedDocumentIncomplete');
+    expect(alarm.AlarmDescription).toMatch(/^\[PROD\] \[CRITICAL\] /);
+    expect(alarm.AlarmDescription).toContain('the previous one could not be fully deleted');
+    expect(alarm.AlarmDescription).not.toContain('asked us to delete');
   });
 
   test('one incomplete deletion is enough to alarm, at critical', () => {

@@ -48,6 +48,20 @@ export const ALERT_COPY = {
     unit: count('failed text deletion', 'failed text deletions'),
     countsFailures: true,
   },
+  ReplacedDocumentIncompleteAlarm: {
+    severity: 'critical',
+    alarmName: 'an old IEP was not cleaned up after a replacement',
+    symptom: 'An old IEP was not cleaned up after a replacement',
+    impact: 'Administrators must act: a parent replaced their IEP and the new one is working, but the previous one could not be fully deleted. Its data is still stored and needs removing by hand.',
+    check: [
+      'Open the pipeline database writes function logs and search for DELETION_INCOMPLETE scope=replaced-document to find the child and the old document.',
+      'Run scripts/audit-residue.py (read-only) and look at the superseded_documents check to confirm what is still stored.',
+    ],
+    runbook: 'replacedDocument',
+    unit: count('incomplete cleanup', 'incomplete cleanups'),
+    recovery: 'No new replaced IEPs are being left behind',
+    countsFailures: true,
+  },
   DocumentsFailingAlarm: {
     severity: 'medium',
     alarmName: 'a document failed to process',
