@@ -922,14 +922,22 @@ describe("WebOTP on the code step", () => {
   const originalCredentials = Object.getOwnPropertyDescriptor(navigator, "credentials");
   let otpGet: ReturnType<typeof vi.fn<(options?: unknown) => Promise<unknown>>>;
 
+  const originalUaData = Object.getOwnPropertyDescriptor(navigator, "userAgentData");
+
   beforeEach(() => {
     Object.defineProperty(window, "OTPCredential", { configurable: true, value: class {} });
+    Object.defineProperty(navigator, "userAgentData", { configurable: true, value: { mobile: true } });
     otpGet = vi.fn<(options?: unknown) => Promise<unknown>>(() => new Promise(() => {}));
     Object.defineProperty(navigator, "credentials", { configurable: true, value: { get: otpGet } });
   });
 
   afterEach(() => {
     delete (window as { OTPCredential?: unknown }).OTPCredential;
+    if (originalUaData) {
+      Object.defineProperty(navigator, "userAgentData", originalUaData);
+    } else {
+      delete (navigator as { userAgentData?: unknown }).userAgentData;
+    }
     if (originalCredentials) {
       Object.defineProperty(navigator, "credentials", originalCredentials);
     } else {
