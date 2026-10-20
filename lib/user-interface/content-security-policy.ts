@@ -55,17 +55,28 @@ const GOOGLE_ANALYTICS = {
   ],
 };
 
+// Inline blocks the browser treats as data and never runs, so script-src does
+// not apply to them. Only exact types: anything else (no type, a JavaScript
+// type, "module") is a script and gets hashed.
+const DATA_BLOCK_TYPES = new Set(["application/ld+json"]);
+
 /**
- * sha256 sources for every inline <script> in an HTML file. Read from the
- * source index.html at synth, so editing the script can never leave a stale
- * hash behind; Vite copies inline scripts through byte for byte.
+ * sha256 sources for every inline <script> in an HTML file that the browser
+ * would run. Read from the source index.html at synth, so editing the script
+ * can never leave a stale hash behind; Vite copies inline scripts through
+ * byte for byte. Data blocks such as the JSON-LD structured data are skipped.
  */
 export function inlineScriptHashes(htmlPath: string): string[] {
   const html = fs.readFileSync(htmlPath, "utf8");
-  const inline = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g;
-  return [...html.matchAll(inline)].map(
-    ([, body]) => `'sha256-${crypto.createHash("sha256").update(body, "utf8").digest("base64")}'`,
-  );
+  const inline = /<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/g;
+  return [...html.matchAll(inline)]
+    .filter(([, attributes]) => {
+      const type = /\btype\s*=\s*["']([^"']*)["']/i.exec(attributes)?.[1].trim().toLowerCase();
+      return !(type && DATA_BLOCK_TYPES.has(type));
+    })
+    .map(
+      ([, , body]) => `'sha256-${crypto.createHash("sha256").update(body, "utf8").digest("base64")}'`,
+    );
 }
 
 export function buildContentSecurityPolicy(options: CspOptions): string {

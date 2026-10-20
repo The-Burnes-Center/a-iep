@@ -32,21 +32,46 @@
       media="(prefers-color-scheme: dark)"
       content="#0e1b2a"
     />
-    <meta name="description" content="A tool to help you better understand IEP documents" />
+    <!-- The home page's title and description. common/page-meta.ts rewrites
+         them, with the canonical link and og:url, on every other public page
+         and in the parent's language; keep these equal to meta.home.* in
+         src/translations/en.json. -->
+    <meta name="description" content="A free tool for parents. Upload your child&#39;s IEP and get a plain-language summary, the key services and accommodations, and every term explained, in your language." />
+    <link rel="canonical" href="https://a-iep.org/" />
     <!-- How a shared link previews in messages, email and social apps. Relative
          og:image would be ignored by most readers, so it names the production
          host; staging previews show production's card, which is harmless. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="A-IEP" />
-    <meta property="og:title" content="A-IEP" />
-    <meta property="og:description" content="A tool to help you better understand IEP documents" />
+    <meta property="og:title" content="A-IEP: understand your child&#39;s IEP in plain language" />
+    <meta property="og:url" content="https://a-iep.org/" />
+    <meta property="og:description" content="A free tool for parents. Upload your child&#39;s IEP and get a plain-language summary, the key services and accommodations, and every term explained, in your language." />
     <meta property="og:image" content="https://a-iep.org/images/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="The A-IEP logo" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="manifest" href="/manifest.json" />
-    <title>AIEP</title>
+    <title>A-IEP: understand your child&#39;s IEP in plain language</title>
+    <!-- Structured data for search results. A data block, not a script: the
+         browser never runs it, so the CSP does not hash it
+         (content-security-policy.ts#inlineScriptHashes). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "A-IEP",
+        "alternateName": "AI for Individualized Education Programs",
+        "url": "https://a-iep.org/",
+        "description": "A free tool that helps parents understand their child's IEP: a plain-language summary, the key services and accommodations, and every term explained, in English, Spanish, Chinese or Vietnamese.",
+        "applicationCategory": "EducationalApplication",
+        "operatingSystem": "Any",
+        "inLanguage": ["en", "es", "zh", "vi"],
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "publisher": { "@type": "Organization", "name": "The Burnes Center for Social Change", "url": "https://burnes.northeastern.edu/" }
+      }
+    </script>
     <script>
       const global = window.global || window;
     </script>

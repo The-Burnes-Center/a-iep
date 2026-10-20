@@ -5,6 +5,7 @@ import LandingTopNavigation from './LandingTopNavigation';
 import MobileTopNavigation from './MobileTopNavigation';
 import PageLoading from './PageLoading';
 import { useLanguage } from '../common/language-context';
+import { usePublicPageMeta } from '../common/page-meta';
 
 /**
  * Which navigation bar a route gets, decided by the block it sits in rather
@@ -37,6 +38,8 @@ import { useLanguage } from '../common/language-context';
  * chrome that flashes.
  */
 export function PublicChrome() {
+  // Title, description and canonical link per public page (common/page-meta.ts).
+  usePublicPageMeta();
   return (
     <AppShell nav={<LandingTopNavigation />}>
       <Outlet />

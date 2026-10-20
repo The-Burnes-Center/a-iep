@@ -744,5 +744,15 @@
     "invite.error": "Không thể tải liên kết mời của bạn. Vui lòng thử lại sau.",
     "invite.loading": "Đang tải...",
     "errorBoundary.title": "Đã xảy ra lỗi",
-    "errorBoundary.message": "Chúng tôi không thể hiển thị trang này. Tài liệu của bạn vẫn an toàn. Vui lòng thử lại."
+    "errorBoundary.message": "Chúng tôi không thể hiển thị trang này. Tài liệu của bạn vẫn an toàn. Vui lòng thử lại.",
+    "meta.home.title": "A-IEP: hiểu IEP của con bạn bằng ngôn ngữ dễ hiểu",
+    "meta.home.description": "Công cụ miễn phí dành cho phụ huynh. Tải lên IEP của con bạn để nhận bản tóm tắt dễ hiểu, các dịch vụ và điều chỉnh chính, cùng lời giải thích cho từng thuật ngữ, bằng ngôn ngữ của bạn.",
+    "meta.faqs.title": "Câu hỏi thường gặp | A-IEP",
+    "meta.faqs.description": "Giải đáp các câu hỏi thường gặp về A-IEP: công cụ làm gì với IEP của con bạn, thông tin của bạn được bảo vệ ra sao và hỗ trợ những ngôn ngữ nào.",
+    "meta.about.title": "Giới thiệu dự án | A-IEP",
+    "meta.about.description": "Vì sao Burnes Center cùng phụ huynh xây dựng A-IEP, và công cụ giúp các gia đình hiểu Chương trình Giáo dục Cá nhân hóa của con mình như thế nào.",
+    "meta.privacy.title": "Chính sách quyền riêng tư | A-IEP",
+    "meta.privacy.description": "Cách A-IEP xử lý IEP của con bạn: thông tin cá nhân được xóa trước khi bất kỳ AI nào đọc, tệp gốc bị xóa, và bạn có thể xóa mọi thứ bất cứ lúc nào.",
+    "meta.hub.title": "Trung tâm A-IEP | A-IEP",
+    "meta.hub.description": "Bắt đầu tại đây: A-IEP làm gì cho phụ huynh, cách bảo mật thông tin của con bạn, và cách nhận bản tóm tắt dễ hiểu về IEP của con bạn."
 }

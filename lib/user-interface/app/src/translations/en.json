@@ -744,5 +744,15 @@
     "invite.error": "We could not load your invite link. Please try again later.",
     "invite.loading": "Loading...",
     "errorBoundary.title": "Something went wrong",
-    "errorBoundary.message": "We couldn't show this page. Your document is safe. Please try again."
+    "errorBoundary.message": "We couldn't show this page. Your document is safe. Please try again.",
+    "meta.home.title": "A-IEP: understand your child's IEP in plain language",
+    "meta.home.description": "A free tool for parents. Upload your child's IEP and get a plain-language summary, the key services and accommodations, and every term explained, in your language.",
+    "meta.faqs.title": "Frequently asked questions | A-IEP",
+    "meta.faqs.description": "Answers to common questions about A-IEP: what it does with your child's IEP, how your information is protected, and which languages it supports.",
+    "meta.about.title": "About the project | A-IEP",
+    "meta.about.description": "Why the Burnes Center built A-IEP with parents, and how it helps families understand their child's Individualized Education Program.",
+    "meta.privacy.title": "Privacy policy | A-IEP",
+    "meta.privacy.description": "How A-IEP handles your child's IEP: personal details are removed before any AI sees it, the original file is deleted, and you can delete everything at any time.",
+    "meta.hub.title": "The A-IEP hub | A-IEP",
+    "meta.hub.description": "Start here: what A-IEP does for parents, how it keeps your child's information private, and how to get a plain-language summary of your child's IEP."
 }

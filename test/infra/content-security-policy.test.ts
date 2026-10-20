@@ -6,6 +6,8 @@
  * one is a request the app really makes, or a protection that must not be
  * traded away to make a violation go quiet.
  */
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import {
   buildContentSecurityPolicy,
@@ -74,9 +76,44 @@ test('Google Analytics is allowed in production only', () => {
 
 test('hashes the inline script index.html really contains', () => {
   // The hash is computed from the file at synth. Pin that the file still has
-  // exactly the one inline script, so a second one cannot be added unhashed
-  // without this test noticing, and that the hash has the CSP shape.
+  // exactly the one inline script the browser runs (the JSON-LD block is data,
+  // see below), so a second one cannot be added unhashed without this test
+  // noticing, and that the hash has the CSP shape.
   const hashes = inlineScriptHashes(INDEX_HTML);
   expect(hashes).toHaveLength(1);
   expect(hashes[0]).toMatch(/^'sha256-[A-Za-z0-9+/]{43}='$/);
+});
+
+describe('which inline blocks get a hash', () => {
+  const hashesOf = (html: string) => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'csp-')), 'index.html');
+    fs.writeFileSync(file, html);
+    return inlineScriptHashes(file);
+  };
+
+  test('index.html carries JSON-LD structured data, which is not hashed', () => {
+    expect(fs.readFileSync(INDEX_HTML, 'utf8')).toContain('<script type="application/ld+json">');
+  });
+
+  test('a JSON-LD data block is skipped', () => {
+    expect(hashesOf('<script type="application/ld+json">{"a":1}</script>')).toEqual([]);
+    expect(hashesOf("<script TYPE='Application/LD+JSON'>{}</script>")).toEqual([]);
+  });
+
+  test('every block the browser would run is still hashed', () => {
+    const scripts = [
+      '<script>run()</script>',
+      '<script type="module">run()</script>',
+      '<script type="text/javascript">run()</script>',
+      // A data type plus something else is not the data type.
+      '<script type="application/ld+json; x">run()</script>',
+    ];
+    for (const script of scripts) {
+      expect(hashesOf(script)).toHaveLength(1);
+    }
+  });
+
+  test('a script with src is never hashed', () => {
+    expect(hashesOf('<script src="/a.js"></script>')).toEqual([]);
+  });
 });

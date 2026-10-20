@@ -744,5 +744,15 @@
     "invite.error": "无法加载您的邀请链接，请稍后再试。",
     "invite.loading": "加载中...",
     "errorBoundary.title": "出现了问题",
-    "errorBoundary.message": "我们无法显示此页面。您的文档是安全的。请重试。"
+    "errorBoundary.message": "我们无法显示此页面。您的文档是安全的。请重试。",
+    "meta.home.title": "A-IEP：用浅显的语言读懂孩子的 IEP",
+    "meta.home.description": "为家长提供的免费工具。上传孩子的 IEP，即可获得通俗易懂的摘要、主要服务和调整措施，以及每个术语的解释，并以您的语言呈现。",
+    "meta.faqs.title": "常见问题 | A-IEP",
+    "meta.faqs.description": "关于 A-IEP 的常见问题解答：它如何处理孩子的 IEP、如何保护您的信息，以及支持哪些语言。",
+    "meta.about.title": "关于本项目 | A-IEP",
+    "meta.about.description": "Burnes Center 为什么与家长一起打造 A-IEP，以及它如何帮助家庭理解孩子的个别化教育计划。",
+    "meta.privacy.title": "隐私政策 | A-IEP",
+    "meta.privacy.description": "A-IEP 如何处理孩子的 IEP：在任何 AI 读取之前先删除个人信息，原始文件会被删除，您也可以随时删除全部内容。",
+    "meta.hub.title": "A-IEP 中心 | A-IEP",
+    "meta.hub.description": "从这里开始：了解 A-IEP 能为家长做什么、如何保护孩子的信息，以及如何获得孩子 IEP 的通俗摘要。"
 }

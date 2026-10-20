@@ -744,5 +744,15 @@
     "invite.error": "No pudimos cargar tu enlace de invitación. Inténtalo de nuevo más tarde.",
     "invite.loading": "Cargando...",
     "errorBoundary.title": "Algo salió mal",
-    "errorBoundary.message": "No pudimos mostrar esta página. Su documento está seguro. Por favor, inténtelo de nuevo."
+    "errorBoundary.message": "No pudimos mostrar esta página. Su documento está seguro. Por favor, inténtelo de nuevo.",
+    "meta.home.title": "A-IEP: entienda el IEP de su hijo en palabras sencillas",
+    "meta.home.description": "Una herramienta gratuita para padres. Suba el IEP de su hijo y reciba un resumen en palabras sencillas, los servicios y adaptaciones principales, y la explicación de cada término, en su idioma.",
+    "meta.faqs.title": "Preguntas frecuentes | A-IEP",
+    "meta.faqs.description": "Respuestas a preguntas comunes sobre A-IEP: qué hace con el IEP de su hijo, cómo se protege su información y qué idiomas ofrece.",
+    "meta.about.title": "Acerca del proyecto | A-IEP",
+    "meta.about.description": "Por qué el Burnes Center creó A-IEP junto con padres, y cómo ayuda a las familias a entender el Programa de Educación Individualizada de su hijo.",
+    "meta.privacy.title": "Política de privacidad | A-IEP",
+    "meta.privacy.description": "Cómo A-IEP trata el IEP de su hijo: los datos personales se eliminan antes de que cualquier IA lo vea, el archivo original se borra y usted puede borrarlo todo en cualquier momento.",
+    "meta.hub.title": "El centro de A-IEP | A-IEP",
+    "meta.hub.description": "Empiece aquí: qué hace A-IEP por los padres, cómo mantiene privada la información de su hijo y cómo obtener un resumen sencillo del IEP de su hijo."
 }
