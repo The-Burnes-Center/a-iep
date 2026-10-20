@@ -53,6 +53,21 @@ export default defineConfig({
   },
 
   projects: [
-    { name: 'chromium', use: { browserName: 'chromium' } },
+    {
+      name: 'chromium',
+      use: { browserName: 'chromium' },
+      grepInvert: /@destructive-session/,
+    },
+    {
+      // The journeys that deliberately submit wrong codes. /auth/verify
+      // counts wrong codes per destination per clock hour and locks at 10, so
+      // a retry can only ADD failures: it would burn budget the next attempt
+      // needs and turn one real failure into two. No retries here; the suite's
+      // global setup resets the counters, so a fresh run starts clean anyway.
+      name: 'destructive-session',
+      use: { browserName: 'chromium' },
+      grep: /@destructive-session/,
+      retries: 0,
+    },
   ],
 });
