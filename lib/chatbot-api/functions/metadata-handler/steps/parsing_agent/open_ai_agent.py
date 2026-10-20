@@ -7,6 +7,7 @@ from data_model import SingleLanguageIEP
 from openai import AsyncOpenAI, OpenAI, Timeout
 from agents import Agent, Runner, function_tool, ModelSettings, set_default_openai_client
 from config import get_english_only_prompt, IEP_SECTIONS, SECTION_KEY_POINTS
+from untrusted_text import prepare_page_for_model
 from agents.exceptions import MaxTurnsExceeded
 try:
     from agents.exceptions import ModelBehaviorError
@@ -90,6 +91,10 @@ class OpenAIAgent:
             api_key (str, optional): Pre-fetched OpenAI API key to avoid SSM calls
         """
         self.ocr_data = ocr_data
+        # What the model reads for each page: AI-addressed passages cut out and
+        # the text wrapped as untrusted data (untrusted_text.py). Built once,
+        # beside ocr_data rather than in it, so nothing stored is changed.
+        self._model_pages = self._prepare_model_pages(ocr_data)
         self.api_key = api_key or self._get_openai_api_key()
         _use_bounded_openai_client(self.api_key)
         # Tools
@@ -121,12 +126,22 @@ class OpenAIAgent:
     def _page_count(self):
         return len((self.ocr_data or {}).get('pages') or [])
 
+    @staticmethod
+    def _prepare_model_pages(ocr_data):
+        pages = (ocr_data or {}).get('pages') or []
+        prepared = [prepare_page_for_model(page.get('markdown') or '') for page in pages]
+        removed = sum(count for _, count in prepared)
+        if removed:
+            # The count only: the passages are document text.
+            logger.warning(f"Removed {removed} passage(s) addressed to an AI system before analysis")
+        return [text for text, _ in prepared]
+
     def _get_page_markdown(self, page_number):
         """Markdown for a 1-based page number, or None if out of range."""
         pages = (self.ocr_data or {}).get('pages') or []
         if page_number < 1 or page_number > len(pages):
             return None
-        return pages[page_number - 1].get('markdown', '')
+        return self._model_pages[page_number - 1]
 
     def _create_ocr_text_tool(self):
         @function_tool()
@@ -138,8 +153,7 @@ class OpenAIAgent:
             if not self.ocr_data or 'pages' not in self.ocr_data:
                 return None
             text_content = []
-            for page_number, page in enumerate(self.ocr_data['pages'], 1):
-                md = page.get('markdown')
+            for page_number, md in enumerate(self._model_pages, 1):
                 if md:
                     text_content.append(f"Page {page_number}:\n{md}")
             combined = "\n\n".join(text_content)

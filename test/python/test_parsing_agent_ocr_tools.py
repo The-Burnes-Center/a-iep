@@ -88,6 +88,12 @@ def ocr_data(page_count=4, blank=()):
                       for i in range(page_count)]}
 
 
+def body(page_number):
+    """What the model is handed for one page: the text, wrapped as untrusted
+    document text (parsing_agent/untrusted_text.py)."""
+    return f'<document_text>\nBody of page {page_number}\n</document_text>'
+
+
 def build(agent_module, data):
     agent = agent_module.OpenAIAgent(ocr_data=data, api_key='test-key')
     return SimpleNamespace(page=agent.ocr_page_tool,
@@ -99,14 +105,14 @@ def build(agent_module, data):
 
 def test_page_one_is_the_first_page(agent_module):
     tools = build(agent_module, ocr_data())
-    assert tools.page(1) == 'Body of page 1'
+    assert tools.page(1) == body(1)
 
 
 def test_last_page_is_reachable(agent_module):
     # The 0-based lookup had no page whose index was 4, so the last page of
     # every document answered "not found".
     tools = build(agent_module, ocr_data(page_count=4))
-    assert tools.page(4) == 'Body of page 4'
+    assert tools.page(4) == body(4)
 
 
 @pytest.mark.parametrize('page_number', [1, 2, 3, 4])
@@ -123,8 +129,8 @@ def test_blank_pages_do_not_shift_the_numbering(agent_module):
     # so page 4 is the 4th sheet of paper either way.
     tools = build(agent_module, ocr_data(page_count=4, blank=(2,)))
     assert 'Page 2:' not in tools.full_text()
-    assert tools.page(3) == 'Body of page 3'
-    assert tools.page(4) == 'Body of page 4'
+    assert tools.page(3) == body(3)
+    assert tools.page(4) == body(4)
 
 
 @pytest.mark.parametrize('page_number', [0, -1, 5, 99])
@@ -148,16 +154,13 @@ def test_missing_ocr_data_reports_an_error(agent_module):
 
 def test_multiple_pages_come_back_in_the_order_asked_for(agent_module):
     tools = build(agent_module, ocr_data())
-    assert tools.pages([3, 1]) == (
-        'Page 3:\nBody of page 3\n\n'
-        'Page 1:\nBody of page 1'
-    )
+    assert tools.pages([3, 1]) == f'Page 3:\n{body(3)}\n\nPage 1:\n{body(1)}'
 
 
 def test_multiple_pages_label_each_block_with_the_number_requested(agent_module):
     tools = build(agent_module, ocr_data())
     for page_number in (1, 2, 3, 4):
-        assert f'Page {page_number}:\nBody of page {page_number}' in tools.pages([page_number])
+        assert f'Page {page_number}:\n{body(page_number)}' in tools.pages([page_number])
 
 
 def test_out_of_range_page_in_a_batch_is_reported_not_skipped(agent_module):
@@ -165,7 +168,7 @@ def test_out_of_range_page_in_a_batch_is_reported_not_skipped(agent_module):
     # nothing to say which ones were missing.
     tools = build(agent_module, ocr_data(page_count=4))
     result = tools.pages([1, 9])
-    assert result.startswith('Page 1:\nBody of page 1')
+    assert result.startswith(f'Page 1:\n{body(1)}')
     assert 'Page 9:\nERROR:' in result
 
 
