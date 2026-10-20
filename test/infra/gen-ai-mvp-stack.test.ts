@@ -2064,6 +2064,7 @@ describeLogRetention('staging', () => template);
 describeStepTimeouts('staging', () => template);
 describeBucketLifecycle('staging', () => template);
 describeRetiredLanguageStep('staging', () => template);
+describeWebsiteHeaders('staging', () => template);
 
 /**
  * Lambda runtimes that must hold in BOTH synthesized templates. Staging and
@@ -2181,6 +2182,62 @@ function lifecycleRulesOf(t: Template, hint: string): Record<string, any> {
  * abort stalled uploads or expire superseded versions; none expires current
  * objects.
  */
+/**
+ * Security headers on the website distribution. The site sent none before
+ * this policy existed, and CloudFrontWebDistribution attaches it only through
+ * a property override, which a refactor of the distribution could drop
+ * without any type error.
+ */
+function describeWebsiteHeaders(envLabel: EnvLabel, getTemplate: () => Template) {
+  describe(`website security headers (${envLabel})`, () => {
+    const policyOf = (t: Template) => {
+      const policies = Object.entries(t.findResources('AWS::CloudFront::ResponseHeadersPolicy'));
+      expect(policies).toHaveLength(1);
+      const [logicalId, policy] = policies[0] as [string, any];
+      return { logicalId, config: policy.Properties.ResponseHeadersPolicyConfig };
+    };
+
+    test('every behavior of the website distribution sends the policy', () => {
+      const { logicalId } = policyOf(getTemplate());
+      const distributions = Object.values(getTemplate().findResources('AWS::CloudFront::Distribution')) as any[];
+      const website = distributions.filter((d) =>
+        d.Properties.DistributionConfig.DefaultCacheBehavior?.ResponseHeadersPolicyId);
+      expect(website).toHaveLength(1);
+      const config = website[0].Properties.DistributionConfig;
+      const behaviors = [config.DefaultCacheBehavior, ...(config.CacheBehaviors ?? [])];
+      expect(behaviors.length).toBeGreaterThanOrEqual(2);
+      for (const behavior of behaviors) {
+        expect(behavior.ResponseHeadersPolicyId).toEqual({ Ref: logicalId });
+      }
+    });
+
+    test('HSTS, nosniff, framing and referrer headers are set and override the origin', () => {
+      const { config } = policyOf(getTemplate());
+      const sec = config.SecurityHeadersConfig;
+      expect(sec.StrictTransportSecurity).toEqual(expect.objectContaining({
+        AccessControlMaxAgeSec: 31536000, IncludeSubdomains: false, Override: true,
+      }));
+      expect(sec.ContentTypeOptions).toEqual({ Override: true });
+      expect(sec.FrameOptions).toEqual({ FrameOption: 'SAMEORIGIN', Override: true });
+      expect(sec.ReferrerPolicy).toEqual({ ReferrerPolicy: 'strict-origin-when-cross-origin', Override: true });
+    });
+
+    test(envLabel === 'production'
+      ? 'production is indexable: no X-Robots-Tag'
+      : 'staging asks search engines to stay out', () => {
+      const { config } = policyOf(getTemplate());
+      const headers = (config.CustomHeadersConfig?.Items ?? []) as { Header: string; Value: string }[];
+      const robots = headers.find((h) => h.Header === 'X-Robots-Tag');
+      if (envLabel === 'production') {
+        expect(robots).toBeUndefined();
+      } else {
+        expect(robots?.Value).toBe('noindex, nofollow');
+      }
+      expect(headers.find((h) => h.Header === 'Permissions-Policy')?.Value).toMatch(/camera=\(\)/);
+    });
+  });
+}
+
 function describeBucketLifecycle(envLabel: EnvLabel, getTemplate: () => Template) {
   describe(`bucket lifecycle (${envLabel})`, () => {
     // WHY: the website bucket is versioned, so every replaced build leaves its
@@ -3281,6 +3338,7 @@ describe('production synth: the OTP test backdoor must not exist', () => {
   describeStepTimeouts('production', () => prodTemplate);
   describeBucketLifecycle('production', () => prodTemplate);
   describeRetiredLanguageStep('production', () => prodTemplate);
+  describeWebsiteHeaders('production', () => prodTemplate);
 });
 
 describe('custom-certificate synth: the CloudFront TLS floor', () => {
@@ -3388,12 +3446,17 @@ describe('production synth: the unhashed entry points are revalidated', () => {
         };
       });
 
-  it('serves index.html and aws-exports.json with no-cache', () => {
+  it('serves index.html, aws-exports.json and the well-known files with no-cache', () => {
     const entrypoints = deployments().filter((d) =>
       d.include.includes('aws-exports.json'));
 
     expect(entrypoints).toHaveLength(1);
-    expect(entrypoints[0].include.sort()).toEqual(['aws-exports.json', 'index.html']);
+    // robots.txt, sitemap.xml and security.txt ride with the entry points:
+    // they are unhashed, small, and built per environment at synth, so a long
+    // cache would keep serving the previous environment's answer.
+    expect(entrypoints[0].include.sort()).toEqual([
+      '.well-known/security.txt', 'aws-exports.json', 'index.html', 'robots.txt', 'sitemap.xml',
+    ]);
 
     // no-cache is revalidate-before-use, not "do not store": the browser
     // keeps the file and gets a 304 when nothing changed, so a flag flip

@@ -5,7 +5,7 @@ import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import { Construct } from "constructs";
 import { ChatBotApi } from "../chatbot-api";
 import { NagSuppressions } from "cdk-nag";
-import { getTagProps, tagResource } from '../tags';
+import { getEnvironment, getTagProps, tagResource } from '../tags';
 
 
 export interface WebsiteProps {  
@@ -147,6 +147,50 @@ export class Website extends Construct {
       }
     );
     
+    // Security headers on every response, including the SPA fallback. The
+    // site sent none before: no HSTS, no nosniff, nothing against framing.
+    //
+    // HSTS leaves out includeSubDomains on purpose: it would bind every
+    // a-iep.org subdomain, including ones this stack does not serve, and it
+    // cannot be taken back for a year. No CSP yet: the app loads Turnstile,
+    // Typekit, analytics and the API from other origins, so a policy needs
+    // its own inventory and a report-only run first. Staging adds
+    // X-Robots-Tag so it stays out of search results.
+    const isProduction = getEnvironment() === 'prod';
+    const securityHeaders = new cf.ResponseHeadersPolicy(this, 'SecurityHeaders', {
+      comment: 'A-IEP web app security headers',
+      securityHeadersBehavior: {
+        strictTransportSecurity: {
+          accessControlMaxAge: cdk.Duration.days(365),
+          includeSubdomains: false,
+          override: true,
+        },
+        contentTypeOptions: { override: true },
+        frameOptions: { frameOption: cf.HeadersFrameOption.SAMEORIGIN, override: true },
+        referrerPolicy: {
+          referrerPolicy: cf.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+          override: true,
+        },
+      },
+      customHeadersBehavior: {
+        customHeaders: [
+          // Features the app never uses. Clipboard and WebOTP are left alone.
+          { header: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()', override: true },
+          ...(isProduction ? [] : [{ header: 'X-Robots-Tag', value: 'noindex, nofollow', override: true }]),
+        ],
+      },
+    });
+
+    // CloudFrontWebDistribution has no responseHeadersPolicy prop, so attach it
+    // to both behaviors on the underlying resource.
+    const cfnDistribution = distribution.node.defaultChild as cf.CfnDistribution;
+    for (const behavior of ['DefaultCacheBehavior', 'CacheBehaviors.0']) {
+      cfnDistribution.addPropertyOverride(
+        `DistributionConfig.${behavior}.ResponseHeadersPolicyId`,
+        securityHeaders.responseHeadersPolicyId,
+      );
+    }
+
     // Apply tags to the CloudFront distribution
     tagResource(distribution, {
       'Resource': 'CloudFront',

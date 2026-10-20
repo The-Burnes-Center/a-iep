@@ -20,6 +20,7 @@ import {
   WEBSITE_NONCURRENT_VERSION_DAYS,
 } from "../constants";
 import { getEnvironment } from "../tags";
+import { buildRobotsTxt, buildSecurityTxt, buildSitemapXml } from "./site-files";
 
 // Languages offered in the UI per environment. Arabic ships on dev/staging but
 // not prod; an explicit ENABLED_LANGUAGES env var (comma-separated codes)
@@ -198,6 +199,16 @@ export class UserInterface extends Construct {
       environment : getEnvironment()
     });
 
+    // robots.txt, sitemap.xml and security.txt (see site-files.ts). The host
+    // matches the one the login SMS names (OTP_SMS_DOMAIN in new-auth.ts).
+    const isProduction = getEnvironment() === "prod";
+    const siteFiles = { host: isProduction ? "a-iep.org" : "dev.a-iep.org", isProduction };
+    const wellKnownAssets = [
+      s3deploy.Source.data("robots.txt", buildRobotsTxt(siteFiles)),
+      s3deploy.Source.data("sitemap.xml", buildSitemapXml(siteFiles)),
+      s3deploy.Source.data(".well-known/security.txt", buildSecurityTxt(siteFiles)),
+    ];
+
     const asset = s3deploy.Source.asset(appPath, {
       bundling: {
         image: cdk.DockerImage.fromRegistry(
@@ -315,16 +326,17 @@ export class UserInterface extends Construct {
       ephemeralStorageSize: cdk.Size.gibibytes(1),
     });
 
-    // The two unhashed entry points. no-cache is revalidate-before-use, not
+    // The two unhashed entry points, plus the well-known files, which are
+    // equally unhashed and small. no-cache is revalidate-before-use, not
     // "never cache": the browser still stores them and still gets a 304 when
     // nothing changed, so this costs one conditional request per load rather
     // than a re-download. must-revalidate closes the stale-while-offline
     // window that would otherwise let a flag flip be ignored.
     const entrypointsDeployment = new s3deploy.BucketDeployment(this, "UserInterfaceEntrypoints", {
       prune: false,
-      sources: [asset, exportsAsset],
+      sources: [asset, exportsAsset, ...wellKnownAssets],
       exclude: ["*"],
-      include: ["index.html", "aws-exports.json"],
+      include: ["index.html", "aws-exports.json", "robots.txt", "sitemap.xml", ".well-known/security.txt"],
       destinationBucket: websiteBucket,
       distribution: distribution,
       cacheControl: [
