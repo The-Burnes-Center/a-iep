@@ -31,7 +31,7 @@ export interface ChatBotApiProps {
 export class ChatBotApi extends Construct {
   public readonly httpAPI: RestBackendAPI;
   public readonly logging: LoggingStack;
-  /** Outage alerting. Subscribe AWS Chatbot to monitoring.alarmTopic. */
+  /** Outage alerting. Subscribe AWS Chatbot to monitoring.alertTopic. */
   public monitoring!: MonitoringStack;
   /** SES configuration set, suppression list and reputation alarms. */
   public email!: EmailIdentityStack;
@@ -345,14 +345,6 @@ export class ChatBotApi extends Construct {
         { label: 'PostConfirmation (secures a new account)', fn: this.lambdaFunctions.cognitoTriggerFunction,
           purpose: 'secures a newly created account; runs once per signup' },
       ],
-      // Its own field, not one of the lists: this is the only way to create
-      // an account, so its alarms say "signup broken" rather than "an API
-      // handler is failing", and most of its failures are 4xx refusals that
-      // no Errors or 5xx metric can see.
-      signupFunction: {
-        label: 'signup', fn: authentication.signupFunction,
-        purpose: 'the only way to create an account; runs once per new family',
-      },
       // The passwordless login path. Its own list, not apiFunctions: an API
       // handler failing breaks part of the app, and one of these failing means
       // nobody can get in at all.
@@ -375,8 +367,6 @@ export class ChatBotApi extends Construct {
         { label: 'PDF download', fn: this.lambdaFunctions.pdfGeneratorFunction, purpose: 'renders a summary as a PDF; runs when a parent downloads one' },
         // Silent failure here shows a parent an empty document list, or a
         // delete that appears to work and does not.
-        { label: 'documents list', fn: this.lambdaFunctions.getS3KnowledgeFunction, purpose: 'lists the documents on an account; runs on every visit to that page' },
-        { label: 'document delete', fn: this.lambdaFunctions.deleteS3Function, purpose: 'deletes a document at a parent request' },
         // The "translate it now" request path.
         { label: 'translation request', fn: this.lambdaFunctions.translationRequestFunction, purpose: 'handles "translate it now"; runs only when a parent asks' },
         // Writes every pipeline progress and failure record.

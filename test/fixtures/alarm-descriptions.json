@@ -22,7 +22,7 @@
   },
   {
    "AlarmName": "a-iep-staging a parent asked us to delete their records and we did not",
-   "AlarmDescription": "[STAGING] [WARNING] A deletion request was only partly carried out\nImpact: Staging only. No real families are affected.\nFires when: at least 1 incomplete deletion in 15 minutes.\nCheck first:\n1. Open the logs for the document delete and user profile functions and search for DELETION_INCOMPLETE to find the user and step.\n2. Remove what is left by hand and confirm it is gone before telling the parent (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#student-records-were-not-removed\nRecovery: quiet"
+   "AlarmDescription": "[STAGING] [WARNING] A deletion request was only partly carried out\nImpact: Staging only. No real families are affected.\nFires when: at least 1 incomplete deletion in 15 minutes.\nCheck first:\n1. Open the user profile function logs and search for DELETION_INCOMPLETE to find the user and step.\n2. Remove what is left by hand and confirm it is gone before telling the parent (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#student-records-were-not-removed\nRecovery: quiet"
   },
   {
    "AlarmName": "a-iep-staging alerting itself is broken",
@@ -33,12 +33,8 @@
    "AlarmDescription": "[STAGING] [WARNING] Alerts are not being delivered, so Slack may look quiet\nImpact: Staging only. No real families are affected.\nFires when: at least 1 failed delivery in 5 minutes.\nCheck first:\n1. Open the CloudWatch alarms page and look for any alarms in the ALARM state.\n2. Check that the alarm topic still has its subscription to the alert formatter function.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-alerting-itself-is-broken\nRecovery: Alerts are being delivered again"
   },
   {
-   "AlarmName": "a-iep-staging API handler failing: document delete",
-   "AlarmDescription": "[STAGING] [WARNING] Errors in document deletion\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
-  },
-  {
-   "AlarmName": "a-iep-staging API handler failing: documents list",
-   "AlarmDescription": "[STAGING] [WARNING] Errors in the document list\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
+   "AlarmName": "a-iep-staging an old IEP was not cleaned up after a replacement",
+   "AlarmDescription": "[STAGING] [WARNING] An old IEP was not cleaned up after a replacement\nImpact: Staging only. No real families are affected.\nFires when: at least 1 incomplete cleanup in 15 minutes.\nCheck first:\n1. Open the pipeline database writes function logs and search for DELETION_INCOMPLETE scope=replaced-document to find the child and the old document.\n2. Run scripts/audit-residue.py (read-only) and look at the superseded_documents check to confirm what is still stored.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#an-old-iep-was-not-cleaned-up-after-a-replacement\nRecovery: quiet"
   },
   {
    "AlarmName": "a-iep-staging API handler failing: PDF download",
@@ -67,14 +63,6 @@
   {
    "AlarmName": "a-iep-staging API handler failing: user profile",
    "AlarmDescription": "[STAGING] [WARNING] Errors in the account screen\nImpact: Staging only. No real families are affected.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
-  },
-  {
-   "AlarmName": "a-iep-staging API handler throttled: document delete",
-   "AlarmDescription": "[STAGING] [WARNING] Requests to document deletion are being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
-  },
-  {
-   "AlarmName": "a-iep-staging API handler throttled: documents list",
-   "AlarmDescription": "[STAGING] [WARNING] Requests to the document list are being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#the-app-is-returning-errors"
   },
   {
    "AlarmName": "a-iep-staging API handler throttled: PDF download",
@@ -254,7 +242,7 @@
   },
   {
    "AlarmName": "a-iep-staging new accounts may be reachable by whoever created them",
-   "AlarmDescription": "[STAGING] [WARNING] A new account could not be secured\nImpact: Staging only. No real families are affected.\nFires when: at least 1 unsecured account in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_ORPHANED to find the account.\n2. Disable or delete that account in Cognito, then find out why the cleanup failed (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: quiet"
+   "AlarmDescription": "[STAGING] [WARNING] A new account could not be secured\nImpact: Staging only. No real families are affected.\nFires when: at least 1 unsecured account in 5 minutes.\nCheck first:\n1. Open the auth send function logs and search for SIGNUP_ORPHANED to find the account.\n2. Disable or delete that account in Cognito, then find out why the cleanup failed (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: quiet"
   },
   {
    "AlarmName": "a-iep-staging on-demand translations are failing",
@@ -333,24 +321,8 @@
    "AlarmDescription": "[STAGING] [WARNING] Many sign-in attempts are being turned away\nImpact: Staging only. No real families are affected.\nFires when: at least 25 refused sign-ins in 5 minutes.\nCheck first:\n1. Open the sign-in start logs and search for AUTH_START_REFUSED to see the reason and whether the requests come from one source.\n2. Ask a parent or test a sign-in yourself to rule out real users being blocked.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#suspected-abuse"
   },
   {
-   "AlarmName": "a-iep-staging sign-ups are being refused in bulk",
-   "AlarmDescription": "[STAGING] [WARNING] Many sign-ups are being turned away\nImpact: Staging only. No real families are affected.\nFires when: at least 10 refused sign-ups in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_REFUSED to see the reasons and whether they come from one source.\n2. Test a normal signup yourself to rule out real families being blocked.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#suspected-abuse"
-  },
-  {
-   "AlarmName": "a-iep-staging signup broken: accounts are not being created",
-   "AlarmDescription": "[STAGING] [WARNING] Sign-ups are failing when the account is created\nImpact: Staging only. No real families are affected.\nFires when: at least 3 failed sign-ups in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_FAILED to see the Cognito error.\n2. Check for a recent change to the user pool or the signup function.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Accounts are being created again"
-  },
-  {
-   "AlarmName": "a-iep-staging signup broken: nobody can create an account",
-   "AlarmDescription": "[STAGING] [WARNING] Sign-up is down\nImpact: Staging only. No real families are affected.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the signup function logs and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Sign-up is working again"
-  },
-  {
    "AlarmName": "a-iep-staging signup flood: someone is abusing the signup form",
    "AlarmDescription": "[STAGING] [WARNING] A flood of new accounts is being created\nImpact: Staging only. No real families are affected.\nFires when: at least 20 signups on real numbers or addresses in 5 minutes.\nCheck first:\n1. Open the signup logs and look at the phone prefixes and timing of the new accounts.\n2. Confirm the bot check is on, then follow the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#suspected-abuse\nRecovery: Account creation is back to a normal rate"
-  },
-  {
-   "AlarmName": "a-iep-staging signup throttled: nobody can create an account",
-   "AlarmDescription": "[STAGING] [WARNING] Sign-up is being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the signup logs and check whether the volume is a flood (see the runbook) or real demand.\n2. If it is real demand, raise the function's reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Sign-up is no longer being throttled"
   },
   {
    "AlarmName": "a-iep-staging signup volume far above normal, test accounts included",
@@ -416,7 +388,7 @@
   },
   {
    "AlarmName": "a-iep a parent asked us to delete their records and we did not",
-   "AlarmDescription": "[PROD] [CRITICAL] A deletion request was only partly carried out\nImpact: Administrators must act: a parent asked for a child's documents or profile to be removed, and some of it still exists.\nFires when: at least 1 incomplete deletion in 15 minutes.\nCheck first:\n1. Open the logs for the document delete and user profile functions and search for DELETION_INCOMPLETE to find the user and step.\n2. Remove what is left by hand and confirm it is gone before telling the parent (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#student-records-were-not-removed\nRecovery: quiet"
+   "AlarmDescription": "[PROD] [CRITICAL] A deletion request was only partly carried out\nImpact: Administrators must act: a parent asked for a child's documents or profile to be removed, and some of it still exists.\nFires when: at least 1 incomplete deletion in 15 minutes.\nCheck first:\n1. Open the user profile function logs and search for DELETION_INCOMPLETE to find the user and step.\n2. Remove what is left by hand and confirm it is gone before telling the parent (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#student-records-were-not-removed\nRecovery: quiet"
   },
   {
    "AlarmName": "a-iep alerting itself is broken",
@@ -427,12 +399,8 @@
    "AlarmDescription": "[PROD] [CRITICAL] Alerts are not being delivered, so Slack may look quiet\nImpact: Administrators may miss real problems. Alarms fire in CloudWatch but never reach Slack.\nFires when: at least 1 failed delivery in 5 minutes.\nCheck first:\n1. Open the CloudWatch alarms page and look for any alarms in the ALARM state.\n2. Check that the alarm topic still has its subscription to the alert formatter function.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-alerting-itself-is-broken\nRecovery: Alerts are being delivered again"
   },
   {
-   "AlarmName": "a-iep API handler failing: document delete",
-   "AlarmDescription": "[PROD] [WARNING] Errors in document deletion\nImpact: Parents using document deletion get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
-  },
-  {
-   "AlarmName": "a-iep API handler failing: documents list",
-   "AlarmDescription": "[PROD] [WARNING] Errors in the document list\nImpact: Parents using the document list get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
+   "AlarmName": "a-iep an old IEP was not cleaned up after a replacement",
+   "AlarmDescription": "[PROD] [CRITICAL] An old IEP was not cleaned up after a replacement\nImpact: Administrators must act: a parent replaced their IEP and the new one is working, but the previous one could not be fully deleted. Its data is still stored and needs removing by hand.\nFires when: at least 1 incomplete cleanup in 15 minutes.\nCheck first:\n1. Open the pipeline database writes function logs and search for DELETION_INCOMPLETE scope=replaced-document to find the child and the old document.\n2. Run scripts/audit-residue.py (read-only) and look at the superseded_documents check to confirm what is still stored.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#an-old-iep-was-not-cleaned-up-after-a-replacement\nRecovery: quiet"
   },
   {
    "AlarmName": "a-iep API handler failing: PDF download",
@@ -461,14 +429,6 @@
   {
    "AlarmName": "a-iep API handler failing: user profile",
    "AlarmDescription": "[PROD] [WARNING] Errors in the account screen\nImpact: Parents using the account screen get errors until this clears.\nFires when: at least 5 errors in 5 minutes.\nCheck first:\n1. Open the logs for this part of the app (the Logs link below) and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
-  },
-  {
-   "AlarmName": "a-iep API handler throttled: document delete",
-   "AlarmDescription": "[PROD] [WARNING] Requests to document deletion are being throttled\nImpact: Parents using document deletion get errors because the function is at its capacity limit, not because of a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
-  },
-  {
-   "AlarmName": "a-iep API handler throttled: documents list",
-   "AlarmDescription": "[PROD] [WARNING] Requests to the document list are being throttled\nImpact: Parents using the document list get errors because the function is at its capacity limit, not because of a bug.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open this function's metrics and compare concurrent runs with the account concurrency limit.\n2. If the load is real, raise the limit; if it is a flood, see the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#the-app-is-returning-errors"
   },
   {
    "AlarmName": "a-iep API handler throttled: PDF download",
@@ -648,7 +608,7 @@
   },
   {
    "AlarmName": "a-iep new accounts may be reachable by whoever created them",
-   "AlarmDescription": "[PROD] [CRITICAL] A new account could not be secured\nImpact: Administrators must act: an account was created but could not be locked down, and removing it also failed. Treat accounts created now as untrusted until it is cleared.\nFires when: at least 1 unsecured account in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_ORPHANED to find the account.\n2. Disable or delete that account in Cognito, then find out why the cleanup failed (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: quiet"
+   "AlarmDescription": "[PROD] [CRITICAL] A new account could not be secured\nImpact: Administrators must act: an account was created but could not be locked down, and removing it also failed. Treat accounts created now as untrusted until it is cleared.\nFires when: at least 1 unsecured account in 5 minutes.\nCheck first:\n1. Open the auth send function logs and search for SIGNUP_ORPHANED to find the account.\n2. Disable or delete that account in Cognito, then find out why the cleanup failed (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: quiet"
   },
   {
    "AlarmName": "a-iep on-demand translations are failing",
@@ -727,24 +687,8 @@
    "AlarmDescription": "[PROD] [WARNING] Many sign-in attempts are being turned away\nImpact: Either someone is attacking sign-in and our limits are holding, or the limits are too tight and real parents are locked out.\nFires when: at least 25 refused sign-ins in 5 minutes.\nCheck first:\n1. Open the sign-in start logs and search for AUTH_START_REFUSED to see the reason and whether the requests come from one source.\n2. Ask a parent or test a sign-in yourself to rule out real users being blocked.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#suspected-abuse"
   },
   {
-   "AlarmName": "a-iep sign-ups are being refused in bulk",
-   "AlarmDescription": "[PROD] [WARNING] Many sign-ups are being turned away\nImpact: Either an abuse run is under way and the limits are holding, or the limits are too tight and real families cannot join.\nFires when: at least 10 refused sign-ups in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_REFUSED to see the reasons and whether they come from one source.\n2. Test a normal signup yourself to rule out real families being blocked.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#suspected-abuse"
-  },
-  {
-   "AlarmName": "a-iep signup broken: accounts are not being created",
-   "AlarmDescription": "[PROD] [CRITICAL] Sign-ups are failing when the account is created\nImpact: Families fill in the form and are told it did not work.\nFires when: at least 3 failed sign-ups in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_FAILED to see the Cognito error.\n2. Check for a recent change to the user pool or the signup function.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Accounts are being created again"
-  },
-  {
-   "AlarmName": "a-iep signup broken: nobody can create an account",
-   "AlarmDescription": "[PROD] [CRITICAL] Sign-up is down\nImpact: No new family can create an account. This is the only way to join.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the signup function logs and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Sign-up is working again"
-  },
-  {
    "AlarmName": "a-iep signup flood: someone is abusing the signup form",
    "AlarmDescription": "[PROD] [CRITICAL] A flood of new accounts is being created\nImpact: No one yet. Each account sends a text, so this burns the monthly SMS budget and can leave parents without sign-in codes.\nFires when: at least 20 signups on real numbers or addresses in 5 minutes.\nCheck first:\n1. Open the signup logs and look at the phone prefixes and timing of the new accounts.\n2. Confirm the bot check is on, then follow the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#suspected-abuse\nRecovery: Account creation is back to a normal rate"
-  },
-  {
-   "AlarmName": "a-iep signup throttled: nobody can create an account",
-   "AlarmDescription": "[PROD] [CRITICAL] Sign-up is being throttled\nImpact: New families are turned away because the signup function is at its capacity limit.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the signup logs and check whether the volume is a flood (see the runbook) or real demand.\n2. If it is real demand, raise the function's reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Sign-up is no longer being throttled"
   },
   {
    "AlarmName": "a-iep signup volume far above normal, test accounts included",

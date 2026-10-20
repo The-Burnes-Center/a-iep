@@ -128,21 +128,19 @@ sign-in code by text until the limit is raised or the month rolls over.
 
 ## Sign-up is failing
 
-**Alerts:** sign-up is down; sign-up is being throttled; sign-ups are failing when
-the account is created; an account could not be secured; the bot check is
-switched off.
+**Alerts:** an account could not be secured; the bot check is switched off.
+(Login failures alert under their own names: see the sign-in sections.)
 
-**Who is affected:** new families. Sign-up is the only way to create an account,
-so while it fails nobody new can join.
+**Who is affected:** new families. Accounts are created by the auth send
+function (`/auth/start` hands off to it), so while it fails nobody new can join.
 
 **Check first**
 
-1. Read the latest error in the signup function logs (`SIGNUP_FAILED` carries the
-   Cognito error).
-2. Check for a recent change to the user pool or the signup function.
+1. Read the latest error in the auth send function logs.
+2. Check for a recent change to the user pool or that function.
 
 **An account could not be secured** (`SIGNUP_ORPHANED`): an account exists that
-whoever created it may be able to sign into. Find it in the signup logs by id,
+whoever created it may be able to sign into. Find it in the auth send function logs by id,
 disable or delete it in Cognito, then find out why the clean-up failed. Treat
 accounts created while the alert is active as untrusted until that is done.
 
@@ -250,9 +248,44 @@ child's records exist that should not, and an administrator has to remove them.
    to a dry run: read the output, then re-run with `--apply`, then run the audit
    again to confirm it is gone.
 3. For a deletion request that only partly completed, find the user and step from
-   the `DELETION_INCOMPLETE` marker in the document delete or user profile
-   function logs. Remove what is left by hand and confirm before telling the
+   the `DELETION_INCOMPLETE` marker in the user profile function
+   logs. Remove what is left by hand and confirm before telling the
    parent their records are gone.
+
+Never paste a document, a summary or a name into Slack or a ticket while doing this.
+
+## An old IEP was not cleaned up after a replacement
+
+**Alerts:** an old IEP was not cleaned up after a replacement.
+
+**Who is affected:** no parent sees anything. A parent replaced their child's
+IEP and the new one is working, but the cleanup that deletes the previous one
+did not finish, so its data is still stored. It needs removing by hand. This is
+not a parent's deletion request, so it does not raise the "a parent asked us to
+delete their records" alert.
+
+**Find it**
+
+1. Search the pipeline database writes function logs for
+   `DELETION_INCOMPLETE scope=replaced-document`. The line carries the user,
+   child and new document ids, the old (`superseded`) document ids and what
+   survived (`raw-upload`, `derived-artifacts`, `document-row`). It holds ids
+   only, never content.
+2. Run `scripts/audit-residue.py --env <env>` (read-only) and look at the
+   `superseded_documents` check. It lists the document rows that are older than
+   the child's newest finished one, so it confirms what the marker reported and
+   also finds a cleanup that never logged at all.
+
+**Fix it**
+
+1. The row is kept on purpose when anything survived: it holds the only pointer
+   to the summary object. Delete the old document's S3 artifacts first (every
+   version of the raw upload prefix, the summary object, and the legacy
+   `iep-data/` and `iep-audio/` prefixes for that document), then its row.
+2. The cleanup also reruns, for every older document of the child, the next
+   time a replacement for that child finishes. Do not wait for that: the data
+   should not stay stored.
+3. Run the audit again and confirm `superseded_documents` is clean.
 
 Never paste a document, a summary or a name into Slack or a ticket while doing this.
 

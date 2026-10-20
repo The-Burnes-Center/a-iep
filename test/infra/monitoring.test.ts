@@ -57,15 +57,11 @@ const EXPECTED_ALARM_SUFFIXES = [
   'a failed document kept its unredacted copy',
   'a document kept text we said we would delete',
   'a parent asked us to delete their records and we did not',
+  'an old IEP was not cleaned up after a replacement',
   'a family got English only: a requested translation was left out',
-  // The signup endpoint. It is the ONLY way to create an account, because
-  // Cognito's public SignUp API is closed, and for its first day it had no
-  // alarm of any kind: not in pipelineFunctions, not in authTriggerFunctions,
-  // not in apiFunctions, no metric filter on any of its markers.
-  'signup broken: nobody can create an account',
-  'signup throttled: nobody can create an account',
-  'sign-ups are being refused in bulk',
-  'signup broken: accounts are not being created',
+  // Account creation lives in the auth send function now (the signup endpoint
+  // and its four alarms are gone); these two are fed by markers it and
+  // /auth/start still log.
   'new accounts may be reachable by whoever created them',
   'the signup bot check is switched off',
   // The alerting path watching itself, both halves of it.
@@ -103,16 +99,14 @@ const SMS_MARKERS: [string, string][] = [
 ];
 
 /**
- * The same contract, for the signup endpoint.
+ * The same contract, for account creation.
  *
- * Nearly every way that function turns a family away is a deliberate 4xx
- * refusal that raises nothing, so Lambda Errors stays flat through a total
- * signup outage and these markers are the only signal there is. The lambda
- * side is pinned in test/lambdas/phone-otp-auth/signup-endpoint.test.js.
+ * SIGNUP_ORPHANED is logged by auth-dispatch (pinned in
+ * test/lambdas/phone-otp-auth/auth-dispatch.test.js) and TURNSTILE_NOT_CONFIGURED
+ * by turnstile.js through /auth/start. SIGNUP_REFUSED and SIGNUP_FAILED had
+ * only one emitter, the deleted signup endpoint, so their filters went with it.
  */
 const SIGNUP_MARKERS: [string, string][] = [
-  ['SIGNUP_REFUSED', 'SignupRefused'],
-  ['SIGNUP_FAILED', 'SignupFailed'],
   ['SIGNUP_ORPHANED', 'SignupOrphaned'],
   ['TURNSTILE_NOT_CONFIGURED', 'TurnstileNotConfigured'],
 ];
@@ -512,22 +506,27 @@ describe('a deletion that only partly happened', () => {
   // steps failed, so a parent could be told their child's records were gone
   // while they were still there. The marker is the only signal.
   //
-  // Pinned on the lambda side in test/python/test_user_profile_api.py and
-  // test/python/test_knowledge_delete_s3.py.
+  // Pinned on the lambda side in test/python/test_user_profile_api.py. The
+  // document-delete lambda that used to be the second emitter is gone, so
+  // the watched log groups are now the profile handler and the DDB service.
   test('DELETION_INCOMPLETE is counted, but only when it is essential', () => {
     const filters = Object.values(synth('production').findResources('AWS::Logs::MetricFilter'))
       .map((r: any) => r.Properties)
       .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'));
 
-    // One per watched handler: the account/profile path, the document path,
-    // and the DDB service, which deletes the child's previous IEP once a
-    // re-upload has finished (scope=replaced-document).
-    expect(filters.length).toBeGreaterThanOrEqual(3);
+    // One per watched handler: the account/profile path, and the DDB service,
+    // which deletes the child's previous IEP once a re-upload has finished. The floor was 3 while the unrouted
+    // document-delete lambda still had its own filter; it was removed with the
+    // lambda, so 2 is the real number and the guard against a vanished filter.
+    expect(filters.length).toBeGreaterThanOrEqual(2);
     for (const filter of filters) {
       // Both terms, load-bearing: matching the marker alone would page for an
       // orphaned audio file.
       expect(filter.FilterPattern).toContain('DELETION_INCOMPLETE');
       expect(filter.FilterPattern).toContain('essential=yes');
+      // And the replaced-document scope is excluded, or one event would page
+      // twice: here, and again on its own alarm.
+      expect(filter.FilterPattern).toContain('-"scope=replaced-document"');
     }
   });
 
@@ -536,15 +535,41 @@ describe('a deletion that only partly happened', () => {
   // that cleanup does: the marker is the only way anyone learns an old IEP is
   // still in the bucket. Pinned on the lambda side in
   // test/python/test_replaced_documents.py.
-  test('the DDB service log group is watched for an unfinished replace-cleanup', () => {
-    const filters = Object.values(synth('production').findResources('AWS::Logs::MetricFilter'))
-      .map((r: any) => r.Properties)
-      .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'));
+  test.each(['production', 'staging'])(
+    'the DDB service log group is watched for an unfinished replace-cleanup (%s)', (environment) => {
+      const template = synth(environment);
+      const replaced = Object.values(template.findResources('AWS::Logs::MetricFilter'))
+        .map((r: any) => r.Properties)
+        .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('ReplacedDocumentIncomplete'));
 
-    const ddbService = filters.filter((p: any) => JSON.stringify(p.LogGroupName).includes('DDBService'));
-    expect(ddbService).toHaveLength(1);
-    expect(ddbService[0].FilterPattern).toContain('DELETION_INCOMPLETE');
-    expect(ddbService[0].FilterPattern).toContain('essential=yes');
+      expect(replaced).toHaveLength(1);
+      expect(JSON.stringify(replaced[0].LogGroupName)).toContain('DDBService');
+      expect(replaced[0].FilterPattern).toContain('DELETION_INCOMPLETE');
+      expect(replaced[0].FilterPattern).toContain('"scope=replaced-document"');
+      expect(replaced[0].FilterPattern).not.toContain('-"scope=replaced-document"');
+      expect(replaced[0].MetricTransformations[0].MetricNamespace).toBe(ns(environment, 'Pipeline'));
+
+      // The old essential metric on the same log group must not also count it.
+      const essentialOnDdb = Object.values(template.findResources('AWS::Logs::MetricFilter'))
+        .map((r: any) => r.Properties)
+        .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'))
+        .filter((p: any) => JSON.stringify(p.LogGroupName).includes('DDBService'));
+      for (const filter of essentialOnDdb) {
+        expect(filter.FilterPattern).toContain('-"scope=replaced-document"');
+      }
+    });
+
+  test('one unfinished replace-cleanup is enough to alarm, at critical, with its own words', () => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes('an old IEP was not cleaned up after a replacement'));
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Threshold).toBe(1);
+    expect(alarm.MetricName).toBe('ReplacedDocumentIncomplete');
+    expect(alarm.AlarmDescription).toMatch(/^\[PROD\] \[CRITICAL\] /);
+    expect(alarm.AlarmDescription).toContain('the previous one could not be fully deleted');
+    expect(alarm.AlarmDescription).not.toContain('asked us to delete');
   });
 
   test('one incomplete deletion is enough to alarm, at critical', () => {
@@ -628,11 +653,9 @@ describe('unredacted copies surviving a failed document', () => {
   });
 });
 
-describe('the signup endpoint is watched at all', () => {
-  // It is the only way to create an account, and for its first day it was in
-  // none of the three monitoring lists: no Errors alarm, no Throttles alarm,
-  // no metric filter on any of its six markers. This describe block exists so
-  // that a future change dropping it from the list fails here.
+describe('account creation is watched at all', () => {
+  // The marker filters behind the two surviving account-creation alarms. This
+  // describe block exists so that a change dropping either fails here.
   test.each(SIGNUP_MARKERS)('%s is counted into %s', (marker, metricName) => {
     for (const environment of ['production', 'staging']) {
       synth(environment).hasResourceProperties('AWS::Logs::MetricFilter', {
@@ -656,13 +679,22 @@ describe('the signup endpoint is watched at all', () => {
     expect(alarm.Threshold).toBe(1);
   });
 
-  // The endpoint is in the daily brief too, so a day with zero signups is
-  // visible rather than merely un-alarmed.
-  test('the endpoint reaches the daily brief', () => {
-    const manifest = JSON.stringify(
-      synth('production').findResources('AWS::SSM::Parameter'));
-
-    expect(manifest).toContain('the only way to create an account');
+  // The deleted signup endpoint must leave nothing behind: no alarm, no
+  // metric filter on its log group, no daily-brief entry.
+  test('nothing of the retired signup endpoint remains in monitoring', () => {
+    for (const environment of ['production', 'staging']) {
+      const template = synth(environment);
+      const alarmNames = Object.values(template.findResources('AWS::CloudWatch::Alarm'))
+        .map((r: any) => String(r.Properties.AlarmName));
+      expect(alarmNames.filter((n) => /^signup (broken|throttled)|^sign-ups are being refused/.test(n))).toEqual([]);
+      for (const marker of ['SIGNUP_REFUSED', 'SIGNUP_FAILED']) {
+        const filters = Object.values(template.findResources('AWS::Logs::MetricFilter'))
+          .filter((r: any) => r.Properties.FilterPattern === marker);
+        expect(filters).toEqual([]);
+      }
+      expect(JSON.stringify(template.findResources('AWS::SSM::Parameter')))
+        .not.toContain('the only way to create an account');
+    }
   });
 });
 

@@ -179,14 +179,13 @@ function resourcesMatching(t: Template, type: string, hint: string): [string, an
 }
 
 // Every env var that decides which countries A-IEP will send a code to: the
-// OTP send path, the /auth/start front door, and the signup endpoint. All
-// three are fed from one constant in lib/authorization/new-auth.ts, so they
-// are asserted together rather than one at a time — a widening that reached
-// only two of the three would be worse than one that reached all three.
+// OTP send path and the /auth/start front door. Both are fed from one constant
+// in lib/authorization/new-auth.ts, so they are asserted together rather than
+// one at a time — a widening that reached only one of them would be worse than
+// one that reached both.
 const COUNTRY_CODE_VARS = [
   'SMS_ALLOWED_COUNTRY_CODES',
   'AUTH_ALLOWED_COUNTRY_CODES',
-  'SIGNUP_ALLOWED_COUNTRY_CODES',
 ];
 
 /**
@@ -668,7 +667,7 @@ describe('Cognito custom-auth wiring', () => {
     const rotationStatements = policies
       .flatMap((policy: any) => policy.Properties?.PolicyDocument?.Statement ?? [])
       // AdminDisableUser is what distinguishes the PostConfirmation trigger's
-      // grant from the signup endpoint's, which also rotates a password but
+      // grant from the auth dispatcher's, which also rotates a password but
       // on an account it just created and cannot disable one.
       .filter((statement: any) => [statement.Action].flat().includes('cognito-idp:AdminSetUserPassword'))
       .filter((statement: any) => [statement.Action].flat().includes('cognito-idp:AdminDisableUser'));
@@ -1030,6 +1029,21 @@ describe('Cognito custom-auth wiring', () => {
     expect(start.AuthorizationType).toBe('NONE');
   });
 
+  // The route went first; the lambda behind it is deleted too, so nothing can
+  // be pointed at it again by a stray integration or invoke permission.
+  test('the unrouted get-s3 and delete-s3 lambdas do not exist (staging)', () => {
+    const ids = Object.keys(template.findResources('AWS::Lambda::Function'));
+    expect(ids.length).toBeGreaterThanOrEqual(20);
+    expect(ids.filter((id) => /GetS3Files|DeleteS3Files/.test(id))).toEqual([]);
+  });
+
+  test('no lambda with the signup-endpoint handler exists (staging)', () => {
+    const handlers = Object.values(template.findResources('AWS::Lambda::Function'))
+      .map((fn: any) => fn.Properties.Handler);
+    expect(handlers.length).toBeGreaterThanOrEqual(20);
+    expect(handlers).not.toContain('signup-endpoint.handler');
+  });
+
   // AdminCreateUser without AdminSetUserPassword leaves every new account
   // holding a password its creator was handed. The pair is the control that
   // kept ~1,030 abuse accounts unusable, and it is only a pair if both
@@ -1046,11 +1060,10 @@ describe('Cognito custom-auth wiring', () => {
     const cognitoAdmin = statements.filter((st) =>
       JSON.stringify(st.Action).includes('cognito-idp:AdminCreateUser'));
 
-    // EXACTLY TWO roles may create an account: the old signup endpoint and the
-    // new auth dispatcher. Both are the same control in two places while the
-    // frontend switches over; the first one goes when /auth/signup does.
-    // Anything else acquiring AdminCreateUser must fail here.
-    expect(cognitoAdmin).toHaveLength(2);
+    // EXACTLY ONE role may create an account: the auth dispatcher. The old
+    // signup endpoint went with /auth/signup. Anything else acquiring
+    // AdminCreateUser must fail here.
+    expect(cognitoAdmin).toHaveLength(1);
 
     const actionSets = cognitoAdmin
       .map((st) => ([] as string[]).concat(st.Action).sort())
@@ -1059,11 +1072,6 @@ describe('Cognito custom-auth wiring', () => {
     // Exact matches, not arrayWith: an exact-match IAM assertion is the only
     // kind that catches a permission creeping in.
     expect(actionSets[0]).toEqual([
-      'cognito-idp:AdminCreateUser',
-      'cognito-idp:AdminDeleteUser',
-      'cognito-idp:AdminSetUserPassword',
-    ]);
-    expect(actionSets[1]).toEqual([
       'cognito-idp:AdminCreateUser',
       'cognito-idp:AdminDeleteUser',
       'cognito-idp:AdminGetUser',
@@ -1525,8 +1533,10 @@ describe('S3 data protection', () => {
       return [...actions].sort();
     };
 
-    // get-s3 only lists a caller's own prefix.
-    expect(s3ActionsFor('GetS3FilesHandlerFunctionServiceRole')).toEqual(['s3:ListBucket']);
+    // The get-s3 and delete-s3 lambdas are deleted outright (their routes were
+    // already gone), so no role by those names may come back.
+    expect(s3ActionsFor('GetS3FilesHandlerFunctionServiceRole')).toEqual([]);
+    expect(s3ActionsFor('DeleteS3FilesHandlerFunctionServiceRole')).toEqual([]);
 
     // upload-s3 presigns a PUT and a GET and nothing else. It used to clear the
     // child's previous document (list + delete) when the upload URL was
@@ -1586,10 +1596,10 @@ describe('S3 data protection', () => {
     const deleters = [
       'DeleteOriginalFunction',          // the original, once redaction succeeds
       'DDBServiceFunction',              // RecordFailure's purge, and the previous IEP once a re-upload finishes
-      'DeleteS3FilesHandlerFunction',    // a parent deleting one document
       'UserProfileHandlerFunction',      // child and account deletion
     ];
-    // Not in the list, on purpose: UploadS3KnowledgeFilesHandler. It used to
+    // Not in the list, on purpose: DeleteS3FilesHandler (deleted with its
+    // unrouted /delete-s3-file route) and UploadS3KnowledgeFilesHandler. It used to
     // delete the previous document when the upload URL was requested; it now
     // holds neither action, and the sum below fails if it ever gets them back.
 
@@ -2076,7 +2086,7 @@ function describeLambdaRuntimes(envLabel: EnvLabel, getTemplate: () => Template)
       const owned = functions.filter(({ logicalId }) => !isInjected(logicalId));
       expect(owned.length).toBeGreaterThanOrEqual(20);
       expect(owned.filter(({ runtime }) => typeof runtime !== 'string')).toEqual([]);
-      expect(owned.filter(({ runtime }) => (runtime as string).startsWith('nodejs')).length).toBeGreaterThanOrEqual(15);
+      expect(owned.filter(({ runtime }) => (runtime as string).startsWith('nodejs')).length).toBeGreaterThanOrEqual(13);
 
       // Non-vacuity: the helpers are present, and any Node helper is on a
       // runtime at or above nodejs22.x.
@@ -2888,12 +2898,12 @@ describe('Python lambda assets exclude __pycache__', () => {
   test('every Python lambda asset is staged with the __pycache__ exclude', () => {
     const pythonSites = assetCallSites().filter((s) => isPythonAsset(s.dir));
 
-    // Vacuity floor: 8 literal-directory Python call sites today
+    // Vacuity floor: 7 literal-directory Python call sites today (8 before delete-s3 was removed)
     // (user-profile-handler is staged twice). A large shrink means the parser
     // broke and the loop below would pass by finding nothing. The step lambdas
     // are staged through a shared helper with a variable path, so they are not
     // literal sites and are pinned separately below.
-    expect(pythonSites.length).toBeGreaterThanOrEqual(8);
+    expect(pythonSites.length).toBeGreaterThanOrEqual(7);
 
     const offenders = pythonSites
       .filter((s) => !s.options.includes('exclude: PYTHON_ASSET_EXCLUDES'))
@@ -3101,12 +3111,12 @@ describe('production synth: the OTP test backdoor must not exist', () => {
     expect(JSON.stringify(prodTemplate.toJSON())).not.toContain('/a-iep/staging/test-otp');
   });
 
-  // The signup endpoint's Turnstile bypass, which exists only so the E2E
-  // suite can complete an account creation: a real widget refuses automated
-  // browsers, which is the entire product. In production there must be no
-  // env var, no SSM grant and no parameter reference, so the bypass branch in
-  // signup-endpoint.js is unreachable rather than merely unused.
-  test('no production lambda can bypass the signup bot check', () => {
+  // The Turnstile bypass, which exists only so the E2E suite can complete an
+  // account creation: a real widget refuses automated browsers, which is the
+  // entire product. In production there must be no env var, no SSM grant and
+  // no parameter reference, so the bypass branch in e2e-bypass.js is
+  // unreachable rather than merely unused.
+  test('no production lambda can bypass the sign-in bot check', () => {
     const functions = Object.entries(prodTemplate.findResources('AWS::Lambda::Function'));
     expect(functions.length).toBeGreaterThanOrEqual(20);
 
@@ -3119,6 +3129,39 @@ describe('production synth: the OTP test backdoor must not exist', () => {
     // IAM grant.
     expect(JSON.stringify(prodTemplate.toJSON()))
       .not.toContain('/a-iep/staging/e2e-turnstile-bypass');
+  });
+
+  test('no lambda with the signup-endpoint handler exists (production)', () => {
+    const handlers = Object.values(prodTemplate.findResources('AWS::Lambda::Function'))
+      .map((fn: any) => fn.Properties.Handler);
+    expect(handlers.length).toBeGreaterThanOrEqual(20);
+    expect(handlers).not.toContain('signup-endpoint.handler');
+  });
+
+  // DeleteS3FilesHandler held s3:DeleteObjectVersion while its route was gone,
+  // which is exactly the shape of a permission nobody is watching. It and the
+  // unrouted get-s3 lambda are deleted; in production the only roles that may
+  // destroy object versions are the three that delete a family's documents.
+  test('only the document-deleting functions hold s3:DeleteObjectVersion (production)', () => {
+    const roles = new Set<string>();
+    for (const policy of Object.values(prodTemplate.findResources('AWS::IAM::Policy'))) {
+      const props = (policy as any).Properties ?? {};
+      const grants = (props.PolicyDocument?.Statement ?? []).some((statement: any) =>
+        statement.Effect === 'Allow' && [statement.Action ?? []].flat().includes('s3:DeleteObjectVersion'));
+      if (!grants) continue;
+      for (const role of props.Roles ?? []) roles.add(role.Ref ?? JSON.stringify(role));
+    }
+    const holders = [...roles];
+    for (const fn of ['DeleteOriginalFunction', 'DDBServiceFunction', 'UserProfileHandlerFunction']) {
+      expect({ fn, held: holders.filter((r) => r.includes(fn)).length }).toEqual({ fn, held: 1 });
+    }
+    expect(holders).toHaveLength(3);
+  });
+
+  test('the unrouted get-s3 and delete-s3 lambdas do not exist (production)', () => {
+    const ids = Object.keys(prodTemplate.findResources('AWS::Lambda::Function'));
+    expect(ids.length).toBeGreaterThanOrEqual(20);
+    expect(ids.filter((id) => /GetS3Files|DeleteS3Files/.test(id))).toEqual([]);
   });
 
   // Per-request timing is a staging diagnostic. In production it would be a log
@@ -3135,12 +3178,12 @@ describe('production synth: the OTP test backdoor must not exist', () => {
 
   // Cloudflare's server-side recommendation: check the hostname a token was
   // solved on. Every lambda that verifies a token must carry it in
-  // production, or one of the three doors quietly skips the check.
+  // production, or one of the two doors quietly skips the check.
   test('every production lambda that verifies a bot-check token checks its hostname', () => {
     const verifiers = Object.values(prodTemplate.findResources('AWS::Lambda::Function'))
       .map((fn: any) => fn.Properties?.Environment?.Variables ?? {})
       .filter((vars: Record<string, unknown>) => 'TURNSTILE_SECRET_PARAM' in vars);
-    expect(verifiers.length).toBe(3);
+    expect(verifiers.length).toBe(2);
     for (const vars of verifiers) {
       expect(vars.TURNSTILE_EXPECTED_HOSTNAMES).toBe('a-iep.org');
     }
@@ -3163,7 +3206,7 @@ describe('production synth: the OTP test backdoor must not exist', () => {
   test('every production sign-in lambda has at least 1024 MB', () => {
     const SIGN_IN_HANDLERS = [
       'auth-start.handler', 'auth-dispatch.handler', 'auth-verify.handler',
-      'auth-session.handler', 'signup-endpoint.handler',
+      'auth-session.handler',
       'define-auth-challenge.handler', 'create-auth-challenge.handler',
       'verify-auth-challenge.handler', 'pre-sign-up.handler',
       'pre-authentication.handler', 'custom-message.handler',
@@ -3172,7 +3215,7 @@ describe('production synth: the OTP test backdoor must not exist', () => {
       .map((fn: any) => fn.Properties)
       .filter((p: any) => SIGN_IN_HANDLERS.includes(p.Handler));
 
-    // Vacuity floor: all eleven, or a renamed handler hollowed this out.
+    // Vacuity floor: all ten, or a renamed handler hollowed this out.
     expect(functions.map((p: any) => p.Handler).sort()).toEqual([...SIGN_IN_HANDLERS].sort());
     for (const p of functions) {
       expect(p.MemorySize).toBeGreaterThanOrEqual(1024);

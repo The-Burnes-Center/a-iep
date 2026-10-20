@@ -207,6 +207,16 @@ interface BriefComponent {
 }
 
 /** A lambda plus the human name used in the alarm and its description. */
+/**
+ * The log patterns for an unfinished deletion, exported so the infra suite
+ * pins the same strings the stack uses. The two cases are disjoint by
+ * construction: the first excludes exactly what the second requires.
+ */
+export const DELETION_ESSENTIAL_PATTERN =
+  '"DELETION_INCOMPLETE" "essential=yes" -"scope=replaced-document"';
+export const DELETION_REPLACED_PATTERN =
+  '"DELETION_INCOMPLETE" "scope=replaced-document" "essential=yes"';
+
 export interface MonitoredFunction {
   readonly label: string;
   readonly fn: lambda.Function;
@@ -226,16 +236,6 @@ export interface MonitoringProps {
   readonly pipelineFunctions: MonitoredFunction[];
   /** Cognito custom-auth triggers. An error here blocks login or signup. */
   readonly authTriggerFunctions: MonitoredFunction[];
-  /**
-   * The signup endpoint. Separate from the lists above because it is the ONLY
-   * way to create an account: Cognito's public SignUp API is closed
-   * (AllowAdminCreateUserOnly), so if this is down, nobody can join at all.
-   *
-   * It had no alarms of any kind for its first day of life, which is how the
-   * front door ends up being the least-watched thing in the system: it was
-   * built during an incident, wired into the API, and never added to a list.
-   */
-  readonly signupFunction: MonitoredFunction;
   /**
    * The /auth/* endpoints and the dispatcher behind them.
    *
@@ -332,7 +332,6 @@ export class MonitoringStack extends Construct {
     this.addSmsPathAlarms(props.authTriggerFunctions);
     const smsFailureClassifier = this.addSmsDeliveryFailureAlarm(
       props.smsSenderFunctions, props.kmsKey);
-    this.addSignupPathAlarms(props.signupFunction);
     this.addAuthEndpointAlarms(props.authEndpointFunctions);
     this.addDeletionAlarms(props.apiFunctions, props.ddbServiceFunction);
     this.addTranslationAndUsageAlarms(props.translationStateMachine);
@@ -341,7 +340,6 @@ export class MonitoringStack extends Construct {
       ...props.authTriggerFunctions,
       ...props.authEndpointFunctions,
       ...props.apiFunctions,
-      props.signupFunction,
       {
         label: 'SMS failure attribution',
         fn: smsFailureClassifier,
@@ -896,7 +894,7 @@ export class MonitoringStack extends Construct {
    * the dispatcher that sends the code.
    *
    * Watched through markers as well as Errors, for the same reason
-   * create-auth-challenge and the signup endpoint are. Nearly every way these
+   * create-auth-challenge is. Nearly every way these
    * functions turn a parent away is a deliberate 4xx that raises nothing, so
    * Lambda Errors stays flat through a total sign-in outage, and the
    * dispatcher never raises at all: it catches, records the reason on the
@@ -989,17 +987,30 @@ export class MonitoringStack extends Construct {
       evaluationPeriods: 1,
     });
 
-    // SIGNUP_ORPHANED is logged by the dispatcher with the SAME literal the
-    // signup endpoint uses, so this second filter feeds the SAME metric and
-    // the SAME critical alarm rather than adding a second page for one event.
-    // See addSignupPathAlarms, which owns that alarm.
-    new logs.MetricFilter(this, 'AuthDispatchOrphanedFilter', {
-      logGroup: dispatch.fn.logGroup,
-      filterPattern: logs.FilterPattern.literal('SIGNUP_ORPHANED'),
-      metricNamespace,
-      metricName: 'SignupOrphaned',
-      metricValue: '1',
-      defaultValue: 0,
+    // The one that would have been silent forever. An account created without
+    // its password rotated is an account whoever created it can sign into,
+    // which is the exact hole the PostConfirmation trigger used to close. The
+    // dispatcher is the only thing that creates accounts now, and logs
+    // SIGNUP_ORPHANED when it can neither rotate nor remove one.
+    this.alarm('SignupPasswordNotRotatedAlarm', {
+      copy: ALERT_COPY.SignupPasswordNotRotatedAlarm,
+      metric: markerMetric('AuthDispatchOrphanedFilter', dispatch.fn.logGroup, 'SIGNUP_ORPHANED', 'SignupOrphaned'),
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
+
+    // Turnstile is configured out of band, by creating an SSM SecureString,
+    // so "deployed" and "switched on" are genuinely different states and the
+    // code cannot tell which one it is in. Without this alarm the difference
+    // between "the bot check is protecting sign-in" and "the bot check is
+    // off" is invisible from anywhere. /auth/start is where it is enforced.
+    this.alarm('TurnstileNotConfiguredAlarm', {
+      copy: ALERT_COPY.TurnstileNotConfiguredAlarm,
+      metric: markerMetric(
+        'TurnstileNotConfiguredFilter', start.fn.logGroup,
+        'TURNSTILE_NOT_CONFIGURED', 'TurnstileNotConfigured'),
+      threshold: 1,
+      evaluationPeriods: 1,
     });
   }
 
@@ -1468,14 +1479,15 @@ export class MonitoringStack extends Construct {
     ddbServiceFunction: lambda.Function,
   ): void {
     const metricNamespace = getMetricNamespace('Pipeline');
-    // The DDB service is the third emitter: after a re-upload finishes it
+    // The DDB service is the second emitter: after a re-upload finishes it
     // deletes the child's older documents (purge_replaced_documents) and logs
     // the same marker, scope=replaced-document, when any of that survived. The
     // new document is already complete by then, so the log line is the only
-    // way anyone learns an old IEP is still in the bucket.
+    // way anyone learns an old IEP is still in the bucket. That case is NOT a
+    // parent's deletion request, so it has its own metric and alarm below and
+    // is excluded from the essential one: one event must not page twice.
     const watched: Array<{ label: string; fn: lambda.Function }> = [
-      ...apiFunctions.filter((f) =>
-        f.label === 'user profile' || f.label === 'document delete'),
+      ...apiFunctions.filter((f) => f.label === 'user profile'),
       { label: 'replaced documents', fn: ddbServiceFunction },
     ];
 
@@ -1483,14 +1495,37 @@ export class MonitoringStack extends Construct {
       new logs.MetricFilter(this, `DeletionIncompleteFilter${label.replace(/[^A-Za-z0-9]/g, '')}`, {
         logGroup: fn.logGroup,
         // Both halves must match: the marker AND essential=yes. A metric
-        // filter on the marker alone would page for an orphaned mp3.
-        filterPattern: logs.FilterPattern.allTerms('DELETION_INCOMPLETE', 'essential=yes'),
+        // filter on the marker alone would page for an orphaned mp3. The
+        // replaced-document scope is carved out and counted separately.
+        filterPattern: logs.FilterPattern.literal(DELETION_ESSENTIAL_PATTERN),
         metricNamespace,
         metricName: 'DeletionIncompleteEssential',
         metricValue: '1',
         defaultValue: 0,
       });
     }
+
+    new logs.MetricFilter(this, 'ReplacedDocumentIncompleteFilter', {
+      logGroup: ddbServiceFunction.logGroup,
+      filterPattern: logs.FilterPattern.literal(DELETION_REPLACED_PATTERN),
+      metricNamespace,
+      metricName: 'ReplacedDocumentIncomplete',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
+    this.alarm('ReplacedDocumentIncompleteAlarm', {
+      copy: ALERT_COPY.ReplacedDocumentIncompleteAlarm,
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'ReplacedDocumentIncomplete',
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(15),
+      }),
+      // One is enough: the old IEP stays stored until someone removes it.
+      threshold: 1,
+      evaluationPeriods: 1,
+    });
 
     this.alarm('DeletionIncompleteAlarm', {
       copy: ALERT_COPY.DeletionIncompleteAlarm,
@@ -1502,97 +1537,6 @@ export class MonitoringStack extends Construct {
       }),
       // One is enough: there is no benign volume of a deletion that did not
       // happen.
-      threshold: 1,
-      evaluationPeriods: 1,
-    });
-  }
-
-  /**
-   * The signup endpoint: the only way to create an account.
-   *
-   * Watched through markers as well as Errors, for the same reason
-   * create-auth-challenge is. Nearly every way this function turns a family
-   * away is a deliberate, correct REFUSAL that returns 4xx and raises
-   * nothing, so Lambda Errors stays flat through a total signup outage. A
-   * Turnstile outage in particular refuses every signup as a 403, which is
-   * not counted by the API's 5xx alarm either.
-   *
-   * Refusals are also the leading indicator of abuse, and they arrive while
-   * an attack is happening rather than after the money is gone. The
-   * pre-existing signup alarm counts PreSignUp invocations, i.e. signups that
-   * SUCCEEDED, so it can only see an attack that got through.
-   */
-  private addSignupPathAlarms(signup: MonitoredFunction): void {
-    const metricNamespace = getMetricNamespace('Auth');
-
-    this.alarm('SignupEndpointErrorsAlarm', {
-      copy: ALERT_COPY.SignupEndpointErrorsAlarm,
-      metric: signup.fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
-      threshold: 1,
-      evaluationPeriods: 1,
-    });
-
-    this.alarm('SignupEndpointThrottledAlarm', {
-      copy: ALERT_COPY.SignupEndpointThrottledAlarm,
-      metric: signup.fn.metricThrottles({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
-      threshold: 1,
-      evaluationPeriods: 1,
-    });
-
-    const markerMetric = (id: string, marker: string, metricName: string) => {
-      new logs.MetricFilter(this, id, {
-        logGroup: signup.fn.logGroup,
-        // Marker only, and pinned by the lambda's own unit tests: a reworded
-        // log line would disarm the alarm without failing anything.
-        filterPattern: logs.FilterPattern.literal(marker),
-        metricNamespace,
-        metricName,
-        metricValue: '1',
-        defaultValue: 0,
-      });
-      return new cloudwatch.Metric({
-        namespace: metricNamespace,
-        metricName,
-        statistic: 'Sum',
-        period: cdk.Duration.minutes(5),
-      });
-    };
-
-    this.alarm('SignupRefusedAlarm', {
-      copy: ALERT_COPY.SignupRefusedAlarm,
-      metric: markerMetric('SignupRefusedFilter', 'SIGNUP_REFUSED', 'SignupRefused'),
-      // Deliberately above the per-source floor of 3/hour, so one family
-      // mistyping their number twice never reaches Slack.
-      threshold: 10,
-      evaluationPeriods: 1,
-    });
-
-    this.alarm('SignupFailedAlarm', {
-      copy: ALERT_COPY.SignupFailedAlarm,
-      metric: markerMetric('SignupFailedFilter', 'SIGNUP_FAILED', 'SignupFailed'),
-      threshold: 3,
-      evaluationPeriods: 1,
-    });
-
-    // The one that would have been silent forever. An account created without
-    // its password rotated is an account whoever created it can sign into,
-    // which is the exact hole the PostConfirmation trigger used to close.
-    this.alarm('SignupPasswordNotRotatedAlarm', {
-      copy: ALERT_COPY.SignupPasswordNotRotatedAlarm,
-      metric: markerMetric('SignupOrphanedFilter', 'SIGNUP_ORPHANED', 'SignupOrphaned'),
-      threshold: 1,
-      evaluationPeriods: 1,
-    });
-
-    // Turnstile is configured out of band, by creating an SSM SecureString,
-    // so "deployed" and "switched on" are genuinely different states and the
-    // code cannot tell which one it is in. Without this alarm the difference
-    // between "the bot check is protecting signup" and "the bot check is off"
-    // is invisible from anywhere.
-    this.alarm('TurnstileNotConfiguredAlarm', {
-      copy: ALERT_COPY.TurnstileNotConfiguredAlarm,
-      metric: markerMetric(
-        'TurnstileNotConfiguredFilter', 'TURNSTILE_NOT_CONFIGURED', 'TurnstileNotConfigured'),
       threshold: 1,
       evaluationPeriods: 1,
     });

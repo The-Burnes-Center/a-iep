@@ -38,7 +38,7 @@ def _report_incomplete(user_id, child_id, iep_id, superseded, survived):
 
     DELETION_INCOMPLETE is a stable marker, not prose: a metric filter alarms
     on it, and rewording this line would disarm that alarm. Same contract as
-    the user-profile-handler and delete-s3 emitters (scope differs). Ids and
+    the user-profile-handler emitter (scope differs). Ids and
     artifact kinds only: exception text can quote a filename.
     """
     print(f"DELETION_INCOMPLETE scope=replaced-document essential=yes user={user_id} "
@@ -97,7 +97,7 @@ def _superseded_documents(table, replacement, user_id):
 def _purge_artifacts(s3, bucket, doc, user_id):
     """Every S3 artifact of one document, every version. Returns what survived.
 
-    Mirrors _delete_document_artifacts in delete-s3 and user-profile-handler:
+    Mirrors _delete_document_artifacts in user-profile-handler:
     the raw upload prefix, the summary object contentS3Reference points at,
     and the legacy iep-data / cached iep-audio prefixes. Translations live in
     the summary object. Each group is independent, so one failing does not

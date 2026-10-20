@@ -48,6 +48,20 @@ export const ALERT_COPY = {
     unit: count('failed text deletion', 'failed text deletions'),
     countsFailures: true,
   },
+  ReplacedDocumentIncompleteAlarm: {
+    severity: 'critical',
+    alarmName: 'an old IEP was not cleaned up after a replacement',
+    symptom: 'An old IEP was not cleaned up after a replacement',
+    impact: 'Administrators must act: a parent replaced their IEP and the new one is working, but the previous one could not be fully deleted. Its data is still stored and needs removing by hand.',
+    check: [
+      'Open the pipeline database writes function logs and search for DELETION_INCOMPLETE scope=replaced-document to find the child and the old document.',
+      'Run scripts/audit-residue.py (read-only) and look at the superseded_documents check to confirm what is still stored.',
+    ],
+    runbook: 'replacedDocument',
+    unit: count('incomplete cleanup', 'incomplete cleanups'),
+    recovery: 'No new replaced IEPs are being left behind',
+    countsFailures: true,
+  },
   DocumentsFailingAlarm: {
     severity: 'medium',
     alarmName: 'a document failed to process',
@@ -363,64 +377,13 @@ export const ALERT_COPY = {
   },
 
   // ── Sign-up ──────────────────────────────────────────────────────────
-  SignupEndpointErrorsAlarm: {
-    severity: 'critical',
-    alarmName: 'signup broken: nobody can create an account',
-    symptom: 'Sign-up is down',
-    impact: 'No new family can create an account. This is the only way to join.',
-    check: [
-      'Open the signup function logs and read the latest error.',
-      'Check for a recent deploy and roll back if it lines up.',
-    ],
-    runbook: 'signup',
-    unit: count('error', 'errors'),
-    recovery: 'Sign-up is working again',
-  },
-  SignupEndpointThrottledAlarm: {
-    severity: 'critical',
-    alarmName: 'signup throttled: nobody can create an account',
-    symptom: 'Sign-up is being throttled',
-    impact: 'New families are turned away because the signup function is at its capacity limit.',
-    check: [
-      'Open the signup logs and check whether the volume is a flood (see the runbook) or real demand.',
-      'If it is real demand, raise the function\'s reserved concurrency.',
-    ],
-    runbook: 'signup',
-    unit: count('throttled request', 'throttled requests'),
-    recovery: 'Sign-up is no longer being throttled',
-  },
-  SignupRefusedAlarm: {
-    severity: 'medium',
-    alarmName: 'sign-ups are being refused in bulk',
-    symptom: 'Many sign-ups are being turned away',
-    impact: 'Either an abuse run is under way and the limits are holding, or the limits are too tight and real families cannot join.',
-    check: [
-      'Open the signup logs and search for SIGNUP_REFUSED to see the reasons and whether they come from one source.',
-      'Test a normal signup yourself to rule out real families being blocked.',
-    ],
-    runbook: 'abuse',
-    unit: count('refused sign-up', 'refused sign-ups'),
-  },
-  SignupFailedAlarm: {
-    severity: 'critical',
-    alarmName: 'signup broken: accounts are not being created',
-    symptom: 'Sign-ups are failing when the account is created',
-    impact: 'Families fill in the form and are told it did not work.',
-    check: [
-      'Open the signup logs and search for SIGNUP_FAILED to see the Cognito error.',
-      'Check for a recent change to the user pool or the signup function.',
-    ],
-    runbook: 'signup',
-    unit: count('failed sign-up', 'failed sign-ups'),
-    recovery: 'Accounts are being created again',
-  },
   SignupPasswordNotRotatedAlarm: {
     severity: 'critical',
     alarmName: 'new accounts may be reachable by whoever created them',
     symptom: 'A new account could not be secured',
     impact: 'Administrators must act: an account was created but could not be locked down, and removing it also failed. Treat accounts created now as untrusted until it is cleared.',
     check: [
-      'Open the signup logs and search for SIGNUP_ORPHANED to find the account.',
+      'Open the auth send function logs and search for SIGNUP_ORPHANED to find the account.',
       'Disable or delete that account in Cognito, then find out why the cleanup failed (see the runbook).',
     ],
     runbook: 'signup',
@@ -447,7 +410,7 @@ export const ALERT_COPY = {
     symptom: 'A deletion request was only partly carried out',
     impact: 'Administrators must act: a parent asked for a child\'s documents or profile to be removed, and some of it still exists.',
     check: [
-      'Open the logs for the document delete and user profile functions and search for DELETION_INCOMPLETE to find the user and step.',
+      'Open the user profile function logs and search for DELETION_INCOMPLETE to find the user and step.',
       'Remove what is left by hand and confirm it is gone before telling the parent (see the runbook).',
     ],
     runbook: 'privacy',
