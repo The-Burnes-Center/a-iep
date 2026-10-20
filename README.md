@@ -7,6 +7,10 @@
 
 **Live at [a-iep.org](https://a-iep.org/)**
 
+![A 21-second tour of A-IEP: jargon words such as FAPE and Section 504 land on an IEP; a parent uploads the IEP and the app removes personal information first; tapping the blue word "accommodations" opens a plain definition; the summary switches into the parent's language.](images/a-iep-launch.gif)
+
+[Watch the version with sound (MP4)](images/a-iep-launch.mp4)
+
 ---
 
 ## Contents
