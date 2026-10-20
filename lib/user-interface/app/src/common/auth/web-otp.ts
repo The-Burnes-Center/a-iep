@@ -2,8 +2,10 @@
  * WebOTP: lets the browser read the SMS code out of the arriving message and
  * hand it to the page, so a parent does not copy six digits between apps.
  *
- * Chromium-family browsers only (Android Chrome, Samsung Internet). Anywhere
- * else `OTPCredential` is absent and callers do nothing. Safari and Firefox
+ * Chromium-family browsers only: Android Chrome and Samsung Internet read the
+ * phone's own SMS, and desktop Chrome receives a code that arrives on an
+ * Android phone signed in to the same Google account. Anywhere else
+ * `OTPCredential` is absent and callers do nothing. Safari and Firefox
  * already offer the code through autocomplete="one-time-code".
  *
  * The browser resolves the request only when the message ends with the
