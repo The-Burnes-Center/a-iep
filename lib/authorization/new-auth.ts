@@ -47,9 +47,9 @@ const TURNSTILE_SECRET_PARAM = `/a-iep/${getEnvironment()}/turnstile/secret`;
 
 // Where a token is allowed to have been solved, checked against siteverify's
 // `hostname` (Cloudflare's server-side recommendation). Production only:
-// everywhere else runs Cloudflare's always-pass test keys, which answer with a
-// placeholder hostname. Adding a domain to the site means adding it here AND
-// to the widget in the Cloudflare dashboard, or sign-in on it is refused.
+// staging's E2E sign-ins carry the bypass token below, which no widget solved
+// on any hostname. Adding a domain to the site means adding it here AND to the
+// widget in the Cloudflare dashboard, or sign-in on it is refused.
 const TURNSTILE_HOSTNAME_ENV: Record<string, string> = getEnvironment() === 'prod'
   ? { TURNSTILE_EXPECTED_HOSTNAMES: 'a-iep.org' }
   : {};

@@ -223,7 +223,7 @@ aws ssm put-parameter --name "/a-iep/<env>/turnstile/secret" --value "<secret>" 
 ### The sign-in bot check (Cloudflare Turnstile)
 
 - **The two Turnstile values are a pair** from one widget in the Cloudflare dashboard. A site key from one widget and a secret from another fail every check, which looks like an outage.
-- **Production uses a real widget; staging uses Cloudflare's always-pass test keys.** A check a script can pass is no check, so automated sign-up tests and a real widget cannot share an environment.
+- **Both environments use a real widget.** A check a script can pass is no check, so the end-to-end tests stub the widget in the browser and send a staging-only bypass token (`/a-iep/staging/e2e-turnstile-bypass`) that the server accepts only for the fictional 555-01XX test numbers. Production has no bypass.
 - **Production also checks the site the check ran on** (`TURNSTILE_EXPECTED_HOSTNAMES` in `lib/authorization/new-auth.ts`). Serving A-IEP on a new domain means adding it there and in the Cloudflare widget, or sign-in on that domain is refused.
 - **The check is invisible.** It runs only when a parent presses send, and it shows a challenge only if Cloudflare is unsure.
 - **The secret is the on switch.** Without it, sign-in still works, but every request logs `TURNSTILE_NOT_CONFIGURED` and an alarm fires.
