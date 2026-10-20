@@ -302,3 +302,112 @@ describe('Turnstile: the signup abuse control', () => {
         logged.mockRestore();
     });
 });
+
+// The signup flood alarm counts SIGNUP_ATTEMPT destination=reachable only. A
+// fictional destination (the NANP 555-01XX block, the reserved a-iep.invalid
+// domain) can never receive a message, so an account on one costs nothing and
+// reaches no one, whoever created it. Counting every attempt paged a
+// "flood" on 2026-10-20 that was 32 test accounts and zero texts.
+describe('counting signup attempts for the flood alarm', () => {
+    const markersFor = async (event) => {
+        const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+        try {
+            await handler(event).catch(() => {});
+            return log.mock.calls.map((args) => args.join(' '))
+                .filter((line) => line.startsWith('SIGNUP_ATTEMPT'));
+        } finally {
+            log.mockRestore();
+        }
+    };
+
+    test('a real phone number is counted as reachable, once', async () => {
+        expect(await markersFor(signUpEvent({ phone_number: '+16175550123' })))
+            .toEqual(['SIGNUP_ATTEMPT destination=reachable']);
+    });
+
+    test('a fictional 555-01XX number is not counted as reachable', async () => {
+        expect(await markersFor(signUpEvent({ phone_number: '+15555550111' })))
+            .toEqual(['SIGNUP_ATTEMPT destination=fictional']);
+    });
+
+    test('a reserved a-iep.invalid test address is not counted as reachable', async () => {
+        expect(await markersFor(signUpEvent({ email: 'e2e-documents@a-iep.invalid' })))
+            .toEqual(['SIGNUP_ATTEMPT destination=fictional']);
+    });
+
+    test('numbers and addresses that only look fictional are reachable', async () => {
+        // 555-0200 is outside the fictional block, and a domain that merely
+        // contains a-iep.invalid is a real, registrable domain.
+        for (const attributes of [
+            { phone_number: '+15555550200' },
+            { phone_number: '+155555501111' },
+            { phone_number: '+445555550111' },
+            { email: 'e2e-documents@a-iep.invalid.example.com' },
+            { email: 'someone@a-iep.invalid' },
+        ]) {
+            expect([attributes, await markersFor(signUpEvent(attributes))])
+                .toEqual([attributes, ['SIGNUP_ATTEMPT destination=reachable']]);
+        }
+    });
+
+    test('one reachable destination makes the whole attempt reachable', async () => {
+        expect(await markersFor(signUpEvent({
+            phone_number: '+15555550111',
+            email: 'parent@example.com',
+        }))).toEqual(['SIGNUP_ATTEMPT destination=reachable']);
+    });
+
+    test('an attempt with no destination at all is counted as reachable', async () => {
+        expect(await markersFor(signUpEvent({}))).toEqual(['SIGNUP_ATTEMPT destination=reachable']);
+    });
+
+    test('admin-created accounts are counted too: the signup endpoint creates them that way', async () => {
+        expect(await markersFor(signUpEvent(
+            { phone_number: '+16175550123' },
+            { triggerSource: 'PreSignUp_AdminCreateUser' },
+        ))).toEqual(['SIGNUP_ATTEMPT destination=reachable']);
+    });
+
+    test('the marker never carries the number or the address', async () => {
+        const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+        try {
+            await handler(signUpEvent({ phone_number: '+16175550123', email: 'parent@example.com' }));
+            const marker = log.mock.calls.map((args) => args.join(' '))
+                .find((line) => line.startsWith('SIGNUP_ATTEMPT'));
+            expect(marker).not.toMatch(/6175550123|parent|example/);
+        } finally {
+            log.mockRestore();
+        }
+    });
+});
+
+describe('counting attempts the bot check refuses', () => {
+    beforeEach(() => {
+        jest.resetModules();
+        mockSsmSend.mockReset();
+        mockSsmSend.mockResolvedValue({ Parameter: { Value: 'sec' } });
+        process.env.TURNSTILE_SECRET_PARAM = '/a-iep/prod/turnstile/secret';
+    });
+
+    afterEach(() => {
+        delete process.env.TURNSTILE_SECRET_PARAM;
+    });
+
+    test('a refused attempt is still counted: refusals are the leading edge of a flood', async () => {
+        let fresh;
+        jest.isolateModules(() => {
+            fresh = require('../../../lib/chatbot-api/functions/phone-otp-auth/pre-sign-up').handler;
+        });
+        const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+        const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+            await expect(fresh(signUpEvent({ phone_number: '+16175550123' })))
+                .rejects.toThrow(/Sign-up could not be completed/);
+            expect(log.mock.calls.map((args) => args.join(' ')))
+                .toContain('SIGNUP_ATTEMPT destination=reachable');
+        } finally {
+            log.mockRestore();
+            error.mockRestore();
+        }
+    });
+});

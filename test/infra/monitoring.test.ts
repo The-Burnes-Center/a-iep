@@ -45,6 +45,7 @@ const EXPECTED_ALARM_SUFFIXES = [
   'DynamoDB throttling: IEP documents',
   'DynamoDB throttling: user profiles',
   'signup flood: someone is abusing the signup form',
+  'signup volume far above normal, test accounts included',
   'login codes being requested for numbers we do not serve',
   'login codes are being refused: the sending limit is reached',
   'login codes are not being delivered',
@@ -403,11 +404,41 @@ describe.each([
       (a) => a.AlarmName === `${namePrefix}signup flood: someone is abusing the signup form`,
     );
     expect(surge).toBeDefined();
-    expect(surge!.MetricName).toBe('Invocations');
-    // Cognito triggers are not retried, so one invocation is one real attempt.
+    // Pin changed 2026-10-20 from Invocations. Counting every PreSignUp call
+    // paged a staging "flood" that was 32 E2E test accounts on fictional
+    // numbers and not one text. The alarm now counts attempts on a
+    // destination someone could actually receive a message on.
+    expect(surge!.MetricName).toBe('SignupAttemptsReachable');
+    expect(surge!.Namespace).toBe(ns(environment, 'Auth'));
     // Organic signup traffic for this service is a small number per day, so
     // the threshold sits far above it and far below an abuse run.
     expect(surge!.Threshold).toBeLessThanOrEqual(50);
+  });
+
+  test('the flood metric counts reachable attempts only, from the PreSignUp trigger', () => {
+    const filters = Object.values(template.findResources('AWS::Logs::MetricFilter'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => p.MetricTransformations?.[0]?.MetricName === 'SignupAttemptsReachable');
+    expect(filters).toHaveLength(1);
+    expect(filters[0].FilterPattern).toContain('SIGNUP_ATTEMPT');
+    expect(filters[0].FilterPattern).toContain('destination=reachable');
+    expect(filters[0].FilterPattern).not.toContain('fictional');
+    expect(JSON.stringify(filters[0].LogGroupName)).toContain('PreSignUp');
+  });
+
+  // The backstop: fictional destinations are excluded from the flood alarm,
+  // so a flood of them must still page eventually. It counts every PreSignUp
+  // call, set above a full E2E run (32 in 5 minutes on 2026-10-20) and still
+  // far below the volume a pool-filling run produces.
+  test('total signup volume still has a backstop, above a full E2E run', () => {
+    const backstop = alarms.find(
+      (a) => a.AlarmName === `${namePrefix}signup volume far above normal, test accounts included`,
+    );
+    expect(backstop).toBeDefined();
+    expect(backstop!.MetricName).toBe('Invocations');
+    expect(JSON.stringify(backstop!.Dimensions)).toContain('PreSignUp');
+    expect(backstop!.Threshold).toBeGreaterThanOrEqual(100);
+    expect(backstop!.Threshold).toBeLessThanOrEqual(500);
   });
 
   test('account-level SMS alarms exist in production only', () => {

@@ -294,8 +294,21 @@ export const ALERT_COPY = {
       'Confirm the bot check is on, then follow the abuse steps in the runbook.',
     ],
     runbook: 'abuse',
-    unit: count('new account', 'new accounts'),
+    unit: count('signup on a real number or address', 'signups on real numbers or addresses'),
     recovery: 'Account creation is back to a normal rate',
+  },
+  SignupVolumeBackstopAlarm: {
+    severity: 'medium',
+    alarmName: 'signup volume far above normal, test accounts included',
+    symptom: 'Far more signups than normal, most on test numbers',
+    impact: 'No one yet. Test numbers cannot receive texts, so nothing is spent, but the account list is filling up.',
+    check: [
+      'Open the signup logs and compare SIGNUP_ATTEMPT destination=fictional with destination=reachable.',
+      'If no test run was going on, follow the abuse steps in the runbook.',
+    ],
+    runbook: 'abuse',
+    unit: count('signup attempt', 'signup attempts'),
+    recovery: 'Signup volume is back to normal',
   },
   EmailSuppressionCheckUnavailableAlarm: {
     severity: 'critical',

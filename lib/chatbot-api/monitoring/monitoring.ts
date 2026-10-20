@@ -1660,13 +1660,42 @@ export class MonitoringStack extends Construct {
   private addAbuseAlarms(authTriggers: MonitoredFunction[]): void {
     const preSignUp = authTriggers.find((f) => f.label.startsWith('PreSignUp'));
     if (preSignUp) {
+      // Attempts on a destination someone could receive a message on. A
+      // fictional destination (pre-sign-up.js, destination.js) reaches no one
+      // and costs nothing, so counting it paged a "flood" of 32 test accounts
+      // on 2026-10-20 with not one text sent.
+      const metricNamespace = getMetricNamespace('Auth');
+      new logs.MetricFilter(this, 'SignupAttemptReachableFilter', {
+        logGroup: preSignUp.fn.logGroup,
+        // Marker only, pinned by pre-sign-up.test.js on the lambda side.
+        filterPattern: logs.FilterPattern.allTerms('SIGNUP_ATTEMPT', 'destination=reachable'),
+        metricNamespace,
+        metricName: 'SignupAttemptsReachable',
+        metricValue: '1',
+        defaultValue: 0,
+      });
       this.alarm('SignupSurgeAlarm', {
         copy: ALERT_COPY.SignupSurgeAlarm,
+        metric: new cloudwatch.Metric({
+          namespace: metricNamespace,
+          metricName: 'SignupAttemptsReachable',
+          statistic: 'Sum',
+          period: cdk.Duration.minutes(5),
+        }),
+        threshold: 20,
+        evaluationPeriods: 1,
+      });
+
+      // The backstop for what the alarm above leaves out: every attempt,
+      // fictional destinations included. Above a full E2E run (32 in 5
+      // minutes), so only a flood of them pages.
+      this.alarm('SignupVolumeBackstopAlarm', {
+        copy: ALERT_COPY.SignupVolumeBackstopAlarm,
         metric: preSignUp.fn.metricInvocations({
           period: cdk.Duration.minutes(5),
           statistic: 'Sum',
         }),
-        threshold: 20,
+        threshold: 150,
         evaluationPeriods: 1,
       });
     }

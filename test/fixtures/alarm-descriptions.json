@@ -346,11 +346,15 @@
   },
   {
    "AlarmName": "a-iep-staging signup flood: someone is abusing the signup form",
-   "AlarmDescription": "[STAGING] [WARNING] A flood of new accounts is being created\nImpact: Staging only. No real families are affected.\nFires when: at least 20 new accounts in 5 minutes.\nCheck first:\n1. Open the signup logs and look at the phone prefixes and timing of the new accounts.\n2. Confirm the bot check is on, then follow the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#suspected-abuse\nRecovery: Account creation is back to a normal rate"
+   "AlarmDescription": "[STAGING] [WARNING] A flood of new accounts is being created\nImpact: Staging only. No real families are affected.\nFires when: at least 20 signups on real numbers or addresses in 5 minutes.\nCheck first:\n1. Open the signup logs and look at the phone prefixes and timing of the new accounts.\n2. Confirm the bot check is on, then follow the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#suspected-abuse\nRecovery: Account creation is back to a normal rate"
   },
   {
    "AlarmName": "a-iep-staging signup throttled: nobody can create an account",
    "AlarmDescription": "[STAGING] [WARNING] Sign-up is being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the signup logs and check whether the volume is a flood (see the runbook) or real demand.\n2. If it is real demand, raise the function's reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Sign-up is no longer being throttled"
+  },
+  {
+   "AlarmName": "a-iep-staging signup volume far above normal, test accounts included",
+   "AlarmDescription": "[STAGING] [WARNING] Far more signups than normal, most on test numbers\nImpact: Staging only. No real families are affected.\nFires when: at least 150 signup attempts in 5 minutes.\nCheck first:\n1. Open the signup logs and compare SIGNUP_ATTEMPT destination=fictional with destination=reachable.\n2. If no test run was going on, follow the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#suspected-abuse\nRecovery: Signup volume is back to normal"
   },
   {
    "AlarmName": "a-iep-staging someone marked an A-IEP login code as spam",
@@ -736,11 +740,15 @@
   },
   {
    "AlarmName": "a-iep signup flood: someone is abusing the signup form",
-   "AlarmDescription": "[PROD] [CRITICAL] A flood of new accounts is being created\nImpact: No one yet. Each account sends a text, so this burns the monthly SMS budget and can leave parents without sign-in codes.\nFires when: at least 20 new accounts in 5 minutes.\nCheck first:\n1. Open the signup logs and look at the phone prefixes and timing of the new accounts.\n2. Confirm the bot check is on, then follow the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#suspected-abuse\nRecovery: Account creation is back to a normal rate"
+   "AlarmDescription": "[PROD] [CRITICAL] A flood of new accounts is being created\nImpact: No one yet. Each account sends a text, so this burns the monthly SMS budget and can leave parents without sign-in codes.\nFires when: at least 20 signups on real numbers or addresses in 5 minutes.\nCheck first:\n1. Open the signup logs and look at the phone prefixes and timing of the new accounts.\n2. Confirm the bot check is on, then follow the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#suspected-abuse\nRecovery: Account creation is back to a normal rate"
   },
   {
    "AlarmName": "a-iep signup throttled: nobody can create an account",
    "AlarmDescription": "[PROD] [CRITICAL] Sign-up is being throttled\nImpact: New families are turned away because the signup function is at its capacity limit.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the signup logs and check whether the volume is a flood (see the runbook) or real demand.\n2. If it is real demand, raise the function's reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Sign-up is no longer being throttled"
+  },
+  {
+   "AlarmName": "a-iep signup volume far above normal, test accounts included",
+   "AlarmDescription": "[PROD] [WARNING] Far more signups than normal, most on test numbers\nImpact: No one yet. Test numbers cannot receive texts, so nothing is spent, but the account list is filling up.\nFires when: at least 150 signup attempts in 5 minutes.\nCheck first:\n1. Open the signup logs and compare SIGNUP_ATTEMPT destination=fictional with destination=reachable.\n2. If no test run was going on, follow the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#suspected-abuse\nRecovery: Signup volume is back to normal"
   },
   {
    "AlarmName": "a-iep SMS spend is climbing fast: an abuse run may be under way",

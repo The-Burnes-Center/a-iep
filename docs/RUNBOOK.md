@@ -153,9 +153,15 @@ working meanwhile, with only the rate limits protecting it.
 
 ## Suspected abuse
 
-**Alerts:** a flood of new accounts; many sign-ups or sign-ins turned away; codes
-requested for numbers we do not serve; codes requested for addresses that
-bounced before; emails to addresses that do not exist.
+**Alerts:** a flood of new accounts; signup volume far above normal; many
+sign-ups or sign-ins turned away; codes requested for numbers we do not serve;
+codes requested for addresses that bounced before; emails to addresses that do
+not exist.
+
+The flood alert counts only signups on real numbers and addresses. Signups on
+the fictional test destinations (the 555-01XX phone block and `a-iep.invalid`)
+cannot receive anything, so they are counted only by the volume alert, which
+sits above a full test run.
 
 **Who is affected:** usually no one yet. These alerts are early warning: each
 fake signup sends a text or email, so a run burns the SMS budget and the email
