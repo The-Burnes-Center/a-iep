@@ -15,6 +15,12 @@
 //   cognito-idp                  Amplify refreshing a session
 //   S3 (regional and global)     presigned upload PUTs and audio playback
 //   Google Analytics             production only (analytics-helper.ts)
+//   Cloudflare Web Analytics     a beacon script Cloudflare's proxy injects
+//                                into the HTML it serves to browsers, in both
+//                                environments. It is not in index.html, and
+//                                E2E reaches the site through CloudFront and
+//                                never sees it (e2e/tests/csp-public.spec.ts
+//                                covers it through the public hostname).
 
 import * as fs from "node:fs";
 import * as crypto from "node:crypto";
@@ -33,6 +39,11 @@ export interface CspOptions {
 const TURNSTILE = "https://challenges.cloudflare.com";
 const TYPEKIT = ["https://use.typekit.net", "https://p.typekit.net"];
 const DIRECTUS = "https://directus.theburnescenter.org";
+// Cloudflare's published CSP for Web Analytics: the script, and its beacon.
+const CLOUDFLARE_INSIGHTS = {
+  script: "https://static.cloudflareinsights.com",
+  connect: "https://cloudflareinsights.com",
+};
 // Google's published CSP for GA4 with gtag.js.
 const GOOGLE_ANALYTICS = {
   script: ["https://*.googletagmanager.com"],
@@ -64,7 +75,13 @@ export function buildContentSecurityPolicy(options: CspOptions): string {
 
   const directives: Record<string, string[]> = {
     "default-src": ["'self'"],
-    "script-src": ["'self'", ...options.inlineScriptHashes, TURNSTILE, ...ga.script],
+    "script-src": [
+      "'self'",
+      ...options.inlineScriptHashes,
+      TURNSTILE,
+      CLOUDFLARE_INSIGHTS.script,
+      ...ga.script,
+    ],
     // 'unsafe-inline' for styles only: libraries (Turnstile among them) inject
     // <style> elements, and inline style cannot run code.
     "style-src": ["'self'", "'unsafe-inline'", ...TYPEKIT],
@@ -75,6 +92,7 @@ export function buildContentSecurityPolicy(options: CspOptions): string {
       apiUrl,
       `https://cognito-idp.${region}.amazonaws.com`,
       DIRECTUS,
+      CLOUDFLARE_INSIGHTS.connect,
       ...s3,
       ...ga.connect,
     ],

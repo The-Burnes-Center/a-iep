@@ -58,6 +58,11 @@ describe.each([['staging', staging], ['production', production]])('%s policy', (
     expect(policy['style-src']).toContain('https://use.typekit.net');
     expect(policy['font-src']).toContain('https://use.typekit.net');
   });
+
+  test('allows the analytics beacon Cloudflare injects in front of the site', () => {
+    expect(policy['script-src']).toContain('https://static.cloudflareinsights.com');
+    expect(policy['connect-src']).toContain('https://cloudflareinsights.com');
+  });
 });
 
 test('Google Analytics is allowed in production only', () => {
