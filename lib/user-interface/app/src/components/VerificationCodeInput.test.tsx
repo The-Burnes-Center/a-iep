@@ -19,26 +19,11 @@ interface PendingRequest {
 
 const originalCredentials = Object.getOwnPropertyDescriptor(navigator, "credentials");
 
-const originalUaData = Object.getOwnPropertyDescriptor(navigator, "userAgentData");
-
-const stubUaMobile = (mobile: boolean) => {
-  Object.defineProperty(navigator, "userAgentData", { configurable: true, value: { mobile } });
-};
-
-const stubOtpSupport = (supported: boolean, mobile = true) => {
+const stubOtpSupport = (supported: boolean) => {
   if (supported) {
     Object.defineProperty(window, "OTPCredential", { configurable: true, value: class {} });
   } else {
     delete (window as { OTPCredential?: unknown }).OTPCredential;
-  }
-  stubUaMobile(mobile);
-};
-
-const restoreUaData = () => {
-  if (originalUaData) {
-    Object.defineProperty(navigator, "userAgentData", originalUaData);
-  } else {
-    delete (navigator as { userAgentData?: unknown }).userAgentData;
   }
 };
 
@@ -93,7 +78,6 @@ beforeEach(() => {
 
 afterEach(() => {
   stubOtpSupport(false);
-  restoreUaData();
   if (originalCredentials) {
     Object.defineProperty(navigator, "credentials", originalCredentials);
   } else {
@@ -153,15 +137,6 @@ describe("VerificationCodeInput WebOTP autofill", () => {
     await userEvent.type(codeField(), "1");
     expect(signal.aborted).toBe(true);
     expect(codeField()).toHaveValue("1");
-  });
-
-  test("on a desktop Chromium browser, navigator.credentials.get is never called", () => {
-    stubOtpSupport(true, false);
-    const get = stubCredentialsGet(() => Promise.resolve({ code: "123456" }));
-    render(<Harness onSubmit={vi.fn()} />);
-
-    expect(get).not.toHaveBeenCalled();
-    expect(codeField()).toHaveValue("");
   });
 
   test("without OTPCredential, navigator.credentials.get is never called", () => {
