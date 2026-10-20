@@ -441,6 +441,8 @@ cdk.out
 venv
 
 lib/user-interface/react-app/public/aws-exports.json
+# The deployed config a local dev server is pointed at (see README). Never commit it.
+public/aws-exports.json
 out.tmp
 bin/config.json
 
