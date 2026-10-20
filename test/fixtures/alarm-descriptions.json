@@ -242,7 +242,7 @@
   },
   {
    "AlarmName": "a-iep-staging new accounts may be reachable by whoever created them",
-   "AlarmDescription": "[STAGING] [WARNING] A new account could not be secured\nImpact: Staging only. No real families are affected.\nFires when: at least 1 unsecured account in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_ORPHANED to find the account.\n2. Disable or delete that account in Cognito, then find out why the cleanup failed (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: quiet"
+   "AlarmDescription": "[STAGING] [WARNING] A new account could not be secured\nImpact: Staging only. No real families are affected.\nFires when: at least 1 unsecured account in 5 minutes.\nCheck first:\n1. Open the auth send function logs and search for SIGNUP_ORPHANED to find the account.\n2. Disable or delete that account in Cognito, then find out why the cleanup failed (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: quiet"
   },
   {
    "AlarmName": "a-iep-staging on-demand translations are failing",
@@ -321,24 +321,8 @@
    "AlarmDescription": "[STAGING] [WARNING] Many sign-in attempts are being turned away\nImpact: Staging only. No real families are affected.\nFires when: at least 25 refused sign-ins in 5 minutes.\nCheck first:\n1. Open the sign-in start logs and search for AUTH_START_REFUSED to see the reason and whether the requests come from one source.\n2. Ask a parent or test a sign-in yourself to rule out real users being blocked.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#suspected-abuse"
   },
   {
-   "AlarmName": "a-iep-staging sign-ups are being refused in bulk",
-   "AlarmDescription": "[STAGING] [WARNING] Many sign-ups are being turned away\nImpact: Staging only. No real families are affected.\nFires when: at least 10 refused sign-ups in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_REFUSED to see the reasons and whether they come from one source.\n2. Test a normal signup yourself to rule out real families being blocked.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#suspected-abuse"
-  },
-  {
-   "AlarmName": "a-iep-staging signup broken: accounts are not being created",
-   "AlarmDescription": "[STAGING] [WARNING] Sign-ups are failing when the account is created\nImpact: Staging only. No real families are affected.\nFires when: at least 3 failed sign-ups in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_FAILED to see the Cognito error.\n2. Check for a recent change to the user pool or the signup function.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Accounts are being created again"
-  },
-  {
-   "AlarmName": "a-iep-staging signup broken: nobody can create an account",
-   "AlarmDescription": "[STAGING] [WARNING] Sign-up is down\nImpact: Staging only. No real families are affected.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the signup function logs and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Sign-up is working again"
-  },
-  {
    "AlarmName": "a-iep-staging signup flood: someone is abusing the signup form",
    "AlarmDescription": "[STAGING] [WARNING] A flood of new accounts is being created\nImpact: Staging only. No real families are affected.\nFires when: at least 20 signups on real numbers or addresses in 5 minutes.\nCheck first:\n1. Open the signup logs and look at the phone prefixes and timing of the new accounts.\n2. Confirm the bot check is on, then follow the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#suspected-abuse\nRecovery: Account creation is back to a normal rate"
-  },
-  {
-   "AlarmName": "a-iep-staging signup throttled: nobody can create an account",
-   "AlarmDescription": "[STAGING] [WARNING] Sign-up is being throttled\nImpact: Staging only. No real families are affected.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the signup logs and check whether the volume is a flood (see the runbook) or real demand.\n2. If it is real demand, raise the function's reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/staging/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Sign-up is no longer being throttled"
   },
   {
    "AlarmName": "a-iep-staging signup volume far above normal, test accounts included",
@@ -624,7 +608,7 @@
   },
   {
    "AlarmName": "a-iep new accounts may be reachable by whoever created them",
-   "AlarmDescription": "[PROD] [CRITICAL] A new account could not be secured\nImpact: Administrators must act: an account was created but could not be locked down, and removing it also failed. Treat accounts created now as untrusted until it is cleared.\nFires when: at least 1 unsecured account in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_ORPHANED to find the account.\n2. Disable or delete that account in Cognito, then find out why the cleanup failed (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: quiet"
+   "AlarmDescription": "[PROD] [CRITICAL] A new account could not be secured\nImpact: Administrators must act: an account was created but could not be locked down, and removing it also failed. Treat accounts created now as untrusted until it is cleared.\nFires when: at least 1 unsecured account in 5 minutes.\nCheck first:\n1. Open the auth send function logs and search for SIGNUP_ORPHANED to find the account.\n2. Disable or delete that account in Cognito, then find out why the cleanup failed (see the runbook).\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: quiet"
   },
   {
    "AlarmName": "a-iep on-demand translations are failing",
@@ -703,24 +687,8 @@
    "AlarmDescription": "[PROD] [WARNING] Many sign-in attempts are being turned away\nImpact: Either someone is attacking sign-in and our limits are holding, or the limits are too tight and real parents are locked out.\nFires when: at least 25 refused sign-ins in 5 minutes.\nCheck first:\n1. Open the sign-in start logs and search for AUTH_START_REFUSED to see the reason and whether the requests come from one source.\n2. Ask a parent or test a sign-in yourself to rule out real users being blocked.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#suspected-abuse"
   },
   {
-   "AlarmName": "a-iep sign-ups are being refused in bulk",
-   "AlarmDescription": "[PROD] [WARNING] Many sign-ups are being turned away\nImpact: Either an abuse run is under way and the limits are holding, or the limits are too tight and real families cannot join.\nFires when: at least 10 refused sign-ups in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_REFUSED to see the reasons and whether they come from one source.\n2. Test a normal signup yourself to rule out real families being blocked.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#suspected-abuse"
-  },
-  {
-   "AlarmName": "a-iep signup broken: accounts are not being created",
-   "AlarmDescription": "[PROD] [CRITICAL] Sign-ups are failing when the account is created\nImpact: Families fill in the form and are told it did not work.\nFires when: at least 3 failed sign-ups in 5 minutes.\nCheck first:\n1. Open the signup logs and search for SIGNUP_FAILED to see the Cognito error.\n2. Check for a recent change to the user pool or the signup function.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Accounts are being created again"
-  },
-  {
-   "AlarmName": "a-iep signup broken: nobody can create an account",
-   "AlarmDescription": "[PROD] [CRITICAL] Sign-up is down\nImpact: No new family can create an account. This is the only way to join.\nFires when: at least 1 error in 5 minutes.\nCheck first:\n1. Open the signup function logs and read the latest error.\n2. Check for a recent deploy and roll back if it lines up.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Sign-up is working again"
-  },
-  {
    "AlarmName": "a-iep signup flood: someone is abusing the signup form",
    "AlarmDescription": "[PROD] [CRITICAL] A flood of new accounts is being created\nImpact: No one yet. Each account sends a text, so this burns the monthly SMS budget and can leave parents without sign-in codes.\nFires when: at least 20 signups on real numbers or addresses in 5 minutes.\nCheck first:\n1. Open the signup logs and look at the phone prefixes and timing of the new accounts.\n2. Confirm the bot check is on, then follow the abuse steps in the runbook.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#suspected-abuse\nRecovery: Account creation is back to a normal rate"
-  },
-  {
-   "AlarmName": "a-iep signup throttled: nobody can create an account",
-   "AlarmDescription": "[PROD] [CRITICAL] Sign-up is being throttled\nImpact: New families are turned away because the signup function is at its capacity limit.\nFires when: at least 1 throttled request in 5 minutes.\nCheck first:\n1. Open the signup logs and check whether the volume is a flood (see the runbook) or real demand.\n2. If it is real demand, raise the function's reserved concurrency.\nRunbook: https://github.com/The-Burnes-Center/a-iep/blob/main/docs/RUNBOOK.md#sign-up-is-failing\nRecovery: Sign-up is no longer being throttled"
   },
   {
    "AlarmName": "a-iep signup volume far above normal, test accounts included",
