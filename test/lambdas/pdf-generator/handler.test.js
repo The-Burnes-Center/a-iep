@@ -24,13 +24,19 @@ const mockBrowser = {
 };
 const mockLaunch = jest.fn(async () => mockBrowser);
 
-jest.mock('puppeteer-core', () => ({ launch: (...args) => mockLaunch(...args) }), { virtual: true });
-jest.mock('@sparticuz/chromium', () => ({
-    args: [],
-    defaultViewport: {},
-    headless: true,
-    executablePath: async () => '/fake/chromium',
-    setGraphicsMode: true,
+// The handler loads both with import() (they are ES modules only), and import()
+// resolves through jest's ES module registry, so they are mocked there.
+// jest.mock would register CommonJS mocks that import() never sees.
+jest.unstable_mockModule('puppeteer-core', () => ({
+    default: { launch: (...args) => mockLaunch(...args) },
+}), { virtual: true });
+jest.unstable_mockModule('@sparticuz/chromium', () => ({
+    default: {
+        args: [],
+        headless: true,
+        executablePath: async () => '/fake/chromium',
+        setGraphicsMode: true,
+    },
 }), { virtual: true });
 
 const {
