@@ -82,6 +82,17 @@ export const REFERRAL_SIGNUP_USER = '+15555550122';
 export const ENCRYPTED_PDF_USER = '+15555550126';
 
 /**
+ * Persistent user for the planted-instructions journey (injection.spec.ts).
+ *
+ * Its own number for the same reason as ENCRYPTED_PDF_USER: an upload
+ * replaces the child's document, so sharing DOCUMENTS_USER would swap the
+ * processed document documents.spec.ts and tts.spec.ts depend on for one full
+ * of instructions addressed to the AI. 0127 is allowlisted in new-auth.ts's
+ * TEST_PHONE_NUMBERS and was unclaimed; like 0126 it is held, not burned.
+ */
+export const INJECTION_USER = '+15555550127';
+
+/**
  * Dedicated to the passwordlessAuth wrong-code journey (a single bad code,
  * then a successful retry). Kept off PASSWORDLESS_LOCKOUT_USER so a stray
  * failed-verification count from this spec can never shorten the number of

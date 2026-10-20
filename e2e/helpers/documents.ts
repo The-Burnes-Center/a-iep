@@ -470,11 +470,11 @@ export async function documentOnFileId(page: Page, timeoutMs: number = 60_000): 
   }
 }
 
-/** Upload the synthetic fixture from /iep-documents and follow the redirect. */
-export async function uploadFixture(page: Page): Promise<void> {
+/** Upload a synthetic fixture from /iep-documents and follow the redirect. */
+export async function uploadFixture(page: Page, fixture: string = FIXTURE_PDF): Promise<void> {
   await gotoDocumentsPage(page);
   // The visible chooser is a styled overlay; the real input keeps this id.
-  await page.locator('#fileUpload').setInputFiles(FIXTURE_PDF);
+  await page.locator('#fileUpload').setInputFiles(fixture);
   await page.getByTestId(TESTID.uploadSubmit).click();
   // A successful S3 upload routes to the summary page.
   await page.waitForURL((url) => url.pathname === '/summary-and-translations', {
