@@ -23,6 +23,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import PreferredLanguage from "./PreferredLanguage";
+import { NavLanguageSlotProvider, NavLanguageSlotTarget } from "../../components/NavLanguageSlot";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
 import { LANGUAGES } from "../../common/languages";
@@ -103,6 +104,12 @@ const renderPage = (
           }}
         >
           <Here />
+          <NavLanguageSlotProvider>
+          {/* The top bar's language spot, with a stand-in for its default
+              picker (NavLanguageSlot.tsx). */}
+          <nav aria-label="top bar">
+            <NavLanguageSlotTarget fallback={<button type="button">bar language picker</button>} />
+          </nav>
           <Routes>
             <Route path={PAGE} element={<PreferredLanguage />} />
             <Route path="/consent-form" element={<div>consent step</div>} />
@@ -110,6 +117,7 @@ const renderPage = (
             <Route path="/summary-and-translations" element={<div>summary</div>} />
             <Route path="/account-center" element={<div>account center</div>} />
           </Routes>
+          </NavLanguageSlotProvider>
         </LanguageContext.Provider>
       </AppContext.Provider>
     </MemoryRouter>,
@@ -151,6 +159,23 @@ describe("the screen", () => {
         screen.getByRole("button", { name: meta.translatedPreference }),
       ).toBeInTheDocument();
     }
+  });
+});
+
+describe("the top bar's language picker", () => {
+  test("is not shown on this screen, which is itself the language picker", async () => {
+    // Every other signed-in screen shows the bar's picker; this one empties
+    // the spot instead of offering the same choice twice.
+    renderPage();
+    await waitForChoices();
+
+    expect(screen.queryByRole("button", { name: "bar language picker" })).toBeNull();
+  });
+
+  test("is not shown while the screen is still loading either", () => {
+    renderPage();
+
+    expect(screen.queryByRole("button", { name: "bar language picker" })).toBeNull();
   });
 });
 

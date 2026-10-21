@@ -42,9 +42,9 @@ test('login screen localizes and the OTP send carries the picked language', asyn
   await expect(page.getByRole('button', { name: sendButtonEn, exact: true })).toBeVisible();
 
   // Switch to Spanish via the login screen's language picker (the toggle is
-  // labeled with the CURRENT language). Only visible below 1025px width,
-  // hence the suite's mobile viewport.
-  await page.getByRole('button', { name: 'English', exact: true }).click();
+  // named for what it is, then the CURRENT language). Only visible below
+  // 1025px width, hence the suite's mobile viewport.
+  await page.getByRole('button', { name: 'Language: English', exact: true }).click();
   await page.getByRole('button', { name: 'Español', exact: true }).click();
 
   // Visible strings localize in place. The heading is shared markup
