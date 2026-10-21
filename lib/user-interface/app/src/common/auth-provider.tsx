@@ -23,6 +23,12 @@ interface AuthContextType {
   login: (user: unknown) => void;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  /**
+   * True from the moment logout() starts until someone signs in again: the
+   * session ended on purpose, so there is no page to take anyone back to.
+   * ProtectedRoute reads it (see there).
+   */
+  signedOut: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -33,6 +39,7 @@ const AuthContext = createContext<AuthContextType>({
   login: () => {},
   logout: async () => {},
   checkAuth: async () => {},
+  signedOut: false,
 });
 
 // eslint-disable-next-line react-refresh/only-export-components -- context/provider co-located by design
@@ -42,6 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authenticated, setAuthenticated] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [user, setUser] = useState<unknown | null>(null);
+  const [signedOut, setSignedOut] = useState<boolean>(false);
   const appConfig = useContext(AppContext);
   const { isFeatureEnabled } = useFeatures();
 
@@ -52,6 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // after its own first setLoading/setAuthenticated call, forever.
   const login = useCallback((user: unknown) => {
     setUser(user);
+    setSignedOut(false);
     setAuthenticated(true);
   }, []);
 
@@ -107,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const currentUser = await getCurrentUser();
       if (currentUser) {
         setUser(currentUser);
+        setSignedOut(false);
         setAuthenticated(true);
       } else {
         setUser(null);
@@ -202,6 +212,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * TTL, so a missed revoke expires on its own rather than living forever.
    */
   const logout = async () => {
+    // Set before anything that can flip `authenticated`, so the render that
+    // sees the session end already knows it was deliberate.
+    setSignedOut(true);
     const session = readPersistedSessionHandle();
     clearPersistedSessionHandle();
     clearCachedTokens();
@@ -233,6 +246,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     login,
     logout,
     checkAuth,
+    signedOut,
   };
 
   return (
