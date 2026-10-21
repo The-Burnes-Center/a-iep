@@ -38,7 +38,7 @@ const AIEPToolCard: React.FC<AIEPToolCardProps> = ({
         <p className="aiep-tool-card-text">{bottomText}</p>
       </div>
       <div className="aiep-tool-card-icon">
-        <img src="/images/go-to.svg" alt="Go to" />
+        <img loading="lazy" decoding="async" src="/images/go-to.svg" alt="Go to" />
       </div>
     </div>
   );

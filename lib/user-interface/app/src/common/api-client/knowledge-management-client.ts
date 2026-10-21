@@ -53,46 +53,6 @@ export class KnowledgeManagementClient {
     return this.getSignedURL(fileName, 'download');
   }
 
-  // Returns a list of documents in the S3 bucket (hard-coded on the backend)
-  async getDocuments(continuationToken?: string, pageIndex?: number) {
-    const auth = await Utils.authenticate();
-    const response = await fetch(this.API + '/s3-knowledge-bucket-data', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization' : auth
-      },
-      body: JSON.stringify({
-        continuationToken: continuationToken,
-        pageIndex: pageIndex,
-      }),
-    });
-    if (!response.ok) {
-      throw new Error('Failed to get files');
-    }
-    const result = await response.json();
-    return result;
-  }
-
-  // Deletes a given file on the S3 bucket (hardcoded on the backend!)
-  async deleteFile(key : string) {
-    const auth = await Utils.authenticate();
-    const response = await fetch(this.API + '/delete-s3-file', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization' : auth
-      },
-      body: JSON.stringify({
-        KEY : key
-      }),
-    });
-    if (!response.ok) {
-      throw new Error('Failed to delete file');
-    }
-    return await response.json()
-  }
-
   // Runs a sync job on Kendra (hardcoded datasource as well as index on the backend)
   async syncKendra() : Promise<string> {
     const auth = await Utils.authenticate();

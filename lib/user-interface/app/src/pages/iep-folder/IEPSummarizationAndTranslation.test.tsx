@@ -18,16 +18,45 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import IEPSummarizationAndTranslation from "./IEPSummarizationAndTranslation";
 import { InAppChrome } from "../../components/RouteChrome";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
 import type { AppConfig } from "../../common/types";
 import type { SupportedLanguage } from "../../common/languages";
+import { MAX_VISIBLE_POLL_MS } from "../utils/polling-utility";
 
 const Auth = vi.hoisted(() => ({ getCurrentUser: vi.fn(),
   fetchAuthSession: vi.fn() }));
 vi.mock("aws-amplify/auth", () => Auth);
+
+/**
+ * The real poller runs underneath. The only thing overridden is whether it
+ * reports itself stopped, so a test can show the stalled notice without waiting
+ * out the visible-time cap. `checkAgain` still reaches the real hook, so a press
+ * really asks for a fresh read.
+ */
+const Polling = vi.hoisted(() => ({
+  forceStopped: false,
+  checkAgain: vi.fn(),
+}));
+vi.mock("../utils/useDocumentFetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils/useDocumentFetch")>();
+  return {
+    ...actual,
+    useDocumentFetch: (params: Parameters<typeof actual.useDocumentFetch>[0]) => {
+      const real = actual.useDocumentFetch(params);
+      return {
+        pollingStopped: Polling.forceStopped || real.pollingStopped,
+        checkAgain: () => {
+          Polling.checkAgain();
+          real.checkAgain();
+        },
+      };
+    },
+  };
+});
 
 const API_BASE = "https://api.example.test/api";
 const CHILD_ID = "child-abc";
@@ -132,7 +161,11 @@ const renderPage = (
     enabledLanguages: ["en", "es"] as SupportedLanguage[],
   };
 
+  // The app's own query client sits above every screen (AppConfigured). Per
+  // render and with retries off, so no cache outlives the test that made it.
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
+    <QueryClientProvider client={queryClient}>
     <MemoryRouter initialEntries={[initialPath]}>
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
@@ -158,9 +191,13 @@ const renderPage = (
             </Routes>
         </LanguageContext.Provider>
       </AppContext.Provider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </QueryClientProvider>,
   );
+  return languageValue;
 };
+
+let queryClient: QueryClient;
 
 /** Advance fake timers and let every queued promise/effect flush. */
 const settle = async (ms = 0) => {
@@ -174,6 +211,12 @@ const clickTranslate = async () => {
   fireEvent.click(screen.getByTestId("translate-now-button"));
   await settle();
 };
+
+let profileReadStatus = 200;
+let savedLanguage = "es";
+let profileWrite: (init?: RequestInit) => Promise<StubResponse> = () => Promise.resolve(jsonResponse(200, {}));
+const profileWrites = () =>
+  fetchMock.mock.calls.filter(([url, init]) => url === `${API_BASE}/profile` && (init as RequestInit | undefined)?.method === "PUT");
 
 beforeEach(async () => {
   vi.useFakeTimers();
@@ -190,12 +233,22 @@ beforeEach(async () => {
     alreadyExists: false,
   });
 
-  fetchMock = vi.fn(async (url: string) => {
+  profileReadStatus = 200;
+  savedLanguage = "es";
+  profileWrite = (init) => {
+    savedLanguage = JSON.parse(String(init?.body ?? "{}")).secondaryLanguage ?? savedLanguage;
+    return Promise.resolve(jsonResponse(200, {}));
+  };
+  fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === `${API_BASE}/profile` && init?.method === "PUT") {
+      return profileWrite(init);
+    }
     if (url === `${API_BASE}/profile`) {
+      if (profileReadStatus !== 200) return jsonResponse(profileReadStatus, { message: "down" });
       return jsonResponse(200, {
         profile: {
           userId: "user-1",
-          secondaryLanguage: "es",
+          secondaryLanguage: savedLanguage,
           showOnboarding: false,
           children: [{ childId: CHILD_ID, name: "Child" }],
         },
@@ -289,6 +342,10 @@ describe("the translate button", () => {
     expect(screen.getByTestId("translation-progress")).toHaveTextContent(
       "summary.processing.almostThere",
     );
+    // Indeterminate progressbar: named by the message beside it, and with no
+    // aria-valuenow, since the server gives no fraction for this wait.
+    const wait = screen.getByRole("progressbar", { name: "summary.processing.almostThere" });
+    expect(wait).not.toHaveAttribute("aria-valuenow");
     expect(screen.queryByTestId("translate-now-button")).not.toBeInTheDocument();
     // Inline, NOT the full-screen takeover: the English summary is still there.
     expect(screen.getByTestId("summary-text-en")).toBeInTheDocument();
@@ -297,13 +354,75 @@ describe("the translate button", () => {
   test("locks the language picker while the request is in flight", async () => {
     renderPage();
     await settle();
-    expect(screen.getByRole("button", { name: "ENGLISH" })).toBeEnabled();
+    // The parent's choice (Spanish), though English is what is on screen.
+    const picker = () => screen.getByRole("button", { name: "languageMenu.label: Español ES" });
+    expect(picker()).not.toHaveAttribute("aria-disabled");
 
     await clickTranslate();
 
     // Changing the preference mid-flight would leave the running request
-    // pointing at a language the parent no longer wants.
-    expect(screen.getByRole("button", { name: "ENGLISH" })).toBeDisabled();
+    // pointing at a language the parent no longer wants. aria-disabled, not
+    // disabled: the picker keeps keyboard focus and says why it is locked.
+    expect(picker()).toHaveAttribute("aria-disabled", "true");
+    expect(picker()).toHaveAccessibleDescription("languageMenu.unavailableTranslating");
+  });
+});
+
+describe("a stalled on-demand translation", () => {
+  beforeEach(() => {
+    Polling.forceStopped = false;
+    Polling.checkAgain.mockClear();
+  });
+
+  afterEach(() => {
+    Polling.forceStopped = false;
+  });
+
+  test("the inline wait becomes a notice and a try-again button, not a bar", async () => {
+    Polling.forceStopped = true;
+    renderPage();
+    await settle();
+    await clickTranslate();
+
+    const progress = screen.getByTestId("translation-progress");
+    expect(progress.querySelector('[role="progressbar"]')).toBeNull();
+    expect(progress).toHaveTextContent("summary.processing.stalled");
+    expect(screen.getByRole("button", { name: "common.tryAgain" })).toBeInTheDocument();
+    // The announcement region was mounted with the wait, so the stop is spoken.
+    expect(progress.querySelector('[aria-live="polite"]')).toHaveTextContent(
+      "summary.processing.stalled",
+    );
+  });
+
+  test("try again asks for a fresh read of the document", async () => {
+    Polling.forceStopped = true;
+    renderPage();
+    await settle();
+    await clickTranslate();
+    const readsBefore = countCalls(DOCUMENTS_URL);
+
+    fireEvent.click(screen.getByRole("button", { name: "common.tryAgain" }));
+    await settle();
+
+    expect(Polling.checkAgain).toHaveBeenCalledTimes(1);
+    expect(countCalls(DOCUMENTS_URL)).toBeGreaterThan(readsBefore);
+  });
+
+  test("the backstop ends a stuck wait with a retryable error before the poll cap could", async () => {
+    // The wait is 10 minutes of wall-clock time; the poll cap counts only visible
+    // minutes, so it can never fire first. Raising the timeout past the cap would
+    // make the notice reachable on this path, and this test would then need a real
+    // cap case.
+    expect(TRANSLATION_TIMEOUT_MS).toBeLessThan(MAX_VISIBLE_POLL_MS);
+
+    renderPage();
+    await settle();
+    await clickTranslate();
+    documentPayload = englishOnlyDocument({ status: "PROCESSING_TRANSLATIONS" });
+    await settle(TRANSLATION_TIMEOUT_MS);
+
+    expect(screen.getByTestId("translation-error")).toBeInTheDocument();
+    expect(screen.queryByText("summary.processing.stalled")).toBeNull();
   });
 });
 
@@ -375,7 +494,7 @@ describe("when the translation lands", () => {
 
     expect(screen.getByTestId("summary-text-es")).toHaveTextContent(SPANISH_SUMMARY);
     // The picker reflecting the new selection is how the language switch shows.
-    expect(screen.getByRole("button", { name: "ESPAÑOL" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "languageMenu.label: Español ES" })).toBeInTheDocument();
   });
 
   test("retires the banner and the progress bar", async () => {
@@ -384,7 +503,7 @@ describe("when the translation lands", () => {
     expect(screen.queryByTestId("translate-preferred-language")).not.toBeInTheDocument();
     expect(screen.queryByTestId("translation-progress")).not.toBeInTheDocument();
     // Request finished: the picker is usable again.
-    expect(screen.getByRole("button", { name: "ESPAÑOL" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "languageMenu.label: Español ES" })).not.toHaveAttribute("aria-disabled");
   });
 });
 
@@ -471,7 +590,7 @@ describe("stepping away to another tab mid-translation", () => {
     await settle(POLL_INTERVAL_MS);
 
     expect(screen.getByTestId("summary-text-es")).toHaveTextContent(SPANISH_SUMMARY);
-    expect(screen.getByRole("button", { name: "ESPAÑOL" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "languageMenu.label: Español ES" })).toBeInTheDocument();
   });
 
   test("a run that fails while they are away is still reported", async () => {
@@ -562,6 +681,7 @@ describe("stepping away to another tab mid-translation", () => {
       enabledLanguages: ["en", "es", "zh"] as SupportedLanguage[],
     };
     render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <MemoryRouter initialEntries={["/summary-and-translations"]}>
         <AppContext.Provider
           value={{ ...appConfig, enabledLanguages: ["en", "es", "zh"] } as unknown as AppConfig}
@@ -575,7 +695,8 @@ describe("stepping away to another tab mid-translation", () => {
               </Routes>
           </LanguageContext.Provider>
         </AppContext.Provider>
-      </MemoryRouter>,
+      </MemoryRouter>
+      </QueryClientProvider>,
     );
 
     // The document lands first, while the profile is still in flight.
@@ -595,7 +716,7 @@ describe("stepping away to another tab mid-translation", () => {
     // never coming, and the picker stays locked against a parent who is no
     // longer waiting for anything. The banner is already gone by now (their
     // language arrived), so this lock is the only surviving symptom.
-    expect(screen.getByRole("button", { name: "ESPAÑOL" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "languageMenu.label: Español ES" })).not.toHaveAttribute("aria-disabled");
   });
 
   test("an error already shown is not resurrected into a spinner", async () => {
@@ -838,5 +959,78 @@ describe("when the document read fails", () => {
     await settle(POLL_INTERVAL_MS);
     expect(screen.queryByText(LOAD_FAILED)).not.toBeInTheDocument();
     expect(screen.getByTestId("summary-text-en")).toHaveTextContent(ENGLISH_SUMMARY);
+  });
+});
+
+/**
+ * The summary's language picker and the parent's saved preference.
+ *
+ * The page used to keep its own copy of the profile, apart from the shared
+ * ['profile'] cache the top bar's picker reads, and to save the preference
+ * on its own. Each test below failed against that code.
+ */
+describe("the summary's language picker and the saved preference", () => {
+  const picker = () => screen.getByTestId("summary-language-option-en").closest(".dropdown")!;
+  const toggle = () => document.querySelector<HTMLElement>("#language-dropdown")!;
+  const pick = async (code: string) => {
+    fireEvent.click(toggle());
+    await settle();
+    fireEvent.click(screen.getByTestId(`summary-language-option-${code}`));
+    await settle();
+  };
+
+  test("shows the language the parent chose, even before it is translated", async () => {
+    // englishOnlyDocument + a Spanish preference: English is on screen and
+    // the banner offers the translation, but the parent's choice is Spanish.
+    renderPage();
+    await settle();
+
+    expect(toggle()).toHaveAccessibleName("languageMenu.label: Español ES");
+  });
+
+  test("a choice lands in the shared profile cache the top bar reads", async () => {
+    renderPage();
+    await settle();
+
+    await pick("en");
+
+    expect(queryClient.getQueryData<{ secondaryLanguage: string }>(["profile"])?.secondaryLanguage).toBe("en");
+  });
+
+  test("a failed save says so, and the screen goes back to the old language", async () => {
+    profileWrite = () => Promise.resolve(jsonResponse(500, { message: "down" }));
+    const languageValue = renderPage();
+    await settle();
+
+    await pick("en");
+
+    const alerts = screen.getAllByRole("alert").map((alert) => alert.textContent);
+    expect(alerts).toContain("languageMenu.saveFailed");
+    expect(languageValue.setLanguage).toHaveBeenLastCalledWith("es");
+  });
+
+  test("a second pick while the first is saving sends nothing", async () => {
+    profileWrite = () => new Promise(() => {});
+    renderPage();
+    await settle();
+
+    await pick("en");
+    expect(toggle()).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(toggle());
+    await settle();
+
+    expect(profileWrites()).toHaveLength(1);
+    expect(picker()).toBeTruthy();
+  });
+
+  test("a profile that cannot be loaded does not take the page down", async () => {
+    profileReadStatus = 500;
+    renderPage();
+    await settle();
+
+    // No profile means no child to read a document for, so the page shows its
+    // no-document state; what matters is that it renders at all, with the
+    // language picker still in the bar.
+    expect(document.querySelector(".nav-language-slot button")).toBeInTheDocument();
   });
 });

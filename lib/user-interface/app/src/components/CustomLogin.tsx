@@ -25,12 +25,13 @@ import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import { useAuth } from '../common/auth-provider';
 import { clearCachedTokens, clearPersistedSessionHandle } from '../common/auth/passwordless-auth';
 import { cognitoErrorKey } from '../common/helpers/cognito-error-helper';
-import { useTurnstile, TurnstileStatus } from '../common/hooks/use-turnstile';
+import { useTurnstile, TURNSTILE_STATUS_KEYS } from '../common/hooks/use-turnstile';
 import { useFeatures } from '../common/hooks/use-features';
 import { AppContext } from '../common/app-context';
 import AIEPSpinner from './AIEPSpinner';
 import AuthHeader from './AuthHeader';
 import PasswordlessAuthForm from './PasswordlessAuthForm';
+import SecurityCheck from './SecurityCheck';
 import PasswordInput from './PasswordInput';
 import PasswordRequirements from './PasswordRequirements';
 import AlertMessages from './AlertMessages';
@@ -99,24 +100,6 @@ interface CustomLoginProps {
   showLanguageDropdown?: boolean;
 }
 
-/**
- * What the security check says to a parent who cannot see it, keyed by where
- * the check has got to.
- *
- * `failed` and `timedOut` are absent on purpose: both render a visible
- * react-bootstrap Alert, which carries role="alert" and announces itself.
- * Listing them here too would say everything twice.
- */
-const TURNSTILE_STATUS_KEYS: Partial<Record<TurnstileStatus, string>> = {
-  // The widget is injected after first paint, so it lands under a parent who
-  // may already be tabbing. Saying it arrived is the only warning they get.
-  ready: 'auth.securityCheckReady',
-  interactive: 'auth.securityCheckInteractive',
-  solved: 'auth.securityCheckDone',
-  expired: 'auth.securityCheckExpired',
-  reset: 'auth.securityCheckReset',
-};
-
 /** The slice of the v6 signIn/confirmSignIn result the phone custom-auth flow reads back */
 interface SmsChallengeUser {
   isSignedIn?: boolean;
@@ -176,7 +159,6 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
   const [cognitoUserForSms, setCognitoUserForSms] = useState<SmsChallengeUser | null>(null);
   const [isNewUserConfirmation, setIsNewUserConfirmation] = useState(false); // Track if this is signup confirmation
   const [pendingPhoneNumber, setPendingPhoneNumber] = useState<string | null>(null);
-  const [, setIsNewUserSignup] = useState(false); // Track if this is a brand new user signup // Store phone for confirmation flow
   
   // State for toggling password visibility
   const [showMainPassword, setShowMainPassword] = useState(false);
@@ -358,59 +340,13 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
       } catch (signInError) {
         // console.log('SignIn error:', signInError.code);
 
-        // NotAuthorizedException is how "user does not exist" surfaces here:
-        // the app client prevents user existence errors, so the define-auth
-        // lambda fails auth for unknown numbers instead of Cognito throwing
-        // UserNotFoundException. Treat both as "create the account".
-        if (errCode(signInError) === 'UserNotFoundException' || errCode(signInError) === 'NotAuthorizedException') {
-          // User doesn't exist, create them first
-          // console.log('Creating new user for phone:', formattedPhone);
-          
-          try {
-            // The account is created by OUR endpoint, not by Cognito's public
-            // SignUp API, which the pool now refuses. That API was reachable
-            // by anyone holding the app client id, which necessarily ships in
-            // this bundle, and is how the 2026-09-09 abuse run created a
-            // thousand accounts without ever loading this page.
-            //
-            // No password is chosen here any more. The endpoint generates one
-            // the moment the account exists and nobody, including this code,
-            // ever sees it.
-            const response = await fetch(`${appConfig?.httpEndpoint ?? '/'}auth/signup`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                phoneNumber: formattedPhone,
-                language,
-                // Verified server-side. Absent when no widget is configured,
-                // in which case the server decides whether to accept it.
-                ...(turnstile.token ? { turnstileToken: turnstile.token } : {}),
-              }),
-            });
-
-            if (!response.ok) {
-              // 429 is a rate limit and 403 a failed anti-abuse check. Both
-              // are deliberate refusals a parent can act on by waiting or
-              // retrying, so they must not read as a generic failure.
-              throw Object.assign(new Error('signup refused'), {
-                name: response.status === 429 ? 'TooManyRequestsException' : 'SignupRefused',
-              });
-            }
-
-            // The account exists and is confirmed, so the login OTP is the
-            // only SMS a new parent receives.
-            setIsNewUserSignup(true);
-            await applyPhoneSignInResult(await signInWithPhone(formattedPhone), 'auth.smsCodeSentNewUser');
-          } catch (signUpError) {
-            console.error('Phone sign-up failed:', errCode(signUpError) ?? 'unknown');
-            if (errCode(signUpError) === 'UsernameExistsException') {
-              // User was created between our attempts, try signin again
-              await applyPhoneSignInResult(await signInWithPhone(formattedPhone));
-            } else {
-              throw signUpError;
-            }
-          }
-        } else if (errCode(signInError) === 'UserNotConfirmedException') {
+        // An unknown number used to fall through to POST /auth/signup here.
+        // That route is retired (it created accounts synchronously, which
+        // made "does this number have an account" measurable by timing), and
+        // the passwordless flow, which is always on, creates accounts behind
+        // /auth/start. This legacy form can no longer create one, so an
+        // unknown number gets the generic failure below, same as a wrong one.
+        if (errCode(signInError) === 'UserNotConfirmedException') {
           // User exists but not confirmed - treat as new user confirmation
           // console.log('User exists but not confirmed, setting up confirmation flow');
           
@@ -535,7 +471,6 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
           setIsNewUserConfirmation(false);
           setPendingPhoneNumber(null);
           setSmsCode('');
-          setIsNewUserSignup(false);
         }
         
       } else {
@@ -1149,7 +1084,6 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                       setSuccessMessage(null);
                       setIsNewUserConfirmation(false);
                       setPendingPhoneNumber(null);
-                      setIsNewUserSignup(false);
                     }}
                     disabled={loading}
                     buttonText={t('auth.backToLogin')}
@@ -1199,78 +1133,11 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                   />
                 </Form.Group>
                 
-                {/* Cloudflare Turnstile. Renders nothing when no site key is
-                    configured, which is the local-dev and not-yet-rolled-out
-                    state. Placed above the button so a parent who does get an
-                    interactive challenge sees it before trying to submit.
-
-                    Turnstile owns the inner div and everything under it — it
-                    replaces the subtree with a closed shadow root holding a
-                    cross-origin iframe, which the page can neither name nor
-                    inspect. So the name and the instructions go on a wrapper
-                    around it. Without them the challenge contributes nothing
-                    to the accessibility tree at all: the form read as phone
-                    field, hidden field, submit button, with a focusable,
-                    unnamed, mandatory gate sitting invisibly between them.
-
-                    The widget's slot reserves its height, because the widget
-                    arrives after first paint and is 300x71: unreserved, it
-                    shoves the submit button down under a parent who is already
-                    reaching for it. The slot rather than the whole group, so
-                    the reservation does not have to guess how many lines the
-                    instruction wraps to in five languages. */}
-                {turnstile.isEnabled && (
-                  <div
-                    className="mb-3"
-                    role="group"
-                    aria-labelledby="turnstile-heading"
-                    aria-describedby="turnstile-help"
-                  >
-                    <p id="turnstile-heading" className="form-label mb-1">
-                      {t('auth.securityCheck')}
-                    </p>
-                    <p id="turnstile-help" className="text-muted small mb-2">
-                      {t('auth.securityCheckHelp')}
-                    </p>
-                    <div className="d-flex justify-content-center" style={{ minHeight: '4.5rem' }}>
-                      <div ref={turnstile.containerRef} />
-                    </div>
-                    {/* The challenge stopped being passive and now wants
-                        something. Sighted parents see the widget change; this
-                        is the same news in words, and the live region above
-                        speaks it. */}
-                    {turnstile.status === 'interactive' && (
-                      <p className="text-muted small mt-2 mb-0">
-                        {t('auth.securityCheckInteractive')}
-                      </p>
-                    )}
-                  </div>
-                )}
-                {/* It went interactive and was never solved. Until 2026-09-10
-                    this was the quietest failure in the form: Turnstile fires
-                    timeout-callback rather than error-callback, nothing was
-                    listening, and the parent sat in front of a challenge that
-                    had already given up on them. */}
-                {turnstile.status === 'timedOut' && (
-                  <Alert variant="warning" className="mb-3">
-                    {t('auth.securityCheckTimedOut')}{' '}
-                    {turnstile.canRetry && (
-                      <Button variant="link" size="sm" className="p-0 align-baseline" onClick={turnstile.retry}>
-                        {t('auth.securityCheckRetry')}
-                      </Button>
-                    )}
-                  </Alert>
-                )}
-                {/* The check could not run at all, so the server will refuse
-                    this signup with a 403 no matter how many times a parent
-                    retries. Say what happened while they can still act on
-                    it, rather than letting them find out as a generic
-                    failure after filling the form in. */}
-                {turnstile.hasFailed && (
-                  <Alert variant="warning" className="mb-3">
-                    {t('auth.errorTurnstileUnavailable')}
-                  </Alert>
-                )}
+                {/* Cloudflare Turnstile, above the button so a parent who
+                    does get an interactive challenge sees it before
+                    submitting. Renders nothing when no site key is set. See
+                    SecurityCheck.tsx for why it is shaped the way it is. */}
+                <SecurityCheck t={t} turnstile={turnstile} />
 
                 <AlertMessages error={error} successMessage={successMessage} />
                 

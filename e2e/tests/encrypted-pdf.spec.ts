@@ -55,7 +55,8 @@
  * helpers/encrypted-pdf.ts, including why nothing from docs/sample-ieps/ can
  * be used here.
  */
-import { test, expect, BrowserContext, Locator, Page } from '@playwright/test';
+import { BrowserContext, Locator, Page } from '@playwright/test';
+import { test, expect, watchCsp, expectNoCspViolations } from '../helpers/fixtures';
 import playwrightConfig from '../playwright.config';
 import { loginWithOtp } from '../helpers/app';
 import { ensureTestUser } from '../helpers/aws';
@@ -111,6 +112,8 @@ interface CapturedUpload {
 }
 
 let context: BrowserContext;
+/** CSP violations in the context this file builds itself (see fixtures.ts). */
+let cspViolations: string[] = [];
 let page: Page;
 /** Everything the browser PUT to the stub URL, newest last. Cleared before
  * each stage; stage 3 asserts it stays empty. */
@@ -223,6 +226,7 @@ test.describe('password-protected PDF upload (detect, prompt, decrypt in the bro
     // browser.newPage() does not pick up the config's `use` block, so restate
     // the mobile viewport this app is built for.
     context = await browser.newContext({ viewport: playwrightConfig.use?.viewport ?? null });
+    cspViolations = await watchCsp(context);
     page = await context.newPage();
     await stubTheUploadBoundary(page);
 
@@ -236,6 +240,7 @@ test.describe('password-protected PDF upload (detect, prompt, decrypt in the bro
 
   test.afterAll(async () => {
     await context?.close();
+    expectNoCspViolations(cspViolations);
   });
 
   test('1. an owner-restricted PDF uploads silently, with no prompt', async () => {

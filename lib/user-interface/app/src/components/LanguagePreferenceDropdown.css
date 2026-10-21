@@ -7,11 +7,6 @@
    If a third caller appears, promote both to one class instead of copying
    again. */
 
-.language-preference-bar {
-  padding: 0 1rem;
-  margin-bottom: 0.75rem;
-}
-
 .language-preference-dropdown .dropdown-toggle {
   background-color: #f5f3ee;
   border: 1px solid var(--aiep-border);

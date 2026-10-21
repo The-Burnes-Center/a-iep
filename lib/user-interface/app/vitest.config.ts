@@ -16,7 +16,9 @@ export default defineConfig({
     include: ["src/**/*.test.{ts,tsx}"],
     // Every test declares the Auth/fetch answers it needs. Carrying an
     // implementation over from the previous test is how a suite starts
-    // passing for the wrong reason.
+    // passing for the wrong reason. Since Vitest 3, a reset restores the
+    // implementation the mock was created with (vi.fn(impl)) rather than
+    // emptying it, and still drops anything a test added on top.
     mockReset: true,
     unstubGlobals: true,
     server: {

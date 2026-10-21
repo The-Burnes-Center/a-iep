@@ -3,7 +3,7 @@
  * parent is waiting.
  *
  * The load-bearing assertion in this file is the password rotation. It moved
- * here from signup-endpoint.js and it is the only reason the ~1,030 accounts
+ * here from the retired signup endpoint and it is the only reason the ~1,030 accounts
  * created by the 2026-09-09 abuse run are unusable: AdminCreateUser fires
  * neither PreSignUp nor PostConfirmation, so nothing rotates on its own, and
  * an account created without it is an account whoever created it can sign

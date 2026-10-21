@@ -4,14 +4,16 @@ import boto3
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Dict, List, Optional, Literal
+from typing import Dict, List, Optional, Literal, Tuple
 from router import Router, UserProfileRouter, RouteNotFoundException
 from student_name_substitution import substitute_content, usable_student_name
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import copy
 import re
 import unicodedata
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
+from functools import partial
 
 dynamodb = boto3.resource('dynamodb')
 user_profiles_table = dynamodb.Table(os.environ['USER_PROFILES_TABLE'])
@@ -23,6 +25,21 @@ kms_client = boto3.client('kms', region_name=region)
 kms_key_alias = os.environ.get('AIEP_KMS_KEY_ALIAS', 'alias/aiep/app')
 
 print(f"KMS client initialized for region: {region}, using key alias: {kms_key_alias}")
+
+# Clients are built once per container, not once per request: constructing one
+# loads the service model from disk and costs tens of milliseconds, and a warm
+# invocation should pay none of it. dynamodb and kms are created above because
+# every request needs them. s3, lambda and cognito-idp are built on first use
+# and then kept: building them at import would add their cost to every cold
+# start, including GET /profile, which touches none of them.
+_clients = {}
+
+
+def _aws_client(service: str):
+    if service not in _clients:
+        _clients[service] = boto3.client(service)
+    return _clients[service]
+
 
 SUPPORTED_LANGUAGES = ['en', 'zh', 'es', 'vi', 'ar']
 DEFAULT_LANGUAGE = 'en'
@@ -101,6 +118,12 @@ def sanitize_event_for_logging(event: Dict) -> Dict:
     return sanitized
 
 
+# Every response here is one family's records or a refusal about them. A shared
+# cache or the browser's back/forward cache must never replay one to the next
+# person on the device, so nothing from this handler is storable.
+NO_STORE = 'no-store'
+
+
 def get_origin_from_event(event: Dict) -> str:
     """
     Extract origin from event headers in a case-insensitive way.
@@ -112,15 +135,11 @@ def get_origin_from_event(event: Dict) -> str:
         str: The origin header value or default localhost
     """
     headers = event.get('headers', {})
-    print("Request headers:", json.dumps(_redact_sensitive_headers(headers), indent=2))
-    
     # Case-insensitive search for origin header
-    origin_header = next(
+    return next(
         (headers[key] for key in headers if key.lower() == 'origin'),
         'http://localhost:3000'
     )
-    print("Found origin:", origin_header)
-    return origin_header
 
 def create_response(event: Dict, status_code: int, body: Dict) -> Dict:
     """
@@ -138,12 +157,45 @@ def create_response(event: Dict, status_code: int, body: Dict) -> Dict:
         'statusCode': status_code,
         'headers': {
             'Content-Type': 'application/json',
+            'Cache-Control': NO_STORE,
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS, POST, PUT, DELETE',
             'Access-Control-Allow-Headers': 'Content-Type, X-Amz-Date, Authorization, X-Api-Key, X-Amz-Security-Token, X-Amz-User-Agent, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers'
         },
         'body': json.dumps(body, cls=DecimalEncoder)
     }
+
+def not_found(event: Dict) -> Dict:
+    """The one 404, for an unknown route and for a child that is not the caller's.
+
+    Not 403 for the second, and not different from a child that does not exist:
+    "this id exists but is not yours" tells a caller which ids are real. The
+    reason is logged by the caller; the body says nothing about it, and never
+    echoes the path or the exception text.
+    """
+    return create_response(event, 404, {'message': 'Not found'})
+
+
+# What a fault in AWS itself looks like to boto3. Only these become a 503: a
+# bug in this code (a KeyError, a TypeError) is still our 500, and neither is
+# ever a 403 or a 404, which would tell a parent something about their records
+# that is not true.
+AWS_FAULTS = (ClientError, BotoCoreError)
+
+
+def service_unavailable(event: Dict, operation: str, error: Exception) -> Dict:
+    """503 for a fault in DynamoDB, KMS or S3, with the reason in the log.
+
+    Generic body: the cause (a table name, an AWS error code) goes to
+    CloudWatch only. The logged reason is the exception class and, for a
+    service error, its code; never its message, which can quote a key.
+    """
+    code = error.response.get('Error', {}).get('Code', '') if isinstance(error, ClientError) else ''
+    print(f"{operation}: unavailable, {type(error).__name__} {code}".rstrip())
+    return create_response(event, 503, {
+        'message': 'This service is temporarily unavailable. Please try again in a moment.'
+    })
+
 
 def handle_options(event: Dict) -> Dict:
     """
@@ -158,6 +210,7 @@ def handle_options(event: Dict) -> Dict:
     return {
         'statusCode': 200,
         'headers': {
+            'Cache-Control': NO_STORE,
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS, POST, PUT, DELETE',
             'Access-Control-Allow-Headers': 'Content-Type, X-Amz-Date, Authorization, X-Api-Key, X-Amz-Security-Token, X-Amz-User-Agent, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers'
@@ -275,6 +328,17 @@ def validate_child_name(name) -> Optional[str]:
     return None if has_letter else 'invalid'
 
 
+def bad_request(event: Dict, operation: str, user_id: str, reason: str, message: str) -> Dict:
+    """400 with the reason in CloudWatch. Every 4xx in this handler goes
+    through here so none is silent.
+
+    `reason` is a fixed phrase naming the rule that was broken, never the value
+    that broke it: values are a parent's and a child's details.
+    """
+    print(f"Rejecting {operation} for userId {user_id}: {reason}")
+    return create_response(event, 400, {'message': message})
+
+
 def reject_child_name(event: Dict, operation: str, user_id: str, reason: str) -> Dict:
     """400 for a name we will not store, with the reason code in CloudWatch.
 
@@ -283,14 +347,72 @@ def reject_child_name(event: Dict, operation: str, user_id: str, reason: str) ->
     to anyone with log-read access.
     """
     log_reason, message = CHILD_NAME_REJECTIONS[reason]
-    print(f"Rejecting {operation} for userId {user_id}: {log_reason}")
-    return create_response(event, 400, {'message': message})
+    return bad_request(event, operation, user_id, log_reason, message)
 
 
 # Word starts, for capitalising a name: the beginning of the string, or the
 # character after a space, a hyphen, or either apostrophe. So "mary-jane" and
 # "o'brien" get both halves, not just the first.
 _NAME_WORD_START = re.compile(r"(^|[\s\-'\u2019])(\w)", re.UNICODE)
+
+
+# The fields a child object holds, which is every field this app writes or reads
+# back: childId and the timestamps are server-issued (default child, add_child)
+# and the screen sends the whole object back when it renames a child, so
+# dropping any of them would lose data on the next save. Nothing else is stored.
+CHILD_FIELDS = ('childId', 'name', 'schoolCity',
+                'createdAt', 'createdAtISO', 'updatedAt', 'updatedAtISO')
+_CHILD_INT_FIELDS = ('createdAt', 'updatedAt')
+_CHILD_STRING_FIELDS = ('schoolCity', 'createdAtISO', 'updatedAtISO')
+CHILD_ID_MAX_LENGTH = 128
+
+
+def clean_children(children) -> Tuple[Optional[List[Dict]], Optional[Tuple[str, str]]]:
+    """Validate the `children` of a profile update and keep only known fields.
+
+    Returns (children, None) with new dicts holding CHILD_FIELDS only (the name
+    not yet normalized or encrypted), or (None, (log reason, response message))
+    for the first problem. Never raises on any JSON a caller can send.
+    """
+    if not isinstance(children, list):
+        return None, ('children is not a list', 'children must be a list of child objects')
+
+    cleaned = []
+    seen_ids = set()
+    for child in children:
+        if not isinstance(child, dict):
+            return None, ('a child is not an object', 'Each child must be an object')
+        if 'name' not in child or 'schoolCity' not in child:
+            return None, ('a child has no name or schoolCity',
+                          'Each child must have name and schoolCity')
+        if not isinstance(child['name'], str):
+            return None, ('child name is not a string', 'Child name must be text')
+        reason = validate_child_name(child['name'])
+        if reason:
+            return None, CHILD_NAME_REJECTIONS[reason]
+        for field in _CHILD_STRING_FIELDS:
+            if field in child and not isinstance(child[field], str):
+                return None, (f'child {field} is not a string', f'Child {field} must be text')
+        for field in _CHILD_INT_FIELDS:
+            value = child.get(field)
+            if field in child and (isinstance(value, bool) or not isinstance(value, int)):
+                return None, (f'child {field} is not a whole number',
+                              f'Child {field} must be a whole number')
+        child_id = child['childId'] if 'childId' in child else str(uuid.uuid4())
+        if (not isinstance(child_id, str) or not child_id.strip()
+                or len(child_id) > CHILD_ID_MAX_LENGTH):
+            return None, ('child childId is not a usable string', 'Child childId must be text')
+        if child_id in seen_ids:
+            return None, ('two children share a childId', 'Each child must have its own childId')
+        seen_ids.add(child_id)
+
+        kept = {field: child[field] for field in CHILD_FIELDS if field in child}
+        kept['childId'] = child_id
+        dropped = len(child) - len([field for field in child if field in CHILD_FIELDS])
+        if dropped:
+            print(f"Dropped {dropped} unrecognised child field(s) from a profile update")
+        cleaned.append(kept)
+    return cleaned, None
 
 
 def normalize_child_name(name: str) -> str:
@@ -328,7 +450,24 @@ def normalize_child_name(name: str) -> str:
         lambda match: match.group(1) + match.group(2).upper(), collapsed)
 
 
-def kms_decrypt_string(ciphertext_b64: str) -> str:
+class KmsUnavailable(RuntimeError):
+    """KMS could not answer, as opposed to the field not being ciphertext."""
+
+
+def kms_decrypt_string(ciphertext_b64: str, strict: bool = False) -> str:
+    """Decrypt a field, or hand it back if it was never ciphertext.
+
+    Fields written before encryption existed are plaintext, and some of those
+    happen to look like base64, so a decrypt that fails because the bytes are
+    not ciphertext (InvalidCiphertextException) hands the value back.
+
+    strict=True is for callers that would otherwise show the result to a
+    parent: any OTHER failure (throttling, an outage, a revoked key) raises
+    KmsUnavailable instead of returning the ciphertext, which would print a
+    blob where their phone number or their child's name belongs. Callers that
+    can live without the value (the child's name inside a summary) leave it
+    off and keep the lenient behaviour.
+    """
     if not ciphertext_b64:
         return ciphertext_b64
     
@@ -348,12 +487,53 @@ def kms_decrypt_string(ciphertext_b64: str) -> str:
     except ClientError as e:
         error_code = e.response['Error']['Code']
         print(f"KMS decrypt failed with {error_code}: {str(e)}")
+        if strict and error_code != 'InvalidCiphertextException':
+            raise KmsUnavailable(error_code) from e
         if error_code in ['UnrecognizedClientException', 'AccessDeniedException', 'InvalidCiphertextException']:
             print("Assuming plaintext data (encryption may be disabled)")
         return ciphertext_b64
     except Exception as e:
         print(f"KMS decrypt failed with unexpected error: {str(e)}")
+        if strict:
+            raise KmsUnavailable(type(e).__name__) from e
         return ciphertext_b64
+
+# KMS Decrypt is a network call (~10-20ms). A profile holds up to three PII
+# fields plus one name per child, and they were decrypted one after another.
+# Four workers cover the usual profile in a single round trip's time. The pool
+# is module level so threads are created once, on first use, not per request.
+_DECRYPT_WORKERS = 4
+_decrypt_pool = ThreadPoolExecutor(max_workers=_DECRYPT_WORKERS)
+_PROFILE_PII_FIELDS = ('phone', 'city', 'parentName')
+
+
+def _decrypt_profile_fields(profile: Dict) -> None:
+    """Decrypt, in place and concurrently, every encrypted string on a profile.
+
+    Result is identical to decrypting each field in turn: the same fields, each
+    through kms_decrypt_string, written back to the same place. A field that is
+    not ciphertext at all (legacy plaintext) is handed back as it was; a KMS
+    that cannot answer raises KmsUnavailable for the caller to turn into a 503.
+    """
+    targets = []
+    for field in _PROFILE_PII_FIELDS:
+        if isinstance(profile.get(field), str):
+            targets.append((profile, field))
+    for child in profile.get('children') or []:
+        if isinstance(child, dict) and isinstance(child.get('name'), str):
+            targets.append((child, 'name'))
+    targets = [(holder, key) for holder, key in targets if holder[key]]
+    if not targets:
+        return
+    ciphertexts = [holder[key] for holder, key in targets]
+    decrypt = partial(kms_decrypt_string, strict=True)
+    if len(ciphertexts) == 1:
+        plaintexts = [decrypt(ciphertexts[0])]
+    else:
+        plaintexts = list(_decrypt_pool.map(decrypt, ciphertexts))
+    for (holder, key), plaintext in zip(targets, plaintexts):
+        holder[key] = plaintext
+
 
 def get_timestamps() -> Dict[str, any]:
     """
@@ -388,9 +568,12 @@ def get_user_profile(event: Dict) -> Dict:
         user_id = claims['sub']
         print(f"Retrieved from Cognito - userId: {user_id}")
         
-        response = user_profiles_table.get_item(
-            Key={'userId': user_id}
-        )
+        try:
+            response = user_profiles_table.get_item(
+                Key={'userId': user_id}
+            )
+        except AWS_FAULTS as e:
+            return service_unavailable(event, 'get_user_profile read', e)
         
         times = get_timestamps()
         
@@ -426,11 +609,6 @@ def get_user_profile(event: Dict) -> Dict:
         
         existing_profile = response['Item']
 
-        # Decrypt selected PII fields before returning
-        for pii_field in ['phone', 'city', 'parentName']:
-            if pii_field in existing_profile and isinstance(existing_profile[pii_field], str):
-                existing_profile[pii_field] = kms_decrypt_string(existing_profile[pii_field])
-        
         # Check if existing profile has no children and add default child if needed
         if 'children' not in existing_profile or not existing_profile['children']:
             print(f"Existing profile found but no children, adding default child for userId: {user_id}")
@@ -460,20 +638,21 @@ def get_user_profile(event: Dict) -> Dict:
             existing_profile['updatedAt'] = times['timestamp']
             existing_profile['updatedAtISO'] = times['datetime']
 
-        # Decrypt each child's name -- see kms_encrypt_string in add_child and
-        # in the children branch of update_user_profile for where it is
-        # written encrypted. A freshly created/backfilled default_child's
-        # name is '' and decrypting that is a no-op, so this runs
-        # unconditionally rather than only for pre-existing children.
-        for child in existing_profile.get('children', []):
-            if isinstance(child, dict) and isinstance(child.get('name'), str):
-                child['name'] = kms_decrypt_string(child['name'])
+        # Decrypt the PII fields and each child's name. The parent's phone,
+        # city and name, and every child's name (see kms_encrypt_string in
+        # add_child and in the children branch of update_user_profile for where
+        # they are written encrypted). Each is an independent KMS round trip,
+        # so they run together rather than one after another. A default
+        # child's name is '' and decrypting that is a no-op.
+        try:
+            _decrypt_profile_fields(existing_profile)
+        except KmsUnavailable as e:
+            return service_unavailable(event, 'get_user_profile decrypt', e)
 
         return create_response(event, 200, {'profile': existing_profile})
         
     except Exception as e:
         print(f"Error in get_user_profile: {str(e)}")
-        print(f"Event data: {json.dumps(sanitize_event_for_logging(event), default=str)}")
         return create_response(event, 500, {'message': 'Could not load your profile. Please try again later.'})
 
 def update_user_profile(event: Dict) -> Dict:
@@ -494,13 +673,16 @@ def update_user_profile(event: Dict) -> Dict:
         user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
         # A malformed (or missing) JSON body is the client's fault: catch it
         # here so it maps to 400 instead of falling through to the broad
-        # except below as a 500 (same treatment as the tts/delete-s3 handlers).
+        # except below as a 500 (same treatment as the tts handler).
         try:
             body = json.loads(event['body']) if event.get('body') else {}
         except (TypeError, ValueError):
-            return create_response(event, 400, {'message': 'Invalid JSON body'})
+            return bad_request(event, 'update_user_profile', user_id,
+                               'body is not valid JSON', 'Invalid JSON body')
         if not isinstance(body, dict):
-            return create_response(event, 400, {'message': 'Invalid JSON body: expected a JSON object'})
+            return bad_request(event, 'update_user_profile', user_id,
+                               'body is not a JSON object',
+                               'Invalid JSON body: expected a JSON object')
         times = get_timestamps()
 
         # Start building update expression and values
@@ -525,30 +707,31 @@ def update_user_profile(event: Dict) -> Dict:
 
         # If email is in the request, return an error
         if 'email' in body:
-            return create_response(event, 400, {
-                'message': 'Email cannot be updated directly. Please update your email through account settings.'
-            })
+            return bad_request(
+                event, 'update_user_profile', user_id, 'email is not updatable here',
+                'Email cannot be updated directly. Please update your email through account settings.')
         
         for field, attr_name in optional_fields.items():
             if field in body:
                 # Special validation for language fields
                 if field in ['primaryLanguage', 'secondaryLanguage']:
                     if body[field] and not validate_language(body[field]):
-                        return create_response(event, 400, {
-                            'message': f'Unsupported language for {field}. Supported languages: {SUPPORTED_LANGUAGES}'
-                        })
+                        return bad_request(
+                            event, 'update_user_profile', user_id,
+                            f'unsupported language for {field}',
+                            f'Unsupported language for {field}. Supported languages: {SUPPORTED_LANGUAGES}')
                 
                 # Validation for consentGiven boolean field
                 if field == 'consentGiven' and not isinstance(body[field], bool):
-                    return create_response(event, 400, {
-                        'message': 'consentGiven must be a boolean value (true or false)'
-                    })
+                    return bad_request(
+                        event, 'update_user_profile', user_id, 'consentGiven is not a boolean',
+                        'consentGiven must be a boolean value (true or false)')
                 
                 # Validation for showOnboarding boolean field
                 if field == 'showOnboarding' and not isinstance(body[field], bool):
-                    return create_response(event, 400, {
-                        'message': 'showOnboarding must be a boolean value (true or false)'
-                    })
+                    return bad_request(
+                        event, 'update_user_profile', user_id, 'showOnboarding is not a boolean',
+                        'showOnboarding must be a boolean value (true or false)')
                 
                 # Encrypt selected PII fields at rest
                 value_to_store = body[field]
@@ -559,33 +742,26 @@ def update_user_profile(event: Dict) -> Dict:
             
         # Handle children array if present
         if 'children' in body:
-            # Validate child data
-            for child in body['children']:
-                if 'name' not in child or 'schoolCity' not in child:
-                    return create_response(event, 400, {'message': 'Each child must have name and schoolCity'})
-                # A present-but-blank name used to pass -- 'name' in child was
-                # the whole check -- which is exactly the value the redaction
-                # pipeline has nothing to restore from. So did '123' and '!!!',
-                # which is what validate_child_name now also catches. Reject
-                # and log why: an unlogged validation rejection already made
-                # one real failure in this file undiagnosable.
-                reason = validate_child_name(child['name'])
-                if reason:
-                    return reject_child_name(event, 'update_user_profile', user_id, reason)
-                if 'childId' not in child:
-                    child['childId'] = str(uuid.uuid4())
+            # A blank, over-long or non-name value is refused and logged with
+            # its reason (an unlogged validation rejection already made one
+            # real failure in this file undiagnosable), and so is anything
+            # that is not the list of child objects the screen sends.
+            children, problem = clean_children(body['children'])
+            if problem:
+                return bad_request(event, 'update_user_profile', user_id, *problem)
 
             # Encrypt at rest, same as phone/city/parentName above.
             update_parts.append('children = :children')
             expr_values[':children'] = [
                 {**child, 'name': kms_encrypt_string(normalize_child_name(child['name']))}
-                for child in body['children']
+                for child in children
             ]
-        
+
         # If no fields to update (the first two parts are always the
         # updatedAt/updatedAtISO timestamps)
         if len(update_parts) == 2:
-            return create_response(event, 400, {'message': 'No fields to update provided'})
+            return bad_request(event, 'update_user_profile', user_id,
+                               'no updatable fields in the body', 'No fields to update provided')
             
         # Construct final update expression
         update_expr = 'SET ' + ', '.join(update_parts)
@@ -603,7 +779,7 @@ def update_user_profile(event: Dict) -> Dict:
         # a failure here must not fail the profile update.
         if body.get('secondaryLanguage'):
             try:
-                cognito = boto3.client('cognito-idp')
+                cognito = _aws_client('cognito-idp')
                 cognito.admin_update_user_attributes(
                     UserPoolId=os.environ.get('USER_POOL_ID', ''),
                     Username=user_id,
@@ -644,14 +820,20 @@ def add_child(event: Dict) -> Dict:
         try:
             body = json.loads(event['body']) if event.get('body') else {}
         except (TypeError, ValueError):
-            return create_response(event, 400, {'message': 'Invalid JSON body'})
+            return bad_request(event, 'add_child', user_id,
+                               'body is not valid JSON', 'Invalid JSON body')
         if not isinstance(body, dict):
-            return create_response(event, 400, {'message': 'Invalid JSON body: expected a JSON object'})
+            return bad_request(event, 'add_child', user_id, 'body is not a JSON object',
+                               'Invalid JSON body: expected a JSON object')
         times = get_timestamps()
 
         # Validate required fields
         if 'name' not in body or 'schoolCity' not in body:
-            return create_response(event, 400, {'message': 'Missing required fields: name and schoolCity required'})
+            return bad_request(event, 'add_child', user_id, 'name or schoolCity missing',
+                               'Missing required fields: name and schoolCity required')
+        if not isinstance(body['schoolCity'], str):
+            return bad_request(event, 'add_child', user_id, 'schoolCity is not a string',
+                               'schoolCity must be text')
 
         # Blank, over-long, or not a name at all: same rule, same reason and
         # the same reason codes as the children branch of update_user_profile.
@@ -729,51 +911,53 @@ def clean_dynamodb_json(data):
     else:
         return data
 
-def _user_owns_child(user_id: str, child_id: str) -> bool:
-    """
-    Verify the given childId belongs to the authenticated user's profile.
-    Returns True only if the user has a child with the matching childId.
-    """
-    if not user_id or not child_id:
-        return False
-    try:
-        profile_response = user_profiles_table.get_item(Key={'userId': user_id})
-    except Exception as e:
-        print(f"Error loading profile for ownership check (user {user_id}): {str(e)}")
-        return False
+def _find_child(profile: Optional[Dict], child_id: str) -> Optional[Dict]:
+    """The profile's child with this childId, or None.
 
-    profile = profile_response.get('Item')
-    if not profile:
-        return False
-
+    None covers every way a child can be missing: no profile, no children, a
+    children attribute of the wrong type, or no match. Ownership is exactly
+    "this returns a child".
+    """
+    if not profile or not child_id:
+        return None
     children = profile.get('children') or []
     if not isinstance(children, list):
-        return False
+        return None
+    for child in children:
+        if isinstance(child, dict) and child.get('childId') == child_id:
+            return child
+    return None
 
-    return any(
-        isinstance(child, dict) and child.get('childId') == child_id
-        for child in children
-    )
+
+def _owned_child(user_id: str, child_id: str) -> Optional[Dict]:
+    """The caller's child with this childId, or None if it is not theirs.
+
+    Raises an AWS_FAULTS error if the profile cannot be read: "could not check"
+    is not "not yours", and callers answer the first with a 503 and only the
+    second with a 404.
+    """
+    if not user_id or not child_id:
+        return None
+    profile = user_profiles_table.get_item(Key={'userId': user_id}).get('Item')
+    return _find_child(profile, child_id)
 
 
-def _child_name(user_id: str, child_id: str) -> Optional[str]:
-    """The child's name from the profile, decrypted, or None.
+def _child_name(child: Optional[Dict]) -> Optional[str]:
+    """A child's name from its profile entry, decrypted, or None.
 
     None is a complete answer rather than a failure: the parent may not have
     been asked for a name yet, and the caller falls back to the neutral phrase
-    for the language being read. Nothing here raises. A profile read or a
-    decrypt that fails costs a parent the name inside their summary, which is
-    not worth a 500 on a document they could otherwise read.
+    for the language being read. Nothing here raises. A decrypt that fails
+    costs a parent the name inside their summary, which is not worth a 500 on
+    a document they could otherwise read.
 
     kms_decrypt_string hands back the ciphertext it was given when a decrypt
     fails; usable_student_name's length guard is what stops that base64 blob
     being printed to a parent as their child's name.
     """
     try:
-        profile = user_profiles_table.get_item(Key={'userId': user_id}).get('Item') or {}
-        for child in profile.get('children') or []:
-            if isinstance(child, dict) and child.get('childId') == child_id:
-                return usable_student_name(kms_decrypt_string(child.get('name')))
+        if child:
+            return usable_student_name(kms_decrypt_string(child.get('name')))
     except Exception as e:
         # Class name only: this function's result is a child's name.
         print(f"Could not read the child's name for substitution: {type(e).__name__}")
@@ -849,6 +1033,170 @@ def _document_updated_at(doc: Dict):
     return max(known) if known else ''
 
 
+# What S3 answers for a key that is not there.
+S3_MISSING_CODES = ('NoSuchKey', '404', 'NotFound')
+
+
+def _has_inline_content(doc: Dict) -> bool:
+    """Whether a row still carries its content inline (the pre-S3 layout).
+
+    That is the only thing the lazy migration can act on: ddb-service's
+    migrate_dynamodb_to_s3 returns "no content to migrate" for a row without
+    any, whatever its status.
+    """
+    return any(doc.get(field) for field in CONTENT_FIELDS)
+
+
+class DocumentContentUnavailable(RuntimeError):
+    """S3 did not answer when a document's content was read."""
+
+    def __init__(self, cause: Exception):
+        super().__init__(type(cause).__name__)
+        self.cause = cause
+
+
+# Statuses at which a document's content is complete and readable as it stands.
+# PROCESSING_TRANSLATIONS is an add-on translation running on a finished
+# document (the upload pipeline never uses it), so it still reads.
+READABLE_STATUSES = ('PROCESSED', 'PROCESSING_TRANSLATIONS')
+
+
+def _newest_document(documents: List[Dict]) -> Optional[Dict]:
+    """The row with the latest createdAt, or None. A row needs a creation time
+    to be the latest, so one without is never chosen."""
+    newest = None
+    newest_created_at = 0
+    for doc in documents:
+        created_at = doc.get('createdAt', 0)
+        if created_at > newest_created_at:
+            newest, newest_created_at = doc, created_at
+    return newest
+
+
+def _display_status(doc: Dict) -> str:
+    """The status the frontend is told: PENDING_UPLOAD (and no status at all,
+    on rows older than that value) read as PROCESSING."""
+    return 'PROCESSING' if doc.get('status') in (None, 'PENDING_UPLOAD') else doc['status']
+
+
+def _document_with_content(doc: Dict, user_id: str) -> Dict:
+    """The API shape of one document row, with its four content fields filled.
+
+    Raises DocumentContentUnavailable if S3 is not answering; every other
+    failure to read content falls back to empty or inline content, as before.
+    """
+    # PENDING_UPLOAD (and, for rows written before that status
+    # existed, no status at all) means the upload handler wrote
+    # this row but the pipeline has not started yet. Surface it
+    # as PROCESSING: that is the value the frontend already
+    # polls and renders a spinner for, and the real value stays
+    # in DynamoDB so ddb-service's pending-upload sweep can
+    # tell a stalled upload apart from real in-flight work.
+    latest_doc = {
+        'iepId': doc['iepId'],
+        'documentId': doc['iepId'],  # Also include documentId for frontend compatibility
+        'childId': doc['childId'],
+        'documentUrl': doc.get('documentUrl', f"s3://{os.environ.get('BUCKET', '')}/{doc['iepId']}"),
+        'status': _display_status(doc),
+        'progress': doc.get('progress', 0),
+        'current_step': doc.get('current_step', 'initializing'),
+        'createdAt': doc.get('createdAt', ''),
+        'updatedAt': _document_updated_at(doc)
+    }
+
+    # Check if content is in S3 (new format) or DynamoDB (old format)
+    if 'contentS3Reference' in doc:
+        # New format: fetch content from S3
+        s3_ref = doc['contentS3Reference']
+        try:
+            s3_response = _aws_client('s3').get_object(Bucket=s3_ref['bucket'], Key=s3_ref['s3Key'])
+            content = json.loads(s3_response['Body'].read().decode('utf-8'))
+
+            # Merge content into latest_doc
+            latest_doc.update({
+                'summaries': content.get('summaries', {}),
+                'sections': content.get('sections', {}),
+                'document_index': content.get('document_index', {}),
+                'abbreviations': content.get('abbreviations', {})
+            })
+            print(f"Successfully fetched content from S3 for {doc['iepId']}")
+        except AWS_FAULTS as e:
+            # A missing object is a fact about this document
+            # (the row outlived its content): keep the empty
+            # fallback below. Anything else is S3 not
+            # answering, and an empty summary served as if it
+            # were the document is the wrong reply to that.
+            if not (isinstance(e, ClientError)
+                    and e.response.get('Error', {}).get('Code') in S3_MISSING_CODES):
+                raise DocumentContentUnavailable(e) from e
+            print(f"Content object missing in S3 for {doc['iepId']}")
+            latest_doc.update({field: {} for field in CONTENT_FIELDS})
+        except Exception as e:
+            print(f"Error fetching content from S3 for {doc['iepId']}: {str(e)}")
+            # Fallback to empty content
+            latest_doc.update({field: {} for field in CONTENT_FIELDS})
+    elif not _has_inline_content(doc):
+        # No content anywhere yet, which is the normal state of
+        # a row in PENDING_UPLOAD or PROCESSING: the pipeline
+        # has not written any. The migration has nothing to
+        # move (ddb-service answers "no content to migrate"),
+        # so invoking it is a synchronous call to a cold
+        # lambda (~1s) that hands back the same empty content.
+        # 42% of document reads took that detour.
+        latest_doc.update({field: {} for field in CONTENT_FIELDS})
+    else:
+        # Old format: migrate to S3 (lazy migration)
+        print(f"Migrating {doc['iepId']}/{doc['childId']} to S3 (lazy migration)")
+        try:
+            # Call DDB service to migrate
+            lambda_client = _aws_client('lambda')
+            ddb_service_name = os.environ.get('DDB_SERVICE_FUNCTION_NAME', 'DDBService')
+
+            migrate_payload = {
+                'operation': 'get_document_with_content',
+                'params': {
+                    'iep_id': doc['iepId'],
+                    'child_id': doc['childId'],
+                    'user_id': user_id
+                }
+            }
+
+            migrate_response = lambda_client.invoke(
+                FunctionName=ddb_service_name,
+                InvocationType='RequestResponse',
+                Payload=json.dumps(migrate_payload)
+            )
+
+            migrate_result = json.loads(migrate_response['Payload'].read())
+
+            if migrate_result.get('statusCode') == 200:
+                migrated_doc = json.loads(migrate_result['body'])
+                # Update latest_doc with migrated content
+                latest_doc.update({
+                    'summaries': migrated_doc.get('summaries', {}),
+                    'sections': migrated_doc.get('sections', {}),
+                    'document_index': migrated_doc.get('document_index', {}),
+                    'abbreviations': migrated_doc.get('abbreviations', {})
+                })
+                print(f"Successfully migrated {doc['iepId']} to S3")
+            else:
+                # Migration failed, use old format
+                print(f"Migration failed for {doc['iepId']}, using old format")
+                latest_doc.update(_inline_content(doc))
+        except Exception as e:
+            print(f"Error migrating document {doc['iepId']}: {str(e)}")
+            # Fallback to old format
+            latest_doc.update(_inline_content(doc))
+
+    return latest_doc
+
+
+def _inline_content(doc: Dict) -> Dict:
+    """The four content fields as a row holds them inline, unwrapped from
+    DynamoDB's typed JSON."""
+    return {field: clean_dynamodb_json(doc.get(field, {})) for field in CONTENT_FIELDS}
+
+
 def get_child_documents(event: Dict) -> Dict:
     """
     Get document associated with a specific child.
@@ -870,131 +1218,64 @@ def get_child_documents(event: Dict) -> Dict:
         print(f"Getting documents for childId: {child_id}, userId: {user_id}")
 
         # Authorization: the authenticated user must own the requested child.
-        if not _user_owns_child(user_id, child_id):
+        # The profile is read once: the same item answers ownership here and
+        # supplies the child's name for the substitution below.
+        try:
+            profile = user_profiles_table.get_item(Key={'userId': user_id}).get('Item')
+        except AWS_FAULTS as e:
+            return service_unavailable(event, 'get_child_documents ownership check', e)
+        owned_child = _find_child(profile, child_id)
+        if owned_child is None:
             print(f"Access denied: user {user_id} does not own child {child_id}")
-            return create_response(event, 403, {'message': 'Access denied'})
+            return not_found(event)
 
-        # Query documents by childId
-        response = iep_documents_table.query(
-            IndexName='byChildId',
-            KeyConditionExpression='childId = :childId',
-            ExpressionAttributeValues={':childId': child_id}
-        )
-        
-        # Find the latest document
+        # Every document row for the child, across query pages: one page caps
+        # at 1MB and these rows can carry inline summaries, so an unpaginated
+        # read could miss the newest document.
+        try:
+            documents = _query_all_documents(
+                'byChildId', 'childId = :childId', {':childId': child_id})
+        except AWS_FAULTS as e:
+            return service_unavailable(event, 'get_child_documents query', e)
+
+        # Strict ownership: require an explicit userId match. Documents without
+        # a userId field are not returned to avoid IDOR via missing fields.
+        owned = [doc for doc in documents if doc.get('userId') == user_id]
+        latest_row = _newest_document(owned)
+        replacement_row = None
+
+        # A parent who replaces their IEP keeps the old one until the new one
+        # is ready (the pipeline deletes it only once the new one is PROCESSED).
+        # So while the newest document is still being processed, or failed, the
+        # parent is shown the newest one they can already read, and the newer
+        # one is only reported alongside it. Without an older readable
+        # document (a first upload) nothing changes: the newest is returned
+        # whatever its status, which is what drives the processing screen.
+        if latest_row is not None and latest_row.get('status') not in READABLE_STATUSES:
+            # Every readable row is older than latest_row, which is the newest.
+            readable_before = _newest_document([
+                doc for doc in owned if doc.get('status') in READABLE_STATUSES])
+            if readable_before is not None:
+                replacement_row, latest_row = latest_row, readable_before
+
+        # Only the winner's content is fetched. Each newer-than-so-far row used
+        # to be read from S3 (or migrated) as the loop met it, so a child with
+        # several documents paid for every one of them to return one.
         latest_doc = None
-        latest_timestamp = 0
-        
-        for doc in response['Items']:
-            # Strict ownership: require an explicit userId match. Documents without
-            # a userId field are not returned to avoid IDOR via missing fields.
-            if doc.get('userId') == user_id:
-                # Find the document with the latest createdAt timestamp
-                created_at = doc.get('createdAt', 0)
-                if created_at > latest_timestamp:
-                    latest_timestamp = created_at
-                    
-                    # PENDING_UPLOAD (and, for rows written before that status
-                    # existed, no status at all) means the upload handler wrote
-                    # this row but the pipeline has not started yet. Surface it
-                    # as PROCESSING: that is the value the frontend already
-                    # polls and renders a spinner for, and the real value stays
-                    # in DynamoDB so ddb-service's pending-upload sweep can
-                    # tell a stalled upload apart from real in-flight work.
-                    # Construct the base document
-                    latest_doc = {
-                        'iepId': doc['iepId'],
-                        'documentId': doc['iepId'],  # Also include documentId for frontend compatibility
-                        'childId': doc['childId'],
-                        'documentUrl': doc.get('documentUrl', f"s3://{os.environ.get('BUCKET', '')}/{doc['iepId']}"),
-                        'status': 'PROCESSING' if doc.get('status') in (None, 'PENDING_UPLOAD') else doc['status'],
-                        'progress': doc.get('progress', 0),
-                        'current_step': doc.get('current_step', 'initializing'),
-                        'createdAt': doc.get('createdAt', ''),
-                        'updatedAt': _document_updated_at(doc)
-                    }
-                    
-                    # Check if content is in S3 (new format) or DynamoDB (old format)
-                    if 'contentS3Reference' in doc:
-                        # New format: fetch content from S3
-                        s3_ref = doc['contentS3Reference']
-                        try:
-                            s3 = boto3.client('s3')
-                            response = s3.get_object(Bucket=s3_ref['bucket'], Key=s3_ref['s3Key'])
-                            content_json = response['Body'].read().decode('utf-8')
-                            content = json.loads(content_json)
-                            
-                            # Merge content into latest_doc
-                            latest_doc.update({
-                                'summaries': content.get('summaries', {}),
-                                'sections': content.get('sections', {}),
-                                'document_index': content.get('document_index', {}),
-                                'abbreviations': content.get('abbreviations', {})
-                            })
-                            print(f"Successfully fetched content from S3 for {doc['iepId']}")
-                        except Exception as e:
-                            print(f"Error fetching content from S3 for {doc['iepId']}: {str(e)}")
-                            # Fallback to empty content
-                            latest_doc.update({
-                                'summaries': {},
-                                'sections': {},
-                                'document_index': {},
-                                'abbreviations': {}
-                            })
-                    else:
-                        # Old format: migrate to S3 (lazy migration)
-                        print(f"Migrating {doc['iepId']}/{doc['childId']} to S3 (lazy migration)")
-                        try:
-                            # Call DDB service to migrate
-                            lambda_client = boto3.client('lambda')
-                            ddb_service_name = os.environ.get('DDB_SERVICE_FUNCTION_NAME', 'DDBService')
-                            
-                            migrate_payload = {
-                                'operation': 'get_document_with_content',
-                                'params': {
-                                    'iep_id': doc['iepId'],
-                                    'child_id': doc['childId'],
-                                    'user_id': user_id
-                                }
-                            }
-                            
-                            migrate_response = lambda_client.invoke(
-                                FunctionName=ddb_service_name,
-                                InvocationType='RequestResponse',
-                                Payload=json.dumps(migrate_payload)
-                            )
-                            
-                            migrate_result = json.loads(migrate_response['Payload'].read())
-                            
-                            if migrate_result.get('statusCode') == 200:
-                                migrated_doc = json.loads(migrate_result['body'])
-                                # Update latest_doc with migrated content
-                                latest_doc.update({
-                                    'summaries': migrated_doc.get('summaries', {}),
-                                    'sections': migrated_doc.get('sections', {}),
-                                    'document_index': migrated_doc.get('document_index', {}),
-                                    'abbreviations': migrated_doc.get('abbreviations', {})
-                                })
-                                print(f"Successfully migrated {doc['iepId']} to S3")
-                            else:
-                                # Migration failed, use old format
-                                print(f"Migration failed for {doc['iepId']}, using old format")
-                                latest_doc.update({
-                                    'summaries': clean_dynamodb_json(doc.get('summaries', {})),
-                                    'sections': clean_dynamodb_json(doc.get('sections', {})),
-                                    'document_index': clean_dynamodb_json(doc.get('document_index', {})),
-                                    'abbreviations': clean_dynamodb_json(doc.get('abbreviations', {}))
-                                })
-                        except Exception as e:
-                            print(f"Error migrating document {doc['iepId']}: {str(e)}")
-                            # Fallback to old format
-                            latest_doc.update({
-                                'summaries': clean_dynamodb_json(doc.get('summaries', {})),
-                                'sections': clean_dynamodb_json(doc.get('sections', {})),
-                                'document_index': clean_dynamodb_json(doc.get('document_index', {})),
-                                'abbreviations': clean_dynamodb_json(doc.get('abbreviations', {}))
-                            })
-        
+        if latest_row is not None:
+            try:
+                latest_doc = _document_with_content(latest_row, user_id)
+            except DocumentContentUnavailable as e:
+                return service_unavailable(event, 'get_child_documents content read', e.cause)
+        if latest_doc is not None and replacement_row is not None:
+            # Id and status only, never anything from the row's content.
+            latest_doc['replacement'] = {
+                'iepId': replacement_row['iepId'],
+                'status': _display_status(replacement_row),
+            }
+            print(f"Showing {latest_doc['iepId']} while {replacement_row['iepId']} is "
+                  f"{latest_doc['replacement']['status']}")
+
         # If no document found
         if not latest_doc:
             return create_response(event, 200, {'documents': [], 'message': 'No document found for this child'})
@@ -1011,7 +1292,7 @@ def get_child_documents(event: Dict) -> Dict:
         # token, and pass through unchanged.
         try:
             stored = {field: latest_doc[field] for field in CONTENT_FIELDS if field in latest_doc}
-            substituted, count = substitute_content(stored, _child_name(user_id, child_id))
+            substituted, count = substitute_content(stored, _child_name(owned_child))
             latest_doc = {**latest_doc, **substituted}
             print(f"Substituted the student token in {count} place(s) for {latest_doc['iepId']}")
         except Exception as e:
@@ -1033,7 +1314,7 @@ def _delete_every_version(s3, bucket, prefix, exact=False):
     noncurrent lifecycle rule reaches them, which measured 1 to 3 days on
     staging (2026-10-14). Deleting each version by id is immediate and final.
     Duplicated in each lambda that deletes from the bucket (each folder is
-    its own asset); deleteEveryVersion in upload-s3/utils is the JS twin.
+    its own asset).
 
     exact=True takes only the one key named by prefix. Version listing is by
     prefix, so report.pdf would otherwise also take report.pdf2.
@@ -1283,8 +1564,8 @@ def _report_deletion_incomplete(scope: str, survived: List[str],
 
     DELETION_INCOMPLETE is a stable marker, not prose: a metric filter alarms
     on it, and rewording this line would disarm that alarm. Same contract as
-    RECORD_FAILURE in the pipeline. knowledge-management/delete-s3 emits it
-    too, with scope=document.
+    RECORD_FAILURE in the pipeline. The DDB service emits it too, with
+    scope=replaced-document.
 
     `essential` says whether the parent was told the deletion failed, so one
     filter can page on real data survival and another can merely ticket a
@@ -1327,13 +1608,17 @@ def delete_child_documents(event: Dict) -> Dict:
         print(f"Processing request to delete IEP documents for childId: {child_id} by userId: {user_id}")
 
         # Authorization: only allow deletion if the authenticated user owns the child.
-        if not _user_owns_child(user_id, child_id):
+        try:
+            owned_child = _owned_child(user_id, child_id)
+        except AWS_FAULTS as e:
+            return service_unavailable(event, 'delete_child_documents ownership check', e)
+        if owned_child is None:
             print(f"Access denied: user {user_id} does not own child {child_id}")
-            return create_response(event, 403, {'message': 'Access denied'})
+            return not_found(event)
 
         # Delete all IEP-related data
         # Initialize clients
-        s3 = boto3.client('s3')
+        s3 = _aws_client('s3')
         bucket_name = os.environ.get('BUCKET', '')
         survived: List[str] = []
 
@@ -1517,7 +1802,7 @@ def delete_user_profile(event: Dict) -> Dict:
 
         # Hoisted: step 2 purges S3 artifacts too, so these must exist even if
         # the raw-upload sweep below raises.
-        s3 = boto3.client('s3')
+        s3 = _aws_client('s3')
         bucket_name = os.environ.get('BUCKET', '')
 
         # The five steps run data first and credentials last, and every step
@@ -1629,7 +1914,7 @@ def delete_user_profile(event: Dict) -> Dict:
             # Built outside the try: the except clause below names an
             # exception class off this client, and evaluating that clause with
             # `cognito` unbound would raise NameError over the real error.
-            cognito = boto3.client('cognito-idp')
+            cognito = _aws_client('cognito-idp')
             try:
                 user_pool_id = os.environ.get('USER_POOL_ID', '')
 
@@ -1677,59 +1962,62 @@ def delete_user_profile(event: Dict) -> Dict:
         print(f"Error in delete_user_profile: {str(e)}")
         return create_response(event, 500, {'message': 'Could not delete your account. Please try again later.'})
 
+def _build_router() -> Router:
+    """The route table, from the @route-decorated methods of UserProfileRouter."""
+    router = Router()
+    profile_router = UserProfileRouter()
+    for attr_name in dir(profile_router):
+        attr = getattr(profile_router, attr_name)
+        if hasattr(attr, 'path') and hasattr(attr, 'method'):
+            router.add_route(attr.path, attr.method, attr)
+    return router
+
+
+# Built at import, not per request: the table never changes.
+_router = _build_router()
+
+
 def lambda_handler(event: Dict, context) -> Dict:
     """
     Main Lambda handler function that routes requests to appropriate handlers using the router.
-    
+
+    Writes one log line per request: method, route template and status. Never
+    the event (a bearer token, JWT claims and the body's PII travel in it) and
+    never the raw path (it carries a child's id).
+
     Args:
         event (Dict): API Gateway event object
         context: Lambda context object
-        
+
     Returns:
         Dict: API Gateway response
     """
-    print(f"Lambda handler invoked with event: {json.dumps(sanitize_event_for_logging(event), default=str)}")
-    
+    method = path = None
+    route_template = '<unrouted>'
     try:
+        method = event['requestContext']['http']['method']
+
         # Handle OPTIONS request for CORS
-        if event['requestContext']['http']['method'] == 'OPTIONS':
-            print("Handling OPTIONS request for CORS")
+        if method == 'OPTIONS':
             return handle_options(event)
 
-        # Get path and method
         path = event['rawPath']
-        method = event['requestContext']['http']['method']
-        print(f"Processing {method} request for path: {path}")
+        route_template, handler, path_params = _router.resolve(path, method)
 
-        # Initialize router
-        router = Router()
-        profile_router = UserProfileRouter()
-
-        # Register routes from UserProfileRouter
-        for attr_name in dir(profile_router):
-            attr = getattr(profile_router, attr_name)
-            if hasattr(attr, 'path') and hasattr(attr, 'method'):
-                router.add_route(attr.path, attr.method, getattr(profile_router, attr_name))
-                
-        print(f"Attempting to match route for path: {path}, method: {method}")
-        # Match and execute route
-        handler, path_params = router.match_route(path, method)
-        print(f"Route matched. Handler: {handler.__name__}, Path params: {path_params}")
-        
         # Update path parameters
         if not event.get('pathParameters'):
             event['pathParameters'] = {}
         event['pathParameters'].update(path_params)
-        
-        print(f"Invoking handler: {handler.__name__} with updated pathParameters: {event.get('pathParameters')}")
-        return handler(event)
+
+        response = handler(event)
+        print(f"{method} {route_template} -> {response['statusCode']}")
+        return response
 
     except RouteNotFoundException as e:
-        print(f"Route not found: {path} with method {method}")
-        return create_response(event, 404, {'message': str(e)})
+        print(f"{method} {route_template} -> 404 (no route)")
+        return not_found(event)
     except Exception as e:
-        error_message = f"Error processing request: {str(e)}, Type: {type(e).__name__}"
-        print(error_message)
+        print(f"{method} {route_template} -> 500 unhandled {type(e).__name__}: {str(e)}")
         import traceback
         print(f"Traceback: {traceback.format_exc()}")
-        return create_response(event, 500, {'message': 'Internal server error. Please try again later.'}) 
+        return create_response(event, 500, {'message': 'Internal server error. Please try again later.'})

@@ -14,10 +14,11 @@
  *     (MISSING) renders a dead schedule as healthy. That is the exact failure
  *     the heartbeat exists to catch.
  *   - There must be NO alarm on the pipeline's ExecutionsFailed. Every Task in
- *     iep-processing.asl.json catches into RecordFailure, which ends the
- *     machine normally, so a failed document produces a SUCCESSFUL execution
- *     and that metric stays at zero through a total outage. An alarm on it
- *     would be pure theatre, and a future change adding one should fail here.
+ *     iep-processing.asl.json catches into RecordFailure, which now ends the
+ *     execution in a Fail state, so that metric moves once per failed document.
+ *     RECORD_FAILURE (DocumentFailureAlarm) already pages for exactly the same
+ *     event, so a second alarm on the metric would alert twice per failure. A
+ *     future change adding one should fail here.
  *
  * Synthesizes staging once, then production once, because the alarm and topic
  * names are environment-derived and prod is the one that pages a human.
@@ -44,6 +45,7 @@ const EXPECTED_ALARM_SUFFIXES = [
   'DynamoDB throttling: IEP documents',
   'DynamoDB throttling: user profiles',
   'signup flood: someone is abusing the signup form',
+  'signup volume far above normal, test accounts included',
   'login codes being requested for numbers we do not serve',
   'login codes are being refused: the sending limit is reached',
   'login codes are not being delivered',
@@ -55,15 +57,11 @@ const EXPECTED_ALARM_SUFFIXES = [
   'a failed document kept its unredacted copy',
   'a document kept text we said we would delete',
   'a parent asked us to delete their records and we did not',
+  'an old IEP was not cleaned up after a replacement',
   'a family got English only: a requested translation was left out',
-  // The signup endpoint. It is the ONLY way to create an account, because
-  // Cognito's public SignUp API is closed, and for its first day it had no
-  // alarm of any kind: not in pipelineFunctions, not in authTriggerFunctions,
-  // not in apiFunctions, no metric filter on any of its markers.
-  'signup broken: nobody can create an account',
-  'signup throttled: nobody can create an account',
-  'sign-ups are being refused in bulk',
-  'signup broken: accounts are not being created',
+  // Account creation lives in the auth send function now (the signup endpoint
+  // and its four alarms are gone); these two are fed by markers it and
+  // /auth/start still log.
   'new accounts may be reachable by whoever created them',
   'the signup bot check is switched off',
   // The alerting path watching itself, both halves of it.
@@ -101,16 +99,14 @@ const SMS_MARKERS: [string, string][] = [
 ];
 
 /**
- * The same contract, for the signup endpoint.
+ * The same contract, for account creation.
  *
- * Nearly every way that function turns a family away is a deliberate 4xx
- * refusal that raises nothing, so Lambda Errors stays flat through a total
- * signup outage and these markers are the only signal there is. The lambda
- * side is pinned in test/lambdas/phone-otp-auth/signup-endpoint.test.js.
+ * SIGNUP_ORPHANED is logged by auth-dispatch (pinned in
+ * test/lambdas/phone-otp-auth/auth-dispatch.test.js) and TURNSTILE_NOT_CONFIGURED
+ * by turnstile.js through /auth/start. SIGNUP_REFUSED and SIGNUP_FAILED had
+ * only one emitter, the deleted signup endpoint, so their filters went with it.
  */
 const SIGNUP_MARKERS: [string, string][] = [
-  ['SIGNUP_REFUSED', 'SignupRefused'],
-  ['SIGNUP_FAILED', 'SignupFailed'],
   ['SIGNUP_ORPHANED', 'SignupOrphaned'],
   ['TURNSTILE_NOT_CONFIGURED', 'TurnstileNotConfigured'],
 ];
@@ -264,18 +260,18 @@ describe.each([
     }
   });
 
-  // AWS Chatbot renders AlarmDescription in its Slack card and nothing else
-  // here carries context, so an empty description ships an alert that says
-  // only that a metric moved.
-  // The description is used verbatim as the impact line, and is also the body
-  // of the raw card if the formatter is down. Chatbot truncates around 250
-  // characters: 17 of these were once long enough to be cut mid-sentence,
-  // losing the most actionable part.
-  test('every description is a usable length for Slack', () => {
+  // The description carries the whole alert: environment, severity, symptom,
+  // impact, next steps and runbook. Its exact shape is pinned in
+  // alert-copy.test.ts; this only guards the two limits that make Slack and
+  // CloudFormation reject or cut it. It used to be capped at 250 characters,
+  // because it was shown verbatim in Chatbot's raw card. The formatter now
+  // parses it, and only the two formatter-bypass alarms still fall back to
+  // the raw card (their lead is pinned in alert-copy.test.ts).
+  test('every description is present and fits what CloudFormation accepts', () => {
     for (const alarm of alarms) {
       expect(typeof alarm.AlarmDescription).toBe('string');
-      expect(alarm.AlarmDescription.length).toBeGreaterThan(40);
-      expect(alarm.AlarmDescription.length).toBeLessThanOrEqual(250);
+      expect(alarm.AlarmDescription.length).toBeGreaterThan(100);
+      expect(alarm.AlarmDescription.length).toBeLessThanOrEqual(1024);
     }
   });
 
@@ -291,21 +287,24 @@ describe.each([
     expect(heartbeat!.Threshold).toBe(1);
   });
 
-  // Scoped to the pipeline, not to the metric. Every pipeline state catches
-  // into RecordFailure and the machine then ends successfully, so
-  // ExecutionsFailed can never move there and an alarm on it would be one
-  // that cannot fire. The single-language translation machine is different:
-  // it ends in a Fail state, so the same metric is the correct signal. Which
-  // machine it is, is the whole distinction.
-  test('the pipeline is not alarmed on ExecutionsFailed, which cannot move for it', () => {
+  // Scoped to the pipeline, not to the metric. Every pipeline failure goes
+  // through RecordFailure, which logs the RECORD_FAILURE marker that
+  // DocumentFailureAlarm counts, and then ends the execution in a Fail state,
+  // so ExecutionsFailed moves too, for the same event. An alarm on it would
+  // page twice per failed document. (Before the Fail state existed the metric
+  // could not move at all, and the pin was there for the opposite reason.)
+  // The single-language translation machine has no such marker, so there the
+  // same metric is the only signal and is alarmed. Which machine it is, is the
+  // whole distinction.
+  test('the pipeline is not alarmed on ExecutionsFailed, which would double RECORD_FAILURE', () => {
     const pipelineFailed = alarms.filter(
       (a) =>
         a.MetricName === 'ExecutionsFailed' &&
         JSON.stringify(a.Dimensions ?? []).includes('IEPProcessing'),
     );
     expect(pipelineFailed).toEqual([]);
-    // The real signal for a stuck document is the timeout, which RecordFailure
-    // does NOT catch.
+    // A stuck document is the timeout, which RecordFailure does NOT catch and
+    // which therefore has no failed execution or marker of its own.
     expect(alarms.some((a) => a.MetricName === 'ExecutionsTimedOut')).toBe(true);
   });
 
@@ -367,6 +366,29 @@ describe.each([
     }
   });
 
+  // WHY: the language-prefs step left the state machine when its decision moved
+  // into the OCR step. Its Errors alarm then had no invocations to count, so it
+  // could only ever sit at OK and read as a healthy stage the pipeline no longer
+  // runs. The alarm was removed with it. The list below is the stages the
+  // pipeline actually invokes, so an alarm for a removed stage fails here.
+  test('the pipeline step alarms cover exactly the stages the pipeline runs', () => {
+    const prefix = `${namePrefix}pipeline step failing: `;
+    const stages = alarms
+      .map((a) => String(a.AlarmName))
+      .filter((name) => name.startsWith(prefix))
+      .map((name) => name.slice(prefix.length))
+      .sort();
+    expect(stages).toEqual([
+      'Mistral OCR',
+      'PII redaction',
+      'delete original',
+      'finalize results',
+      'orchestrator',
+      'parsing agent',
+      'translation',
+    ]);
+  });
+
   // Signup volume and SMS spend are the two leading indicators of abuse of
   // the phone-signup flow, and the harm lands on families: once SMS delivery
   // stops, no parent can receive a login code until the month rolls over.
@@ -376,11 +398,41 @@ describe.each([
       (a) => a.AlarmName === `${namePrefix}signup flood: someone is abusing the signup form`,
     );
     expect(surge).toBeDefined();
-    expect(surge!.MetricName).toBe('Invocations');
-    // Cognito triggers are not retried, so one invocation is one real attempt.
+    // Pin changed 2026-10-20 from Invocations. Counting every PreSignUp call
+    // paged a staging "flood" that was 32 E2E test accounts on fictional
+    // numbers and not one text. The alarm now counts attempts on a
+    // destination someone could actually receive a message on.
+    expect(surge!.MetricName).toBe('SignupAttemptsReachable');
+    expect(surge!.Namespace).toBe(ns(environment, 'Auth'));
     // Organic signup traffic for this service is a small number per day, so
     // the threshold sits far above it and far below an abuse run.
     expect(surge!.Threshold).toBeLessThanOrEqual(50);
+  });
+
+  test('the flood metric counts reachable attempts only, from the PreSignUp trigger', () => {
+    const filters = Object.values(template.findResources('AWS::Logs::MetricFilter'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => p.MetricTransformations?.[0]?.MetricName === 'SignupAttemptsReachable');
+    expect(filters).toHaveLength(1);
+    expect(filters[0].FilterPattern).toContain('SIGNUP_ATTEMPT');
+    expect(filters[0].FilterPattern).toContain('destination=reachable');
+    expect(filters[0].FilterPattern).not.toContain('fictional');
+    expect(JSON.stringify(filters[0].LogGroupName)).toContain('PreSignUp');
+  });
+
+  // The backstop: fictional destinations are excluded from the flood alarm,
+  // so a flood of them must still page eventually. It counts every PreSignUp
+  // call, set above a full E2E run (32 in 5 minutes on 2026-10-20) and still
+  // far below the volume a pool-filling run produces.
+  test('total signup volume still has a backstop, above a full E2E run', () => {
+    const backstop = alarms.find(
+      (a) => a.AlarmName === `${namePrefix}signup volume far above normal, test accounts included`,
+    );
+    expect(backstop).toBeDefined();
+    expect(backstop!.MetricName).toBe('Invocations');
+    expect(JSON.stringify(backstop!.Dimensions)).toContain('PreSignUp');
+    expect(backstop!.Threshold).toBeGreaterThanOrEqual(100);
+    expect(backstop!.Threshold).toBeLessThanOrEqual(500);
   });
 
   test('account-level SMS alarms exist in production only', () => {
@@ -454,21 +506,70 @@ describe('a deletion that only partly happened', () => {
   // steps failed, so a parent could be told their child's records were gone
   // while they were still there. The marker is the only signal.
   //
-  // Pinned on the lambda side in test/python/test_user_profile_api.py and
-  // test/python/test_knowledge_delete_s3.py.
+  // Pinned on the lambda side in test/python/test_user_profile_api.py. The
+  // document-delete lambda that used to be the second emitter is gone, so
+  // the watched log groups are now the profile handler and the DDB service.
   test('DELETION_INCOMPLETE is counted, but only when it is essential', () => {
     const filters = Object.values(synth('production').findResources('AWS::Logs::MetricFilter'))
       .map((r: any) => r.Properties)
       .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'));
 
-    // One per watched handler: the account/profile path and the document path.
+    // One per watched handler: the account/profile path, and the DDB service,
+    // which deletes the child's previous IEP once a re-upload has finished. The floor was 3 while the unrouted
+    // document-delete lambda still had its own filter; it was removed with the
+    // lambda, so 2 is the real number and the guard against a vanished filter.
     expect(filters.length).toBeGreaterThanOrEqual(2);
     for (const filter of filters) {
       // Both terms, load-bearing: matching the marker alone would page for an
       // orphaned audio file.
       expect(filter.FilterPattern).toContain('DELETION_INCOMPLETE');
       expect(filter.FilterPattern).toContain('essential=yes');
+      // And the replaced-document scope is excluded, or one event would page
+      // twice: here, and again on its own alarm.
+      expect(filter.FilterPattern).toContain('-"scope=replaced-document"');
     }
+  });
+
+  // Replacing an IEP deletes the old document AFTER the new one is complete.
+  // The new document is already visible by then, so nothing fails visibly when
+  // that cleanup does: the marker is the only way anyone learns an old IEP is
+  // still in the bucket. Pinned on the lambda side in
+  // test/python/test_replaced_documents.py.
+  test.each(['production', 'staging'])(
+    'the DDB service log group is watched for an unfinished replace-cleanup (%s)', (environment) => {
+      const template = synth(environment);
+      const replaced = Object.values(template.findResources('AWS::Logs::MetricFilter'))
+        .map((r: any) => r.Properties)
+        .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('ReplacedDocumentIncomplete'));
+
+      expect(replaced).toHaveLength(1);
+      expect(JSON.stringify(replaced[0].LogGroupName)).toContain('DDBService');
+      expect(replaced[0].FilterPattern).toContain('DELETION_INCOMPLETE');
+      expect(replaced[0].FilterPattern).toContain('"scope=replaced-document"');
+      expect(replaced[0].FilterPattern).not.toContain('-"scope=replaced-document"');
+      expect(replaced[0].MetricTransformations[0].MetricNamespace).toBe(ns(environment, 'Pipeline'));
+
+      // The old essential metric on the same log group must not also count it.
+      const essentialOnDdb = Object.values(template.findResources('AWS::Logs::MetricFilter'))
+        .map((r: any) => r.Properties)
+        .filter((p: any) => JSON.stringify(p.MetricTransformations).includes('DeletionIncompleteEssential'))
+        .filter((p: any) => JSON.stringify(p.LogGroupName).includes('DDBService'));
+      for (const filter of essentialOnDdb) {
+        expect(filter.FilterPattern).toContain('-"scope=replaced-document"');
+      }
+    });
+
+  test('one unfinished replace-cleanup is enough to alarm, at critical, with its own words', () => {
+    const alarm = Object.values(synth('production').findResources('AWS::CloudWatch::Alarm'))
+      .map((r: any) => r.Properties)
+      .find((p: any) => String(p.AlarmName).includes('an old IEP was not cleaned up after a replacement'));
+
+    expect(alarm).toBeDefined();
+    expect(alarm.Threshold).toBe(1);
+    expect(alarm.MetricName).toBe('ReplacedDocumentIncomplete');
+    expect(alarm.AlarmDescription).toMatch(/^\[PROD\] \[CRITICAL\] /);
+    expect(alarm.AlarmDescription).toContain('the previous one could not be fully deleted');
+    expect(alarm.AlarmDescription).not.toContain('asked us to delete');
   });
 
   test('one incomplete deletion is enough to alarm, at critical', () => {
@@ -478,7 +579,7 @@ describe('a deletion that only partly happened', () => {
 
     expect(alarm).toBeDefined();
     expect(alarm.Threshold).toBe(1);
-    expect(alarm.AlarmDescription).toContain('[critical]');
+    expect(alarm.AlarmDescription).toMatch(/^\[PROD\] \[CRITICAL\] /);
   });
 });
 
@@ -512,7 +613,7 @@ describe('OCR text that should have been deleted and was not', () => {
 
     expect(alarm).toBeDefined();
     expect(alarm.Threshold).toBe(1);
-    expect(alarm.AlarmDescription).toContain('[critical]');
+    expect(alarm.AlarmDescription).toMatch(/^\[PROD\] \[CRITICAL\] /);
   });
 });
 
@@ -548,15 +649,13 @@ describe('unredacted copies surviving a failed document', () => {
 
     expect(alarm).toBeDefined();
     expect(alarm.Threshold).toBe(1);
-    expect(alarm.AlarmDescription).toContain('[critical]');
+    expect(alarm.AlarmDescription).toMatch(/^\[PROD\] \[CRITICAL\] /);
   });
 });
 
-describe('the signup endpoint is watched at all', () => {
-  // It is the only way to create an account, and for its first day it was in
-  // none of the three monitoring lists: no Errors alarm, no Throttles alarm,
-  // no metric filter on any of its six markers. This describe block exists so
-  // that a future change dropping it from the list fails here.
+describe('account creation is watched at all', () => {
+  // The marker filters behind the two surviving account-creation alarms. This
+  // describe block exists so that a change dropping either fails here.
   test.each(SIGNUP_MARKERS)('%s is counted into %s', (marker, metricName) => {
     for (const environment of ['production', 'staging']) {
       synth(environment).hasResourceProperties('AWS::Logs::MetricFilter', {
@@ -580,13 +679,22 @@ describe('the signup endpoint is watched at all', () => {
     expect(alarm.Threshold).toBe(1);
   });
 
-  // The endpoint is in the daily brief too, so a day with zero signups is
-  // visible rather than merely un-alarmed.
-  test('the endpoint reaches the daily brief', () => {
-    const manifest = JSON.stringify(
-      synth('production').findResources('AWS::SSM::Parameter'));
-
-    expect(manifest).toContain('the only way to create an account');
+  // The deleted signup endpoint must leave nothing behind: no alarm, no
+  // metric filter on its log group, no daily-brief entry.
+  test('nothing of the retired signup endpoint remains in monitoring', () => {
+    for (const environment of ['production', 'staging']) {
+      const template = synth(environment);
+      const alarmNames = Object.values(template.findResources('AWS::CloudWatch::Alarm'))
+        .map((r: any) => String(r.Properties.AlarmName));
+      expect(alarmNames.filter((n) => /^signup (broken|throttled)|^sign-ups are being refused/.test(n))).toEqual([]);
+      for (const marker of ['SIGNUP_REFUSED', 'SIGNUP_FAILED']) {
+        const filters = Object.values(template.findResources('AWS::Logs::MetricFilter'))
+          .filter((r: any) => r.Properties.FilterPattern === marker);
+        expect(filters).toEqual([]);
+      }
+      expect(JSON.stringify(template.findResources('AWS::SSM::Parameter')))
+        .not.toContain('the only way to create an account');
+    }
   });
 });
 
@@ -854,7 +962,7 @@ describe('undelivered login codes', () => {
 
     expect(alarm).toBeDefined();
     expect(alarm.Threshold).toBe(1);
-    expect(alarm.AlarmDescription).toContain('[critical]');
+    expect(alarm.AlarmDescription).toMatch(/^\[PROD\] \[CRITICAL\] /);
   });
 
   // The counterpart. This one has routine benign volume -- landlines, dead
@@ -865,7 +973,7 @@ describe('undelivered login codes', () => {
 
     expect(alarm).toBeDefined();
     expect(alarm.Threshold).toBeGreaterThan(1);
-    expect(alarm.AlarmDescription).not.toContain('[critical]');
+    expect(alarm.AlarmDescription).not.toMatch(/^\[PROD\] \[CRITICAL\] /);
   });
 
   // The attribution is the dimension. An alarm on the undimensioned series
@@ -1061,7 +1169,7 @@ describe('SMS spend', () => {
     expect(alarm.Threshold).toBeGreaterThan(0);
     // Self-clearing: no data (and no new spend) reads as not breaching.
     expect(alarm.TreatMissingData).toBe('notBreaching');
-    expect(alarm.AlarmDescription).toContain('[critical]');
+    expect(alarm.AlarmDescription).toMatch(/^\[PROD\] \[CRITICAL\] /);
   });
 
   // The 2026-09-09 attack ran at about $590 an hour and a normal week spends
@@ -1086,9 +1194,9 @@ describe('SMS spend', () => {
 });
 
 // An event-count alarm clears when a quiet window passes, not when anything
-// is fixed. The formatter words those recoveries as "no further failures",
-// keyed on a marker in the description; pinned here so a new SMS alarm, or a
-// reworded one, cannot quietly go back to announcing "Back to normal".
+// is fixed. The formatter words those recoveries as "no new failures", keyed
+// on the `Recovery: quiet` line in the description; pinned here so a new SMS
+// alarm, or a reworded one, cannot quietly go back to announcing "Resolved".
 describe('failure-count alarms carry the marker the formatter reads', () => {
   test.each([
     'the SMS provider is rejecting login codes',
@@ -1101,7 +1209,7 @@ describe('failure-count alarms carry the marker the formatter reads', () => {
       .map((r: any) => r.Properties)
       .find((p: any) => String(p.AlarmName).includes(fragment));
     expect(alarm).toBeDefined();
-    expect(alarm.AlarmDescription).toMatch(/^\[(critical|medium|low)\]\[failures\] /);
+    expect(alarm.AlarmDescription).toMatch(/^Recovery: quiet$/m);
   });
 
   // The other direction: a heartbeat or a level alarm clearing IS a
@@ -1115,7 +1223,7 @@ describe('failure-count alarms carry the marker the formatter reads', () => {
       .map((r: any) => r.Properties)
       .find((p: any) => String(p.AlarmName).includes(fragment));
     expect(alarm).toBeDefined();
-    expect(alarm.AlarmDescription).not.toContain('[failures]');
+    expect(alarm.AlarmDescription).not.toMatch(/^Recovery: quiet$/m);
   });
 });
 

@@ -37,14 +37,21 @@ import re
 from datetime import datetime, timezone
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 dynamodb = boto3.resource('dynamodb')
-user_profiles_table = dynamodb.Table(os.environ['USER_PROFILES_TABLE'])
-iep_documents_table = dynamodb.Table(os.environ['IEP_DOCUMENTS_TABLE'])
+# Read per request rather than failing the import: a missing setting becomes a
+# logged 500 from lambda_handler instead of a cold-start crash.
+user_profiles_table = dynamodb.Table(os.environ.get('USER_PROFILES_TABLE', ''))
+iep_documents_table = dynamodb.Table(os.environ.get('IEP_DOCUMENTS_TABLE', ''))
 
 s3_client = boto3.client('s3')
-BUCKET = os.environ['BUCKET']
+BUCKET = os.environ.get('BUCKET', '')
+
+# Settings the request path cannot run without. The state machine ARN is
+# checked where it is used, so its absence still fails through the same
+# release path as a start failure.
+REQUIRED_SETTINGS = ('USER_PROFILES_TABLE', 'IEP_DOCUMENTS_TABLE', 'BUCKET')
 
 # Canonical list, same as user-profile-handler and tts-handler.
 SUPPORTED_LANGUAGES = ['en', 'zh', 'es', 'vi', 'ar']
@@ -101,7 +108,8 @@ def create_response(status_code, body):
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'OPTIONS, POST',
-            'Access-Control-Allow-Headers': 'Content-Type, X-Amz-Date, Authorization, X-Api-Key, X-Amz-Security-Token, X-Amz-User-Agent, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers'
+            'Access-Control-Allow-Headers': 'Content-Type, X-Amz-Date, Authorization, X-Api-Key, X-Amz-Security-Token, X-Amz-User-Agent, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers',
+            'Cache-Control': 'no-store',
         },
         'body': json.dumps(body)
     }
@@ -153,13 +161,9 @@ def _user_owns_child(user_id, child_id):
     """The authenticated user must have a child with the matching childId."""
     if not user_id or not child_id:
         return False
-    try:
-        profile_response = user_profiles_table.get_item(Key={'userId': user_id})
-    except ClientError as e:
-        print(f"Error loading profile for ownership check: {e.response['Error']['Code']}")
-        return False
-
-    profile = profile_response.get('Item')
+    # A DynamoDB fault propagates to lambda_handler's 503. Answering False here
+    # would read as "not your child", which is a claim about the caller.
+    profile = user_profiles_table.get_item(Key={'userId': user_id}).get('Item')
     if not profile:
         return False
 
@@ -186,11 +190,19 @@ def _load_content(doc, iep_id, child_id):
     key = s3_ref.get('s3Key') or f'iep-data/{iep_id}/{child_id}/content.json'
     try:
         response = s3_client.get_object(Bucket=bucket, Key=key)
+    except ClientError as e:
+        # A missing object is the 409 in the handler. Any other S3 fault is the
+        # service's, so it propagates to the 503 rather than reading as "no
+        # English content yet".
+        if e.response['Error']['Code'] != 'NoSuchKey':
+            raise
+        print(f"content.json missing for {iep_id}/{child_id}")
+        return None
+    try:
         return json.loads(response['Body'].read().decode('utf-8'))
-    except (ClientError, ValueError) as e:
-        # Error code only: the body is the document itself.
-        code = e.response['Error']['Code'] if isinstance(e, ClientError) else 'InvalidJSON'
-        print(f"Could not load content.json for {iep_id}/{child_id}: {code}")
+    except ValueError:
+        # Logged without the body: the body is the document itself.
+        print(f"content.json for {iep_id}/{child_id} is not valid JSON")
         return None
 
 
@@ -323,7 +335,20 @@ def _start_translation(iep_id, child_id, user_id, language, context):
     return response['executionArn']
 
 
+def _failure_reason(error):
+    """Why an AWS or config call failed, safe to log: an error code, or our own
+    configuration message. Never the exception text, which can quote table and
+    state machine names."""
+    if isinstance(error, ClientError):
+        return error.response['Error']['Code']
+    if isinstance(error, RuntimeError):
+        return str(error)
+    return type(error).__name__
+
+
 def lambda_handler(event, context):
+    """Entry point. An AWS fault the handler did not map (throttling, an
+    unreachable service) is a logged 503, never a 4xx and never a bare error."""
     method = (
         event.get('requestContext', {}).get('http', {}).get('method')
         or event.get('httpMethod', '')
@@ -331,6 +356,22 @@ def lambda_handler(event, context):
     if method == 'OPTIONS':
         return create_response(200, {})
 
+    missing = [name for name in REQUIRED_SETTINGS if not os.environ.get(name)]
+    if missing:
+        print(f"Server misconfigured: {', '.join(missing)} not set")
+        return create_response(500, {'error': 'Server configuration error'})
+
+    try:
+        return _handle_translation_request(event, context)
+    except (BotoCoreError, ClientError) as e:
+        print(f"Translation request failed on an AWS call: {_failure_reason(e)}")
+        return create_response(503, {'error': 'Temporarily unavailable, please try again'})
+    except Exception as e:
+        print(f"Unexpected error handling translation request: {type(e).__name__}")
+        return create_response(500, {'error': 'Internal error'})
+
+
+def _handle_translation_request(event, context):
     path_params = event.get('pathParameters') or {}
     child_id = path_params.get('childId')
     iep_id = path_params.get('iepId')
@@ -361,21 +402,21 @@ def lambda_handler(event, context):
     if language not in TRANSLATABLE_LANGUAGES:
         return _reject(400, 'Unsupported language', **request_meta)
 
+    # A child the caller does not own, a missing document and another family's
+    # document all get the same 404. The response must not say which of them
+    # the caller hit; the reason goes to the log only.
     if not _user_owns_child(user_id, child_id):
-        return _reject(403, 'Access denied', **request_meta)
+        return _reject(404, 'Document not found', **request_meta,
+                       cause='child not on the caller profile')
 
-    try:
-        doc = _load_document(iep_id, child_id)
-    except ClientError as e:
-        print(f"Error loading document {iep_id}: {e.response['Error']['Code']}")
-        return create_response(500, {'error': 'Could not load document'})
-
+    doc = _load_document(iep_id, child_id)
     if not doc:
-        return _reject(404, 'Document not found', **request_meta)
+        return _reject(404, 'Document not found', **request_meta, cause='no document row')
     if doc.get('userId') != user_id:
         # Owning the child is not enough: the document row carries its own
         # owner, and only that owner may spend money against it.
-        return _reject(403, 'Access denied', **request_meta)
+        return _reject(404, 'Document not found', **request_meta,
+                       cause='document owned by another user')
 
     content = _load_content(doc, iep_id, child_id)
     available = _translated_languages(content)
@@ -420,7 +461,7 @@ def lambda_handler(event, context):
         execution_arn = _start_translation(iep_id, child_id, user_id, language, context)
     except Exception as e:
         # Never leave the document in-flight with nothing behind it.
-        print(f"Failed to start translation execution for {iep_id}: {type(e).__name__}")
+        print(f"Failed to start translation execution for {iep_id}: {_failure_reason(e)}")
         _release_translation_slot(iep_id, child_id, document_status, previous_progress)
         return create_response(500, {'error': 'Could not start translation'})
 

@@ -4,9 +4,10 @@ import json
 import traceback
 from pydantic import ValidationError
 from data_model import SingleLanguageIEP
-from openai import OpenAI
-from agents import Agent, Runner, function_tool, ModelSettings
+from openai import AsyncOpenAI, OpenAI, Timeout
+from agents import Agent, Runner, function_tool, ModelSettings, set_default_openai_client
 from config import get_english_only_prompt, IEP_SECTIONS, SECTION_KEY_POINTS
+from untrusted_text import prepare_page_for_model
 from agents.exceptions import MaxTurnsExceeded
 try:
     from agents.exceptions import ModelBehaviorError
@@ -46,6 +47,41 @@ def _safe_error_summary(e):
         return _validation_error_summary(e)
     return type(e).__name__
 
+# The SDK's own defaults are a 600s read timeout and two retries, so a request
+# OpenAI never answers holds this lambda for up to 30 minutes, past the state
+# machine's TimeoutSeconds for ParsingAgent and with the lambda's own 900s
+# limit as the only other stop. A single model call has never come near these
+# numbers (the whole step's slowest prod run was 73s); one retry plus the
+# per-request limit stays inside the state's 240s, so a wedged call fails here
+# with a clean APITimeoutError and Step Functions' Retry/Catch takes over.
+OPENAI_REQUEST_TIMEOUT_SECONDS = 100
+OPENAI_CONNECT_TIMEOUT_SECONDS = 10
+OPENAI_MAX_RETRIES = 1
+
+_configured_client_key = None
+
+
+def _use_bounded_openai_client(api_key):
+    """Make the Agents SDK's default client one with explicit time limits.
+
+    Cached per key: the lambda container is reused, and the SDK keeps whatever
+    default client it was last given. Tracing keeps using OPENAI_API_KEY from
+    the environment exactly as before (use_for_tracing=False).
+    """
+    global _configured_client_key
+    if not api_key or api_key == _configured_client_key:
+        return
+    set_default_openai_client(
+        AsyncOpenAI(
+            api_key=api_key,
+            timeout=Timeout(OPENAI_REQUEST_TIMEOUT_SECONDS, connect=OPENAI_CONNECT_TIMEOUT_SECONDS),
+            max_retries=OPENAI_MAX_RETRIES,
+        ),
+        use_for_tracing=False,
+    )
+    _configured_client_key = api_key
+
+
 class OpenAIAgent:
     def __init__(self, ocr_data=None, api_key=None):
         """
@@ -55,7 +91,12 @@ class OpenAIAgent:
             api_key (str, optional): Pre-fetched OpenAI API key to avoid SSM calls
         """
         self.ocr_data = ocr_data
+        # What the model reads for each page: AI-addressed passages cut out and
+        # the text wrapped as untrusted data (untrusted_text.py). Built once,
+        # beside ocr_data rather than in it, so nothing stored is changed.
+        self._model_pages = self._prepare_model_pages(ocr_data)
         self.api_key = api_key or self._get_openai_api_key()
+        _use_bounded_openai_client(self.api_key)
         # Tools
         self.ocr_text_tool = self._create_ocr_text_tool()
         self.ocr_page_tool = self._create_ocr_page_tool()
@@ -85,12 +126,22 @@ class OpenAIAgent:
     def _page_count(self):
         return len((self.ocr_data or {}).get('pages') or [])
 
+    @staticmethod
+    def _prepare_model_pages(ocr_data):
+        pages = (ocr_data or {}).get('pages') or []
+        prepared = [prepare_page_for_model(page.get('markdown') or '') for page in pages]
+        removed = sum(count for _, count in prepared)
+        if removed:
+            # The count only: the passages are document text.
+            logger.warning(f"Removed {removed} passage(s) addressed to an AI system before analysis")
+        return [text for text, _ in prepared]
+
     def _get_page_markdown(self, page_number):
         """Markdown for a 1-based page number, or None if out of range."""
         pages = (self.ocr_data or {}).get('pages') or []
         if page_number < 1 or page_number > len(pages):
             return None
-        return pages[page_number - 1].get('markdown', '')
+        return self._model_pages[page_number - 1]
 
     def _create_ocr_text_tool(self):
         @function_tool()
@@ -102,8 +153,7 @@ class OpenAIAgent:
             if not self.ocr_data or 'pages' not in self.ocr_data:
                 return None
             text_content = []
-            for page_number, page in enumerate(self.ocr_data['pages'], 1):
-                md = page.get('markdown')
+            for page_number, md in enumerate(self._model_pages, 1):
                 if md:
                     text_content.append(f"Page {page_number}:\n{md}")
             combined = "\n\n".join(text_content)

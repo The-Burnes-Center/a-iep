@@ -47,7 +47,7 @@ export interface OtpPayload {
  * the comparison a little slack. Two seconds can never resurrect a previous
  * run's parameter: consecutive sends for one number are minutes apart.
  */
-const CLOCK_SKEW_ALLOWANCE_MS = 2_000;
+export const CLOCK_SKEW_ALLOWANCE_MS = 2_000;
 const OTP_POLL_TIMEOUT_MS = 30_000;
 const OTP_POLL_INTERVAL_MS = 1_500;
 

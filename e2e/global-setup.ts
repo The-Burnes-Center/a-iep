@@ -19,9 +19,18 @@ import {
   StackResourceSummary,
 } from '@aws-sdk/client-cloudformation';
 import { REGION, STACK_NAME, stashResolvedConfig } from './helpers/config';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { ensureTestUser } from './helpers/aws';
 import { stashProfilesTableName } from './helpers/config';
-import { STABLE_USER, LOCKOUT_USER, PROFILE_USER, DOCUMENTS_USER } from './helpers/phones';
+import { resetFailedCodeCounters } from './helpers/rate-limit';
+import {
+  STABLE_USER,
+  LOCKOUT_USER,
+  PROFILE_USER,
+  DOCUMENTS_USER,
+  PASSWORDLESS_LOCKOUT_USER,
+  PASSWORDLESS_WRONG_CODE_USER,
+} from './helpers/phones';
 
 async function resolveStackOutputs(): Promise<{ siteUrl: string; userPoolId: string }> {
   const cfn = new CloudFormationClient({ region: REGION });
@@ -60,8 +69,8 @@ async function resolveStackOutputs(): Promise<{ siteUrl: string; userPoolId: str
   return { siteUrl, userPoolId };
 }
 
-/** The profiles table's physical name, found by logical id. */
-async function resolveUserProfilesTable(): Promise<string> {
+/** A DynamoDB table's physical name, found by a fragment of its logical id. */
+async function resolveTable(logicalIdFragment: string): Promise<string> {
   const cfn = new CloudFormationClient({ region: REGION });
   let token: string | undefined;
   do {
@@ -70,7 +79,7 @@ async function resolveUserProfilesTable(): Promise<string> {
     }));
     const match = (page.StackResourceSummaries ?? []).find((r: StackResourceSummary) =>
       r.ResourceType === 'AWS::DynamoDB::Table'
-      && (r.LogicalResourceId ?? '').includes('UserProfilesTable'));
+      && (r.LogicalResourceId ?? '').includes(logicalIdFragment));
     if (match?.PhysicalResourceId) {
       return match.PhysicalResourceId;
     }
@@ -78,7 +87,7 @@ async function resolveUserProfilesTable(): Promise<string> {
   } while (token);
   throw new Error(
     `Stack ${STACK_NAME} has no DynamoDB table whose logical id contains ` +
-    'UserProfilesTable. Did it get renamed? Update global-setup.ts to match.');
+    `${logicalIdFragment}. Did it get renamed? Update global-setup.ts to match.`);
 }
 
 export default async function globalSetup(): Promise<void> {
@@ -94,7 +103,7 @@ export default async function globalSetup(): Promise<void> {
   stashResolvedConfig(siteUrl, userPoolId);
   // Resolved here rather than per-call: teardown needs it for every test user,
   // and ListStackResources is paginated and slow.
-  stashProfilesTableName(await resolveUserProfilesTable());
+  stashProfilesTableName(await resolveTable('UserProfilesTable'));
   console.log(`[e2e setup] site: ${siteUrl}`);
   console.log(`[e2e setup] user pool: ${userPoolId}`);
 
@@ -107,4 +116,15 @@ export default async function globalSetup(): Promise<void> {
   await ensureTestUser(PROFILE_USER);
   await ensureTestUser(DOCUMENTS_USER);
   console.log('[e2e setup] persistent test users ensured');
+
+  // The lockout journeys submit wrong codes on purpose, and /auth/verify
+  // counts them per destination per clock hour (10 locks it), so earlier runs
+  // in the same hour would otherwise fail them. Start every run from zero.
+  // Staging table only: resetFailedCodeCounters refuses any other name.
+  await resetFailedCodeCounters(
+    new DynamoDBClient({ region: REGION }),
+    await resolveTable('OtpRateLimitTable'),
+    [LOCKOUT_USER, PASSWORDLESS_LOCKOUT_USER, PASSWORDLESS_WRONG_CODE_USER],
+  );
+  console.log('[e2e setup] wrong-code counters reset for the lockout users');
 }

@@ -86,8 +86,11 @@
   flex-direction: column;
 }
 
+/* max-width as well: at 370px tall the illustration is about 348px wide,
+   wider than a 320px phone (WCAG 1.4.10). object-fit keeps its shape. */
 .landing-hero-image {
   height: 370px;
+  max-width: 100%;
   object-fit: contain;
 }
 

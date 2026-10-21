@@ -24,7 +24,7 @@
  * Tagged @destructive-session: it deliberately burns an auth session for
  * the lockout user (but leaves the account itself untouched).
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import {
   startPhoneLogin,
   submitOtpCode,
@@ -34,6 +34,7 @@ import {
   EN_PASSWORDLESS,
   IN_APP_PATHS,
 } from '../helpers/app';
+import { CLOCK_SKEW_ALLOWANCE_MS } from '../helpers/aws';
 import { LOCKOUT_USER } from '../helpers/phones';
 
 // Real codes come from crypto.randomInt(100000, 1000000), so a code below
@@ -95,6 +96,14 @@ test(
         page.getByRole('button', { name: EN_PASSWORDLESS.sendCode, exact: true })
       ).toBeVisible();
     }
+
+    // fetchOtp accepts any code issued within CLOCK_SKEW_ALLOWANCE_MS BEFORE
+    // the new send, and the burned session's code was issued only moments ago
+    // (the wrong codes above take about two seconds in all). Without this
+    // pause a fast run read that burned code as "fresh", submitted it, and
+    // failed the login below with a wrong-code error. Waiting out the slack
+    // makes the burned code unmistakably stale.
+    await page.waitForTimeout(CLOCK_SKEW_ALLOWANCE_MS + 1_000);
 
     // The account is not locked, only that session died: a fresh sign-in
     // creates a new session and a NEW code (the SSM freshness check inside

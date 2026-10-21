@@ -27,7 +27,7 @@
  * Fast by design (~1.5 min): no document pipeline, no account deletion, so
  * this runs on every staging deploy rather than nightly.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginWithOtp } from '../helpers/app';
 import { appUrl } from '../helpers/config';
 import { PROFILE_USER } from '../helpers/phones';
@@ -38,7 +38,7 @@ import {
   childNameInput,
   clearStoredUiLanguage,
   ensureProfileBaseline,
-  languageSelect,
+  expectLanguagePreference,
   markedValue,
   openChildForm,
   openLanguageForm,
@@ -54,9 +54,7 @@ import {
 /** Copy the steps key on, mirroring src/translations/{en,es}.json. */
 const COPY = {
   accountCenterTitle: 'Account Center',
-  languageTitleEn: 'Your Language',
-  languageTitleEs: 'Su Idioma',
-  languageBreadcrumbEs: 'CUENTA',
+  accountCenterTitleEs: 'Centro de Cuenta',
 } as const;
 
 test('profile settings round-trip: parent name, child, language preference', async ({ page }) => {
@@ -126,15 +124,12 @@ test('profile settings round-trip: parent name, child, language preference', asy
   await test.step('the language preference persists server-side and localizes the UI', async () => {
     await openLanguageForm(page);
     expect(await readLanguagePreference(page)).toBe(PROFILE_BASELINE.language);
-    await expect(page.getByRole('heading', { name: COPY.languageTitleEn })).toBeVisible();
+    await expect(page.getByRole('heading', { name: COPY.accountCenterTitle })).toBeVisible();
 
-    // The picker has no save button: choosing fires PUT /profile and an
+    // The bar's picker has no save button: choosing fires PUT /profile and an
     // optimistic UI switch, so the copy turns Spanish before any reload.
     await setLanguagePreference(page, 'es');
-    await expect(page.getByRole('heading', { name: COPY.languageTitleEs })).toBeVisible();
-    // exact (= case-sensitive) on purpose: the top navigation renders a
-    // 'Cuenta' item that a loose match would also hit.
-    await expect(page.getByText(COPY.languageBreadcrumbEs, { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: COPY.accountCenterTitleEs })).toBeVisible();
 
     // Drop the browser's copy of the UI language and reload. The picker's
     // value can then only come from GET /profile ('es' = the PUT stuck),
@@ -142,8 +137,8 @@ test('profile settings round-trip: parent name, child, language preference', asy
     // assertion was not just localStorage talking).
     await clearStoredUiLanguage(page);
     await openLanguageForm(page);
-    await expect(languageSelect(page)).toHaveValue('es');
-    await expect(page.getByRole('heading', { name: COPY.languageTitleEn })).toBeVisible();
+    await expectLanguagePreference(page, 'es');
+    await expect(page.getByRole('heading', { name: COPY.accountCenterTitle })).toBeVisible();
   });
 
   await test.step('leave the account on the documented baseline', async () => {

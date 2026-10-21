@@ -308,25 +308,26 @@ def test_missing_path_parameters_is_400(translations):
 # ---------------------------------------------------------------------------
 # Authorization
 
-def test_child_not_on_the_callers_profile_is_403(translations):
+def test_child_not_on_the_callers_profile_is_404(translations):
     # THE OWNERSHIP PIN. Mutation-checked: removing the _user_owns_child gate
-    # in the handler turns this into a 202 and fails here.
+    # in the handler turns this into a 202 and fails here. It is a 404 with the
+    # same body as a missing document, so the caller cannot tell them apart.
     seed(translations, child_in_profile='someone-elses-child')
     status, payload = call(translations)
-    assert status == 403
-    assert payload == {'error': 'Access denied'}
+    assert status == 404
+    assert payload == {'error': 'Document not found'}
     assert translations.stepfunctions.executions == []
     # And nothing was spent or mutated on the way to the refusal.
     assert document(translations)['status'] == 'PROCESSED'
     assert 'translationRequestCount' not in document(translations)
 
 
-def test_document_owned_by_another_user_is_403(translations):
+def test_document_owned_by_another_user_is_404(translations):
     # Owning the child is not enough: the document row carries its own owner.
     seed(translations, owner='someone-else')
     status, payload = call(translations)
-    assert status == 403
-    assert payload == {'error': 'Access denied'}
+    assert status == 404
+    assert payload == {'error': 'Document not found'}
     assert translations.stepfunctions.executions == []
 
 
@@ -445,7 +446,7 @@ def test_budget_allows_the_last_attempt(translations):
 SENTINEL = 'ai-iep-secret-table-name-9f3c'
 
 
-def test_document_read_failure_is_a_generic_500(translations, monkeypatch):
+def test_document_read_failure_is_a_generic_503(translations, monkeypatch):
     def boom(**kwargs):
         raise ClientError(
             {'Error': {'Code': 'AccessDeniedException',
@@ -455,11 +456,12 @@ def test_document_read_failure_is_a_generic_500(translations, monkeypatch):
     seed(translations)
 
     status, payload = call(translations)
-    assert status == 500
+    assert status == 503
     # The cause goes to CloudWatch, never to the caller.
     assert SENTINEL not in json.dumps(payload)
     assert 'AccessDenied' not in json.dumps(payload)
-    assert payload == {'error': 'Could not load document'}
+    assert payload == {'error': 'Temporarily unavailable, please try again'}
+    assert translations.stepfunctions.executions == []
 
 
 def test_start_execution_failure_is_generic_and_releases_the_slot(translations):
@@ -527,3 +529,86 @@ def test_execution_name_survives_a_hostile_iep_id(translations):
     name = translations.module._execution_name('iep/1.pdf 2026', 'es', CONTEXT)
     assert EXECUTION_NAME_RE.match(name)
     assert 'es' in name
+
+
+def test_a_json_array_body_is_a_400_with_the_reason_logged(translations, capsys):
+    seed(translations)
+    event = request_event()
+    event['body'] = '["es"]'
+    status_code = translations.module.lambda_handler(event, None)['statusCode']
+    assert status_code == 400
+    assert 'Invalid JSON body' in capsys.readouterr().out
+    assert translations.stepfunctions.executions == []
+
+
+def test_a_profile_read_throttle_is_a_503_and_not_a_claim_about_the_child(translations, monkeypatch, capsys):
+    """A DynamoDB fault on the profile used to answer 403 'not your child'."""
+    seed(translations)
+
+    class ThrottledTable:
+        def get_item(self, **_kwargs):
+            raise ClientError(
+                {'Error': {'Code': 'ProvisionedThroughputExceededException',
+                           'Message': f'on {PROFILES_TABLE}'}}, 'GetItem')
+
+    monkeypatch.setattr(translations.module, 'user_profiles_table', ThrottledTable())
+
+    status, payload = call(translations)
+
+    assert status == 503
+    assert PROFILES_TABLE not in json.dumps(payload)
+    assert 'ProvisionedThroughputExceededException' in capsys.readouterr().out
+    assert translations.stepfunctions.executions == []
+    assert 'translationRequestCount' not in document(translations)
+
+
+def test_an_english_content_read_fault_is_a_503_not_a_409(translations, monkeypatch):
+    """A missing content object is a 409 (nothing to translate yet). Any other
+    S3 fault used to read the same way, which told the parent the content was
+    not ready when the service was failing."""
+    seed(translations)
+
+    class ThrottledS3:
+        def get_object(self, **_kwargs):
+            raise ClientError({'Error': {'Code': 'SlowDown', 'Message': 'slow'}}, 'GetObject')
+
+    monkeypatch.setattr(translations.module, 's3_client', ThrottledS3())
+
+    status, payload = call(translations)
+
+    assert status == 503
+    assert payload == {'error': 'Temporarily unavailable, please try again'}
+    assert translations.stepfunctions.executions == []
+
+
+def test_an_unowned_child_and_a_missing_document_get_the_same_body(translations):
+    """The two cases must not be told apart from outside."""
+    seed(translations, child_in_profile='someone-elses-child')
+    not_owned = call(translations)
+    translations.documents.delete_item(Key={'iepId': IEP, 'childId': CHILD})
+    seed(translations, with_document=False)
+    missing = call(translations)
+
+    assert not_owned[0] == missing[0] == 404
+    assert not_owned[1] == missing[1] == {'error': 'Document not found'}
+
+
+def test_every_response_says_no_store(translations):
+    seed(translations)
+    ok = translations.module.lambda_handler(request_event(), None)
+    refused = translations.module.lambda_handler(request_event(body={'language': 'en'}), None)
+    assert ok['headers']['Cache-Control'] == 'no-store'
+    assert refused['headers']['Cache-Control'] == 'no-store'
+
+
+def test_a_missing_bucket_setting_is_a_logged_500_before_any_work(translations, monkeypatch, capsys):
+    seed(translations)
+    monkeypatch.delenv('BUCKET')
+
+    status, payload = call(translations)
+
+    assert status == 500
+    assert payload == {'error': 'Server configuration error'}
+    assert 'BUCKET' in capsys.readouterr().out
+    assert translations.stepfunctions.executions == []
+    assert document(translations)['status'] == 'PROCESSED'

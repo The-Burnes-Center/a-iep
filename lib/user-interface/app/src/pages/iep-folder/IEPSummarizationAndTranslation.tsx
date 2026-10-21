@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useMemo, useContext } from 'react';
-import { Container, Row, Col, Card, Alert, Button, Accordion, Tabs, Tab, Offcanvas, Dropdown} from 'react-bootstrap';
-import LinearProgress from '@mui/material/LinearProgress';
+import React, { useState, useEffect, useMemo, useContext, useRef } from 'react';
+import { Container, Row, Col, Card, Alert, Button, Accordion, Tabs, Tab, Offcanvas, ProgressBar } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useNavigate } from 'react-router-dom';
 import { faLanguage, faDownload, faArrowsRotate } from '@fortawesome/free-solid-svg-icons';
 import './IEPSummarizationAndTranslation.css';
-import { IEPDocument, IEPSection, UserProfile } from '../../common/types';
+import { IEPDocument, IEPSection } from '../../common/types';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useFeatures } from '../../common/hooks/use-features';
+import { useLanguagePreference } from '../../common/hooks/use-language-preference';
 import { getDirForLanguage } from '../../common/direction';
 import { useDocumentFetch, processContentWithJargon } from '../utils';
 import { FetchedIEPDocument } from '../utils/useDocumentFetch';
@@ -27,11 +27,15 @@ import type { TranslationRequestState } from '../utils/translation-flow.mjs';
 import { processingStepKey } from '../utils/processing-progress.mjs';
 import { canRetryFailedDocument } from './document-failure';
 import AIEPSpinner from '../../components/AIEPSpinner';
+import PollingStalledNotice from '../../components/PollingStalledNotice';
 import PageLoading from '../../components/PageLoading';
 import TTSPlayButton from '../../components/TTSPlayButton';
 import { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
 import DocumentFailureState from './DocumentFailureState';
+import ReplacementBanner from './ReplacementBanner';
+import { NavLanguageSlot } from '../../components/NavLanguageSlot';
+import LanguageMenu from '../../components/LanguageMenu';
 import { ApiClient } from '../../common/api-client/api-client';
 import {
   IEPDocumentClient,
@@ -97,11 +101,18 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     ar: false
   });
   
-  // Profile-related state
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [profileLoading, setProfileLoading] = useState<boolean>(true);
-  const [originalProfile, setOriginalProfile] = useState<UserProfile | null>(null);
-  const [, setSaving] = useState<boolean>(false);
+  // The parent's profile and language preference, from the shared ['profile']
+  // cache the top bar's picker uses too (common/hooks/use-language-preference),
+  // so a choice made here is what every other screen shows, and a save still
+  // in flight from another screen is not read back as the old value.
+  const {
+    profile,
+    isProfileLoading: profileLoading,
+    isSaving: isSavingLanguage,
+    saveFailed: languageSaveFailed,
+    preferred: pickerLanguage,
+    choose: chooseLanguage,
+  } = useLanguagePreference();
   
   // Tutorial flow state management
   const [tutorialPhase, setTutorialPhase] = useState< 'parent-rights' | 'completed'>('parent-rights');
@@ -147,30 +158,17 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // Get preferred language from profile API, fallback to context language, then to 'en'
   const preferredLanguage = profile?.secondaryLanguage || language || 'en';
 
-  // Load profile data on component mount
+  // Once, when the profile first arrives: put the screen in the saved
+  // language if the browser remembered another one.
+  const syncedProfileLanguage = useRef(false);
   useEffect(() => {
-    const loadProfile = async () => {
-      try {
-        setProfileLoading(true);
-        const profileData = await apiClient.profile.getProfile();
-        setProfile(profileData);
-        setOriginalProfile(profileData);
-        
-        // Sync the language context if profile has a different secondary language
-        if (profileData?.secondaryLanguage && profileData.secondaryLanguage !== language) {
-          setLanguage(profileData.secondaryLanguage as SupportedLanguage);
-        }
-      } catch (err) {
-        // console.error('Error loading profile:', err);
-        // Profile loading failure is not critical, continue with context language
-      } finally {
-        setProfileLoading(false);
-      }
-    };
-
-    loadProfile();
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only profile load by design; apiClient/setLanguage are recreated every render
-  }, []);
+    if (syncedProfileLanguage.current || !profile) return;
+    syncedProfileLanguage.current = true;
+    if (profile.secondaryLanguage && profile.secondaryLanguage !== language) {
+      setLanguage(profile.secondaryLanguage as SupportedLanguage);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the first profile only, by design
+  }, [profile]);
 
   // Initialize selectedLanguage and activeTab after document loads
   useEffect(() => {
@@ -194,34 +192,10 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // translated or not — see languageMenuOptions below.
   const allLanguageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
-  const handlePreferredLanguageChange = async (languageCode: string) => {
-    if (!profile || languageCode === profile.secondaryLanguage) return;
-
-    const previousLanguage = language;
-    const updatedProfile = {...profile, secondaryLanguage: languageCode};
-    setProfile(updatedProfile);
-    // Switch the UI immediately; the profile save runs in the background
-    setLanguage(languageCode as SupportedLanguage);
-
-    try {
-      setSaving(true);
-      // Send only the changed field: a partial update skips re-encrypting
-      // untouched PII fields (phone/city/parentName) with KMS on the backend
-      await apiClient.profile.updateProfile({ secondaryLanguage: languageCode });
-
-      setOriginalProfile(updatedProfile);
-    } catch (err) {
-      // Revert on error
-      setProfile(originalProfile);
-      setLanguage(previousLanguage);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Handle language change - updates tab content and app language
+  // A pick saves the preference (optimistically, with rollback and a message
+  // on failure); the shown translation and tab follow from preferredLanguage.
   const handleLanguageChange = (lang: SupportedLanguage) => {
-    handlePreferredLanguageChange(lang);
+    chooseLanguage(lang);
   };
 
 
@@ -509,7 +483,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     }
   };
 
-    useDocumentFetch({
+    const { pollingStopped, checkAgain } = useDocumentFetch({
     translationsLoaded,
     document,
     initialLoading,
@@ -1038,7 +1012,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // already-authenticated parent onto the marketing site staring at a sign-in
   // form. Nothing signs them out; it only looks that way. /preferred-language
   // is where the other onboarding redirects go, and it gates onward from there.
-  if(profile.showOnboarding){
+  if(profile?.showOnboarding){
     navigate('/preferred-language');
     return null;
   }
@@ -1047,12 +1021,64 @@ const IEPSummarizationAndTranslation: React.FC = () => {
       navigate('/iep-documents');
   }
 
+  // The summary's language picker, in the bar's language spot on every state
+  // of this screen (NavLanguageSlot.tsx), so it never moves or swaps for the
+  // bar's default. It offers every language enabled in this environment and
+  // marks the ones this document has no translation for: picking one is how a
+  // parent gets offered a translation of it. It saves the same preference as
+  // the default picker. Unavailable, and saying why, while the document is
+  // processing or a translation is being generated, because changing the
+  // preference mid-flight would leave the running request pointing at a
+  // language the parent no longer wants.
+  const isDocumentReady = document.status === "PROCESSED" || suppressProcessingTakeover;
+  const pickerUnavailableReason = !isDocumentReady
+    ? t('languageMenu.unavailableProcessing')
+    : isTranslatingOnDemand
+      ? t('languageMenu.unavailableTranslating')
+      : isSavingLanguage
+        ? t('languageMenu.saving')
+        : undefined;
+  const summaryLanguagePicker = (
+    <NavLanguageSlot>
+      {languageMenuOptions.length > 1 ? (
+        <LanguageMenu
+          options={languageMenuOptions.map(option => ({
+            value: option.value,
+            label: option.label,
+            hint: option.isTranslated ? undefined : t('summary.translate.notTranslatedYet'),
+          }))}
+          // The parent's choice, not the translation on screen: a language not
+          // translated yet is still what they picked (the banner offers it).
+          selected={pickerLanguage}
+          onSelect={(value) => handleLanguageChange(value as SupportedLanguage)}
+          name={t('languageMenu.label')}
+          unavailableReason={pickerUnavailableReason}
+          variant="bar"
+          uppercase
+          id="language-dropdown"
+          className="language-dropdown-toggle"
+          // Stable E2E hooks: the items are labelled with each language's own
+          // endonym, and the hint is "this language has no translation yet".
+          optionTestId={(value) => `summary-language-option-${value}`}
+          hintTestId={(value) => `summary-language-untranslated-${value}`}
+        />
+      ) : null}
+      {languageSaveFailed && (
+        <p className="language-menu-error" role="alert">
+          {t('languageMenu.saveFailed')}
+        </p>
+      )}
+    </NavLanguageSlot>
+  );
+
   // Processing Container - when document is being processed. A translation the
   // parent requested from the banner is deliberately excluded: it reports its
   // progress inline so the English content they are reading stays on screen.
   if (isProcessing && !suppressProcessingTakeover) {
     // console.log("tutorialPhase", tutorialPhase);
     return (
+      <>
+      {summaryLanguagePicker}
       <ProcessingModal
         error={error}
         tutorialPhase={tutorialPhase}
@@ -1068,7 +1094,10 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         // lands where they left instead of watching the bar restart.
         progressDocument={document}
         progressStepLabel={t(processingStepKey(document))}
+        pollingStopped={pollingStopped}
+        onCheckAgain={checkAgain}
       />
+      </>
     );
   }
 
@@ -1102,48 +1131,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             )}
           </div>
           
-          {/* Language Dropdown - every language enabled in this environment,
-              with the ones this document has no translation for marked as such:
-              picking one is how a parent gets offered a translation of it.
-              Disabled while a translation is being generated, because changing
-              the preference mid-flight would leave the running request pointing
-              at a language the parent no longer wants. */}
-          {document && (document.status === "PROCESSED" || suppressProcessingTakeover) && languageMenuOptions.length > 1 && (
-            <Dropdown className='language-dropdown-toggle'>
-              <Dropdown.Toggle
-                variant="outline-primary"
-                id="language-dropdown"
-                size="sm"
-                disabled={isTranslatingOnDemand}
-              >
-                {(languageMenuOptions.find(option => option.value === selectedLanguage)?.label || 'English').toUpperCase()}
-              </Dropdown.Toggle>
-              <Dropdown.Menu>
-                {languageMenuOptions.map(option => (
-                  <Dropdown.Item
-                    key={option.value}
-                    onClick={() => handleLanguageChange(option.value as SupportedLanguage)}
-                    active={selectedLanguage === option.value}
-                    className="d-flex justify-content-between align-items-center gap-3"
-                    // Stable E2E hook: the items are labelled with each
-                    // language's own endonym
-                    data-testid={`summary-language-option-${option.value}`}
-                  >
-                    <span>{option.label.toUpperCase()}</span>
-                    {!option.isTranslated && (
-                      <small
-                        className="text-muted"
-                        // Stable E2E hook: "this language has no translation yet"
-                        data-testid={`summary-language-untranslated-${option.value}`}
-                      >
-                        {t('summary.translate.notTranslatedYet')}
-                      </small>
-                    )}
-                  </Dropdown.Item>
-                ))}
-              </Dropdown.Menu>
-            </Dropdown>
-          )}
+          {summaryLanguagePicker}
         </div>
         
         {pdfError && (
@@ -1155,7 +1143,17 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         <Row className="mt-2">
           <Col>
             {error && <Alert variant="danger">{error}</Alert>}
-            
+
+            {/* What is happening to the IEP the parent just replaced: the old
+                one stays on screen until the new one is ready. */}
+            <ReplacementBanner
+              replacement={document.replacement}
+              pollingStopped={pollingStopped}
+              t={t}
+              onCheckAgain={checkAgain}
+              onUploadAgain={() => navigate('/iep-documents')}
+            />
+
             <Card className="summary-card">
               <Card.Body className="summary-card-body pt-2 pb-0">
                 <Row className="g-0">
@@ -1192,10 +1190,34 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                                 </h6>
                                 {isTranslatingOnDemand ? (
                                   <div data-testid="translation-progress">
-                                    <p className="mb-2">
-                                      {t(translationRequest.messageKey ?? 'summary.processing.almostThere')}
-                                    </p>
-                                    <LinearProgress color="success" />
+                                    {/* Mounted with the wait, so the stop is announced when it happens. */}
+                                    <div aria-live="polite" aria-atomic="true" className="visually-hidden">
+                                      {pollingStopped ? t('summary.processing.stalled') : ''}
+                                    </div>
+                                    {pollingStopped ? (
+                                      <PollingStalledNotice
+                                        message={t('summary.processing.stalled')}
+                                        buttonLabel={t('common.tryAgain')}
+                                        onCheckAgain={checkAgain}
+                                      />
+                                    ) : (
+                                      <>
+                                        <p className="mb-2" id="translation-progress-message">
+                                          {t(translationRequest.messageKey ?? 'summary.processing.almostThere')}
+                                        </p>
+                                        {/* Indeterminate: no `now`, so no aria-valuenow, which is how
+                                            ARIA marks a progressbar as unknown-length. The width is
+                                            set by the sliding animation in the page CSS. */}
+                                        <ProgressBar className="translation-progress-track">
+                                          <ProgressBar
+                                            aria-labelledby="translation-progress-message"
+                                            className="translation-progress-indeterminate"
+                                            style={{ width: '40%' }}
+                                            data-testid="translation-progress-bar"
+                                          />
+                                        </ProgressBar>
+                                      </>
+                                    )}
                                   </div>
                                 ) : (
                                   <>

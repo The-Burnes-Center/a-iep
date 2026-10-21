@@ -5,6 +5,7 @@ import { addBucketPolicyStatements } from './bucket-policy';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import { getEnvironment } from '../../tags';
+import { MULTIPART_UPLOAD_ABORT_DAYS } from '../../constants';
 import { createIepDataDenyStatement } from '../security';
 
 export interface S3BucketStackProps extends cdk.StackProps {
@@ -71,6 +72,12 @@ export class S3BucketStack extends cdk.Stack {
           // Clean up delete markers whose versions have all expired
           id: 'CleanupExpiredDeleteMarkers',
           expiredObjectDeleteMarker: true,
+        },
+        {
+          // An upload that never completes (a closed tab mid-PUT) keeps its
+          // parts and bills as storage until aborted. Touches no object.
+          id: 'AbortIncompleteMultipartUploads',
+          abortIncompleteMultipartUploadAfter: cdk.Duration.days(MULTIPART_UPLOAD_ABORT_DAYS),
         }
       ]
     });

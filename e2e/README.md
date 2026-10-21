@@ -69,7 +69,8 @@ All fictional (NANP 555-01XX), none can ever receive SMS.
 | +15555550121 | Referral journey's referrer: owns the personal invite code, stats accumulate across runs. Persists. |
 | +15555550122 | Referral journey's invited-parent burner: healed (delete + admin-create) each attempt, admin-deleted in `afterEach`. |
 | +15555550126 | Encrypted-PDF upload journey (`encrypted-pdf.spec.ts`): owner-restricted files, the password prompt, cancelling. Persists across runs. It never creates a document: the spec stubs the signed-URL endpoint and the S3 PUT (see that spec's docblock for why). |
-| +15555550124, 0125, 0127-0129 | Rest of the throwaway pool, in reserve. |
+| +15555550127 | Planted-instructions journey (`injection.spec.ts`): uploads a synthetic IEP carrying instructions addressed to the AI. Persists across runs; holds that document, so nothing else may sign it in. |
+| +15555550124, 0125, 0128-0129 | Rest of the throwaway pool, in reserve. |
 | +15555550123 | **Claimed by scripts/smoke-test.sh as its unknown-number probe**: excluded from the backdoor allowlist in CDK; never create a user for it. |
 
 Global setup idempotently ensures the persistent users exist
@@ -97,6 +98,20 @@ costs no pipeline run, creates no document row, and takes about 35 seconds.
 Its stage 4 is a `test.fail()` pinning a live defect: cancelling the password
 prompt still shows the parent "this PDF can't be processed". Reported as
 passed while it stays broken, red the day it is fixed.
+
+`injection.spec.ts` uploads `fixtures/injection-iep.pdf`, the synthetic IEP
+with five instructions addressed to the AI planted in it (one visible
+paragraph, plus white, 1pt, invisible-render-mode and off-page text), and
+fails if any planted code reaches the summary, sections, index or glossary in
+any language, or if the Services section stops describing the speech
+services. Regenerate the fixture and its code list together with
+`python3 fixtures/make-injection-iep.py`. Its scan tests run in the default
+suite; the upload itself costs a full pipeline run, so it is gated on its own
+flag and is not in the nightly yet:
+
+```bash
+RUN_INJECTION_E2E=1 npx playwright test tests/injection.spec.ts
+```
 
 ## The on-demand translation language rotates
 

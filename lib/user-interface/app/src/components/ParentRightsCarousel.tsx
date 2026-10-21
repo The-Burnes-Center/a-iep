@@ -445,7 +445,7 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
             disabled={!loop && currentIndex === 0}
             className='carousel-nav-button carousel-prev-button'
           >
-            <img src="/images/arrow.svg" alt={translated('common.previous', DEFAULT_PREVIOUS_LABEL)} className="arrow-icon-prev" />
+            <img loading="lazy" decoding="async" src="/images/arrow.svg" alt={translated('common.previous', DEFAULT_PREVIOUS_LABEL)} className="arrow-icon-prev" />
           </button>
 
           {/* react-bootstrap hardcodes "Slide N" in English on its own dots,
@@ -470,7 +470,7 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
             disabled={!loop && currentIndex === slideCount - 1}
             className='carousel-nav-button carousel-next-button'
           >
-            <img src="/images/arrow.svg" alt={translated('common.next', DEFAULT_NEXT_LABEL)} className="arrow-icon-next" />
+            <img loading="lazy" decoding="async" src="/images/arrow.svg" alt={translated('common.next', DEFAULT_NEXT_LABEL)} className="arrow-icon-next" />
           </button>
       </div>
     </div>

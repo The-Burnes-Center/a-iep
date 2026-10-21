@@ -177,10 +177,16 @@ describe('a transient bounce is counted, not acted on', () => {
 });
 
 describe('events that say nothing about the address write nothing', () => {
-    // Reject and DeliveryDelay arrive on the same subscription. Alarms watch
-    // them; the list must not.
+    // Reject, DeliveryDelay and Delivery arrive on the same subscription.
+    // Alarms watch them; the list must not.
     test.each([
         ['Reject', { eventType: 'Reject', reject: { reason: 'Bad content' } }],
+        // Added to the subscription so delivery time can be measured: a
+        // delivered message is the opposite of a reason to suppress.
+        ['Delivery', {
+            eventType: 'Delivery',
+            delivery: { recipients: [ADDRESS], processingTimeMillis: 420 },
+        }],
         ['DeliveryDelay', {
             eventType: 'DeliveryDelay',
             deliveryDelay: { delayedRecipients: [{ emailAddress: ADDRESS }] },

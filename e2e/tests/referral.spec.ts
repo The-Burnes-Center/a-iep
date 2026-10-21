@@ -6,14 +6,14 @@
  * This is the only journey coverage the referral system has (it shipped to
  * production 2026-08-04 with manual testing only), and it exercises the whole
  * chain: GET /referral/me mints the personal code, /r/<code> stores the
- * pending capture and fires the public click beacon, and after the new
+ * pending capture (with a click id) and fires the public click beacon, and after the new
  * account's first login ReferralTracker posts /referral/attribute, whose
  * server-side guards (active code, no self-referral, unattributed profile,
  * click-before-signup) all have to pass for the stats to move.
  *
  * Ordering that matters: the burner visits /r/<code> BEFORE its first login.
- * The attribute lambda rejects captures newer than the profile row
- * ('click_after_signup'), and the profile row is created during first login —
+ * The attribute lambda rejects clicks its own clock recorded after
+ * the profile row was created ('click_after_signup'), and the profile row is created during first login —
  * so capture first, then log in, exactly like a real invited parent.
  *
  * Two browser contexts on purpose: the referrer stays signed in on one while
@@ -25,7 +25,8 @@
  * deltas from a baseline read at the start), the burner is healed at the top
  * of the test body and admin-deleted in an afterEach.
  */
-import { test, expect, Page, BrowserContext } from '@playwright/test';
+import { Page, BrowserContext } from '@playwright/test';
+import { test, expect, watchCsp, expectNoCspViolations } from '../helpers/fixtures';
 import { EN, loginWithOtp } from '../helpers/app';
 import { appUrl } from '../helpers/config';
 import { deleteTestUserIfExists, ensureTestUser } from '../helpers/aws';
@@ -138,6 +139,7 @@ test('a new parent joining through an invite link is counted, anonymously', asyn
   // ---- Act 2: a new parent arrives through the link ----------------------
 
   const invitedContext: BrowserContext = await browser.newContext();
+  const invitedCsp = await watchCsp(invitedContext);
   try {
     const invited = await invitedContext.newPage();
 
@@ -187,6 +189,7 @@ test('a new parent joining through an invite link is counted, anonymously', asyn
   } finally {
     await invitedContext.close();
   }
+  expectNoCspViolations(invitedCsp);
 
   // The attribution survives on the referrer's stats even though the invited
   // account is removed (the afterEach admin-deletes it): counters and events

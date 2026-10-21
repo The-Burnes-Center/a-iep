@@ -19,6 +19,10 @@ interface ParentRightsBannerProps {
     headerGreenTitle?: string;
 }
 
+/** Same key and English wording ParentRightsCarousel names its dots with. */
+const GO_TO_SLIDE_KEY = 'carousel.goToSlide';
+const DEFAULT_GO_TO_SLIDE_TEMPLATE = 'Go to slide {number}';
+
 const defaultSlideData: SlideData[] = [
     { id: 'slide-1', type: 'privacy', title: 'Your data is safe', content: "We're removing your personal information from the summaries. We will not store any of your or your child's personal details.", image: '/images/carousel/surprised.png' },
     { id: 'slide-2', type: 'privacy', title: "Your IEP won't be changed", content: "We're creating a separate document with your summary. You can download it by clicking on the button.", image: '/images/carousel/blissful.png' },
@@ -59,6 +63,13 @@ const ParentRightsBanner: React.FC<ParentRightsBannerProps> = ({ slides, classNa
     const displayHeaderGreenTitle = headerGreenTitle ?? t('rights.header.title.green') ?? "Your data is safe with us";
     const displayHeaderPinkTitle = headerPinkTitle ?? t('rights.header.title.pink') ?? "Your rights as a parent";
 
+    // An untranslated key comes back as itself, so fall back to the English wording.
+    const goToSlideTemplate = t(GO_TO_SLIDE_KEY);
+    const displayGoToSlideTemplate = !goToSlideTemplate || goToSlideTemplate === GO_TO_SLIDE_KEY
+        ? DEFAULT_GO_TO_SLIDE_TEMPLATE
+        : goToSlideTemplate;
+    const goToSlideLabel = (index: number) => displayGoToSlideTemplate.replace('{number}', String(index + 1));
+
     // Default behavior: cycle back to first slide
     const defaultOnLastSlideReached = () => {
         setActiveIndex(0);
@@ -95,12 +106,12 @@ const ParentRightsBanner: React.FC<ParentRightsBannerProps> = ({ slides, classNa
                         activeIndex <= 1 ? 
                         <div className="banner-card banner-card--green">
                         <h1>{displayHeaderGreenTitle}</h1>
-                        <img src={displaySlides[activeIndex].image} className="banner-slide-image" alt={displaySlides[activeIndex].title} /> 
+                        <img loading="lazy" decoding="async" src={displaySlides[activeIndex].image} className="banner-slide-image" alt={displaySlides[activeIndex].title} /> 
                     </div>
                         : (
                         <div className="banner-card banner-card--pink">
                         <h1>{displayHeaderPinkTitle}</h1>
-                        <img src={displaySlides[activeIndex].image} className="banner-slide-image" alt={displaySlides[activeIndex].title} /> 
+                        <img loading="lazy" decoding="async" src={displaySlides[activeIndex].image} className="banner-slide-image" alt={displaySlides[activeIndex].title} /> 
                         </div>
                         )
                     }
@@ -112,8 +123,8 @@ const ParentRightsBanner: React.FC<ParentRightsBannerProps> = ({ slides, classNa
                         <Carousel 
                         activeIndex={activeIndex}
                         onSelect={handleSelect}       
-                        controls={false} 
-                        indicators={true}
+                        controls={false}
+                        indicators={false}
                         interval={null}
                         pause="hover"
                         className={`banner-carousel ${className}`}
@@ -130,6 +141,19 @@ const ParentRightsBanner: React.FC<ParentRightsBannerProps> = ({ slides, classNa
                             </Carousel.Item>
                         ))}
                         </Carousel>
+                        {/* Ours, not react-bootstrap's indicators: those are 10px and labelled "Slide N" in English. */}
+                        <div className="banner-dots" data-testid="banner-dots">
+                            {displaySlides.map((slide, index) => (
+                                <button
+                                    key={slide.id}
+                                    type="button"
+                                    className={`banner-dot ${index === activeIndex ? 'active' : ''}`}
+                                    aria-label={goToSlideLabel(index)}
+                                    aria-current={index === activeIndex ? 'true' : undefined}
+                                    onClick={() => handleSelect(index)}
+                                />
+                            ))}
+                        </div>
                     </div>
 
                     <div className='banner-carousel-buttons'>
@@ -138,13 +162,13 @@ const ParentRightsBanner: React.FC<ParentRightsBannerProps> = ({ slides, classNa
                             disabled={activeIndex === 0}
                             className='banner-nav-button banner-prev-button'
                         >
-                            <img src="/images/arrow.svg" alt="Previous" className="banner-arrow-prev" />
+                            <img loading="lazy" decoding="async" src="/images/arrow.svg" alt="Previous" className="banner-arrow-prev" />
                         </button>
                         <button 
                             onClick={handleNext}
                             className='banner-nav-button banner-next-button'
                         >
-                            <img src="/images/arrow.svg" alt="Next" className="banner-arrow-next" />
+                            <img loading="lazy" decoding="async" src="/images/arrow.svg" alt="Next" className="banner-arrow-next" />
                         </button>
                     </div>
 

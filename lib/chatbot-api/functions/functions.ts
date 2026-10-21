@@ -41,6 +41,17 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 // an exclude for exactly the same reason.
 const PYTHON_ASSET_EXCLUDES = ['__pycache__'];
 
+// Log retention for every Lambda that does not choose its own. The app's
+// functions already use ONE_YEAR; the pipeline step lambdas had none, so their
+// log groups grew without bound.
+const DEFAULT_LOG_RETENTION = logs.RetentionDays.ONE_YEAR;
+
+// Step lambda timeouts, each above its state's TimeoutSeconds (see the
+// comment where they are used).
+const MISTRAL_OCR_TIMEOUT_SECONDS = 150;
+const PARSING_AGENT_TIMEOUT_SECONDS = 300;
+const TRANSLATE_CONTENT_TIMEOUT_SECONDS = 300;
+
 /**
  * Let a function delete from the knowledge bucket permanently.
  *
@@ -79,8 +90,6 @@ export interface LambdaFunctionStackProps {
 }
 
 export class LambdaFunctionStack extends cdk.Stack {  
-  public readonly deleteS3Function : lambda.Function;
-  public readonly getS3KnowledgeFunction : lambda.Function;
   public readonly uploadS3KnowledgeFunction : lambda.Function;
   public readonly userProfileFunction : lambda.Function;
   public readonly cognitoTriggerFunction : lambda.Function;
@@ -113,6 +122,10 @@ export class LambdaFunctionStack extends cdk.Stack {
     // Create a helper function to add standard tags and handle Lambda function creation
     const createTaggedLambda = (id: string, config: lambda.FunctionProps): lambda.Function => {
       const func = new lambda.Function(scope, id, {
+        // Without this the function's log group never expires, and the
+        // pipeline step lambdas had no retention at all. A function that
+        // sets its own logRetention keeps it.
+        logRetention: DEFAULT_LOG_RETENTION,
         ...config
       });
       
@@ -126,157 +139,46 @@ export class LambdaFunctionStack extends cdk.Stack {
       return func;
     };
     
-    const deleteS3APIHandlerFunction = new lambda.Function(scope, 'DeleteS3FilesHandlerFunction', {
-      runtime: lambda.Runtime.PYTHON_3_12, // Choose any supported Node.js runtime
-      code: lambda.Code.fromAsset(path.join(__dirname, 'knowledge-management/delete-s3'), {
-        exclude: PYTHON_ASSET_EXCLUDES,
-      }), // Points to the lambda directory
-      handler: 'lambda_function.lambda_handler', // Points to the 'hello' file in the lambda directory
-      environment: {
-        "BUCKET" : props.knowledgeBucket.bucketName,
-        // Deleting a document is not deleting one object: the row is the only
-        // pointer to the summary, the redacted OCR text and the cached audio,
-        // and it also proves the caller owns the iepId named in the key.
-        "IEP_DOCUMENTS_TABLE": props.iepDocumentsTable.tableName,
-      },
-      timeout: cdk.Duration.seconds(30),
-      logRetention: logs.RetentionDays.ONE_YEAR,
-      ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
-    });
-
-    // Scope to only the operation the handler actually needs.
-    deleteS3APIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        's3:DeleteObject'
-      ],
-      resources: [props.knowledgeBucket.bucketArn + "/*"]
-    }));
-
-    // The derived-artifact sweep lists iep-data/ and iep-audio/ before
-    // deleting; ListBucket is bucket-level, hence the separate statement.
-    deleteS3APIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        's3:ListBucket'
-      ],
-      resources: [props.knowledgeBucket.bucketArn]
-    }));
-
-    grantPermanentDelete(deleteS3APIHandlerFunction, props.knowledgeBucket);
-
-    // GetItem to read contentS3Reference and check ownership, DeleteItem to
-    // drop the row once its artifacts are gone. No index: the key carries the
-    // full primary key (iepId + childId).
-    deleteS3APIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'dynamodb:GetItem',
-        'dynamodb:DeleteItem'
-      ],
-      resources: [props.iepDocumentsTable.tableArn]
-    }));
-
-    this.deleteS3Function = deleteS3APIHandlerFunction;
-
-    const getS3APIHandlerFunction = new lambda.Function(scope, 'GetS3FilesHandlerFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X, // Choose any supported Node.js runtime
-      code: lambda.Code.fromAsset(path.join(__dirname, 'knowledge-management/get-s3')), // Points to the lambda directory
-      handler: 'index.handler', // Points to the 'hello' file in the lambda directory
-      environment: {
-        "BUCKET" : props.knowledgeBucket.bucketName,        
-      },
-      timeout: cdk.Duration.seconds(30),
-      logRetention: logs.RetentionDays.ONE_YEAR,
-      ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
-    });
-
-    // Least privilege: this handler only lists a caller's own prefix
-    // (ListObjectsV2 -> s3:ListBucket, a bucket-level action, so no object
-    // ARN). It never reads, writes or deletes object contents, and the
-    // bucket holds every family's IEP documents, so a wildcard here would
-    // hand full read/write over all of them to anything that compromises
-    // this function. Pinned by the infra suite.
-    getS3APIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        's3:ListBucket'
-      ],
-      resources: [props.knowledgeBucket.bucketArn]
-    }));
-
-    this.getS3KnowledgeFunction = getS3APIHandlerFunction;
-
     const uploadS3KnowledgeAPIHandlerFunction = createTaggedLambda('UploadS3KnowledgeFilesHandlerFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       code: lambda.Code.fromAsset(path.join(__dirname, 'knowledge-management/upload-s3')),
       handler: 'index.handler',
       environment: {
         "BUCKET": props.knowledgeBucket.bucketName,
-        "IEP_DOCUMENTS_TABLE": props.iepDocumentsTable.tableName,
-        "USER_PROFILES_TABLE": props.userProfilesTable.tableName
+        "IEP_DOCUMENTS_TABLE": props.iepDocumentsTable.tableName
       },
       timeout: cdk.Duration.seconds(300),
       logRetention: logs.RetentionDays.ONE_YEAR,
       ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
     });
 
-    // Least privilege. Object-level actions cover the presigned upload URL
-    // (PutObject), the presigned download URL (GetObject) and the
-    // replace-before-put flow in utils/iep-document-utils.mjs, which clears
-    // the child's previous document (DeleteObject). Presigned URLs are
-    // evaluated against THIS role at request time, so the grants must cover
-    // what the URLs do, not just what the handler calls directly.
+    // Least privilege. This handler presigns a PUT and a GET and writes one
+    // row, and that is all it does. Presigned URLs are evaluated against THIS
+    // role at request time, so the object grants must cover what the URLs do.
+    //
+    // It holds NO delete, list or version permission, and no read of the
+    // documents table or the user profiles table. It used to clear the child's
+    // previous document when the upload URL was requested, which needed all of
+    // those, and which left a family with no IEP if the upload then failed.
+    // Replacing a document is now the pipeline's job, once the new one has
+    // finished (the DDB service's purge_replaced_documents). test/infra pins
+    // the absence.
     uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         's3:PutObject',
-        's3:GetObject',
-        's3:DeleteObject'
+        's3:GetObject'
       ],
       resources: [props.knowledgeBucket.bucketArn + "/*"]
     }));
 
-    // The same replace flow lists the child's existing objects first;
-    // ListBucket is bucket-level, hence the separate statement.
+    // The PENDING_UPLOAD row written before the browser's PUT.
     uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: [
-        's3:ListBucket'
-      ],
-      resources: [props.knowledgeBucket.bucketArn]
+      actions: ['dynamodb:PutItem'],
+      resources: [props.iepDocumentsTable.tableArn]
     }));
 
-    // The replace flow deletes the child's previous document permanently.
-    grantPermanentDelete(uploadS3KnowledgeAPIHandlerFunction, props.knowledgeBucket);
-
-    // Add DynamoDB permissions for IEP documents table
-    uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'dynamodb:PutItem',
-        'dynamodb:GetItem',
-        'dynamodb:DeleteItem',
-        'dynamodb:Query',
-        'dynamodb:UpdateItem'
-      ],
-      resources: [
-        props.iepDocumentsTable.tableArn,
-        `${props.iepDocumentsTable.tableArn}/index/byChildId`
-      ]
-    }));
-    
-    // Add DynamoDB permissions for user profiles table
-    uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'dynamodb:GetItem',
-        'dynamodb:Query',
-        'dynamodb:UpdateItem'
-      ],
-      resources: [props.userProfilesTable.tableArn]
-    }));
-    
     this.uploadS3KnowledgeFunction = uploadS3KnowledgeAPIHandlerFunction;
 
     // Note: legacy monolithic metadata handler removed in favor of Step Functions orchestrator
@@ -430,10 +332,17 @@ export class LambdaFunctionStack extends cdk.Stack {
     // Create core business logic step functions (no more individual DDB operations)
     // Note: Removed updateDDBStartFunction - replaced by DDB service calls
 
+    // Each step lambda's own timeout sits just above its state's TimeoutSeconds
+    // in lib/chatbot-api/state-machines/. Step Functions stops waiting when the
+    // state times out but does not cancel the lambda, so a lambda with a longer
+    // timeout keeps running after the state has moved on. MistralOCR and
+    // RedactOCR: state 120s. ParsingAgent and TranslateContent: state 240s
+    // (TranslateContent is also invoked by the single-language machine, whose
+    // TranslateRequestedLanguage state is 240s).
     this.mistralOCRFunction = createStepFunctionLambda(
-      'MistralOCRFunction', 
+      'MistralOCRFunction',
       'metadata-handler/steps/mistral_ocr',
-      600
+      MISTRAL_OCR_TIMEOUT_SECONDS
     );
 
     this.redactOCRFunction = createStepFunctionLambda(
@@ -451,7 +360,7 @@ export class LambdaFunctionStack extends cdk.Stack {
     this.parsingAgentFunction = createStepFunctionLambda(
       'ParsingAgentFunction',
       'metadata-handler/steps/parsing_agent',
-      900
+      PARSING_AGENT_TIMEOUT_SECONDS
     );
 
     // Note: Removed saveEnglishFunction, saveFinalFunction, recordFailureFunction - replaced by DDB service calls
@@ -466,7 +375,7 @@ export class LambdaFunctionStack extends cdk.Stack {
     this.translateContentFunction = createStepFunctionLambda(
       'TranslateContentFunction',
       'metadata-handler/steps/translate_content',
-      600
+      TRANSLATE_CONTENT_TIMEOUT_SECONDS
     );
 
 
@@ -484,6 +393,26 @@ export class LambdaFunctionStack extends cdk.Stack {
     // in stepFunctionPolicies, which every step lambda shares.
     grantPermanentDelete(this.deleteOriginalFunction, props.knowledgeBucket);
     grantPermanentDelete(this.ddbServiceFunction, props.knowledgeBucket);
+
+    // The third: purge_replaced_documents, which the pipeline's
+    // PurgeReplacedDocuments state runs once a re-uploaded document has
+    // finished, to delete the child's older documents. It lists them through
+    // the byChildId index (stepFunctionPolicies grants Query on the table
+    // ARN only, which does not cover an index) and deletes each row. Held by
+    // the DDB service alone: no step lambda, FinalizeResults included, can
+    // delete a document row. The S3 side needs nothing new: DeleteObject and
+    // ListBucket come from stepFunctionPolicies and the version-level
+    // deletes from grantPermanentDelete above.
+    this.ddbServiceFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:DeleteItem'],
+      resources: [props.iepDocumentsTable.tableArn],
+    }));
+    this.ddbServiceFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:Query'],
+      resources: [`${props.iepDocumentsTable.tableArn}/index/byChildId`],
+    }));
 
     // Reclaim documents whose upload never reached S3: the presigned-URL
     // upload path (knowledge-management/upload-s3) writes the DynamoDB row
@@ -628,7 +557,7 @@ export class LambdaFunctionStack extends cdk.Stack {
     // document back to PROCESSED.
     //
     // Why a state machine rather than an async lambda invoke from the API:
-    // TranslateContentFunction has a 600s timeout, twenty times API Gateway's
+    // TranslateContentFunction has a 300s timeout, ten times API Gateway's
     // 29s cap, and translate_content does not reset status — FinalizeResults
     // does. A fire-and-forget invoke would therefore strand every document at
     // PROCESSING_TRANSLATIONS forever, which is the state the frontend polls.
@@ -774,6 +703,14 @@ export class LambdaFunctionStack extends cdk.Stack {
           return env === 'dev' ? 'alias/aiep/app' : 'alias/aiep/app-prod';
         })()
       },
+      // 512 MB, not the 128 MB default. Lambda allocates CPU in proportion to
+      // memory, and this function's cold start is CPU-bound Python import
+      // (boto3 and botocore, ~550 ms at 128 MB), which a profile or document
+      // request waits on whenever a new container starts. It also decrypts
+      // several KMS fields in parallel threads, which a fractional vCPU
+      // serializes. Billing is memory x duration, and a shorter run offsets
+      // most of the higher rate on a function this small.
+      memorySize: 512,
       timeout: cdk.Duration.seconds(300),
       logRetention: logs.RetentionDays.ONE_YEAR,
       ...(props.kmsKey ? { environmentEncryption: props.kmsKey } : {})
@@ -1084,7 +1021,7 @@ export class LambdaFunctionStack extends cdk.Stack {
 
     // PDF Generator Lambda Function
     const pdfGeneratorFunction = createTaggedLambda('PDFGeneratorFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       code: lambda.Code.fromAsset(path.join(__dirname, 'pdf-generator'), {
         assetHashType: cdk.AssetHashType.SOURCE,
         // Local node_modules stays out of the asset so the SOURCE hash is
@@ -1093,7 +1030,7 @@ export class LambdaFunctionStack extends cdk.Stack {
         // are reproducible instead of resolving ranges fresh each time.
         exclude: ['node_modules'],
         bundling: {
-          image: lambda.Runtime.NODEJS_20_X.bundlingImage,
+          image: lambda.Runtime.NODEJS_22_X.bundlingImage,
           command: [
             'bash', '-c',
             'npm --cache /tmp/.npm ci && cp -au . /asset-output'
@@ -1147,8 +1084,6 @@ export class LambdaFunctionStack extends cdk.Stack {
         resources: [props.kmsKey.keyArn]
       });
 
-      deleteS3APIHandlerFunction.addToRolePolicy(kmsPolicy);
-      getS3APIHandlerFunction.addToRolePolicy(kmsPolicy);
       uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(kmsPolicy);
       // Legacy metadata handler removed
       userProfileHandlerFunction.addToRolePolicy(kmsPolicy);

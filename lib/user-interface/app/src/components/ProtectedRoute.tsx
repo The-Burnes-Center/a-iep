@@ -13,7 +13,7 @@ import { SIGN_IN_ROUTE } from '../common/sign-in-location';
  * Summary, Support, Rights and Account, none of which a visitor can open.
  */
 export function ProtectedRoute() {
-  const { authenticated, loading } = useAuth();
+  const { authenticated, loading, signedOut } = useAuth();
   const location = useLocation();
   const { t } = useLanguage();
 
@@ -37,9 +37,14 @@ export function ProtectedRoute() {
   // were trying to open: CustomLogin reads `from` back after a successful
   // sign-in and finishes the journey they started, instead of dropping them on
   // /preferred-language. The hash is what puts them on the form rather than at
-  // the top of the marketing page — see common/sign-in-location.ts.
+  // the top of the marketing page (see common/sign-in-location.ts).
+  //
+  // Not after a deliberate sign-out or account deletion. This guard re-renders
+  // the moment logout() ends the session, still on the page the parent was
+  // on, so `from` would hand that page to whoever signs in next on the device:
+  // the previous parent's account screen, on a shared or family computer.
   if (!authenticated) {
-    return <Navigate to={SIGN_IN_ROUTE} state={{ from: location }} replace />;
+    return <Navigate to={SIGN_IN_ROUTE} state={signedOut ? undefined : { from: location }} replace />;
   }
 
   // Authenticated: the shell, the in-app bar, and the protected routes inside

@@ -1,3 +1,4 @@
+import React from 'react';
 /**
  * The Turnstile widget's lifecycle, which is a login-availability concern
  * rather than a cosmetic one.
@@ -35,6 +36,7 @@ type Options = {
 };
 let rendered: { node: HTMLElement; id: string; options: Options }[] = [];
 let removed: string[] = [];
+let executed: string[] = [];
 let nextId = 0;
 
 const installTurnstile = () => {
@@ -46,6 +48,7 @@ const installTurnstile = () => {
     },
     reset: vi.fn(),
     remove: (id: string) => { removed.push(id); },
+    execute: (id: string) => { executed.push(id); },
   };
 };
 
@@ -347,5 +350,116 @@ describe('useTurnstile language', () => {
     expect(rendered[1].options.language).toBe('ar');
     expect(removed).toEqual([rendered[0].id]);
     expect(rendered[1].node).toBe(screen.getByTestId('container'));
+  });
+});
+
+/**
+ * The check runs on send, not on page load.
+ *
+ * The login card sits on the landing page. An auto-running widget minted a
+ * token for every visitor and almost none were ever verified, which Cloudflare
+ * reports as the server not calling siteverify. A token must exist only for a
+ * send that is about to use it.
+ */
+const SendHarness = ({ tab }: { tab: 'phone' | 'email' }) => {
+  const turnstile = useTurnstile();
+  const [result, setResult] = React.useState('pending');
+  return (
+    <div>
+      {tab === 'phone' && <div ref={turnstile.containerRef} />}
+      <button onClick={() => { turnstile.getToken().then((t) => setResult(t ?? 'null')); }}>send</button>
+      <span data-testid="result">{result}</span>
+    </div>
+  );
+};
+const SendWrapper = ({ tab }: { tab: 'phone' | 'email' }) => (
+  <AppContext.Provider value={{ turnstileSiteKey: SITE_KEY } as never}>
+    <SendHarness tab={tab} />
+  </AppContext.Provider>
+);
+
+describe('useTurnstile runs the check only when asked', () => {
+  beforeEach(() => {
+    rendered = [];
+    removed = [];
+    executed = [];
+    nextId = 0;
+    document.getElementById('cf-turnstile')?.remove();
+    installTurnstile();
+  });
+
+  const send = () => act(() => { screen.getByText('send').click(); });
+
+  test('rendering the widget does not run it', () => {
+    render(<SendWrapper tab="phone" />);
+
+    expect(rendered[0].options).toMatchObject({ execution: 'execute', appearance: 'interaction-only' });
+    expect(executed).toEqual([]);
+  });
+
+  test('a send runs it and gets the token it produces', async () => {
+    render(<SendWrapper tab="phone" />);
+
+    send();
+    expect(executed).toEqual([rendered[0].id]);
+    expect(screen.getByTestId('result')).toHaveTextContent('pending');
+
+    await act(async () => { rendered[0].options.callback('fresh-token'); });
+    expect(screen.getByTestId('result')).toHaveTextContent('fresh-token');
+  });
+
+  test('a second send while the check is running does not run it twice', () => {
+    // Turnstile refuses a second execute on a widget that is mid-run.
+    render(<SendWrapper tab="phone" />);
+
+    send();
+    send();
+
+    expect(executed).toHaveLength(1);
+  });
+
+  test('a check that errors gives the send null, not a hang', async () => {
+    render(<SendWrapper tab="phone" />);
+
+    send();
+    await act(async () => { rendered[0].options['error-callback']?.(); });
+
+    expect(screen.getByTestId('result')).toHaveTextContent('null');
+  });
+
+  test('a check that times out gives the send null', async () => {
+    render(<SendWrapper tab="phone" />);
+
+    send();
+    await act(async () => { rendered[0].options['timeout-callback']?.(); });
+
+    expect(screen.getByTestId('result')).toHaveTextContent('null');
+  });
+
+  test('a widget torn down mid-run gives the send null', async () => {
+    const view = render(<SendWrapper tab="phone" />);
+
+    send();
+    await act(async () => { view.rerender(<SendWrapper tab="email" />); });
+
+    expect(screen.getByTestId('result')).toHaveTextContent('null');
+  });
+
+  test('a widget Turnstile no longer knows fails the send instead of hanging it', async () => {
+    window.turnstile!.execute = () => { throw new Error('Turnstile: unknown widget'); };
+    render(<SendWrapper tab="phone" />);
+
+    await act(async () => { screen.getByText('send').click(); });
+
+    expect(screen.getByTestId('result')).toHaveTextContent('null');
+  });
+
+  test('with no widget mounted there is nothing to run', async () => {
+    render(<SendWrapper tab="email" />);
+
+    await act(async () => { screen.getByText('send').click(); });
+
+    expect(executed).toEqual([]);
+    expect(screen.getByTestId('result')).toHaveTextContent('null');
   });
 });

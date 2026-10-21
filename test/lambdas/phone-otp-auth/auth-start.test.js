@@ -283,6 +283,54 @@ describe('auth start', () => {
         expect(errors.join('\n')).toContain('secret-unreadable');
     });
 
+    // The secret read is started before the counters so a cold container pays
+    // for the two in parallel. Both halves are pinned: it really does overlap,
+    // and starting it early never changes what a refused request costs.
+    test('the secret read starts while the rate-limit counters are still running', async () => {
+        let releaseCounter;
+        mockDdbSend.mockImplementation(() => new Promise((resolve) => {
+            releaseCounter = () => resolve({ Attributes: { attempts: 1 } });
+        }));
+
+        const pending = load()(request());
+        // Let the handler run up to its first await: the per-source counter.
+        await new Promise((resolve) => setImmediate(resolve));
+
+        expect(mockSsmSend).toHaveBeenCalledTimes(1);
+        expect(putCalls()).toHaveLength(0);
+
+        // Drain both counters (each is a separate DynamoDB call) and finish.
+        mockDdbSend.mockResolvedValue({ Attributes: { attempts: 1 } });
+        releaseCounter();
+        const response = await pending;
+        expect(response.statusCode).toBe(200);
+    });
+
+    test('a refused request whose secret read fails leaves no unhandled rejection', async () => {
+        // Rate limited AND the secret unreadable: the handler returns the 429
+        // without ever awaiting the read, which rejects with nobody listening
+        // unless the early start handled it.
+        mockDdbSend.mockResolvedValue({ Attributes: { attempts: 99 } });
+        mockSsmSend.mockRejectedValue(Object.assign(new Error('ssm down'), { name: 'InternalServerError' }));
+
+        const unhandled = [];
+        const onUnhandled = (reason) => unhandled.push(reason);
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            const response = await load()(request());
+            // Rejections are reported on a later turn of the event loop.
+            await new Promise((resolve) => setImmediate(resolve));
+            await new Promise((resolve) => setImmediate(resolve));
+
+            expect(response.statusCode).toBe(429);
+            expect(bodyOf(response).code).toBe('rate_limited');
+            expect(global.fetch).not.toHaveBeenCalled();
+            expect(unhandled).toEqual([]);
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+        }
+    });
+
     test('a failed bot check refuses, writes no challenge and queues no send', async () => {
         global.fetch.mockResolvedValue({
             ok: true, status: 200, json: async () => ({ success: false, 'error-codes': ['invalid-input-response'] }),
@@ -294,6 +342,33 @@ describe('auth start', () => {
         expect(putCalls()).toHaveLength(0);
         expect(mockLambdaSend).not.toHaveBeenCalled();
         expect(errors.join('\n')).toContain('invalid-token');
+    });
+
+    test('an unreachable Cloudflare fails CLOSED as unavailable: no challenge, no send', async () => {
+        global.fetch.mockRejectedValue(new Error('network down'));
+        const response = await load()(request());
+
+        expect(response.statusCode).toBe(503);
+        expect(bodyOf(response).code).toBe('unavailable');
+        expect(putCalls()).toHaveLength(0);
+        expect(mockLambdaSend).not.toHaveBeenCalled();
+        expect(errors.join('\n')).toContain('verify-failed');
+    });
+
+    test('a token solved on a host we do not serve is refused', async () => {
+        process.env.TURNSTILE_EXPECTED_HOSTNAMES = 'a-iep.org';
+        global.fetch.mockResolvedValue({
+            ok: true, status: 200, json: async () => ({ success: true, hostname: 'elsewhere.example' }),
+        });
+        try {
+            const response = await load()(request());
+            expect(response.statusCode).toBe(403);
+            expect(bodyOf(response).code).toBe('bot_check_failed');
+            expect(mockLambdaSend).not.toHaveBeenCalled();
+            expect(errors.join('\n')).toContain('hostname-mismatch');
+        } finally {
+            delete process.env.TURNSTILE_EXPECTED_HOSTNAMES;
+        }
     });
 
     test('a missing token is refused, not waved through', async () => {
@@ -356,6 +431,57 @@ describe('auth start', () => {
             await handler(input);
             expect(errors.join('\n')).toContain(`AUTH_START_REFUSED reason=${marker}`);
         }
+    });
+});
+
+describe('auth start response headers', () => {
+    beforeEach(() => {
+        jest.resetModules();
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+        mockDdbSend.mockReset().mockResolvedValue({ Attributes: { attempts: 1 } });
+        mockSsmSend.mockReset().mockResolvedValue({ Parameter: { Value: 'real-secret' } });
+        mockLambdaSend.mockReset().mockResolvedValue({ StatusCode: 202 });
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true, status: 200, json: async () => ({ success: true }),
+        });
+        process.env.OTP_RATE_LIMIT_TABLE = 'rate-limits';
+        process.env.AUTH_SESSION_TABLE = 'auth-sessions';
+        process.env.TURNSTILE_SECRET_PARAM = '/a-iep/test/turnstile/secret';
+        process.env.AUTH_DISPATCH_FUNCTION = 'auth-dispatch';
+    });
+
+    afterEach(() => {
+        delete global.fetch;
+        jest.restoreAllMocks();
+    });
+
+    test('the challenge handle is never cacheable, and neither is a refusal', async () => {
+        const handler = load();
+        const ok = await handler(request());
+        const refused = await handler(request({ destination: 'x' }));
+
+        expect([ok.statusCode, refused.statusCode]).toEqual([200, 400]);
+        expect(ok.headers['Cache-Control']).toBe('no-store');
+        expect(refused.headers['Cache-Control']).toBe('no-store');
+    });
+
+    test.each([
+        ['per-source', () => mockDdbSend.mockResolvedValue({ Attributes: { attempts: 99 } })],
+        ['global', () => {
+            let call = 0;
+            mockDdbSend.mockImplementation(() => {
+                call += 1;
+                return Promise.resolve({ Attributes: { attempts: call === 1 ? 1 : 999 } });
+            });
+        }],
+    ])('a %s 429 carries Retry-After equal to the body figure', async (_l, arrange) => {
+        arrange();
+        const response = await load()(request());
+
+        expect(response.statusCode).toBe(429);
+        expect(bodyOf(response).retryAfterSeconds).toBe(3600);
+        expect(response.headers['Retry-After']).toBe('3600');
     });
 });
 

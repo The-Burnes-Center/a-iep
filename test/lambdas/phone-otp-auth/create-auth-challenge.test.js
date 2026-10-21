@@ -137,6 +137,7 @@ describe('create-auth-challenge', () => {
         // The backdoor must not exist unless a test opts in explicitly.
         delete process.env.TEST_PHONE_NUMBERS;
         delete process.env.TEST_OTP_PARAM_PREFIX;
+        delete process.env.OTP_SMS_DOMAIN;
     });
 
     test('round 1 is a language handshake and sends no SMS', async () => {
@@ -192,6 +193,28 @@ describe('create-auth-challenge', () => {
         expect(mockSnsSend.mock.calls[0][0].input.Message).toBe(expected);
     });
 
+    test('the published SMS ends with the domain-bound code line when a host is configured', async () => {
+        process.env.OTP_SMS_DOMAIN = 'dev.a-iep.org';
+        const event = await handler(baseEvent([HANDSHAKE_PASS], { clientMetadata: { language: 'es' } }));
+        const code = event.response.privateChallengeParameters.secretLoginCode;
+        const { Message } = mockSnsSend.mock.calls[0][0].input;
+
+        expect(Message.endsWith(`\n\n@dev.a-iep.org #${code}`)).toBe(true);
+        // The existing Spanish wording is still there, ahead of the line.
+        expect(Message.startsWith(
+            getMessages('es').otpLoginSms.replace('{code}', code).replace('{minutes}', 5),
+        )).toBe(true);
+    });
+
+    test('with no host configured the SMS carries no domain line', async () => {
+        const event = await handler(baseEvent([HANDSHAKE_PASS]));
+        const code = event.response.privateChallengeParameters.secretLoginCode;
+        const { Message } = mockSnsSend.mock.calls[0][0].input;
+
+        expect(Message).not.toContain('@');
+        expect(Message.split(code)).toHaveLength(2);
+    });
+
     test('nothing from the profile row but the language reaches the text', async () => {
         // The profile is read to pick a language. Everything else on that row
         // describes a child and their records, and a text message leaves our
@@ -226,6 +249,50 @@ describe('create-auth-challenge', () => {
         // The destination is the phone number and nothing about it is in the body.
         expect(PhoneNumber).toBe(PHONE);
         expect(Message).not.toContain(PHONE);
+    });
+
+    // The profile read that picks the language is independent of the policy
+    // read, so the two overlap. Only reads overlap: every counter write still
+    // waits for the destination check, which is what the second test pins.
+    test('the language lookup runs while the SMS policy is still being read', async () => {
+        process.env.USER_PROFILES_TABLE = 'test-profiles-table';
+        process.env.SMS_POLICY_PARAM_PREFIX = '/a-iep/test/sms-policy';
+        let releasePolicy;
+        mockSsmSend.mockImplementation(() => new Promise((resolve) => {
+            releasePolicy = () => resolve({ Parameters: [] });
+        }));
+        mockDdbSend.mockImplementation(async (cmd) => {
+            if (cmd instanceof UpdateCommand) return { Attributes: { smsCount: 1 } };
+            return { Item: { secondaryLanguage: 'es' } };
+        });
+
+        const pending = handler(baseEvent([HANDSHAKE_PASS]));
+        await new Promise((resolve) => setImmediate(resolve));
+
+        // Policy still unresolved, yet the profile has already been asked for,
+        // and nothing has been counted or sent.
+        const asked = mockDdbSend.mock.calls.map(([cmd]) => cmd.input.TableName);
+        expect(asked).toEqual(['test-profiles-table']);
+        expect(updateCalls()).toHaveLength(0);
+        expect(mockSnsSend).not.toHaveBeenCalled();
+
+        releasePolicy();
+        const event = await pending;
+        const code = event.response.privateChallengeParameters.secretLoginCode;
+        expect(mockSnsSend.mock.calls[0][0].input.Message)
+            .toBe(getMessages('es').otpLoginSms.replace('{code}', code).replace('{minutes}', 5));
+    });
+
+    test('starting the language lookup early does not let a refused destination spend anything', async () => {
+        process.env.USER_PROFILES_TABLE = 'test-profiles-table';
+        const event = await handler(baseEvent([HANDSHAKE_PASS], {
+            userAttributes: { phone_number: '+442071838750' },
+        }));
+
+        expect(event.response.publicChallengeParameters).toEqual(UNSUPPORTED_SHAPE);
+        expect(mockSnsSend).not.toHaveBeenCalled();
+        // No counter row, global or per-recipient: the checks stayed in order.
+        expect(updateCalls()).toHaveLength(0);
     });
 
     test('reuses the previous OTP inside the 5-minute window without re-texting', async () => {
@@ -630,6 +697,72 @@ describe('create-auth-challenge', () => {
 
             const reads = mockSsmSend.mock.calls.filter(([cmd]) => cmd instanceof GetParametersCommand);
             expect(reads).toHaveLength(1);
+        });
+
+        // US carriers ignore alphanumeric sender IDs, so none is sent. The only
+        // identity lever that works is pinning the origination number, which is
+        // optional and read with the rest of the policy.
+        describe('origination number', () => {
+            const attrs = () => mockSnsSend.mock.calls[0][0].input.MessageAttributes;
+
+            test('absent: no origination attribute, and never a sender ID', async () => {
+                paramsReturn({ 'max-per-hour-global': '40' });
+
+                await handler(baseEvent([HANDSHAKE_PASS]));
+
+                expect(Object.keys(attrs()).sort()).toEqual(
+                    ['AWS.SNS.SMS.MaxPrice', 'AWS.SNS.SMS.SMSType']);
+            });
+
+            test('present: every send is pinned to it', async () => {
+                paramsReturn({ 'origination-number': '+18885550123' });
+
+                await handler(baseEvent([HANDSHAKE_PASS]));
+
+                expect(attrs()['AWS.MM.SMS.OriginationNumber']).toEqual({
+                    DataType: 'String', StringValue: '+18885550123',
+                });
+                expect(attrs()['AWS.SNS.SMS.SenderID']).toBeUndefined();
+            });
+
+            test('it is asked for in the same read as the rest of the policy', async () => {
+                paramsReturn({ 'origination-number': '+18885550123' });
+
+                await handler(baseEvent([HANDSHAKE_PASS]));
+
+                const reads = mockSsmSend.mock.calls.filter(([cmd]) => cmd instanceof GetParametersCommand);
+                expect(reads).toHaveLength(1);
+                expect(reads[0][0].input.Names).toContain(`${PREFIX}/origination-number`);
+            });
+
+            test.each([['empty', ''], ['blank', '   '], ['not E.164', 'GovLab-AIEP'], ['no plus', '18885550123']])(
+                'a %s value is ignored: the text still goes, unpinned, and the value is not logged',
+                async (_label, value) => {
+                    paramsReturn({ 'origination-number': value });
+                    const logged = [];
+                    jest.spyOn(console, 'error').mockImplementation((...a) => logged.push(a.join(' ')));
+
+                    await handler(baseEvent([HANDSHAKE_PASS]));
+
+                    expect(mockSnsSend).toHaveBeenCalledTimes(1);
+                    expect(attrs()['AWS.MM.SMS.OriginationNumber']).toBeUndefined();
+                    if (value.trim()) {
+                        expect(logged.join('\n')).not.toContain(value);
+                    }
+                },
+            );
+
+            test('an unreadable store sends unpinned rather than not at all', async () => {
+                mockSsmSend.mockImplementation(async (cmd) => {
+                    if (cmd instanceof GetParametersCommand) throw new Error('SSM unavailable');
+                    return { Version: 1 };
+                });
+
+                await handler(baseEvent([HANDSHAKE_PASS]));
+
+                expect(mockSnsSend).toHaveBeenCalledTimes(1);
+                expect(attrs()['AWS.MM.SMS.OriginationNumber']).toBeUndefined();
+            });
         });
 
         test('the policy read is scoped to the configured prefix', async () => {

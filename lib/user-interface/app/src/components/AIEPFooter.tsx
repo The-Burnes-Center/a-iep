@@ -116,12 +116,12 @@ const AIEPFooter: React.FC<{ variant?: FooterVariant }> = ({ variant = 'full' })
     <footer className="aiep-footer">
       {/* alt="", not "Rainbow stripe": it is a divider, and this footer is now
           on every screen, so a name here is a word read out 29 times. */}
-      <img
+      <img loading="lazy" decoding="async"
         src="/images/rainbow-stripe-desktop.png"
         alt=""
         className="footer-stripe-desktop"
       />
-      <img
+      <img loading="lazy" decoding="async"
         src="/images/rainbow-stripe-mobile.png"
         alt=""
         className="footer-stripe-mobile"
@@ -129,24 +129,24 @@ const AIEPFooter: React.FC<{ variant?: FooterVariant }> = ({ variant = 'full' })
 
       <div className="footer-content">
         <div className="footer-logo">
-            <img src="/images/aiep-logo-vertical-white.svg" alt="AIEP Logo" />
+            <img loading="lazy" decoding="async" src="/images/aiep-logo-vertical-white.svg" alt="AIEP Logo" />
             <p className="footer-tagline">{t('footer.tagline')}</p>
         </div>
         <div className="footer-links">{linkList}</div>
         <div className="footer-project-partners">
           <div className="footer-project-partners-logo">
             <a href="https://thegovlab.org/" target="_blank" rel="noopener noreferrer">
-              <img src="/images/govlab-negative.svg" alt="The Gov Lab Logo" />
+              <img loading="lazy" decoding="async" src="/images/govlab-negative.svg" alt="The Gov Lab Logo" />
             </a>
           </div>
           <div className="footer-project-partners-logo">
             <a href="https://burnes.northeastern.edu/" target="_blank" rel="noopener noreferrer">
-              <img src="/images/burnes-logo-negative 1.svg" alt="The Burnes Center Logo" />
+              <img loading="lazy" decoding="async" src="/images/burnes-logo-negative 1.svg" alt="The Burnes Center Logo" />
             </a>
           </div>
           <div className="footer-project-partners-logo">
             <a href="https://innovateschools.org/" target="_blank" rel="noopener noreferrer">
-              <img src="/images/innovate-negative-tight 1.svg" alt="Innovate Public Schools Logo" />
+              <img loading="lazy" decoding="async" src="/images/innovate-negative-tight 1.svg" alt="Innovate Public Schools Logo" />
             </a>
           </div>
         </div>

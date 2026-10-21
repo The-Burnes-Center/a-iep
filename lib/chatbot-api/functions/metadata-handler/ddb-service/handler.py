@@ -11,6 +11,7 @@ import traceback
 from botocore.exceptions import ClientError
 from datetime import datetime
 from decimal import Decimal
+from replaced_documents import purge_replaced_documents
 from s3_content_handler import (
     save_content_to_s3,
     get_content_from_s3,
@@ -44,9 +45,10 @@ def _guarded_update(**kwargs):
 
     DynamoDB's update_item is an upsert, so every write in this module used to
     resurrect a document that had already been deleted. That is not a rare
-    race: one active IEP per child means the upload path replaces (and deletes)
-    the previous document, so re-uploading while a run is still in flight hits
-    it directly.
+    race: one active IEP per child means a finished upload deletes the
+    child's older documents (purge_replaced_documents), and one of those can
+    still be mid-run, so a run that is overtaken by a newer upload hits it
+    directly.
 
     A resurrected row carries only the attributes of the single write that
     recreated it. It has no userId, and DynamoDB does not index items missing
@@ -154,7 +156,7 @@ def lambda_handler(event, context):
     
     Expected event structure:
     {
-        "operation": "update_progress|record_failure|get_document|save_ocr_data|get_ocr_data",
+        "operation": "update_progress|record_failure|get_document|save_ocr_data|get_ocr_data|purge_replaced_documents",
         "params": {
             // operation-specific parameters
         }
@@ -186,6 +188,8 @@ def lambda_handler(event, context):
             return expire_stale_pending_uploads(params)
         elif operation == 'get_student_name':
             return get_student_name(params)
+        elif operation == 'purge_replaced_documents':
+            return purge_replaced_documents(table, params, context)
         else:
             raise ValueError(f"Unknown operation: {operation}")
             
@@ -881,8 +885,8 @@ def save_content_to_s3_operation(params):
         s3_ref = save_content_to_s3(iep_id, child_id, merged_content)
 
         # The object lands before the row update. If the row was deleted in
-        # between (a re-upload replaces the child's previous IEP, and a
-        # translation can still be running against it), this object would be
+        # between (a finished re-upload deletes the child's previous IEP, and
+        # a translation can still be running against it), this object would be
         # left with nothing pointing at it, which is precisely how the orphaned
         # summaries accumulated. Roll it back instead.
         # Update DynamoDB - remove old fields and add S3 reference

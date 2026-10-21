@@ -13,14 +13,14 @@
  * (language-context.ts persists it to localStorage; the summary page also
  * re-syncs it from the profile on every load).
  */
-import { Page, Locator, expect } from '@playwright/test';
+import { Page, Locator, Response, expect } from '@playwright/test';
 import * as path from 'path';
 import { appUrl } from './config';
 import { ensureTestUser } from './aws';
 import { loginWithOtp } from './app';
 import { DOCUMENTS_USER } from './phones';
 import {
-  languageSelect,
+  offeredLanguageCount,
   openLanguageForm,
   readLanguagePreference,
   setLanguagePreference,
@@ -44,8 +44,27 @@ export const FIXTURE_PDF = path.join(__dirname, '..', 'fixtures', 'synthetic-iep
  */
 export const TRANSLATION_LANGUAGE = 'es';
 
-/** Function words that appear in essentially any Spanish paragraph. */
-const SPANISH_MARKERS = [' de ', ' que ', ' la ', ' los ', ' para ', ' con ', ' en '];
+/**
+ * Spanish function words, matched as whole words and COUNTED.
+ *
+ * Every Spanish sentence is built on these, and English prose holds none of
+ * them (plain English has no "de", "la", "y" or "por"). Counting occurrences
+ * rather than distinct words, over a broad set, is what makes this robust: the
+ * previous check needed three of seven fixed words, each with a space on both
+ * sides, and rejected a real summary built on "por", "las", "y" and "su"
+ * (nightly 2026-10-15). Unicode letter boundaries, so "de," and "en." count
+ * and "deber" or "enseñar" do not.
+ */
+const SPANISH_FUNCTION_WORDS =
+  /(?<!\p{L})(?:de|del|la|las|el|los|lo|que|en|y|por|para|con|su|sus|se|un|una|es|al)(?!\p{L})/giu;
+
+/**
+ * A 120-character Spanish passage carries roughly one function word in every
+ * four or five words; the 2026-10-15 summary held 11 in its first 200
+ * characters. A proper noun such as "Escuela de la Paz" supplies two or three,
+ * so the floor sits above that.
+ */
+const SPANISH_FUNCTION_WORD_MINIMUM = 6;
 
 /**
  * Every language the STAGING deployment offers, in the app's display order.
@@ -367,13 +386,13 @@ export async function ensureTranslationLanguage(
   // the on-demand stage rotates onto Arabic, which ships on staging and is
   // dark on prod (ENABLED_LANGUAGES in lib/user-interface/index.ts, pinned by
   // test/infra/enabled-languages.test.ts). Without this the failure is
-  // selectOption() timing out with no clue as to why.
-  await expect(
-    languageSelect(page).locator(`option[value="${language}"]`),
+  // the option click timing out with no clue as to why.
+  expect(
+    await offeredLanguageCount(page, language),
     `the deployed site does not offer ${language} in its language picker: ` +
     'enabledLanguages in its aws-exports.json (ENABLED_LANGUAGES at deploy time) ' +
     'no longer includes it'
-  ).toHaveCount(1);
+  ).toBe(1);
 
   if ((await readLanguagePreference(page)) !== language) {
     await setLanguagePreference(page, language);
@@ -391,11 +410,71 @@ export async function ensureTranslationLanguage(
   ).toBe(language);
 }
 
-/** Upload the synthetic fixture from /iep-documents and follow the redirect. */
-export async function uploadFixture(page: Page): Promise<void> {
+/**
+ * What the documents endpoint answers with, as far as these journeys read it.
+ *
+ * Replacing an IEP no longer deletes the old one up front: the endpoint keeps
+ * answering with the old, finished document until the new one is PROCESSED,
+ * naming the newer one as `replacement`. So "the summary is on screen" no
+ * longer says WHICH document it is, and the journeys read the API to tell.
+ */
+export interface ApiDocument {
+  iepId?: string;
+  status?: string;
+  replacement?: { iepId: string; status: string };
+}
+
+const DOCUMENTS_PATH = /\/profile\/children\/[^/]+\/documents$/;
+
+/**
+ * Record the latest answer the page's own requests get from the documents
+ * endpoint. The summary page polls it, so this follows the run without the
+ * journey making a second, authenticated request of its own.
+ */
+export function watchDocuments(page: Page): { latest: () => ApiDocument | null; stop: () => void } {
+  let latest: ApiDocument | null = null;
+  const onResponse = async (response: Response) => {
+    if (response.request().method() !== 'GET') return;
+    if (!DOCUMENTS_PATH.test(new URL(response.url()).pathname)) return;
+    try {
+      const body = await response.json();
+      // "No document" answers with { documents: [] }, which has no iepId.
+      latest = body && typeof body === 'object' ? (body as ApiDocument) : null;
+    } catch {
+      // An unreadable answer (a redirect, an aborted request) says nothing.
+    }
+  };
+  page.on('response', onResponse);
+  return { latest: () => latest, stop: () => page.off('response', onResponse) };
+}
+
+/**
+ * The iepId of the document the parent is shown right now, or null when there
+ * is none. Read BEFORE an upload, so the run can tell the new document from
+ * the one it replaces.
+ */
+export async function documentOnFileId(page: Page, timeoutMs: number = 60_000): Promise<string | null> {
+  const watcher = watchDocuments(page);
+  try {
+    await gotoSummaryPage(page);
+    const deadline = Date.now() + timeoutMs;
+    while (watcher.latest() === null && Date.now() < deadline) {
+      await sleep(page, 1_000);
+    }
+    if (watcher.latest() === null) {
+      throw new Error('the summary page never read the documents endpoint, so which document is on file is unknown');
+    }
+    return watcher.latest()?.iepId ?? null;
+  } finally {
+    watcher.stop();
+  }
+}
+
+/** Upload a synthetic fixture from /iep-documents and follow the redirect. */
+export async function uploadFixture(page: Page, fixture: string = FIXTURE_PDF): Promise<void> {
   await gotoDocumentsPage(page);
   // The visible chooser is a styled overlay; the real input keeps this id.
-  await page.locator('#fileUpload').setInputFiles(FIXTURE_PDF);
+  await page.locator('#fileUpload').setInputFiles(fixture);
   await page.getByTestId(TESTID.uploadSubmit).click();
   // A successful S3 upload routes to the summary page.
   await page.waitForURL((url) => url.pathname === '/summary-and-translations', {
@@ -439,6 +518,49 @@ export async function waitForProcessingMilestone(
 }
 
 /**
+ * Milestone 1 when the upload REPLACES a document: the new upload registered
+ * and is being processed while the parent is still shown the old one.
+ *
+ * There is no processing screen to wait for here, by design: the old IEP stays
+ * on screen until the new one is ready. What proves the new upload was picked
+ * up is the documents endpoint still answering with the old document and
+ * naming a replacement that is in progress. A replacement that is already
+ * FAILED fails the run, and one that is already finished is accepted (a fast
+ * pipeline can beat the first poll).
+ */
+export async function waitForReplacementInProgress(
+  page: Page,
+  previousIepId: string,
+  timeoutMs: number = PROCESSING_APPEARS_MS
+): Promise<void> {
+  const watcher = watchDocuments(page);
+  const deadline = Date.now() + timeoutMs;
+  let lastNavigation = Date.now();
+  try {
+    while (Date.now() < deadline) {
+      const answer = watcher.latest();
+      if (answer?.replacement?.status === 'FAILED') {
+        throw new Error('the pipeline reported FAILED for the replacement document');
+      }
+      if (answer?.iepId === previousIepId && answer.replacement) return;
+      if (answer?.iepId && answer.iepId !== previousIepId) return;
+      if (Date.now() - lastNavigation > 15_000) {
+        await gotoSummaryPage(page);
+        lastNavigation = Date.now();
+      }
+      await sleep(page, 3_000);
+    }
+  } finally {
+    watcher.stop();
+  }
+
+  throw new Error(
+    `the documents endpoint never reported a replacement for ${previousIepId} within ` +
+    `${timeoutMs / 60_000} minutes of the upload (did the S3 event -> metadata-handler hookup break?)`
+  );
+}
+
+/**
  * Milestone 2: the pipeline finished and the processed summary is on screen.
  *
  * The summary page polls its own API every few seconds; the occasional
@@ -447,26 +569,44 @@ export async function waitForProcessingMilestone(
  */
 export async function waitForProcessedSummary(
   page: Page,
-  timeoutMs: number = SUMMARY_APPEARS_MS
+  timeoutMs: number = SUMMARY_APPEARS_MS,
+  /**
+   * The document this upload replaced, when there was one. The old document's
+   * summary is on screen the whole time the new one runs, so a summary panel
+   * proves nothing until the endpoint has moved on to a different, finished
+   * document.
+   */
+  previousIepId: string | null = null
 ): Promise<string> {
   const anyPanel = page.locator('[data-testid^="summary-tab-panel-"]:visible').first();
   const failed = page.getByTestId(TESTID.failed);
+  const watcher = watchDocuments(page);
   const deadline = Date.now() + timeoutMs;
   let lastNavigation = Date.now();
 
-  while (Date.now() < deadline) {
-    if (await failed.isVisible()) {
-      throw new Error('the pipeline reported FAILED for the uploaded document');
+  try {
+    while (Date.now() < deadline) {
+      if (await failed.isVisible()) {
+        throw new Error('the pipeline reported FAILED for the uploaded document');
+      }
+      const answer = watcher.latest();
+      if (previousIepId && answer?.replacement?.status === 'FAILED') {
+        throw new Error('the pipeline reported FAILED for the replacement document');
+      }
+      const replaced = !previousIepId
+        || (Boolean(answer?.iepId) && answer?.iepId !== previousIepId && answer?.status === 'PROCESSED');
+      if (replaced && await anyPanel.isVisible()) {
+        const testId = await anyPanel.getAttribute('data-testid');
+        return (testId ?? '').replace('summary-tab-panel-', '');
+      }
+      if (Date.now() - lastNavigation > 60_000) {
+        await gotoSummaryPage(page);
+        lastNavigation = Date.now();
+      }
+      await sleep(page, 5_000);
     }
-    if (await anyPanel.isVisible()) {
-      const testId = await anyPanel.getAttribute('data-testid');
-      return (testId ?? '').replace('summary-tab-panel-', '');
-    }
-    if (Date.now() - lastNavigation > 60_000) {
-      await gotoSummaryPage(page);
-      lastNavigation = Date.now();
-    }
-    await sleep(page, 5_000);
+  } finally {
+    watcher.stop();
   }
 
   throw new Error(
@@ -503,6 +643,9 @@ export async function selectSummaryLanguage(page: Page, lang: string): Promise<v
     'the summary page language dropdown is missing: the document has content in only one ' +
     'language, so the translation step never produced anything'
   ).toBeVisible({ timeout: 30_000 });
+  // The picker sits in the top bar from the first render, marked unavailable
+  // (aria-disabled) while the document is processing or a translation runs.
+  await expect(toggle).not.toHaveAttribute('aria-disabled', 'true', { timeout: 60_000 });
 
   await toggle.click();
   await page.getByTestId(TESTID.languageOption(lang)).click();
@@ -568,13 +711,12 @@ export function expectSpanishAndDifferent(spanish: string, english: string): voi
     'the translated tab shows the SAME text as the English tab (translation step no-op?)'
   ).not.toBe(english);
 
-  const padded = ` ${spanish.toLowerCase()} `;
-  const hits = SPANISH_MARKERS.filter((marker) => padded.includes(marker));
+  const hits = spanish.normalize('NFC').match(SPANISH_FUNCTION_WORDS)?.length ?? 0;
   expect(
-    hits.length,
-    `the translated summary does not read as Spanish (matched ${hits.length} of the ` +
-    `common function words ${SPANISH_MARKERS.join(',')}): ${spanish.slice(0, 200)}`
-  ).toBeGreaterThanOrEqual(3);
+    hits,
+    `the translated summary does not read as Spanish (${hits} Spanish function words, ` +
+    `fewer than ${SPANISH_FUNCTION_WORD_MINIMUM}): ${spanish.slice(0, 200)}`
+  ).toBeGreaterThanOrEqual(SPANISH_FUNCTION_WORD_MINIMUM);
 }
 
 interface ScriptRule {

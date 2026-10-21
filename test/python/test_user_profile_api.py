@@ -7,6 +7,7 @@ encryption, and Cognito for account deletion.
 import base64
 import json
 import sys
+import threading
 from types import SimpleNamespace
 
 import boto3
@@ -521,7 +522,8 @@ def test_add_child_malformed_body_is_a_client_error(api):
 def test_get_documents_denies_unowned_child(api):
     profile_with_child(api, child_id='child-1')
     status, body = call(api, '/profile/children/child-9/documents', 'GET')
-    assert status == 403
+    assert status == 404
+    assert body == {'message': 'Not found'}
 
 
 def test_get_documents_empty(api):
@@ -673,7 +675,9 @@ def test_the_migrated_document_shape_is_substituted_too(api, monkeypatch):
     """A row with no contentS3Reference is migrated through the ddb-service,
     and the content comes back from there rather than from S3."""
     profile_with_named_child(api, encrypt(api, CHILD_NAME))
-    put_document(api)  # no contentS3Reference: takes the migration branch
+    # No contentS3Reference but inline content: the only row the lazy
+    # migration has anything to move, so the only one that takes its branch.
+    put_document(api, summaries={'en': 'old inline summary'})
     fake_ddb_service(api, monkeypatch, lambda payload: {
         'statusCode': 200, 'body': json.dumps(TOKEN_CONTENT)})
 
@@ -681,6 +685,62 @@ def test_the_migrated_document_shape_is_substituted_too(api, monkeypatch):
 
     assert body['summaries']['en'] == 'Jordan Smith is making progress.'
     assert '{{S}}' not in json.dumps(body)
+
+
+# A document that is still PENDING_UPLOAD or PROCESSING has no content to
+# migrate. Invoking ddb-service for it was a synchronous call to a lambda that
+# is cold nine times in ten (~1s), for an answer that was always "nothing here".
+
+@pytest.mark.parametrize('status', ['PENDING_UPLOAD', 'PROCESSING', 'FAILED', None])
+def test_a_document_with_no_content_yet_does_not_invoke_ddb_service(api, monkeypatch, status):
+    profile_with_child(api)
+    row = {'iepId': 'iep-1', 'childId': 'child-1', 'userId': USER, 'createdAt': 1000,
+           'progress': 40, 'current_step': 'ocr'}
+    if status:
+        row['status'] = status
+    api.documents.put_item(Item=row)
+    fake = fake_ddb_service(api, monkeypatch, lambda payload: {
+        'statusCode': 500, 'body': json.dumps({'error': 'must not be called'})})
+
+    code, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert fake.invocations == []
+    assert code == 200
+    assert body['iepId'] == 'iep-1'
+    assert body['status'] == ('FAILED' if status == 'FAILED' else 'PROCESSING')
+    assert body['progress'] == 40
+    assert body['current_step'] == 'ocr'
+    # The shape the screen reads is unchanged: four empty content fields.
+    assert {field: body[field] for field in api.module.CONTENT_FIELDS} == {
+        'summaries': {}, 'sections': {}, 'document_index': {}, 'abbreviations': {}}
+
+
+def test_a_legacy_row_with_inline_content_is_still_migrated(api, monkeypatch):
+    profile_with_child(api)
+    put_document(api, summaries={'en': 'old inline summary'})
+    fake = fake_ddb_service(api, monkeypatch, lambda payload: {
+        'statusCode': 200,
+        'body': json.dumps({'summaries': {'en': 'migrated summary'}})})
+
+    code, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert code == 200
+    assert [p['operation'] for _, p in fake.invocations] == ['get_document_with_content']
+    assert fake.invocations[0][1]['params'] == {
+        'iep_id': 'iep-1', 'child_id': 'child-1', 'user_id': USER}
+    assert body['summaries']['en'] == 'migrated summary'
+
+
+def test_a_processing_row_that_still_holds_inline_content_is_still_migrated(api, monkeypatch):
+    """The skip is about having nothing to move, not about the status word."""
+    profile_with_child(api)
+    put_document(api, status='PROCESSING', summaries={'en': 'old inline summary'})
+    fake = fake_ddb_service(api, monkeypatch, lambda payload: {
+        'statusCode': 200, 'body': json.dumps({'summaries': {'en': 'migrated summary'}})})
+
+    call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert len(fake.invocations) == 1
 
 
 def test_the_inline_row_a_failed_migration_falls_back_to_is_substituted_too(api, monkeypatch):
@@ -764,27 +824,47 @@ def test_a_kms_failure_degrades_to_the_neutral_phrase_rather_than_a_500(api, mon
     assert '{{S}}' not in json.dumps(body)
 
 
-def test_a_profile_read_failure_degrades_to_the_neutral_phrase(api, monkeypatch):
-    """The ownership check reads the profile first and must still succeed; it
-    is the second read, the one for the name, that fails here."""
+def test_a_document_read_loads_the_profile_and_decrypts_the_name_once(api, monkeypatch):
+    """The ownership check and the child's name used to each read the profile
+    and each KMS-decrypt the name (the second read was the one a failure
+    degraded to the neutral phrase). One item now answers both."""
     profile_with_named_child(api, encrypt(api, CHILD_NAME))
     put_document(api, content=TOKEN_CONTENT)
 
     real_get_item = api.module.user_profiles_table.get_item
-    calls = []
+    real_decrypt = api.module.kms_client.decrypt
+    reads, decrypts = [], []
 
-    def flaky(**kwargs):
-        calls.append(kwargs)
-        if len(calls) > 1:
-            raise RuntimeError('ProvisionedThroughputExceededException')
+    def counting_get_item(**kwargs):
+        reads.append(kwargs)
         return real_get_item(**kwargs)
-    monkeypatch.setattr(api.module.user_profiles_table, 'get_item', flaky)
+
+    def counting_decrypt(**kwargs):
+        decrypts.append(kwargs)
+        return real_decrypt(**kwargs)
+    monkeypatch.setattr(api.module.user_profiles_table, 'get_item', counting_get_item)
+    monkeypatch.setattr(api.module.kms_client, 'decrypt', counting_decrypt)
 
     status, body = call(api, '/profile/children/child-1/documents', 'GET')
 
     assert status == 200
-    assert body['summaries']['en'] == 'your child is making progress.'
-    assert '{{S}}' not in json.dumps(body)
+    assert body['summaries']['en'] == 'Jordan Smith is making progress.'
+    assert len(reads) == 1
+    assert len(decrypts) == 1
+
+
+def test_the_name_comes_from_the_owned_child_not_another_one(api):
+    """With two children on the profile, the substituted name is the one for
+    the childId requested."""
+    api.profiles.put_item(Item={'userId': USER, 'children': [
+        {'childId': 'child-0', 'name': encrypt(api, 'Alex Other'), 'schoolCity': 'Boston'},
+        {'childId': 'child-1', 'name': encrypt(api, CHILD_NAME), 'schoolCity': 'Boston'},
+    ]})
+    put_document(api, content=TOKEN_CONTENT)
+
+    body = call(api, '/profile/children/child-1/documents', 'GET')[1]
+
+    assert body['summaries']['en'] == 'Jordan Smith is making progress.'
 
 
 @pytest.mark.parametrize('mangled', ['{{ S }}', '{ {S} }', '{S}', '{{s}}', '｛｛S｝｝'])
@@ -940,7 +1020,7 @@ def test_an_iso_string_with_a_zone_on_it_is_honoured(api):
 
 def test_delete_documents_denies_unowned_child(api):
     profile_with_child(api, child_id='child-1')
-    assert call(api, '/profile/children/child-9/documents', 'DELETE')[0] == 403
+    assert call(api, '/profile/children/child-9/documents', 'DELETE')[0] == 404
 
 
 def test_delete_documents_removes_s3_and_records(api):
@@ -1554,3 +1634,871 @@ def test_child_deletion_leaves_no_retrievable_version(api):
     assert call(api, '/profile/children/child-1/documents', 'DELETE')[0] == 200
 
     assert retrievable_versions(api.s3, BUCKET) == set()
+
+
+# ---------------------------------------------------------------------------
+# Client reuse
+
+class CountingBoto3:
+    """boto3 stand-in recording every client built through it."""
+
+    def __init__(self, lambda_client=None):
+        self.built = []
+        self.lambda_client = lambda_client
+
+    def client(self, service_name, **kwargs):
+        self.built.append(service_name)
+        if service_name == 'lambda' and self.lambda_client is not None:
+            return self.lambda_client
+        return boto3.client(service_name, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(boto3, name)
+
+
+def test_s3_and_lambda_clients_are_built_once_per_container_not_per_request(api, monkeypatch):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-s3', child_id='child-1', created_at=3000,
+                 content={'summaries': {'en': 'From S3'}})
+    fake = FakeLambdaClient(lambda payload: {
+        'statusCode': 200, 'body': json.dumps({'summaries': {'en': 'migrated'}})})
+    counting = CountingBoto3(lambda_client=fake)
+    monkeypatch.setattr(api.module, 'boto3', counting)
+
+    for _ in range(3):
+        assert call(api, '/profile/children/child-1/documents', 'GET')[1]['summaries']['en'] == 'From S3'
+
+    # A second child whose latest row is legacy inline content takes the
+    # lambda branch, three times.
+    api.profiles.put_item(Item={'userId': USER, 'children': [
+        {'childId': 'child-2', 'name': 'Kid', 'schoolCity': 'Boston'}]})
+    put_document(api, iep_id='iep-legacy', child_id='child-2',
+                 summaries={'en': 'inline'})
+    for _ in range(3):
+        assert call(api, '/profile/children/child-2/documents', 'GET')[1]['summaries']['en'] == 'migrated'
+
+    assert counting.built.count('s3') == 1
+    assert counting.built.count('lambda') == 1
+    assert len(fake.invocations) == 3
+
+
+def test_the_cognito_client_is_reused_across_requests(api, monkeypatch):
+    counting = CountingBoto3()
+    monkeypatch.setattr(api.module, 'boto3', counting)
+    profile_with_child(api)
+
+    for language in ('es', 'vi'):
+        assert call(api, '/profile', 'PUT', {'secondaryLanguage': language})[0] == 200
+
+    assert counting.built.count('cognito-idp') == 1
+
+
+# ---------------------------------------------------------------------------
+# GET /profile decrypts its fields concurrently
+
+class SequentialPool:
+    """Executor stand-in that runs everything in order on the calling thread:
+    the behaviour the concurrent decrypt must be byte-identical to."""
+
+    def map(self, fn, *iterables):
+        return map(fn, *iterables)
+
+
+def seed_encrypted_profile(api):
+    api.profiles.put_item(Item={
+        'userId': USER,
+        'phone': encrypt(api, '+16175551234'),
+        'city': encrypt(api, 'Boston'),
+        'parentName': encrypt(api, 'Jane Parent'),
+        'primaryLanguage': 'en',
+        'children': [
+            {'childId': 'c1', 'name': encrypt(api, 'Alex Rivera'), 'schoolCity': 'Boston'},
+            {'childId': 'c2', 'name': encrypt(api, 'Sam Rivera'), 'schoolCity': 'Boston'},
+            {'childId': 'c3', 'name': 'Legacy Plain', 'schoolCity': 'Boston'},
+            {'childId': 'c4', 'name': '', 'schoolCity': 'Boston'},
+        ],
+    })
+
+
+def raw_get_profile(api):
+    return api.module.lambda_handler(api_event('/profile', 'GET'), None)
+
+
+def test_concurrent_decrypt_returns_exactly_what_a_sequential_one_does(api, monkeypatch):
+    seed_encrypted_profile(api)
+
+    concurrent = raw_get_profile(api)
+    monkeypatch.setattr(api.module, '_decrypt_pool', SequentialPool())
+    sequential = raw_get_profile(api)
+
+    assert concurrent['statusCode'] == 200
+    assert concurrent == sequential  # status, headers and the body string
+    profile = json.loads(concurrent['body'])['profile']
+    assert (profile['phone'], profile['city'], profile['parentName']) == (
+        '+16175551234', 'Boston', 'Jane Parent')
+    assert [child['name'] for child in profile['children']] == [
+        'Alex Rivera', 'Sam Rivera', 'Legacy Plain', '']
+
+
+def test_one_field_that_will_not_decrypt_does_not_disturb_the_others(api, monkeypatch):
+    """A field that is not ciphertext (legacy plaintext that happens to look
+    like base64) is handed back as it was; that stays per-field when the
+    fields run together."""
+    seed_encrypted_profile(api)
+    broken = encrypt(api, 'Sam Rivera')
+    api.profiles.update_item(
+        Key={'userId': USER},
+        UpdateExpression='SET parentName = :p',
+        ExpressionAttributeValues={':p': broken})
+    real = api.module.kms_client.decrypt
+
+    def decrypt_unless_broken(**kwargs):
+        if base64.b64encode(kwargs['CiphertextBlob']).decode() == broken:
+            raise ClientError({'Error': {'Code': 'InvalidCiphertextException',
+                                         'Message': 'not ciphertext'}}, 'Decrypt')
+        return real(**kwargs)
+    monkeypatch.setattr(api.module.kms_client, 'decrypt', decrypt_unless_broken)
+
+    status, body = call(api, '/profile', 'GET')
+    profile = body['profile']
+
+    assert status == 200
+    assert profile['parentName'] == broken      # handed back, not dropped
+    assert profile['phone'] == '+16175551234'
+    assert profile['children'][1]['name'] == 'Sam Rivera'
+    assert profile['children'][0]['name'] == 'Alex Rivera'
+
+
+def test_the_decrypts_really_overlap(api, monkeypatch):
+    """Two decrypts must be in flight at once. A barrier that needs two
+    parties times out (and the request fails) if they run one at a time."""
+    seed_encrypted_profile(api)
+    barrier = threading.Barrier(2, timeout=5)
+    real = api.module.kms_decrypt_string
+    in_flight = []
+
+    def decrypt_together(ciphertext, **kwargs):
+        in_flight.append(threading.get_ident())
+        barrier.wait()
+        return real(ciphertext, **kwargs)
+    monkeypatch.setattr(api.module, 'kms_decrypt_string', decrypt_together)
+
+    status, body = call(api, '/profile', 'GET')
+
+    assert status == 200
+    assert body['profile']['parentName'] == 'Jane Parent'
+    assert len(set(in_flight)) > 1
+
+
+# ---------------------------------------------------------------------------
+# Routing is built once, and a request is one log line
+
+def test_the_router_is_built_once_at_import_not_per_request(api, monkeypatch):
+    profile_with_child(api)
+
+    def never(*args, **kwargs):
+        raise AssertionError('the router was rebuilt for a request')
+    monkeypatch.setattr(api.module, 'Router', never)
+    monkeypatch.setattr(api.module, 'UserProfileRouter', never)
+
+    assert call(api, '/profile', 'GET')[0] == 200
+    assert call(api, '/profile/children/child-1/documents', 'GET')[0] == 200
+    assert call(api, '/profile', 'GET')[0] == 200
+    assert api.module._router.resolve('/profile', 'GET')[0] == '/profile'
+
+
+def test_every_route_is_still_registered(api):
+    routes = {(path, method)
+              for path, methods in api.module._router.routes.items() for method in methods}
+    assert routes == {
+        ('/profile', 'GET'), ('/profile', 'PUT'), ('/profile', 'DELETE'),
+        ('/profile/children', 'POST'),
+        ('/profile/children/{childId}/documents', 'GET'),
+        ('/profile/children/{childId}/documents', 'DELETE'),
+    }
+
+
+def test_a_request_logs_its_route_template_and_status_and_nothing_of_the_event(api, capsys):
+    profile_with_child(api, child_id='child-secret-id')
+    event = api_event('/profile/children/child-secret-id/documents', 'GET')
+    event['headers'] = {'Authorization': 'Bearer live-token-123', 'Cookie': 'session=abc'}
+    event['requestContext']['authorizer']['jwt']['claims'].update(
+        email='parent@example.org', phone_number='+16175551234')
+    event['body'] = json.dumps({'name': 'A Real Kid'})
+    capsys.readouterr()
+
+    response = api.module.lambda_handler(event, None)
+    logged = capsys.readouterr().out
+
+    assert response['statusCode'] == 200
+    assert 'GET /profile/children/{childId}/documents -> 200' in logged.splitlines()
+    for secret in ('live-token-123', 'session=abc', 'parent@example.org',
+                   '+16175551234', 'A Real Kid'):
+        assert secret not in logged
+    # No route-matching chatter and no dump of the path parameters.
+    for chatter in ('Available routes', 'Attempting to match', 'Checking pattern',
+                    'Lambda handler invoked', 'Path params', 'pathParameters'):
+        assert chatter not in logged
+
+
+def test_an_unknown_route_logs_without_echoing_the_raw_path(api, capsys):
+    capsys.readouterr()
+
+    code, _ = call(api, '/profile/children/child-secret-id/unknown', 'GET')
+    logged = capsys.readouterr().out
+
+    assert code == 404
+    assert 'GET <unrouted> -> 404' in logged
+    assert 'child-secret-id' not in logged
+
+
+def test_a_crash_logs_the_failing_route_and_answers_generically(api, monkeypatch, capsys):
+    def explode(event):
+        raise RuntimeError('table profiles-test is on fire')
+    monkeypatch.setitem(api.module._router.routes['/profile'], 'GET', explode)
+    capsys.readouterr()
+
+    code, body = call(api, '/profile', 'GET')
+    logged = capsys.readouterr().out
+
+    assert code == 500
+    assert body == {'message': 'Internal server error. Please try again later.'}
+    assert 'GET /profile -> 500 unhandled RuntimeError' in logged
+
+
+# ---------------------------------------------------------------------------
+# Cache-Control: no-store on every response
+
+def test_every_response_from_this_handler_is_no_store(api, monkeypatch):
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'Summary'}})
+    requests = [
+        ('GET', '/profile', None),                                    # 200
+        ('PUT', '/profile', {'consentGiven': True}),                  # 200
+        ('PUT', '/profile', {'email': 'x@y.org'}),                    # 400
+        ('POST', '/profile/children', {'name': 'Kid'}),               # 400
+        ('GET', '/profile/children/child-1/documents', None),         # 200
+        ('GET', '/profile/children/someone-elses/documents', None),   # refusal
+        ('DELETE', '/profile/children/someone-elses/documents', None),
+        ('GET', '/no/such/route', None),                              # 404
+        ('DELETE', '/profile', None),                                 # 200
+    ]
+    for method, path, body in requests:
+        response = api.module.lambda_handler(api_event(path, method, body), None)
+        assert response['headers'].get('Cache-Control') == 'no-store', (method, path, response['statusCode'])
+
+    options = api.module.lambda_handler(api_event('/profile', 'OPTIONS'), None)
+    assert options['headers'].get('Cache-Control') == 'no-store'
+
+    # The unhandled-exception path builds its response too.
+    monkeypatch.setitem(api.module._router.routes['/profile'], 'GET',
+                        lambda event: 1 / 0)
+    crashed = api.module.lambda_handler(api_event('/profile', 'GET'), None)
+    assert crashed['statusCode'] == 500
+    assert crashed['headers'].get('Cache-Control') == 'no-store'
+
+
+# ---------------------------------------------------------------------------
+# 404, not 403, and nothing in the body
+
+OTHER_USER = 'user-sub-2'
+
+
+def seed_other_users_child(api):
+    """A real child with a real document, belonging to someone else."""
+    profile_with_child(api, child_id='child-1')
+    profile_with_child(api, child_id='their-child', user=OTHER_USER)
+    put_document(api, iep_id='their-iep', child_id='their-child', user=OTHER_USER,
+                 content={'summaries': {'en': 'Their private summary'}})
+    return put_audio(api, iep_id='their-iep', child_id='their-child')
+
+
+@pytest.mark.parametrize('method', ['GET', 'DELETE'])
+def test_a_childs_existence_is_not_revealed_by_the_answer(api, method):
+    """Someone else's child and a child that does not exist get the same
+    status and the same body, so the endpoint cannot be used to find out which
+    ids are real."""
+    seed_other_users_child(api)
+
+    real_but_not_yours = call(api, '/profile/children/their-child/documents', method)
+    made_up = call(api, '/profile/children/never-existed/documents', method)
+
+    assert real_but_not_yours == made_up == (404, {'message': 'Not found'})
+
+
+def test_refusing_a_delete_leaves_the_other_familys_records_alone(api):
+    audio = seed_other_users_child(api)
+
+    assert call(api, '/profile/children/their-child/documents', 'DELETE')[0] == 404
+
+    assert api.documents.get_item(
+        Key={'iepId': 'their-iep', 'childId': 'their-child'}).get('Item')
+    assert key_exists(api, 'iep-data/their-iep/their-child/content.json')
+    assert all(key_exists(api, key) for key in audio)
+
+
+def test_refusing_a_read_returns_none_of_the_other_familys_content(api):
+    seed_other_users_child(api)
+
+    status, body = call(api, '/profile/children/their-child/documents', 'GET')
+
+    assert status == 404
+    assert 'Their private summary' not in json.dumps(body)
+
+
+def test_a_refusal_logs_why_without_telling_the_caller(api, capsys):
+    seed_other_users_child(api)
+    capsys.readouterr()
+
+    code, body = call(api, '/profile/children/their-child/documents', 'GET')
+    logged = capsys.readouterr().out
+
+    assert code == 404
+    assert 'does not own child' in logged
+    assert body == {'message': 'Not found'}
+
+
+def test_an_unknown_route_does_not_echo_the_path_or_the_method(api):
+    code, body = call(api, '/profile/children/child-secret-id/unknown', 'PATCH')
+
+    assert code == 404
+    assert body == {'message': 'Not found'}
+
+
+# ---------------------------------------------------------------------------
+# A fault in DynamoDB, KMS or S3 is a 503, never a 403 or a 404
+
+UNAVAILABLE = {'message': 'This service is temporarily unavailable. Please try again in a moment.'}
+
+
+def aws_fault(code='ProvisionedThroughputExceededException', operation='GetItem'):
+    return ClientError({'Error': {'Code': code,
+                                  'Message': 'table profiles-test is throttled'}}, operation)
+
+
+def fail_with(error):
+    def fail(*args, **kwargs):
+        raise error
+    return fail
+
+
+def test_a_profile_read_fault_in_the_ownership_check_is_a_503_not_a_403(api, monkeypatch, capsys):
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'Summary'}})
+    monkeypatch.setattr(api.module.user_profiles_table, 'get_item', fail_with(aws_fault()))
+    capsys.readouterr()
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+    logged = capsys.readouterr().out
+
+    assert (status, body) == (503, UNAVAILABLE)
+    assert 'get_child_documents ownership check' in logged
+    assert 'ProvisionedThroughputExceededException' in logged
+    assert 'profiles-test' not in json.dumps(body)
+
+
+def test_a_fault_while_checking_ownership_never_deletes_anything(api, monkeypatch):
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'Summary'}})
+    audio = put_audio(api)
+    monkeypatch.setattr(api.module.user_profiles_table, 'get_item', fail_with(aws_fault()))
+
+    status, body = call(api, '/profile/children/child-1/documents', 'DELETE')
+
+    assert (status, body) == (503, UNAVAILABLE)
+    assert api.documents.get_item(Key={'iepId': 'iep-1', 'childId': 'child-1'}).get('Item')
+    assert key_exists(api, 'iep-data/iep-1/child-1/content.json')
+    assert all(key_exists(api, key) for key in audio)
+
+
+def test_a_documents_query_fault_is_a_503(api, monkeypatch, capsys):
+    profile_with_child(api)
+    monkeypatch.setattr(api.module.iep_documents_table, 'query',
+                        fail_with(aws_fault('InternalServerError', 'Query')))
+    capsys.readouterr()
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert (status, body) == (503, UNAVAILABLE)
+    assert 'get_child_documents query' in capsys.readouterr().out
+
+
+def test_an_s3_fault_reading_the_content_is_a_503_not_an_empty_summary(api, monkeypatch, capsys):
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'Summary'}})
+    monkeypatch.setattr(api.module._aws_client('s3'), 'get_object',
+                        fail_with(aws_fault('ServiceUnavailable', 'GetObject')))
+    capsys.readouterr()
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert (status, body) == (503, UNAVAILABLE)
+    assert 'get_child_documents content read' in capsys.readouterr().out
+
+
+def test_content_missing_from_s3_still_reads_as_an_empty_document(api):
+    """A fact about the document, not a fault: the row outlived its object."""
+    profile_with_child(api)
+    put_document(api, content={'summaries': {'en': 'Summary'}})
+    api.s3.delete_object(Bucket=BUCKET, Key='iep-data/iep-1/child-1/content.json')
+    for version in api.s3.list_object_versions(Bucket=BUCKET).get('Versions', []):
+        api.s3.delete_object(Bucket=BUCKET, Key=version['Key'], VersionId=version['VersionId'])
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert status == 200
+    assert body['summaries'] == {} and body['iepId'] == 'iep-1'
+
+
+def test_a_bug_in_our_own_code_is_still_a_500(api, monkeypatch):
+    """Only AWS faults are 503: a KeyError is ours, and says so."""
+    profile_with_child(api)
+    monkeypatch.setattr(api.module.user_profiles_table, 'get_item', fail_with(KeyError('boom')))
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert status == 500
+    assert body == {'message': 'Could not load your documents. Please try again later.'}
+
+
+def test_a_profile_read_fault_on_get_profile_is_a_503(api, monkeypatch):
+    monkeypatch.setattr(api.module.user_profiles_table, 'get_item', fail_with(aws_fault()))
+
+    assert call(api, '/profile', 'GET') == (503, UNAVAILABLE)
+
+
+@pytest.mark.parametrize('code', ['ThrottlingException', 'KMSInternalException',
+                                  'AccessDeniedException', 'DisabledException'])
+def test_a_kms_outage_on_get_profile_is_a_503_not_ciphertext_in_the_body(api, monkeypatch, code):
+    ciphertext = encrypt(api, '+16175551234')
+    api.profiles.put_item(Item={'userId': USER, 'phone': ciphertext,
+                                'children': [{'childId': 'c1', 'name': 'Kid', 'schoolCity': 'x'}]})
+    monkeypatch.setattr(api.module.kms_client, 'decrypt',
+                        fail_with(aws_fault(code, 'Decrypt')))
+
+    status, body = call(api, '/profile', 'GET')
+
+    assert (status, body) == (503, UNAVAILABLE)
+    assert ciphertext[:24] not in json.dumps(body)
+
+
+def test_a_kms_outage_still_degrades_the_name_inside_a_summary(api, monkeypatch):
+    """The 503 is for fields a parent is shown as themselves. The child's name
+    inside a summary keeps its neutral-phrase fallback (and its own test)."""
+    profile_with_named_child(api, encrypt(api, CHILD_NAME))
+    put_document(api, content=TOKEN_CONTENT)
+    monkeypatch.setattr(api.module.kms_client, 'decrypt',
+                        fail_with(aws_fault('ThrottlingException', 'Decrypt')))
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert status == 200
+    assert body['summaries']['en'] == 'your child is making progress.'
+
+
+# ---------------------------------------------------------------------------
+# PUT /profile: malformed children are a logged 400, and only known child
+# fields are stored
+
+GOOD_CHILD = {'childId': 'c1', 'name': 'Alex', 'schoolCity': 'Boston'}
+
+
+@pytest.mark.parametrize('children, why', [
+    ({'childId': 'c1'}, 'children is not a list'),
+    ('c1', 'children is not a list'),
+    (None, 'children is not a list'),
+    (7, 'children is not a list'),
+    ([1], 'a child is not an object'),
+    (['Alex'], 'a child is not an object'),
+    ([None], 'a child is not an object'),
+    ([[GOOD_CHILD]], 'a child is not an object'),
+    ([{'name': 'Alex'}], 'a child has no name or schoolCity'),
+    ([{'schoolCity': 'Boston'}], 'a child has no name or schoolCity'),
+    ([{**GOOD_CHILD, 'name': 123}], 'child name is not a string'),
+    ([{**GOOD_CHILD, 'name': None}], 'child name is not a string'),
+    ([{**GOOD_CHILD, 'name': ['Alex']}], 'child name is not a string'),
+    ([{**GOOD_CHILD, 'schoolCity': 5}], 'child schoolCity is not a string'),
+    ([{**GOOD_CHILD, 'schoolCity': {'a': 1}}], 'child schoolCity is not a string'),
+    ([{**GOOD_CHILD, 'createdAt': '1700000000'}], 'child createdAt is not a whole number'),
+    ([{**GOOD_CHILD, 'createdAt': True}], 'child createdAt is not a whole number'),
+    ([{**GOOD_CHILD, 'updatedAt': 1.5}], 'child updatedAt is not a whole number'),
+    ([{**GOOD_CHILD, 'createdAtISO': 20260101}], 'child createdAtISO is not a string'),
+    ([{**GOOD_CHILD, 'childId': 5}], 'child childId is not a usable string'),
+    ([{**GOOD_CHILD, 'childId': None}], 'child childId is not a usable string'),
+    ([{**GOOD_CHILD, 'childId': '  '}], 'child childId is not a usable string'),
+    ([{**GOOD_CHILD, 'childId': 'x' * 129}], 'child childId is not a usable string'),
+    ([GOOD_CHILD, dict(GOOD_CHILD)], 'two children share a childId'),
+    ([{**GOOD_CHILD, 'name': '!!!'}], 'child name holds no letter'),
+])
+def test_malformed_children_are_a_400_with_the_reason_logged_and_nothing_stored(
+        api, capsys, children, why):
+    profile_with_child(api, child_id='existing')
+    before = stored_profile(api)
+    capsys.readouterr()
+
+    status, body = call(api, '/profile', 'PUT', {'children': children})
+    logged = capsys.readouterr().out
+
+    assert status == 400, body
+    assert set(body) == {'message'}
+    assert f'Rejecting update_user_profile for userId {USER}: {why}' in logged
+    assert stored_profile(api) == before
+
+
+def test_only_the_fields_the_app_stores_are_kept_on_a_child(api, capsys):
+    api.profiles.put_item(Item={'userId': USER})
+    capsys.readouterr()
+
+    status, _ = call(api, '/profile', 'PUT', {'children': [{
+        **GOOD_CHILD,
+        'createdAt': 1700000000000, 'createdAtISO': '2026-01-01T00:00:00Z',
+        'updatedAt': 1700000000001, 'updatedAtISO': '2026-01-01T00:00:01Z',
+        'isAdmin': True, 'iepDocument': {'iepId': 'x'}, 'ssn': '000-00-0000',
+    }]})
+
+    assert status == 200
+    child = stored_profile(api)['children'][0]
+    assert set(child) == {'childId', 'name', 'schoolCity', 'createdAt', 'createdAtISO',
+                          'updatedAt', 'updatedAtISO'}
+    assert child['createdAt'] == 1700000000000 and child['updatedAtISO'] == '2026-01-01T00:00:01Z'
+    logged = capsys.readouterr().out
+    assert 'Dropped 3 unrecognised child field(s)' in logged
+    assert '000-00-0000' not in logged and 'isAdmin' not in logged
+
+
+def test_a_child_the_screen_sends_back_unchanged_keeps_every_field(api):
+    """ViewAndAddChild saves a rename as {...existingChild, name, schoolCity,
+    childId} where existingChild is what GET /profile returned. Nothing it
+    reads back may disappear on that round trip."""
+    assert call(api, '/profile/children', 'POST', {'name': 'Alex', 'schoolCity': 'Boston'})[0] == 200
+    stored_before = stored_profile(api)['children'][0]
+    fetched = call(api, '/profile', 'GET')[1]['profile']['children'][0]
+    assert {'childId', 'name', 'schoolCity', 'createdAt', 'createdAtISO',
+            'updatedAt', 'updatedAtISO'} == set(fetched)
+
+    status, _ = call(api, '/profile', 'PUT', {'children': [
+        {**fetched, 'name': 'Alexander', 'schoolCity': 'Cambridge', 'childId': fetched['childId']}]})
+
+    assert status == 200
+    after = stored_profile(api)['children'][0]
+    assert set(after) == set(stored_before)
+    for field in ('childId', 'createdAt', 'createdAtISO', 'updatedAt', 'updatedAtISO'):
+        assert after[field] == stored_before[field]
+    again = call(api, '/profile', 'GET')[1]['profile']['children'][0]
+    assert (again['name'], again['schoolCity']) == ('Alexander', 'Cambridge')
+
+
+def test_a_child_with_no_childId_is_given_one_and_the_request_is_not_mutated(api):
+    api.profiles.put_item(Item={'userId': USER})
+    body = {'children': [{'name': 'Alex', 'schoolCity': 'Boston'}]}
+
+    assert call(api, '/profile', 'PUT', body)[0] == 200
+
+    assert stored_profile(api)['children'][0]['childId']
+    assert 'childId' not in body['children'][0]
+
+
+def test_an_empty_children_list_is_still_accepted(api):
+    api.profiles.put_item(Item={'userId': USER, 'children': [GOOD_CHILD]})
+
+    assert call(api, '/profile', 'PUT', {'children': []})[0] == 200
+    assert stored_profile(api)['children'] == []
+
+
+def test_add_child_rejects_a_school_city_that_is_not_text(api, capsys):
+    capsys.readouterr()
+
+    status, _ = call(api, '/profile/children', 'POST', {'name': 'Alex', 'schoolCity': {'a': 1}})
+
+    assert status == 400
+    assert 'Rejecting add_child for userId' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('method, path, body, raw', [
+    ('PUT', '/profile', {'email': 'x@y.org'}, None),
+    ('PUT', '/profile', {'primaryLanguage': 'fr'}, None),
+    ('PUT', '/profile', {'consentGiven': 'yes'}, None),
+    ('PUT', '/profile', {'showOnboarding': 'no'}, None),
+    ('PUT', '/profile', {'unknownField': 1}, None),
+    ('PUT', '/profile', None, '{not json'),
+    ('PUT', '/profile', None, '[1, 2]'),
+    ('POST', '/profile/children', {'schoolCity': 'Boston'}, None),
+    ('POST', '/profile/children', None, '{not json'),
+    ('POST', '/profile/children', None, '"just a string"'),
+])
+def test_no_validation_rejection_is_silent(api, capsys, method, path, body, raw):
+    capsys.readouterr()
+
+    if raw is not None:
+        status, _ = call_raw_body(api, path, method, raw)
+    else:
+        status, _ = call(api, path, method, body)
+    logged = capsys.readouterr().out
+
+    assert status == 400
+    assert f'Rejecting ' in logged and f'for userId {USER}' in logged
+
+
+# ---------------------------------------------------------------------------
+# GET documents: every page of the query, and only the winner's content
+
+def serve_in_pages(api, monkeypatch, per_page=1):
+    """Make the byChildId read hand back `per_page` rows at a time, oldest
+    first, with a LastEvaluatedKey until the last page. Returns the list of
+    ExclusiveStartKeys the handler passed, one entry per query call."""
+    real_query = api.documents.query
+    calls = []
+
+    def paged_query(**kwargs):
+        calls.append(kwargs.get('ExclusiveStartKey'))
+        everything = {k: v for k, v in kwargs.items() if k != 'ExclusiveStartKey'}
+        items = sorted(real_query(**everything)['Items'], key=lambda row: row['createdAt'])
+        start = kwargs.get('ExclusiveStartKey', {}).get('offset', 0)
+        page = {'Items': items[start:start + per_page]}
+        if start + per_page < len(items):
+            page['LastEvaluatedKey'] = {'offset': start + per_page}
+        return page
+    monkeypatch.setattr(api.module.iep_documents_table, 'query', paged_query)
+    return calls
+
+
+def test_the_newest_document_is_found_even_when_it_is_on_a_later_page(api, monkeypatch):
+    profile_with_child(api)
+    for n, created in enumerate((1000, 4000, 2000, 3000)):
+        put_document(api, iep_id=f'iep-{n}', created_at=created,
+                     content={'summaries': {'en': f'Summary {created}'}})
+    calls = serve_in_pages(api, monkeypatch)
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert status == 200
+    assert body['iepId'] == 'iep-1' and body['summaries']['en'] == 'Summary 4000'
+    assert len(calls) == 4, 'every page must be requested'
+    assert calls[0] is None and calls[1:] == [{'offset': 1}, {'offset': 2}, {'offset': 3}]
+
+
+def test_another_users_row_on_a_later_page_is_still_never_returned(api, monkeypatch):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-mine', created_at=1000,
+                 content={'summaries': {'en': 'Mine'}})
+    put_document(api, iep_id='iep-theirs', user=OTHER_USER, created_at=9000,
+                 content={'summaries': {'en': 'Theirs'}})
+    serve_in_pages(api, monkeypatch)
+
+    body = call(api, '/profile/children/child-1/documents', 'GET')[1]
+
+    assert body['iepId'] == 'iep-mine'
+    assert 'Theirs' not in json.dumps(body)
+
+
+def test_only_the_latest_documents_content_is_read(api, monkeypatch):
+    """Older rows used to be read from S3, or migrated through ddb-service, as
+    the loop met them on its way to the newest."""
+    profile_with_child(api)
+    put_document(api, iep_id='iep-old-s3', created_at=1000, content={'summaries': {'en': 'Old'}})
+    put_document(api, iep_id='iep-old-legacy', created_at=2000, summaries={'en': 'Legacy inline'})
+    put_document(api, iep_id='iep-new', created_at=3000, content={'summaries': {'en': 'New'}})
+    fake = fake_ddb_service(api, monkeypatch, lambda payload: {
+        'statusCode': 200, 'body': json.dumps({'summaries': {'en': 'migrated'}})})
+    s3 = api.module._aws_client('s3')
+    real_get_object = s3.get_object
+    reads = []
+
+    def counting_get_object(**kwargs):
+        reads.append(kwargs['Key'])
+        return real_get_object(**kwargs)
+    monkeypatch.setattr(s3, 'get_object', counting_get_object)
+    serve_in_pages(api, monkeypatch)  # oldest first: the worst case for the old loop
+
+    body = call(api, '/profile/children/child-1/documents', 'GET')[1]
+
+    assert body['summaries']['en'] == 'New'
+    assert reads == ['iep-data/iep-new/child-1/content.json']
+    assert fake.invocations == []
+
+
+def test_a_row_with_no_createdat_is_never_chosen_as_the_latest(api):
+    """Unchanged rule: a document has to have a creation time to be the latest."""
+    profile_with_child(api)
+    api.documents.put_item(Item={'iepId': 'iep-x', 'childId': 'child-1', 'userId': USER,
+                                 'status': 'PROCESSED'})
+
+    status, body = call(api, '/profile/children/child-1/documents', 'GET')
+
+    assert status == 200
+    assert body['documents'] == []
+
+
+# ---------------------------------------------------------------------------
+# Replacing an IEP: the parent keeps seeing the old one until the new one is ready
+#
+# The upload handler no longer deletes the previous document, and the pipeline
+# deletes it only once the new one is PROCESSED. So for a while a child has two
+# documents, and the endpoint has to answer with the one the parent can read:
+# the old complete document while the new one is being processed (or has
+# failed), then the new one the moment it is ready. With nothing older to fall
+# back to (a first upload) the newest document is returned whatever its
+# status, which is what drives the processing and failure screens.
+
+REPLACEMENT_URL = '/profile/children/child-1/documents'
+
+
+def seed_old_and_new(api, new_status, new_extra=None):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-old', created_at=1000, status='PROCESSED',
+                 content={'summaries': {'en': 'Old summary'}})
+    put_document(api, iep_id='iep-new', created_at=2000, status=new_status,
+                 content={'summaries': {'en': 'New summary'}}, **(new_extra or {}))
+
+
+def test_the_old_document_is_shown_while_the_new_one_is_processing(api):
+    seed_old_and_new(api, 'PROCESSING', {'progress': 40, 'current_step': 'redacting'})
+
+    status, body = call(api, REPLACEMENT_URL, 'GET')
+
+    assert status == 200
+    assert body['iepId'] == 'iep-old'
+    assert body['status'] == 'PROCESSED'
+    assert body['summaries']['en'] == 'Old summary'
+    assert body['replacement'] == {'iepId': 'iep-new', 'status': 'PROCESSING'}
+
+
+def test_a_new_upload_that_has_not_reached_the_pipeline_reads_as_processing(api):
+    seed_old_and_new(api, 'PENDING_UPLOAD')
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-old'
+    assert body['replacement'] == {'iepId': 'iep-new', 'status': 'PROCESSING'}
+
+
+def test_the_old_document_is_still_shown_when_the_new_one_failed(api):
+    seed_old_and_new(api, 'FAILED', {'error_message': 'Jordan quoted in a provider error',
+                                     'failed_step': 'MistralOCR'})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-old'
+    assert body['status'] == 'PROCESSED'
+    assert body['summaries']['en'] == 'Old summary'
+    assert body['replacement'] == {'iepId': 'iep-new', 'status': 'FAILED'}
+    # The failure's own text is not the parent's to read here.
+    assert 'Jordan' not in json.dumps(body)
+    assert 'MistralOCR' not in json.dumps(body)
+
+
+def test_the_new_document_is_shown_as_soon_as_it_is_ready(api):
+    seed_old_and_new(api, 'PROCESSED')
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-new'
+    assert body['summaries']['en'] == 'New summary'
+    assert 'replacement' not in body
+
+
+def test_the_transition_from_old_to_new_needs_no_client_state(api):
+    # The server owns the state of server work: the same request, repeated
+    # (a poll, or a page remounted after the parent tapped away), answers from
+    # the rows alone.
+    seed_old_and_new(api, 'PROCESSING')
+    assert call(api, REPLACEMENT_URL, 'GET')[1]['iepId'] == 'iep-old'
+    assert call(api, REPLACEMENT_URL, 'GET')[1]['iepId'] == 'iep-old'
+
+    api.documents.update_item(
+        Key={'iepId': 'iep-new', 'childId': 'child-1'},
+        UpdateExpression='SET #s = :done',
+        ExpressionAttributeNames={'#s': 'status'},
+        ExpressionAttributeValues={':done': 'PROCESSED'})
+
+    assert call(api, REPLACEMENT_URL, 'GET')[1]['iepId'] == 'iep-new'
+
+
+def test_a_first_upload_in_flight_is_returned_as_before(api):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-only', created_at=1000, status='PROCESSING',
+                 progress=30, content={'summaries': {}})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-only'
+    assert body['status'] == 'PROCESSING'
+    assert 'replacement' not in body
+
+
+def test_a_first_upload_that_failed_is_returned_as_before(api):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-only', created_at=1000, status='FAILED',
+                 content={'summaries': {}})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-only'
+    assert body['status'] == 'FAILED'
+    assert 'replacement' not in body
+
+
+def test_a_failed_older_document_is_not_a_fallback(api):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-failed', created_at=1000, status='FAILED',
+                 content={'summaries': {}})
+    put_document(api, iep_id='iep-new', created_at=2000, status='PROCESSING',
+                 content={'summaries': {}})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-new'
+    assert 'replacement' not in body
+
+
+def test_an_old_document_translating_on_demand_is_still_a_fallback(api):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-old', created_at=1000, status='PROCESSING_TRANSLATIONS',
+                 content={'summaries': {'en': 'Old summary'}})
+    put_document(api, iep_id='iep-new', created_at=2000, status='PROCESSING',
+                 content={'summaries': {}})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-old'
+    assert body['replacement']['iepId'] == 'iep-new'
+
+
+def test_the_only_document_translating_on_demand_is_returned_as_before(api):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-only', created_at=1000, status='PROCESSING_TRANSLATIONS',
+                 content={'summaries': {'en': 'Summary'}})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-only'
+    assert body['status'] == 'PROCESSING_TRANSLATIONS'
+    assert 'replacement' not in body
+
+
+def test_another_users_finished_document_is_never_the_fallback(api):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-theirs', user=OTHER_USER, created_at=1000,
+                 status='PROCESSED', content={'summaries': {'en': 'Theirs'}})
+    put_document(api, iep_id='iep-new', created_at=2000, status='PROCESSING',
+                 content={'summaries': {}})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-new'
+    assert 'Theirs' not in json.dumps(body)
+
+
+def test_the_fallback_is_the_newest_readable_document_older_than_the_in_flight_one(api):
+    profile_with_child(api)
+    put_document(api, iep_id='iep-a', created_at=1000, status='PROCESSED',
+                 content={'summaries': {'en': 'A'}})
+    put_document(api, iep_id='iep-b', created_at=2000, status='PROCESSED',
+                 content={'summaries': {'en': 'B'}})
+    put_document(api, iep_id='iep-c', created_at=3000, status='PROCESSING',
+                 content={'summaries': {}})
+
+    body = call(api, REPLACEMENT_URL, 'GET')[1]
+
+    assert body['iepId'] == 'iep-b'
+    assert body['replacement']['iepId'] == 'iep-c'

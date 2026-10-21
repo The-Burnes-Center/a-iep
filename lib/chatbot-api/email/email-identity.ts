@@ -13,7 +13,8 @@ import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as path from 'path';
 import { getEnvironment, getMetricNamespace, getResourceName, tagResource } from '../../tags';
 import { createIepDataDenyStatement } from '../security';
-import type { Severity } from '../monitoring/monitoring';
+import { renderAlarmDescriptionFor, type AlarmThreshold } from '../monitoring/alert-copy';
+import { ALERT_COPY, type StaticAlarmId } from '../monitoring/alert-copy-table';
 
 /**
  * Everything needed to send an email safely, before anything sends one.
@@ -321,9 +322,9 @@ export class EmailIdentityStack extends Construct {
     this.configurationSetArn = `arn:${cdk.Aws.PARTITION}:ses:${stack.region}:${stack.account}:configuration-set/${this.configurationSetName}`;
 
     // The four events that mean something went wrong. Deliberately NOT
-    // `send`, `delivery`, `open` or `click`: this destination feeds a lambda
-    // that writes to a suppression list, and every event it does not need is
-    // an invocation, a log line and a recipient address we had no reason to
+    // `send`, `open` or `click`: the SNS destination below feeds a lambda that
+    // writes to a suppression list, and every event it does not need is an
+    // invocation, a log line and a recipient address we had no reason to
     // handle. Open and click tracking would also rewrite links in the mail,
     // which is not something to do to a parent reading a login code.
     const failureEvents = [
@@ -333,11 +334,19 @@ export class EmailIdentityStack extends Construct {
       ses.EmailSendingEvent.DELIVERY_DELAY,
     ];
 
+    // `delivery` is the one deliberate exception, added to the SNS destination
+    // only so a login code's delivery time can be measured: the event carries
+    // the provider's own processing and delivery timestamps, which the
+    // CloudWatch counts below cannot. The suppression handler ignores event
+    // types it has no use for, so this adds an invocation per delivered code
+    // and changes no list. The CloudWatch destination keeps the four above.
+    const snsEvents = [...failureEvents, ses.EmailSendingEvent.DELIVERY];
+
     new ses.ConfigurationSetEventDestination(this, 'FailureEventsToSns', {
       configurationSet: this.configurationSet,
       configurationSetEventDestinationName: getResourceName('a-iep-email-failures'),
       destination: ses.EventDestination.snsTopic(this.eventTopic),
-      events: failureEvents,
+      events: snsEvents,
     });
 
     // The same events again, as CloudWatch counts. Two destinations rather
@@ -456,12 +465,6 @@ export class EmailIdentityStack extends Construct {
     };
 
     this.alarm(this.alarmTopic, 'EmailSuppressionCheckUnavailableAlarm', {
-      severity: 'critical',
-      name: 'email sign-in is refusing everyone: the do-not-email check is down',
-      description:
-        'The do-not-email list cannot be read, so every email login code is ' +
-        'being refused rather than risk mailing a bad address. Parents using ' +
-        'email cannot sign in until this clears.',
       // One occurrence, because the control is binary: either the check runs
       // or email sign-in is down. Five minutes rather than fifteen for the
       // same reason.
@@ -474,12 +477,6 @@ export class EmailIdentityStack extends Construct {
     });
 
     this.alarm(this.alarmTopic, 'EmailSuppressedDestinationAlarm', {
-      severity: 'medium',
-      name: 'login codes being requested for addresses we may not email',
-      description:
-        'Sign-in is being attempted with addresses already on the ' +
-        'do-not-email list. The codes are refused, so nothing is sent, but ' +
-        'this is what an abuse run replaying old addresses looks like.',
       // Same shape as the SMS destination alarm: one parent whose old address
       // bounced must not page anyone, and a run produces these in bulk.
       metric: markerMetric(
@@ -491,12 +488,6 @@ export class EmailIdentityStack extends Construct {
     });
 
     this.alarm(this.alarmTopic, 'EmailBudgetExhaustedAlarm', {
-      severity: 'critical',
-      name: 'email login codes are being refused: the sending limit is reached',
-      description:
-        'The service-wide limit on emailed login codes has been hit, so ' +
-        'parents are being turned away at sign-in. Either an abuse run is ' +
-        'under way or real demand has outgrown the limit.',
       // Any occurrence: by the time this fires a real parent was refused.
       metric: markerMetric(
         'EmailBudgetExhaustedFilter', 'EMAIL_BUDGET_EXHAUSTED', 'EmailBudgetExhausted',
@@ -506,12 +497,6 @@ export class EmailIdentityStack extends Construct {
     });
 
     this.alarm(this.alarmTopic, 'EmailSendFailedAlarm', {
-      severity: 'critical',
-      name: 'email login codes are not being delivered',
-      description:
-        'Emailing a login code is failing outright, so no parent can sign in ' +
-        'with an email address. This is the alarm the trigger error alarms ' +
-        'cannot raise, because a failed send is reported, not thrown.',
       metric: markerMetric(
         'EmailSendFailedFilter', 'EMAIL_SEND_FAILED', 'EmailSendFailed',
       ),
@@ -528,7 +513,7 @@ export class EmailIdentityStack extends Construct {
    */
   private addBounceHandler(kmsKey: kms.IKey): lambda.Function {
     const fn = new lambda.Function(this, 'SesBounceHandlerFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       code: lambda.Code.fromAsset(path.join(__dirname, '../functions/ses-suppression')),
       handler: 'bounce-handler.handler',
       environment: {
@@ -607,48 +592,24 @@ export class EmailIdentityStack extends Construct {
     });
 
     this.alarm(alarmTopic, 'EmailBounceRateReviewAlarm', {
-      severity: 'medium',
-      name: 'email bounce rate is climbing',
-      description:
-        'Login codes are bouncing often enough to be worth looking at. AWS ' +
-        'puts an account under review at 5%; this fires at 2%, while there ' +
-        'is still room to act.',
       metric: reputation('Reputation.BounceRate'),
       threshold: BOUNCE_RATE_REVIEW,
       evaluationPeriods: 1,
     });
 
     this.alarm(alarmTopic, 'EmailBounceRateCriticalAlarm', {
-      severity: 'critical',
-      name: 'email bounce rate near the limit AWS suspends accounts over',
-      description:
-        'Bounces are close to the level where AWS stops this account sending ' +
-        'email. That would end email sign-in for every family, and getting it ' +
-        'back is an appeal to AWS, not a wait.',
       metric: reputation('Reputation.BounceRate'),
       threshold: BOUNCE_RATE_CRITICAL,
       evaluationPeriods: 1,
     });
 
     this.alarm(alarmTopic, 'EmailComplaintRateReviewAlarm', {
-      severity: 'medium',
-      name: 'email complaint rate is climbing',
-      description:
-        'People are marking A-IEP login codes as spam. AWS puts an account ' +
-        'under review at 0.1%; this fires at 0.05%. Someone is being sent ' +
-        'codes they did not ask for.',
       metric: reputation('Reputation.ComplaintRate'),
       threshold: COMPLAINT_RATE_REVIEW,
       evaluationPeriods: 1,
     });
 
     this.alarm(alarmTopic, 'EmailComplaintRateCriticalAlarm', {
-      severity: 'critical',
-      name: 'email complaint rate near the limit AWS suspends accounts over',
-      description:
-        'Spam complaints are close to the level where AWS stops this account ' +
-        'sending email, which would end email sign-in for every family. This ' +
-        'is the tighter of the two limits by fifty times.',
       metric: reputation('Reputation.ComplaintRate'),
       threshold: COMPLAINT_RATE_CRITICAL,
       evaluationPeriods: 1,
@@ -665,48 +626,24 @@ export class EmailIdentityStack extends Construct {
     });
 
     this.alarm(alarmTopic, 'EmailBounceBurstAlarm', {
-      severity: 'critical',
-      name: 'login codes are being emailed to addresses that do not exist',
-      description:
-        'A burst of undeliverable login codes, which is what someone feeding ' +
-        'the sign-in form invented addresses looks like. Left alone this ends ' +
-        'in AWS suspending email for the whole account.',
       metric: count('Bounce'),
       threshold: BOUNCE_COUNT_BURST,
       evaluationPeriods: 1,
     });
 
     this.alarm(alarmTopic, 'EmailComplaintAlarm', {
-      severity: 'medium',
-      name: 'someone marked an A-IEP login code as spam',
-      description:
-        'A login code reached somebody who did not ask for one. One is worth ' +
-        'reading about: AWS allows one complaint per thousand messages before ' +
-        'putting an account under review.',
       metric: count('Complaint'),
       threshold: COMPLAINT_COUNT_ANY,
       evaluationPeriods: 1,
     });
 
     this.alarm(alarmTopic, 'EmailRejectAlarm', {
-      severity: 'medium',
-      name: 'AWS is refusing to send A-IEP login emails',
-      description:
-        'SES accepted a login code and then declined to send it. Transactional ' +
-        'mail should never be rejected, so this is about what is being sent, ' +
-        'not who it is going to.',
       metric: count('Reject'),
       threshold: REJECT_COUNT_ANY,
       evaluationPeriods: 1,
     });
 
     this.alarm(alarmTopic, 'EmailDeliveryDelayAlarm', {
-      severity: 'low',
-      name: 'email login codes are arriving late',
-      description:
-        'Login codes are being held up on the way to parents, who will be ' +
-        'staring at an empty inbox and asking for another one. The code ' +
-        'usually still arrives, so this is worth reading, not waking for.',
       metric: count('DeliveryDelay'),
       threshold: DELIVERY_DELAY_COUNT,
       evaluationPeriods: 1,
@@ -737,12 +674,6 @@ export class EmailIdentityStack extends Construct {
     });
 
     this.alarm(alarmTopic, 'SesSuppressionWriteFailedAlarm', {
-      severity: 'medium',
-      name: 'a bounced or complained address was not recorded',
-      description:
-        'A bounce or spam complaint could not be written to the do-not-email ' +
-        'list, so that address will be emailed again. Nothing is broken for ' +
-        'families yet; this is how an email suspension starts.',
       metric: new cloudwatch.Metric({
         namespace: metricNamespace,
         metricName: 'SesSuppressionWriteFailed',
@@ -754,12 +685,6 @@ export class EmailIdentityStack extends Construct {
     });
 
     this.alarm(alarmTopic, 'SesBounceHandlerErrorAlarm', {
-      severity: 'medium',
-      name: 'the do-not-email list is not being maintained',
-      description:
-        'The handler that records bounces and spam complaints is failing. ' +
-        'Addresses that should never be emailed again will be, and the ' +
-        'account is heading towards an AWS review.',
       metric: this.bounceHandler.metricErrors({ period: cdk.Duration.minutes(15) }),
       // SNS retries a failed Lambda delivery, so one transient blip records
       // several errors and still succeeds. Three means it is not transient.
@@ -772,26 +697,20 @@ export class EmailIdentityStack extends Construct {
    * One alarm, on the shared alerting path.
    *
    * Deliberately the same shape as MonitoringStack's private helper: the
-   * `[severity]` prefix is the only field CloudWatch carries into SNS that
-   * we control, and the alert formatter reads and strips it. An alarm
-   * created without it arrives in Slack uncoloured and with the marker
-   * showing.
+   * description is the only field CloudWatch carries into SNS that we
+   * control, and the alert formatter reads the environment, severity,
+   * symptom and next steps out of it. All of that comes from ALERT_COPY, so
+   * the wording of these alarms lives with every other alarm's.
    */
   private alarm(
     alarmTopic: sns.ITopic,
-    id: string,
-    opts: {
-      name: string;
-      description: string;
-      severity: Severity;
-      metric: cloudwatch.IMetric;
-      threshold: number;
-      evaluationPeriods: number;
-    },
+    id: StaticAlarmId,
+    opts: Omit<AlarmThreshold, 'comparisonOperator' | 'datapointsToAlarm'>,
   ): cloudwatch.Alarm {
+    const copy = ALERT_COPY[id];
     const alarm = new cloudwatch.Alarm(this, id, {
-      alarmName: `${getResourceName('a-iep')} ${opts.name}`,
-      alarmDescription: `[${opts.severity}] ${opts.description}`,
+      alarmName: `${getResourceName('a-iep')} ${copy.alarmName}`,
+      alarmDescription: renderAlarmDescriptionFor(getEnvironment(), copy, opts),
       metric: opts.metric,
       threshold: opts.threshold,
       evaluationPeriods: opts.evaluationPeriods,

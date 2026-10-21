@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 from moto import mock_aws
 
 from conftest import FUNCTIONS_DIR, load_lambda_module, unload
@@ -194,13 +195,18 @@ def test_audio_requires_auth_and_valid_request(tts):
     assert call(tts, body={'language': 'es', 'target': 'summary'})[0] == 400  # no childId
     assert call(tts, body={**GOOD_BODY, 'target': 'section'})[0] == 400  # no sectionName
 
-    status, _ = call(tts, body={**GOOD_BODY, 'childId': 'child-9'})
-    assert status == 403  # not the caller's child
+    # An unknown child and another family's document are the same 404, so the
+    # response never says which of the two the caller hit.
+    status, body = call(tts, body={**GOOD_BODY, 'childId': 'child-9'})
+    assert status == 404
+    assert body == {'message': 'Document not found'}
 
 
 def test_audio_denies_documents_of_other_users(tts):
     seed_document(tts, user='someone-else')
-    assert call(tts)[0] == 403
+    status, body = call(tts)
+    assert status == 404
+    assert body == {'message': 'Document not found'}
 
 
 def test_audio_404_when_content_missing_or_language_absent(tts):
@@ -478,3 +484,149 @@ def test_a_name_holding_a_backslash_is_spoken_literally(tts_substitution, name, 
 
     assert count == 1
     assert substituted == f'Ask {spoken} about it'
+
+
+class ThrottledS3:
+    """Wraps the real s3 client, failing the named operations with `code`."""
+
+    def __init__(self, real, failing, code):
+        self._real = real
+        self._failing = failing
+        self._code = code
+
+    def __getattr__(self, name):
+        if name in self._failing:
+            def fail(**_kwargs):
+                raise ClientError({'Error': {'Code': self._code, 'Message': 'boom'}}, name)
+            return fail
+        return getattr(self._real, name)
+
+
+def test_a_non_object_json_body_is_a_400_with_the_reason_logged(tts, capsys):
+    seed_document(tts)
+    for raw in ('["es", "summary"]', '"es"', 'null'):
+        response = tts.module.lambda_handler(
+            {**audio_event(), 'body': raw}, None)
+        assert response['statusCode'] == 400, raw
+    assert 'Invalid JSON body' in capsys.readouterr().out
+    assert tts.provider.synth_calls == []
+
+
+def test_every_response_says_no_store(tts):
+    seed_document(tts)
+    ok = tts.module.lambda_handler(audio_event(body=GOOD_BODY), None)
+    refused = tts.module.lambda_handler(audio_event(body={**GOOD_BODY, 'language': 'fr'}), None)
+    assert ok['headers']['Cache-Control'] == 'no-store'
+    assert refused['headers']['Cache-Control'] == 'no-store'
+
+
+def test_a_provider_that_cannot_be_reached_is_a_503_and_not_retried_as_a_502(tts, monkeypatch):
+    seed_document(tts)
+
+    def unreachable(text, language):
+        raise tts.module.TTSProviderUnavailable('fake unreachable: TimeoutError')
+    monkeypatch.setattr(tts.provider, 'synthesize', unreachable)
+
+    status, body = call(tts)
+    assert status == 503
+    assert 'unreachable' not in json.dumps(body)
+
+
+def test_a_missing_provider_key_is_a_500_with_a_generic_body(tts, monkeypatch, capsys):
+    seed_document(tts)
+
+    def unconfigured(text, language):
+        raise tts.module.TTSProviderNotConfigured('OpenAI API key not available from SSM')
+    monkeypatch.setattr(tts.provider, 'synthesize', unconfigured)
+
+    status, body = call(tts)
+    assert status == 500
+    assert body == {'message': 'Server configuration error'}
+    assert 'API key not available' in capsys.readouterr().out
+
+
+def test_text_over_the_cap_is_a_413_and_is_never_synthesized(tts, monkeypatch, capsys):
+    seed_document(tts, with_content=False)
+    too_long = 'x' * (tts.module.MAX_SPOKEN_CHARS + 1)
+    content = {'summaries': {'es': too_long}, 'sections': {}}
+    tts.s3.put_object(Bucket=BUCKET, Key='iep-data/iep-1/child-1/content.json',
+                      Body=json.dumps(content).encode())
+    tts.documents.update_item(
+        Key={'iepId': 'iep-1', 'childId': 'child-1'},
+        UpdateExpression='SET contentS3Reference = :ref',
+        ExpressionAttributeValues={':ref': {'bucket': BUCKET, 's3Key': 'iep-data/iep-1/child-1/content.json'}})
+
+    status, body = call(tts)
+
+    assert status == 413
+    assert tts.provider.synth_calls == []
+    assert '"chars": 131073' in capsys.readouterr().out
+
+
+def test_text_at_the_cap_is_still_read(tts):
+    seed_document(tts, with_content=False)
+    at_cap = 'x' * tts.module.MAX_SPOKEN_CHARS
+    tts.s3.put_object(Bucket=BUCKET, Key='iep-data/iep-1/child-1/content.json',
+                      Body=json.dumps({'summaries': {'es': at_cap}, 'sections': {}}).encode())
+    tts.documents.update_item(
+        Key={'iepId': 'iep-1', 'childId': 'child-1'},
+        UpdateExpression='SET contentS3Reference = :ref',
+        ExpressionAttributeValues={':ref': {'bucket': BUCKET, 's3Key': 'iep-data/iep-1/child-1/content.json'}})
+
+    status, _ = call(tts)
+
+    assert status == 200
+
+
+def test_a_throttled_cache_check_is_a_503_and_never_a_second_synthesis(tts, monkeypatch):
+    """Only a genuine not-found is a cache miss. Throttling on HeadObject
+    used to read as a miss and send the request into paid synthesis again."""
+    seed_document(tts)
+    monkeypatch.setattr(tts.module, 's3_client',
+                        ThrottledS3(tts.module.s3_client, {'head_object'}, 'SlowDown'))
+
+    status, body = call(tts)
+
+    assert status == 503
+    assert tts.provider.synth_calls == []
+    assert 'SlowDown' not in json.dumps(body)
+
+
+def test_a_content_read_fault_is_a_503_not_a_missing_document(tts, monkeypatch):
+    seed_document(tts)
+    monkeypatch.setattr(tts.module, 's3_client',
+                        ThrottledS3(tts.module.s3_client, {'get_object'}, 'AccessDenied'))
+
+    status, body = call(tts)
+
+    assert status == 503
+    assert body == {'message': 'Temporarily unavailable, please try again'}
+
+
+def test_a_profile_read_fault_is_a_503_not_a_403(tts, monkeypatch, capsys):
+    seed_document(tts)
+
+    class ThrottledTable:
+        def get_item(self, **_kwargs):
+            raise ClientError({'Error': {'Code': 'ProvisionedThroughputExceededException',
+                                         'Message': f'on {PROFILES_TABLE}'}}, 'GetItem')
+
+    monkeypatch.setattr(tts.module, 'user_profiles_table', ThrottledTable())
+
+    status, body = call(tts)
+
+    assert status == 503
+    assert PROFILES_TABLE not in json.dumps(body)
+    assert 'ProvisionedThroughputExceededException' in capsys.readouterr().out
+
+
+def test_a_missing_bucket_setting_is_a_logged_500(tts, monkeypatch, capsys):
+    seed_document(tts)
+    monkeypatch.setattr(tts.module, 'BUCKET', '')
+
+    status, body = call(tts)
+
+    assert status == 500
+    assert body == {'message': 'Server configuration error'}
+    assert 'BUCKET' in capsys.readouterr().out
+    assert tts.provider.synth_calls == []

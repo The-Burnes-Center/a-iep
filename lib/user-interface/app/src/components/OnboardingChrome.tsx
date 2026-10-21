@@ -1,8 +1,5 @@
 import React from 'react';
-import { useLanguage } from '../common/language-context';
-import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import Breadcrumbs, { Crumb } from './Breadcrumbs';
-import LanguageDropdown from './LanguageDropdown';
 import './OnboardingChrome.css';
 
 interface OnboardingTopBarProps {
@@ -18,19 +15,17 @@ interface OnboardingTopBarProps {
    * behind them, and it was the login form.
    */
   trail?: Crumb[];
-  /**
-   * Whether to offer the language selector. Off on the language step, which
-   * is itself a full-page language picker: a parent was shown the same
-   * choice twice on one screen, once as a dropdown and once as the list of
-   * buttons the design asks for.
-   */
-  showLanguagePicker?: boolean;
 }
 
 /**
  * The row every onboarding screen wears under the app's top navigation: the
- * breadcrumb trail on the leading edge and the language selector on the
- * trailing one.
+ * breadcrumb trail.
+ *
+ * It used to carry a language selector on its trailing edge too. That put the
+ * picker in a different place on onboarding than on every other screen, so
+ * the selector now lives only in the top bar's language spot, the same on
+ * every signed-in screen (NavLanguageSlot.tsx). The language step, which is
+ * itself a full-page language picker, empties that spot instead.
  *
  * The trail replaced a BACK pill. Onboarding was the only part of the app that
  * navigated that way; the account and support screens have always used
@@ -43,26 +38,10 @@ interface OnboardingTopBarProps {
  * of them renders this component, so the stylesheet that carries the
  * `.onboarding-*` classes travels with it.
  */
-export default function OnboardingTopBar(
-  { trail = [], showLanguagePicker = true }: OnboardingTopBarProps = {},
-) {
-  const { language, setLanguage, enabledLanguages } = useLanguage();
-
-  const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
-
+export default function OnboardingTopBar({ trail = [] }: OnboardingTopBarProps = {}) {
   return (
     <div className="onboarding-topbar">
       <Breadcrumbs trail={trail} />
-      {showLanguagePicker && (
-        <div className="onboarding-language">
-          <LanguageDropdown
-            language={language}
-            languageOptions={languageOptions}
-            onLanguageChange={setLanguage}
-            variant="secondary"
-          />
-        </div>
-      )}
     </div>
   );
 }

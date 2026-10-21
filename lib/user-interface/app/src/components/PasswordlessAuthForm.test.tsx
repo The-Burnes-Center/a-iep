@@ -104,6 +104,7 @@ type Options = { callback: (token: string) => void };
 let widgets: { id: string; options: Options }[] = [];
 let removed: string[] = [];
 let resets: string[] = [];
+let executed: string[] = [];
 
 const installTurnstile = () => {
   let nextId = 0;
@@ -117,6 +118,7 @@ const installTurnstile = () => {
     // asynchronously, so the test says when that happened, with `solve`.
     reset: (id: string) => { resets.push(id); },
     remove: (id: string) => { removed.push(id); },
+    execute: (id: string) => { executed.push(id); },
   };
 };
 
@@ -230,6 +232,7 @@ beforeEach(() => {
   widgets = [];
   removed = [];
   resets = [];
+  executed = [];
   clockOffset = 0;
   vi.spyOn(Date, "now").mockImplementation(() => realNow() + clockOffset);
   document.getElementById("cf-turnstile")?.remove();
@@ -603,18 +606,71 @@ describe("the security check on a resend", () => {
     expect(resets).toContain("widget-1");
   });
 
-  test("with no token in hand it is refused here, not sent to be refused as a 403", async () => {
+  test("with no token in hand it runs the check, and sends only once that passes", async () => {
     installTurnstile();
     const { user } = renderLogin({ withSiteKey: true });
     solve("token-first");
     await startPhoneFlow(user);
     await waitOutCooldown();
 
-    // The code step's widget has rendered but nobody has solved it.
+    // The code step's widget has rendered but has not run.
+    authFetch.queue("start", started("sms", "c2"));
     await user.click(resendButton());
+
+    expect(executed).toContain("widget-1");
+    expect(authFetch.countOf("start")).toBe(1);
+
+    solve("token-on-demand");
+    await waitFor(() => expect(authFetch.countOf("start")).toBe(2));
+    expect(authFetch.callsTo("start")[1]).toMatchObject({ turnstileToken: "token-on-demand" });
+  });
+
+  test("a check that gives no token is refused here, not sent to be refused as a 403", async () => {
+    installTurnstile();
+    const { user } = renderLogin({ withSiteKey: true });
+    solve("token-first");
+    await startPhoneFlow(user);
+    await waitOutCooldown();
+
+    await user.click(resendButton());
+    const widget = widgets[widgets.length - 1];
+    act(() => { (widget.options as Options & { "expired-callback": () => void })["expired-callback"](); });
 
     expect(await screen.findByText("auth.securityCheckInteractive")).toBeInTheDocument();
     expect(authFetch.countOf("start")).toBe(1);
+  });
+
+  test("a second tap while the check runs is ignored: one check, one send, no error", async () => {
+    installTurnstile();
+    const { user } = renderLogin({ withSiteKey: true });
+    authFetch.queue("start", started("sms"));
+    fillPhone();
+
+    await sendCode(user);
+    await sendCode(user);
+    expect(executed).toEqual(["widget-0"]);
+    expect(screen.queryByText("auth.securityCheckInteractive")).not.toBeInTheDocument();
+
+    solve("token-once");
+    await screen.findByTestId("sms-code-input");
+    expect(authFetch.countOf("start")).toBe(1);
+  });
+
+  test("the first send runs the check on demand too", async () => {
+    // Nothing runs on page load: the login card is on the landing page, and
+    // a token minted for every visitor is one the server never verifies.
+    installTurnstile();
+    const { user } = renderLogin({ withSiteKey: true });
+    expect(executed).toEqual([]);
+
+    authFetch.queue("start", started("sms"));
+    fillPhone();
+    await sendCode(user);
+    expect(executed).toEqual(["widget-0"]);
+
+    solve("token-on-send");
+    await screen.findByTestId("sms-code-input");
+    expect(authFetch.callsTo("start")[0]).toMatchObject({ turnstileToken: "token-on-send" });
   });
 
   test("where no key is configured there is no widget, and the resend simply sends no token", async () => {
@@ -837,6 +893,8 @@ describe("telling a parent a code went out", () => {
 
     // Produces a message on the code step without touching the network.
     await user.click(resendButton());
+    const widget = widgets[widgets.length - 1];
+    act(() => { (widget.options as Options & { "expired-callback": () => void })["expired-callback"](); });
     await screen.findByText("auth.securityCheckInteractive");
 
     await user.click(screen.getByRole("button", { name: "auth.backToLogin" }));
@@ -852,5 +910,63 @@ describe("telling a parent a code went out", () => {
     await user.click(screen.getByRole("button", { name: "auth.sendCode" }));
 
     expect(await screen.findByTestId("sms-code-input")).toHaveValue("");
+  });
+});
+
+/**
+ * WebOTP on the code step: the first text and every resend each get a fresh
+ * request, so a resent code is read as the first one was. OTPCredential is
+ * stubbed here, and restored after each test.
+ */
+describe("WebOTP on the code step", () => {
+  const originalCredentials = Object.getOwnPropertyDescriptor(navigator, "credentials");
+  let otpGet: ReturnType<typeof vi.fn<(options?: unknown) => Promise<unknown>>>;
+
+  beforeEach(() => {
+    Object.defineProperty(window, "OTPCredential", { configurable: true, value: class {} });
+    otpGet = vi.fn<(options?: unknown) => Promise<unknown>>(() => new Promise(() => {}));
+    Object.defineProperty(navigator, "credentials", { configurable: true, value: { get: otpGet } });
+  });
+
+  afterEach(() => {
+    delete (window as { OTPCredential?: unknown }).OTPCredential;
+    if (originalCredentials) {
+      Object.defineProperty(navigator, "credentials", originalCredentials);
+    } else {
+      delete (navigator as { credentials?: unknown }).credentials;
+    }
+  });
+
+  const signalOf = (call: number) => (otpGet.mock.calls[call][0] as { signal: AbortSignal }).signal;
+
+  test("a resend aborts the first text's request and arms a fresh one", async () => {
+    const { user } = renderLogin();
+    await startPhoneFlow(user);
+    await waitFor(() => expect(otpGet).toHaveBeenCalledTimes(1));
+    const firstSignal = signalOf(0);
+    expect(firstSignal.aborted).toBe(false);
+
+    await waitOutCooldown();
+    authFetch.queue("start", started("sms", "c2"));
+    await user.click(resendButton());
+
+    await waitFor(() => expect(authFetch.countOf("start")).toBe(2));
+    await waitFor(() => expect(otpGet).toHaveBeenCalledTimes(2));
+    expect(firstSignal.aborted).toBe(true);
+    expect(signalOf(1).aborted).toBe(false);
+    expect(otpGet.mock.calls[1][0]).toMatchObject({ otp: { transport: ["sms"] } });
+  });
+
+  test("a failed resend does not re-arm, because no new text was sent", async () => {
+    const { user } = renderLogin();
+    await startPhoneFlow(user);
+    await waitFor(() => expect(otpGet).toHaveBeenCalledTimes(1));
+
+    await waitOutCooldown();
+    authFetch.queue("start", { status: 503, body: { ok: false, code: "unavailable", message: "english fallback" } });
+    await user.click(resendButton());
+
+    await waitFor(() => expect(authFetch.countOf("start")).toBe(2));
+    expect(otpGet).toHaveBeenCalledTimes(1);
   });
 });

@@ -13,10 +13,9 @@
  *    crumb here is a named in-app route, and the first onboarding step offers
  *    no link at all rather than one out of the app. Pinned per screen in
  *    pages/profile/onboarding-trail.test.tsx.
- *  - the bar drew a language dropdown on the screen whose entire purpose is
- *    picking a language, so a parent was offered the same choice twice on one
- *    screen, once as a dropdown and once as the list of buttons the design
- *    asks for.
+ *  - the row drew its own language dropdown, in a different place from every
+ *    other screen's. The picker now lives only in the top bar's language spot
+ *    (NavLanguageSlot.tsx), which the language step empties.
  *
  * What the trail EMITS (nav landmark, real links, aria-current) is pinned once
  * in Breadcrumbs.test.tsx; this file is about the bar that carries it.
@@ -87,24 +86,12 @@ describe("the onboarding trail", () => {
 });
 
 describe("the onboarding language selector", () => {
-  test("is shown by default, so every other step keeps it", () => {
+  test("is not drawn by the onboarding row: the top bar owns the one picker", () => {
+    // It used to sit on this row's trailing edge, a different place from
+    // every other screen. NavLanguageSlot.test.tsx pins the bar's picker.
     renderBar(<OnboardingTopBar trail={[STEP.consent, STEP.child]} />);
 
-    expect(languageToggle()).toBeInTheDocument();
-  });
-
-  test("is withheld on the step that is itself a language picker", () => {
-    renderBar(<OnboardingTopBar trail={[STEP.language]} showLanguagePicker={false} />);
-
     expect(languageToggle()).toBeNull();
-  });
-
-  test("withholding it does not take the trail with it", () => {
-    renderBar(
-      <OnboardingTopBar trail={[STEP.account, STEP.language]} showLanguagePicker={false} />,
-    );
-
-    expect(screen.getByRole("link", { name: "breadcrumb.account" })).toBeInTheDocument();
-    expect(languageToggle()).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });

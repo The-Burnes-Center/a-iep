@@ -23,17 +23,17 @@ The REST API is implemented in `rest-api.ts` using the AWS CDK `HttpApi` constru
 
 The following endpoints are configured in the main ChatBotApi stack:
 
-- `/s3-knowledge-bucket-data` (POST): Retrieve documents from S3
-- `/delete-s3-file` (POST): Delete documents from S3
 - `/signed-url-knowledge` (POST): Generate presigned URLs for S3 uploads
 - `/profile` (GET, PUT, DELETE): User profile management and deletion
 - `/profile/children` (POST): Add children to user profiles
 - `/profile/children/{childId}/documents` (GET, DELETE): Manage child documents
 
-`/documents/{iepId}/status` (GET) and `/summary` (POST) are declared in
-`chatbot-api/index.ts` but the profile handler registers neither, so both 404
-through `RouteNotFoundException`. They are listed here only so the next person
-does not go looking for the handler.
+`/documents/{iepId}/status` (GET), `/summary` (POST), `/s3-knowledge-bucket-data`
+(POST) and `/delete-s3-file` (POST) were removed: the first two never had a
+handler and always 404ed, the other two had no callers, and the lambdas behind those two were deleted with them. A parent's document
+list comes from `/profile/children/{childId}/documents`, and deletion from the
+DELETE on the same path. `test/infra/gen-ai-mvp-stack.test.ts` asserts the four
+routes stay gone.
 
 ### Security Features
 

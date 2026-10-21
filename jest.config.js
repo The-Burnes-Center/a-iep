@@ -33,6 +33,20 @@ module.exports = {
       clearMocks: true,
     },
     {
+      // Unit tests for the E2E runner's own helpers (e2e/helpers/), which the
+      // e2e project cannot test itself: its only runner is the deployed-staging
+      // suite. Kept out of e2e/ so CI's no-credentials jest run covers them.
+      displayName: 'e2e-helpers',
+      testEnvironment: 'node',
+      roots: ['<rootDir>/test/e2e-helpers'],
+      testMatch: ['**/*.test.ts'],
+      transform: {
+        '^.+\\.ts$': 'ts-jest',
+      },
+      moduleFileExtensions: ['ts', 'js', 'json', 'node'],
+      clearMocks: true,
+    },
+    {
       displayName: 'infra',
       testEnvironment: 'node',
       roots: ['<rootDir>/test/infra'],

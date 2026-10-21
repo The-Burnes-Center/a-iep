@@ -308,8 +308,22 @@ describe('every send names the configuration set', () => {
         });
 
         expect(params.ConfigurationSetName).toBe('a-iep-auth-staging');
-        expect(params.FromEmailAddress).toBe('no-reply@a-iep.org');
+        expect(params.FromEmailAddress).toBe('"A-IEP" <no-reply@a-iep.org>');
         expect(params.Destination.ToAddresses).toEqual([ADDRESS]);
+    });
+
+    // One source of truth for the mailbox: CDK defines the address, and the
+    // display name is the only thing added here. A second hard-coded address
+    // would let the From line drift from the one IAM allows.
+    test('the display name wraps whichever address the environment names', () => {
+        const saved = process.env.SES_FROM_ADDRESS;
+        process.env.SES_FROM_ADDRESS = 'sender@example.org';
+        try {
+            const params = buildOtpEmailParams({ to: ADDRESS, subject: 's', text: 't' });
+            expect(params.FromEmailAddress).toBe('"A-IEP" <sender@example.org>');
+        } finally {
+            process.env.SES_FROM_ADDRESS = saved;
+        }
     });
 
     test('it takes the set from the environment wireSender populates', () => {

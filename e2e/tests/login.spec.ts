@@ -8,7 +8,7 @@
  * test deliberately stops short of, including verify-auth-challenge and the
  * post-login profile routing.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginWithOtp, IN_APP_PATHS } from '../helpers/app';
 import { STABLE_USER } from '../helpers/phones';
 

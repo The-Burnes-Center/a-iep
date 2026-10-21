@@ -1,6 +1,8 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useLanguage } from '../common/language-context';
+import { NavLanguageSlotTarget } from './NavLanguageSlot';
+import LanguagePreferenceDropdown from './LanguagePreferenceDropdown';
 import { IconFileDescription, IconHeartHandshake, IconUser, IconInfoCircle } from '@tabler/icons-react';
 import './MobileTopNavigation.css';
 
@@ -68,6 +70,9 @@ const MobileTopNavigation: React.FC = () => {
           );
         })}
       </div>
+      {/* The language picker, in the same spot on every screen: the parent's
+          preference unless the screen claims the spot (NavLanguageSlot.tsx). */}
+      <NavLanguageSlotTarget fallback={<LanguagePreferenceDropdown />} />
     </nav>
   );
 };

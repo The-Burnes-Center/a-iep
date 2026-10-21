@@ -14,8 +14,13 @@ import { ChatBotApi } from "../chatbot-api";
 import { Website } from "./generate-app"
 import { NagSuppressions } from "cdk-nag";
 import { Utils } from "../shared/utils"
-import { OIDCIntegrationName } from "../constants";
+import {
+  MULTIPART_UPLOAD_ABORT_DAYS,
+  OIDCIntegrationName,
+  WEBSITE_NONCURRENT_VERSION_DAYS,
+} from "../constants";
 import { getEnvironment } from "../tags";
+import { buildRobotsTxt, buildSecurityTxt, buildSitemapXml } from "./site-files";
 
 // Languages offered in the UI per environment. Arabic ships on dev/staging but
 // not prod; an explicit ENABLED_LANGUAGES env var (comma-separated codes)
@@ -124,6 +129,9 @@ export class UserInterface extends Construct {
     const appPath = path.join(__dirname, "app");
     const buildPath = path.join(appPath, "dist");
 
+    // Lifecycle rules on these two buckets only abort failed multipart uploads
+    // and expire superseded website versions. Neither expires current objects,
+    // and the logs bucket's retention is left as it was pending a decision.
     const uploadLogsBucket = new s3.Bucket(this, "WebsiteLogsBucket", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -131,6 +139,10 @@ export class UserInterface extends Construct {
       enforceSSL: true,
       minimumTLSVersion: 1.2,
       versioned: true,
+      lifecycleRules: [{
+        id: "AbortIncompleteMultipartUploads",
+        abortIncompleteMultipartUploadAfter: cdk.Duration.days(MULTIPART_UPLOAD_ABORT_DAYS),
+      }],
     });
 
     const websiteBucket = new s3.Bucket(this, "WebsiteBucket", {
@@ -143,6 +155,16 @@ export class UserInterface extends Construct {
       minimumTLSVersion: 1.2,
       versioned: true,
       serverAccessLogsBucket: uploadLogsBucket,
+      lifecycleRules: [
+        {
+          id: "ExpireNoncurrentVersions",
+          noncurrentVersionExpiration: cdk.Duration.days(WEBSITE_NONCURRENT_VERSION_DAYS),
+        },
+        {
+          id: "AbortIncompleteMultipartUploads",
+          abortIncompleteMultipartUploadAfter: cdk.Duration.days(MULTIPART_UPLOAD_ABORT_DAYS),
+        },
+      ],
     });
 
     // Deploy either Private (only accessible within VPC) or Public facing website
@@ -176,6 +198,16 @@ export class UserInterface extends Construct {
       // staging and prod are otherwise identical production builds.
       environment : getEnvironment()
     });
+
+    // robots.txt, sitemap.xml and security.txt (see site-files.ts). The host
+    // matches the one the login SMS names (OTP_SMS_DOMAIN in new-auth.ts).
+    const isProduction = getEnvironment() === "prod";
+    const siteFiles = { host: isProduction ? "a-iep.org" : "dev.a-iep.org", isProduction };
+    const wellKnownAssets = [
+      s3deploy.Source.data("robots.txt", buildRobotsTxt(siteFiles)),
+      s3deploy.Source.data("sitemap.xml", buildSitemapXml(siteFiles)),
+      s3deploy.Source.data(".well-known/security.txt", buildSecurityTxt(siteFiles)),
+    ];
 
     const asset = s3deploy.Source.asset(appPath, {
       bundling: {
@@ -246,10 +278,20 @@ export class UserInterface extends Construct {
     // no studentNameGate and no passwordlessAuth and rendered the old login
     // screen and no child-name prompt, on a build that contained both. A hard
     // reload fixed it, which is not a thing a parent knows to do.
-    new s3deploy.BucketDeployment(this, "UserInterfaceDeployment", {
+    // The hashed bundle: assets/ only. A new build is a new URL, so the old
+    // one is safe to keep for a year.
+    //
+    // Files outside assets/ and index.html are not hashed. vendor/ (the PDF
+    // worker and the icon font) and images/ keep their names across releases,
+    // so a version bump can leave a returning browser on the old file for a
+    // year. They get the one-day policy below instead, so a stale copy is
+    // replaced within a day, and stale-while-revalidate lets a return visit
+    // paint at once while the new copy loads behind it.
+    const assetsDeployment = new s3deploy.BucketDeployment(this, "UserInterfaceAssets", {
       prune: false,
       sources: [asset],
-      exclude: ["index.html"],
+      exclude: ["*"],
+      include: ["assets/*"],
       destinationBucket: websiteBucket,
       distribution: distribution,
       cacheControl: [
@@ -266,16 +308,35 @@ export class UserInterface extends Construct {
       ephemeralStorageSize: cdk.Size.gibibytes(1),
     });
 
-    // The two unhashed entry points. no-cache is revalidate-before-use, not
+    // Everything else in the build that has a stable URL: vendor/, images/ and
+    // any top-level static file. Not index.html or aws-exports.json (the two
+    // entry points, deployed below with no-cache) and not assets/ (above).
+    const stableFilesDeployment = new s3deploy.BucketDeployment(this, "UserInterfaceStableFiles", {
+      prune: false,
+      sources: [asset],
+      exclude: ["index.html", "aws-exports.json", "assets/*"],
+      destinationBucket: websiteBucket,
+      distribution: distribution,
+      cacheControl: [
+        s3deploy.CacheControl.fromString(
+          "public, max-age=86400, stale-while-revalidate=604800"
+        ),
+      ],
+      memoryLimit: 1024,
+      ephemeralStorageSize: cdk.Size.gibibytes(1),
+    });
+
+    // The two unhashed entry points, plus the well-known files, which are
+    // equally unhashed and small. no-cache is revalidate-before-use, not
     // "never cache": the browser still stores them and still gets a 304 when
     // nothing changed, so this costs one conditional request per load rather
     // than a re-download. must-revalidate closes the stale-while-offline
     // window that would otherwise let a flag flip be ignored.
-    new s3deploy.BucketDeployment(this, "UserInterfaceEntrypoints", {
+    const entrypointsDeployment = new s3deploy.BucketDeployment(this, "UserInterfaceEntrypoints", {
       prune: false,
-      sources: [asset, exportsAsset],
+      sources: [asset, exportsAsset, ...wellKnownAssets],
       exclude: ["*"],
-      include: ["index.html", "aws-exports.json"],
+      include: ["index.html", "aws-exports.json", "robots.txt", "sitemap.xml", ".well-known/security.txt"],
       destinationBucket: websiteBucket,
       distribution: distribution,
       cacheControl: [
@@ -285,6 +346,15 @@ export class UserInterface extends Construct {
       memoryLimit: 1024,
       ephemeralStorageSize: cdk.Size.gibibytes(1),
     });
+
+    // Publish the entry points last. CloudFormation would otherwise run the
+    // three deployments in parallel, and a parent whose browser fetched the new
+    // index.html while the new /assets chunks were still syncing would get the
+    // error boundary on a signed-in page, because each lazy route's chunk would
+    // be missing. With this ordering the old index.html keeps serving until
+    // every chunk it might ask for is in the bucket.
+    entrypointsDeployment.node.addDependency(assetsDeployment);
+    entrypointsDeployment.node.addDependency(stableFilesDeployment);
 
 
     /**

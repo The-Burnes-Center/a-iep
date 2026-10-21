@@ -1,48 +1,33 @@
 /**
- * upload-s3 is the IEP upload API: it validates the request, replaces the
- * child's existing documents (one active IEP per child), writes the new
- * document record, and returns a presigned PUT URL. ES module, so this suite
- * runs under jest's vm-modules mode (see jest.config.js / `npm test`).
+ * upload-s3 is the IEP upload API: it validates the request, writes the new
+ * document record, and returns a presigned PUT URL. It never deletes anything:
+ * replacing a child's IEP is the pipeline's job, once the new document has
+ * finished (ddb-service purge_replaced_documents, tested in
+ * test/python/test_replaced_documents.py). ES module, so this suite runs under
+ * jest's vm-modules mode (see jest.config.js / `npm test`).
  *
  * The AWS SDK clients are intercepted with aws-sdk-client-mock (prototype-
- * level, so the handler's and iep-document-utils' own client instances are
- * both covered). getSignedUrl is the real presigner: it signs offline with
- * the fake env credentials, so assertions run against a genuine URL.
+ * level, so the handler's own client instances are covered). getSignedUrl is
+ * the real presigner: it signs offline with the fake env credentials, so
+ * assertions run against a genuine URL.
  */
 import { jest } from '@jest/globals';
 import { mockClient } from 'aws-sdk-client-mock';
-import {
-    S3Client,
-    ListObjectVersionsCommand,
-    DeleteObjectCommand,
-    GetObjectCommand,
-} from '@aws-sdk/client-s3';
-import {
-    DynamoDBDocumentClient,
-    PutCommand,
-    QueryCommand,
-    DeleteCommand,
-} from '@aws-sdk/lib-dynamodb';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 
 const BUCKET = 'kb-bucket-test';
 const DOCUMENTS_TABLE = 'documents-test';
-const PROFILES_TABLE = 'profiles-test';
 const USER = 'user-sub-1';
 
 process.env.BUCKET = BUCKET;
 process.env.IEP_DOCUMENTS_TABLE = DOCUMENTS_TABLE;
-process.env.USER_PROFILES_TABLE = PROFILES_TABLE;
 process.env.AWS_REGION = 'us-east-1';
 process.env.AWS_ACCESS_KEY_ID = 'testing';
 process.env.AWS_SECRET_ACCESS_KEY = 'testing';
 
 const s3Mock = mockClient(S3Client);
 
-// The bucket is versioned, so the replace flow lists versions, not objects.
-// A current object is a version with IsLatest.
-const current = (...keys) => ({
-    Versions: keys.map((Key) => ({ Key, VersionId: `v-${Key}`, IsLatest: true })),
-});
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
 // Import AFTER env + mocks: the module builds its clients and reads the
@@ -59,7 +44,7 @@ const GOOD_UPLOAD = {
     fileName: 'report.pdf',
     fileType: 'application/pdf',
     operation: 'upload',
-    childId: 'child-1',
+    childId: '3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7b',
 };
 
 const call = async (body) => {
@@ -70,10 +55,7 @@ const call = async (body) => {
 beforeEach(() => {
     s3Mock.reset();
     ddbMock.reset();
-    s3Mock.on(ListObjectVersionsCommand).resolves({});
-    ddbMock.on(QueryCommand).resolves({ Items: [] });
     ddbMock.on(PutCommand).resolves({});
-    ddbMock.on(DeleteCommand).resolves({});
 });
 
 describe('request validation', () => {
@@ -153,7 +135,7 @@ describe('upload', () => {
 
         const url = new URL(body.signedUrl);
         expect(url.hostname).toContain(BUCKET);
-        expect(url.pathname).toBe(`/${USER}/child-1/${body.iepId}/report.pdf`);
+        expect(url.pathname).toBe(`/${USER}/3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7b/${body.iepId}/report.pdf`);
         expect(url.searchParams.get('X-Amz-Signature')).toBeTruthy();
         expect(url.searchParams.get('X-Amz-Expires')).toBe('300');
     });
@@ -181,7 +163,7 @@ describe('upload', () => {
         const { TableName, Item } = puts[0].args[0].input;
         expect(TableName).toBe(DOCUMENTS_TABLE);
         expect(Item.iepId).toBe(body.iepId);
-        expect(Item.childId).toBe('child-1');
+        expect(Item.childId).toBe('3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7b');
         expect(Item.userId).toBe(USER);
         expect(Item.summaries).toEqual({});
         expect(typeof Item.createdAt).toBe('number');
@@ -200,12 +182,12 @@ describe('upload', () => {
         const { Item } = ddbMock.commandCalls(PutCommand)[0].args[0].input;
 
         expect(Item.documentUrl)
-            .toBe(`s3://${BUCKET}/${USER}/child-1/${body.iepId}/report.pdf`);
+            .toBe(`s3://${BUCKET}/${USER}/3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7b/${body.iepId}/report.pdf`);
 
         // The parser in ddb-service is `url[len('s3://'):].partition('/')`.
         const [bucket, ...keyParts] = Item.documentUrl.slice('s3://'.length).split('/');
         expect(bucket).toBe(BUCKET);
-        expect(keyParts.join('/')).toBe(`${USER}/child-1/${body.iepId}/report.pdf`);
+        expect(keyParts.join('/')).toBe(`${USER}/3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7b/${body.iepId}/report.pdf`);
     });
 
     // The row is written before this handler knows the browser's presigned
@@ -219,197 +201,88 @@ describe('upload', () => {
         expect(Item.status).toBe('PENDING_UPLOAD');
     });
 
-    test("replaces the child's existing documents before writing the new record", async () => {
-        // Prefix-aware: the replace path sweeps three different prefixes (raw
-        // upload, iep-data, iep-audio), so a mock that answers every prefix
-        // with the same object would claim deletions that never happened.
-        s3Mock.on(ListObjectVersionsCommand).resolves({});
-        s3Mock.on(ListObjectVersionsCommand, { Prefix: `${USER}/child-1/` }).resolves(current(`${USER}/child-1/iep-old/old.pdf`));
-        ddbMock.on(QueryCommand, { TableName: DOCUMENTS_TABLE }).resolves({
-            Items: [
-                { iepId: 'iep-old', childId: 'child-1', userId: USER },
-                // Same childId but someone else's record: must survive.
-                { iepId: 'iep-foreign', childId: 'child-1', userId: 'other-user' },
-            ],
-        });
-        ddbMock.on(QueryCommand, { TableName: PROFILES_TABLE }).resolves({ Items: [] });
+    // The product rule: a parent who replaces their child's IEP keeps the old
+    // one until the new one has finished processing. Asking for an upload URL
+    // is not that moment: the file has not been sent, and may never be. This
+    // handler used to delete the child's previous document right here, so a
+    // cancelled upload, a dropped connection or a failed run left the family
+    // with no IEP. Mutation-checked: putting a delete (or a listing, which
+    // only a delete needs) back anywhere in handleUpload fails these.
+    describe('replacing an IEP', () => {
+        const touchedStorage = () => [
+            ...s3Mock.calls().map((c) => c.args[0].constructor.name),
+            ...ddbMock.calls().map((c) => c.args[0].constructor.name),
+        ];
 
-        const { status } = await call(GOOD_UPLOAD);
-        expect(status).toBe(200);
-
-        // Old S3 object removed
-        const s3Deletes = s3Mock.commandCalls(DeleteObjectCommand);
-        expect(s3Deletes.map((c) => c.args[0].input.Key))
-            .toEqual([`${USER}/child-1/iep-old/old.pdf`]);
-
-        // Only the caller's own record deleted, and before the new Put
-        const deletes = ddbMock.commandCalls(DeleteCommand);
-        expect(deletes.map((c) => c.args[0].input.Key.iepId)).toEqual(['iep-old']);
-
-        const ordered = ddbMock.calls().map((c) => c.args[0].constructor.name);
-        expect(ordered.indexOf('DeleteCommand')).toBeLessThan(ordered.indexOf('PutCommand'));
-    });
-
-    // The bucket is versioned: a DeleteObject without a VersionId writes a
-    // delete marker and the previous original stays retrievable by version id
-    // for another 1 to 3 days. Every version and every marker must go, each by
-    // its own id, and a key that only shares the prefix must not.
-    test("deletes every version of the replaced original, not just the current one", async () => {
-        const oldKey = `${USER}/child-1/iep-old/old.pdf`;
-        ddbMock.on(QueryCommand).resolves({ Items: [] });
-        s3Mock.on(ListObjectVersionsCommand, { Prefix: `${USER}/child-1/` }).resolves({
-            Versions: [
-                { Key: oldKey, VersionId: 'v-current', IsLatest: true },
-                { Key: oldKey, VersionId: 'v-older', IsLatest: false },
-            ],
-            DeleteMarkers: [{ Key: oldKey, VersionId: 'm-1', IsLatest: false }],
-        });
-
-        expect((await call(GOOD_UPLOAD)).status).toBe(200);
-
-        const deleted = s3Mock.commandCalls(DeleteObjectCommand).map((c) => c.args[0].input);
-        expect(deleted.map((d) => d.VersionId).sort()).toEqual(['m-1', 'v-current', 'v-older']);
-        expect(deleted.every((d) => d.Key === oldKey)).toBe(true);
-    });
-
-    test('follows the version listing past its first page', async () => {
-        const prefix = `${USER}/child-1/`;
-        ddbMock.on(QueryCommand).resolves({ Items: [] });
-        s3Mock.on(ListObjectVersionsCommand, { Prefix: prefix })
-            .resolvesOnce({
-                Versions: [{ Key: `${prefix}a/a.pdf`, VersionId: 'v1', IsLatest: true }],
-                IsTruncated: true, NextKeyMarker: `${prefix}a/a.pdf`, NextVersionIdMarker: 'v1',
-            })
-            .resolves({ Versions: [{ Key: `${prefix}b/b.pdf`, VersionId: 'v2', IsLatest: true }] });
-
-        expect((await call(GOOD_UPLOAD)).status).toBe(200);
-
-        expect(s3Mock.commandCalls(DeleteObjectCommand).map((c) => c.args[0].input.VersionId))
-            .toEqual(['v1', 'v2']);
-        const second = s3Mock.commandCalls(ListObjectVersionsCommand)
-            .map((c) => c.args[0].input).filter((i) => i.Prefix === prefix)[1];
-        expect(second).toMatchObject({ KeyMarker: `${prefix}a/a.pdf`, VersionIdMarker: 'v1' });
-    });
-
-    // The raw upload's filename is typed by a parent and routinely names the
-    // child. The replace flow used to log the whole key on every upload.
-    test("never logs the replaced original's filename", async () => {
-        const log = jest.spyOn(console, 'log').mockImplementation(() => {});
-        try {
-            ddbMock.on(QueryCommand).resolves({ Items: [] });
-            s3Mock.on(ListObjectVersionsCommand, { Prefix: `${USER}/child-1/` })
-                .resolves(current(`${USER}/child-1/iep-old/Sofia Ejemplo IEP.pdf`));
-
-            expect((await call(GOOD_UPLOAD)).status).toBe(200);
-
-            const logged = log.mock.calls.flat().join('\n');
-            expect(logged).not.toContain('Sofia');
-            expect(logged).toContain(`${USER}/child-1/iep-old/...`);
-        } finally {
-            log.mockRestore();
-        }
-    });
-
-    // Every upload replaces the child's previous IEP, so this is the most
-    // travelled delete path in the app. It used to sweep only the raw-upload
-    // prefix, stranding the previous document's redacted summary and cached
-    // audio: 40 content and 18 audio directories in staging, 20 in prod, with
-    // no row pointing at any of them.
-    test('purges the replaced document\'s summary and cached audio', async () => {
-        s3Mock.on(ListObjectVersionsCommand).resolves({});
-        s3Mock.on(ListObjectVersionsCommand, { Prefix: 'iep-data/iep-old/child-1/' }).resolves(current('iep-data/iep-old/child-1/content.json'));
-        s3Mock.on(ListObjectVersionsCommand, { Prefix: 'iep-audio/iep-old/child-1/' }).resolves(current('iep-audio/iep-old/child-1/en/summary-abc.mp3', 'iep-audio/iep-old/child-1/es/summary-def.mp3'));
-        ddbMock.on(QueryCommand, { TableName: DOCUMENTS_TABLE }).resolves({
-            Items: [{
-                iepId: 'iep-old', childId: 'child-1', userId: USER,
-                contentS3Reference: { bucket: BUCKET, s3Key: 'iep-data/iep-old/child-1/content.json' },
-            }],
-        });
-        ddbMock.on(QueryCommand, { TableName: PROFILES_TABLE }).resolves({ Items: [] });
-
-        expect((await call(GOOD_UPLOAD)).status).toBe(200);
-
-        const deletedKeys = s3Mock.commandCalls(DeleteObjectCommand)
-            .map((c) => c.args[0].input.Key);
-        expect(deletedKeys).toContain('iep-data/iep-old/child-1/content.json');
-        expect(deletedKeys).toContain('iep-audio/iep-old/child-1/en/summary-abc.mp3');
-        expect(deletedKeys).toContain('iep-audio/iep-old/child-1/es/summary-def.mp3');
-    });
-
-    test('purges artifacts before deleting the row that points at them', async () => {
-        // contentS3Reference is the only pointer to the summary object, so a
-        // row deleted first leaves it unreachable in S3 forever. The two
-        // deletes land on different mocks, so record a single interleaved
-        // order log rather than comparing per-mock indexes.
-        const order = [];
-        s3Mock.on(ListObjectVersionsCommand).resolves({});
-        s3Mock.on(ListObjectVersionsCommand, { Prefix: 'iep-data/iep-old/child-1/' }).resolves(current('iep-data/iep-old/child-1/content.json'));
-        s3Mock.on(DeleteObjectCommand).callsFake((input) => {
-            order.push(`s3:${input.Key}`);
-            return {};
-        });
-        ddbMock.on(QueryCommand, { TableName: DOCUMENTS_TABLE }).resolves({
-            Items: [{ iepId: 'iep-old', childId: 'child-1', userId: USER }],
-        });
-        ddbMock.on(QueryCommand, { TableName: PROFILES_TABLE }).resolves({ Items: [] });
-        ddbMock.on(DeleteCommand).callsFake((input) => {
-            order.push(`row:${input.Key.iepId}`);
-            return {};
-        });
-
-        await call(GOOD_UPLOAD);
-
-        const contentAt = order.indexOf('s3:iep-data/iep-old/child-1/content.json');
-        const rowAt = order.indexOf('row:iep-old');
-        expect(contentAt).toBeGreaterThanOrEqual(0);
-        expect(rowAt).toBeGreaterThanOrEqual(0);
-        expect(contentAt).toBeLessThan(rowAt);
-    });
-
-    test('purges documents past the first query page', async () => {
-        s3Mock.on(ListObjectVersionsCommand).resolves({});
-        s3Mock.on(ListObjectVersionsCommand, { Prefix: 'iep-data/iep-page2/child-1/' }).resolves(current('iep-data/iep-page2/child-1/content.json'));
-        ddbMock.on(QueryCommand, { TableName: DOCUMENTS_TABLE })
-            .resolvesOnce({
-                Items: [{ iepId: 'iep-page1', childId: 'child-1', userId: USER }],
-                LastEvaluatedKey: { iepId: 'iep-page1', childId: 'child-1' },
-            })
-            .resolves({
-                Items: [{ iepId: 'iep-page2', childId: 'child-1', userId: USER }],
+        test('requesting an upload URL deletes nothing, even when the child already has an IEP', async () => {
+            // Whatever the table holds for this child, the handler must not even
+            // look: any read of the child's documents is the first half of a delete.
+            ddbMock.onAnyCommand().resolves({
+                Items: [{ iepId: 'iep-old', childId: GOOD_UPLOAD.childId, userId: USER, status: 'PROCESSED' }],
             });
-        ddbMock.on(QueryCommand, { TableName: PROFILES_TABLE }).resolves({ Items: [] });
 
-        expect((await call(GOOD_UPLOAD)).status).toBe(200);
+            const { status } = await call(GOOD_UPLOAD);
 
-        const deletedIepIds = ddbMock.commandCalls(DeleteCommand)
-            .map((c) => c.args[0].input.Key.iepId);
-        expect(deletedIepIds).toEqual(['iep-page1', 'iep-page2']);
-        expect(s3Mock.commandCalls(DeleteObjectCommand).map((c) => c.args[0].input.Key))
-            .toContain('iep-data/iep-page2/child-1/content.json');
+            expect(status).toBe(200);
+            expect(touchedStorage()).toEqual(['PutCommand']);
+        });
+
+        test('the only write is the new PENDING_UPLOAD row', async () => {
+            const { body } = await call(GOOD_UPLOAD);
+
+            const puts = ddbMock.commandCalls(PutCommand);
+            expect(puts).toHaveLength(1);
+            expect(puts[0].args[0].input.Item.iepId).toBe(body.iepId);
+            expect(puts[0].args[0].input.Item.status).toBe('PENDING_UPLOAD');
+            expect(s3Mock.calls()).toHaveLength(0);
+        });
+
+        test('a failed record write still deletes nothing', async () => {
+            ddbMock.on(PutCommand).rejects(new Error('DynamoDB down'));
+
+            const { status } = await call(GOOD_UPLOAD);
+
+            expect(status).toBe(503);
+            expect(touchedStorage()).toEqual(['PutCommand']);
+            expect(s3Mock.calls()).toHaveLength(0);
+        });
+
+        test('an upload that is requested and never sent leaves nothing deleted', async () => {
+            // The presigned PUT is never used: no S3 call of any kind reaches
+            // the bucket from this handler, so the old IEP cannot have moved.
+            await call(GOOD_UPLOAD);
+            await call({ ...GOOD_UPLOAD, fileName: 'second-attempt.pdf' });
+
+            expect(s3Mock.calls()).toHaveLength(0);
+            expect(ddbMock.commandCalls(PutCommand)).toHaveLength(2);
+            expect(touchedStorage().every((name) => name === 'PutCommand')).toBe(true);
+        });
     });
 
-    test('a failed record write is a 500, not a silent success', async () => {
+    test('a failed record write is a 503, not a silent success', async () => {
         ddbMock.on(PutCommand).rejects(new Error('DynamoDB down'));
         const { status, body } = await call(GOOD_UPLOAD);
-        expect(status).toBe(500);
+        expect(status).toBe(503);
         expect(body.error).toContain('Failed');
     });
 });
 
 describe('download', () => {
     test('presigns GET for keys under the caller prefix only', async () => {
-        const key = `${USER}/child-1/iep-1/report.pdf`;
-        const { status, body } = await call({ fileName: key, operation: 'download', childId: 'child-1' });
+        const key = `${USER}/3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7b/iep-1/report.pdf`;
+        const { status, body } = await call({ fileName: key, operation: 'download', childId: '3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7b' });
         expect(status).toBe(200);
         expect(new URL(body.signedUrl).pathname).toBe(`/${key}`);
     });
 
+    // Not-owned is 404, the same answer as a key that does not exist, so the
+    // response never reveals whose keys exist.
     test.each([
-        ['other-user/child-1/iep-1/report.pdf'],
+        ['other-user/3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7b/iep-1/report.pdf'],
         [`${USER}/../other-user/report.pdf`],
-    ])('foreign or traversal key -> 403 (%s)', async (key) => {
-        const { status } = await call({ fileName: key, operation: 'download', childId: 'child-1' });
-        expect(status).toBe(403);
+    ])('foreign or traversal key -> 404 (%s)', async (key) => {
+        const { status } = await call({ fileName: key, operation: 'download', childId: '3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7b' });
+        expect(status).toBe(404);
     });
 
     test('a presigning failure is a 500 with the stock error body', async () => {
@@ -421,14 +294,125 @@ describe('download', () => {
             .mockReturnValue(() => Promise.reject(new Error('presign failed')));
         try {
             const { status, body } = await call({
-                fileName: `${USER}/child-1/iep-1/report.pdf`,
+                fileName: `${USER}/3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7b/iep-1/report.pdf`,
                 operation: 'download',
-                childId: 'child-1',
+                childId: '3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7b',
             });
             expect(status).toBe(500);
             expect(body.error).toBe('Failed to generate signed URL');
         } finally {
             spy.mockRestore();
+        }
+    });
+});
+
+// Request hardening: every rejection is a 4xx with its reason logged, nothing
+// touches AWS, and the errors that are not the caller's fault are generic.
+describe('request hardening', () => {
+    const quietWarn = () => jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    test.each([
+        ['an array', '[1,2]'],
+        ['a string', '"report.pdf"'],
+        ['null', 'null'],
+        ['invalid JSON', '{not json'],
+        ['absent', undefined],
+    ])('a body that is %s -> 400 with the reason logged, and no AWS call', async (_label, raw) => {
+        const warn = quietWarn();
+        try {
+            const response = await handler({
+                body: raw,
+                requestContext: { authorizer: { jwt: { claims: { sub: USER } } } },
+            });
+            expect(response.statusCode).toBe(400);
+            expect(warn.mock.calls.flat().join(' ')).toMatch(/JSON object/);
+            expect(s3Mock.calls()).toHaveLength(0);
+            expect(ddbMock.calls()).toHaveLength(0);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    test.each([
+        ['a non-UUID id', 'child-1'],
+        ['a traversal id', '../../other'],
+        ['a truncated UUID', '3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7'],
+    ])('childId is %s -> 400, and nothing is written or signed', async (_label, childId) => {
+        const warn = quietWarn();
+        try {
+            const { status } = await call({ ...GOOD_UPLOAD, childId });
+            expect(status).toBe(400);
+            expect(warn.mock.calls.flat().join(' ')).toMatch(/not a UUID/);
+            expect(s3Mock.calls()).toHaveLength(0);
+            expect(ddbMock.calls()).toHaveLength(0);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    test('an operation outside upload and download -> 400, and the value stays out of the log', async () => {
+        const warn = quietWarn();
+        try {
+            const { status } = await call({ ...GOOD_UPLOAD, operation: 'delete-everything' });
+            expect(status).toBe(400);
+            expect(warn.mock.calls.flat().join(' ')).not.toContain('delete-everything');
+            expect(s3Mock.calls()).toHaveLength(0);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    test('a request with no JWT subject -> 401, not an unhandled throw', async () => {
+        const warn = quietWarn();
+        try {
+            const response = await handler({ body: JSON.stringify(GOOD_UPLOAD), requestContext: {} });
+            expect(response.statusCode).toBe(401);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    test('every response, success or refusal, says no-store', async () => {
+        const warn = quietWarn();
+        try {
+            const ok = await handler(uploadEvent(GOOD_UPLOAD));
+            const refused = await handler(uploadEvent({ ...GOOD_UPLOAD, childId: 'child-1' }));
+            expect(ok.statusCode).toBe(200);
+            expect(refused.statusCode).toBe(400);
+            expect(ok.headers['Cache-Control']).toBe('no-store');
+            expect(refused.headers['Cache-Control']).toBe('no-store');
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    test('a DynamoDB throttle is a generic 503: no table name, no AWS error text', async () => {
+        const error = Object.assign(
+            new Error(`ProvisionedThroughputExceededException on ${DOCUMENTS_TABLE}`),
+            { name: 'ProvisionedThroughputExceededException' },
+        );
+        ddbMock.on(PutCommand).rejects(error);
+        const { status, body } = await call(GOOD_UPLOAD);
+        expect(status).toBe(503);
+        expect(JSON.stringify(body)).not.toContain(DOCUMENTS_TABLE);
+        expect(JSON.stringify(body)).not.toContain('Throughput');
+    });
+
+    test('a download refused as not-owned is logged without the key or its filename', async () => {
+        const warn = quietWarn();
+        try {
+            const { status } = await call({
+                fileName: 'other-user/3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7b/iep-1/Sofia Ejemplo IEP.pdf',
+                operation: 'download',
+                childId: '3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7b',
+            });
+            const line = warn.mock.calls.flat().join(' ');
+            expect(status).toBe(404);
+            expect(line).not.toContain('Sofia');
+            expect(line).not.toContain('.pdf');
+            expect(line).not.toContain('other-user');
+        } finally {
+            warn.mockRestore();
         }
     });
 });

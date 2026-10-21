@@ -89,12 +89,16 @@ copy for a code it has not seen before.
 | 400 | `invalid_request` | Body is not JSON, or `destination` is missing or empty. | `Enter your phone number or email address.` |
 | 400 | `invalid_destination` | `destination` is neither a valid E.164 phone number nor a syntactically valid email address. | `Enter a valid phone number or email address.` |
 | 400 | `unsupported_destination` | A phone number outside the allowed dialling prefixes (`+1`), or an email address on a disposable or reserved domain. | `A-IEP can only send codes to United States phone numbers and regular email addresses.` |
-| 403 | `bot_check_failed` | Turnstile rejected the token, or no token was supplied while the check is switched on. | `We could not verify this request. Please try again.` |
+| 403 | `bot_check_failed` | Turnstile rejected the token, the token was solved on a hostname production does not serve, or no token was supplied while the check is switched on. | `We could not verify this request. Please try again.` |
 | 429 | `rate_limited` | The per-source or service-wide start budget is spent. | `Too many attempts. Please try again in a little while.` |
-| 503 | `unavailable` | A fail-closed dependency is down: the rate-limit table, the Turnstile secret, or the session store. | `Sign-in is temporarily unavailable. Please try again in a little while.` |
+| 503 | `unavailable` | A fail-closed dependency is down: the rate-limit table, the Turnstile secret, Cloudflare's siteverify (after one retry), a rejected Turnstile secret, or the session store. | `Sign-in is temporarily unavailable. Please try again in a little while.` |
 
-A `429` carries one extra field, `retryAfterSeconds` (an integer). Nothing
-else does.
+A `429` carries one extra field, `retryAfterSeconds` (an integer), and the same
+figure in a `Retry-After` header. Nothing else does.
+
+**Every response from every `/auth/*` route carries
+`Cache-Control: no-store`.** The bodies are credentials or the answer to a
+one-time code, and must never be stored by a browser or a shared cache.
 
 Every one of these is logged server-side with a reason before it is returned.
 There are no silent 4xx paths.
@@ -155,7 +159,7 @@ Retry at most six times (three seconds), then treat it as `unavailable`.
 | 400 | `invalid_request` | Body is not JSON, or `challenge`/`code` is missing or empty. | `Enter the code we sent you.` |
 | 401 | `bad_code` | The code is wrong, **or** the challenge handle is unknown, **or** it has expired, **or** the three attempts Cognito allows in one session are spent. All four collapse into one answer on purpose. | `That code did not work. Check the code and try again, or ask for a new one.` |
 | 409 | `send_failed` | The code could never be delivered. Carries `reason` (below). | varies, see `reason` |
-| 429 | `too_many_codes` | Ten wrong codes for this destination in one hour. Carries `retryAfterSeconds`. | `You have tried too many codes. Please try again in an hour.` |
+| 429 | `too_many_codes` | Ten wrong codes for this destination in one hour. Carries `retryAfterSeconds` and `Retry-After`. | `You have tried too many codes. Please try again in an hour.` |
 | 503 | `unavailable` | The session store could not be read or written. | `Sign-in is temporarily unavailable. Please try again in a little while.` |
 
 On `bad_code`, **keep the challenge handle and let the parent retype**. Cognito
@@ -221,7 +225,8 @@ tolerates its absence.
 
 | HTTP | `code` | When |
 |---|---|---|
-| 400 | `invalid_request` | `session` missing or empty. |
+| 400 | `invalid_request` | Body is not JSON, or `session` is missing or empty. Message: `This request could not be read. Please sign in again.` |
+| 429 | `rate_limited` | More than 300 `/auth/token` and `/auth/logout` calls an hour from one source address (shared with logout). Carries `retryAfterSeconds` and `Retry-After`. Do **not** clear the handle; retry after the delay. |
 | 401 | `session_invalid` | Unknown handle, expired handle, or Cognito refused the refresh (the account was disabled, deleted, or globally signed out). Clear the stored handle and go to the start screen. |
 | 503 | `unavailable` | The session store could not be read. Do **not** clear the handle; retry. |
 
@@ -238,11 +243,15 @@ means sign in again, the other means try again.
 {"session":"m7Kq2s0Xb1fLpA6uVe4tYc9RdN8gHjZwQ3vM5nB7xTk"}
 ```
 
-### Response — `200`, always
+### Response — `200`
 
 ```json
 {"ok":true}
 ```
+
+Failures use the same table as `/auth/token` (`400 invalid_request`,
+`429 rate_limited` from the shared per-source limit, `503 unavailable`), and the
+`200` is identical for a handle that is valid, expired or never existed.
 
 Idempotent, and identical for a valid handle, an expired one and one that never
 existed. Deleting the row is immediate: a revoked handle stops working on the
@@ -418,8 +427,14 @@ accounts with no bot check in the path. There is a `TODO` at the call site in
 need updating in the same change. Until then, Turnstile guards the new path
 only.
 
-**`POST /auth/signup` still exists** and is unchanged. It is the route the
-deployed frontend posts to. It will be deleted with `ALLOW_CUSTOM_AUTH`.
+**`POST /auth/signup` is retired.** The route is no longer deployed. It created
+accounts synchronously, so response time told a caller whether a number already
+had an account; `/auth/start` hands account creation to `/auth/dispatch`
+asynchronously and answers identically either way. It had no calls in the 30
+days before removal, and `passwordlessAuth` is on in every environment, so
+nothing in the shipped frontend reaches it. `test/infra/gen-ai-mvp-stack.test.ts`
+asserts it stays gone. The legacy `CustomLogin` form behind the flag no longer
+falls back to it either: an unknown number there gets the generic error.
 
 **The password rotation is unchanged.** An account created by `/auth/start` is
 made with `AdminCreateUser` + `MessageAction: SUPPRESS` +
@@ -450,8 +465,8 @@ Carving the old path out instead
 forks the tree, forces deleting the tests that cover it, and turns the
 promotion into hand surgery.
 
-The 17 `CustomLogin.test.tsx` cases that assert the `auth/signup` URL cover the
-state machine that is being replaced. Most of them have no successor. Rewrite
+The 17 `CustomLogin.test.tsx` cases that asserted the `auth/signup` URL covered the
+state machine that was replaced. Most of them have no successor. Rewrite
 them against the two new routes rather than deleting them and moving on, and
 add the one case the repo's own rules ask for: **leave the page mid-flow and
 come back.** The bottom nav is a route change, so leaving unmounts the

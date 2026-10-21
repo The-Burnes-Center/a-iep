@@ -22,17 +22,17 @@ const MultiFaceGreenBanner: React.FC = () => {
                         />
                     </div>
                     <div className='multi-face-green-banner-faces-container'>
-                        <img src="/images/9_x_9_faces.png" alt="9x9 faces" className="multi-face-green-banner-faces" />
+                        <img loading="lazy" decoding="async" src="/images/9_x_9_faces.png" alt="9x9 faces" className="multi-face-green-banner-faces" />
                     </div>
                 </div>
             </div>
             <div className='multi-face-green-banner-divider'>
-                <img 
+                <img loading="lazy" decoding="async" 
                     src="/images/orange-pattern-stripe-desktop.png" 
                     alt="Yellow pattern stripe" 
                     className="yellow-pattern-stripe-desktop"
                 />
-                <img 
+                <img loading="lazy" decoding="async" 
                     src="/images/orange-pattern-stripe-mobile.png" 
                     alt="Yellow pattern stripe" 
                     className="yellow-pattern-stripe-mobile"

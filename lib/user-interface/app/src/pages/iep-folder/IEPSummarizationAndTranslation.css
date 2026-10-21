@@ -118,6 +118,15 @@
   --bs-gutter-x: 0;
 }
 
+/* The container's zero gutter drops its padding, but Bootstrap's .row sets
+   --bs-gutter-x back to 1.5rem on itself, keeping its -0.75rem side margins
+   with nothing to absorb them: the row ran 12px past the right edge and phones
+   scrolled sideways onto a blank strip. Zero it on the row as well. */
+.summary-container > .row,
+.processing-summary-container > .row {
+  --bs-gutter-x: 0;
+}
+
 .summary-card {
   border: none;
   box-shadow: none;
@@ -680,4 +689,79 @@ display: none !important;
 .slide-tutorial-content {
     margin-bottom: 1rem;
   }
+}
+
+/* Translation on demand. Indeterminate: the server gives no fraction for it,
+   so a segment slides across a 4px track in the brand green. The segment is
+   40% wide and starts fully off the left edge, and ends fully off the right. */
+.translation-progress-track.progress {
+  height: 4px;
+  width: 100%;
+  direction: ltr;
+  background-color: var(--aiep-surface-field);
+  border-radius: 0;
+}
+
+.translation-progress-indeterminate.progress-bar {
+  position: relative;
+  background-color: var(--aiep-green);
+  animation: translation-progress-slide 1.4s linear infinite;
+}
+
+@keyframes translation-progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .translation-progress-indeterminate.progress-bar {
+    animation: none;
+    transform: translateX(0);
+  }
+}
+
+/* The note above the old summary while a replacement is processed or failed.
+   Both states use the palette's alert pairs (each measured in
+   color-contrast.test.tsx); the state is named by an icon and words, so colour
+   is never the only signal. The button is at least
+   44px tall and keeps a two-ring focus outline. */
+.replacement-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid currentColor;
+  border-radius: 0.5rem;
+}
+
+.replacement-banner-processing {
+  color: var(--aiep-alert-info-fg);
+  background-color: var(--aiep-alert-info-bg);
+}
+
+.replacement-banner-failed {
+  color: var(--aiep-alert-danger-fg);
+  background-color: var(--aiep-alert-danger-bg);
+}
+
+.replacement-banner-message {
+  flex: 1 1 14rem;
+  margin: 0;
+}
+
+.replacement-banner-button {
+  min-height: 44px;
+  min-width: 44px;
+  padding-inline: 1.25rem;
+}
+
+.replacement-banner-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--aiep-surface-white), 0 0 0 5px var(--aiep-ink);
 }

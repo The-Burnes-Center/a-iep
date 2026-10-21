@@ -9,7 +9,7 @@ const SummarizeTranslateAdvocateBanner: React.FC = () => {
 
         <div className='summarize-translate-advocate-cards-container'>
             <div className='summarize-translate-advocate-card'>
-                <img src="/images/Summarize_Illustration.png" alt="Summarize" className='summarize-translate-advocate-image' />
+                <img loading="lazy" decoding="async" src="/images/Summarize_Illustration.png" alt="Summarize" className='summarize-translate-advocate-image' />
                 <h2 className='summarize-translate-advocate-title'>{t("onboarding.carousel.heading.summarize")}</h2>
                 <p className='summarize-translate-advocate-text'>
                     {t("onboarding.carousel.paragraph.summarize")}
@@ -17,7 +17,7 @@ const SummarizeTranslateAdvocateBanner: React.FC = () => {
             </div>
         
             <div className='summarize-translate-advocate-card'>
-                <img src="/images/Translate_Illustration.png" alt="Translate" className='summarize-translate-advocate-image' />
+                <img loading="lazy" decoding="async" src="/images/Translate_Illustration.png" alt="Translate" className='summarize-translate-advocate-image' />
                 <h2 className='summarize-translate-advocate-title'>{t("onboarding.carousel.heading.translate")}</h2>
                 <p className='summarize-translate-advocate-text'>
                     {t("onboarding.carousel.paragraph.translate")}
@@ -26,7 +26,7 @@ const SummarizeTranslateAdvocateBanner: React.FC = () => {
 
 
             <div className='summarize-translate-advocate-card'>
-                <img src="/images/Advocate_Illustration.png" alt="Advocate" className='summarize-translate-advocate-image' />
+                <img loading="lazy" decoding="async" src="/images/Advocate_Illustration.png" alt="Advocate" className='summarize-translate-advocate-image' />
                 <h2 className='summarize-translate-advocate-title'>{t("onboarding.carousel.heading.advocate")}</h2>
                 <p className='summarize-translate-advocate-text'>
                     {t("onboarding.carousel.paragraph.advocate")}

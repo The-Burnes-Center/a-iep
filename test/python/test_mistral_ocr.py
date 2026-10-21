@@ -337,9 +337,14 @@ def test_upload_and_download_logs_never_carry_the_filename_either(mistral_ocr_mo
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def handler_module():
+def handler_module(monkeypatch):
     module = load_lambda_module('metadata-handler/steps/mistral_ocr',
                                 'mistral_ocr_handler_under_test', module_name='handler')
+    # The handler also decides the translation languages (language_prefs.py,
+    # tested against a real moto table in test_check_language_prefs.py). The
+    # tests below are about OCR, so they take the English-only answer rather
+    # than reaching for DynamoDB.
+    monkeypatch.setattr(module, 'target_languages_for', lambda user_id: [])
     try:
         yield module
     finally:
@@ -718,3 +723,168 @@ def test_nothing_is_deleted_when_the_upload_itself_failed(mistral_ocr_module, mo
 
     assert result['status_code'] == 413
     assert _deletes(fake) == []
+
+
+# ---------------------------------------------------------------------------
+# The language decision the CheckLanguagePrefs step used to make now rides on
+# this step's result (language_prefs.py). The decision's own cases, and parity
+# with check_language_prefs/handler.py, are in test_check_language_prefs.py;
+# this pins the handler's half: the fields leave it in the shape the state
+# machine's ResultSelector reads, and a misconfigured table fails before the
+# paid OCR call.
+# ---------------------------------------------------------------------------
+
+PROFILES_TABLE = 'profiles-test'
+
+
+def _profiles_table():
+    table = boto3.resource('dynamodb', region_name='us-east-1').create_table(
+        TableName=PROFILES_TABLE,
+        KeySchema=[{'AttributeName': 'userId', 'KeyType': 'HASH'}],
+        AttributeDefinitions=[{'AttributeName': 'userId', 'AttributeType': 'S'}],
+        BillingMode='PAY_PER_REQUEST',
+    )
+    return table
+
+
+@pytest.mark.parametrize('profile, expected', [
+    ({'primaryLanguage': 'es', 'secondaryLanguage': 'vi'}, ['es', 'vi']),
+    ({'primaryLanguage': 'en'}, []),
+])
+def test_the_handler_returns_the_language_decision(handler_module, monkeypatch, profile, expected):
+    import sys
+    monkeypatch.setitem(handler_module.process_document_with_mistral_ocr.__globals__, 'requests',
+                        _RecordingRequests(_ocr_sequence(_ocr_4_response())))
+    monkeypatch.setenv('MISTRAL_API_KEY', 'test-mistral-key')
+    monkeypatch.setenv('USER_PROFILES_TABLE', PROFILES_TABLE)
+    monkeypatch.setattr(handler_module, 'target_languages_for', sys.modules['language_prefs'].target_languages_for)
+    lambda_client = _SavingLambdaClient()
+    real_client = boto3.client
+    monkeypatch.setattr(
+        handler_module.boto3, 'client',
+        lambda service, *a, **kw: lambda_client if service == 'lambda' else real_client(service, *a, **kw))
+
+    event = {'iep_id': 'iep-1', 'user_id': 'user-1', 'child_id': 'child-1',
+             's3_bucket': BUCKET, 's3_key': KEY}
+    with mock_aws():
+        _wire_s3_object()
+        _profiles_table().put_item(Item={'userId': 'user-1', **profile})
+        result = handler_module.lambda_handler(event, None)
+
+    assert result['target_languages'] == expected
+    assert result['translation_needed'] is bool(expected)
+    # And nothing else about the decision leaks into what OCR saves.
+    assert 'target_languages' not in json.dumps(lambda_client.payloads)
+
+
+def test_a_misconfigured_profiles_table_fails_before_the_paid_ocr_call(handler_module, monkeypatch):
+    import sys
+    fake = _RecordingRequests([])
+    monkeypatch.setitem(handler_module.process_document_with_mistral_ocr.__globals__, 'requests', fake)
+    monkeypatch.setenv('MISTRAL_API_KEY', 'test-mistral-key')
+    monkeypatch.delenv('USER_PROFILES_TABLE', raising=False)
+    monkeypatch.setattr(handler_module, 'target_languages_for', sys.modules['language_prefs'].target_languages_for)
+
+    event = {'iep_id': 'iep-1', 'user_id': 'user-1', 'child_id': 'child-1',
+             's3_bucket': BUCKET, 's3_key': KEY}
+    with mock_aws():
+        _wire_s3_object()
+        with pytest.raises(KeyError):
+            handler_module.lambda_handler(event, None)
+
+    assert fake.calls == []  # Mistral was never called, so nothing was paid for
+
+
+# ---------------------------------------------------------------------------
+# The attempt finishes inside MistralOCR's state timeout
+#
+# iep-processing.asl.json gives MistralOCR 120s. Step Functions stops waiting
+# then but does not cancel the lambda, so an attempt still running would save
+# the raw OCR text after RecordFailure had purged it. The whole attempt budgets
+# itself under the state's limit.
+# ---------------------------------------------------------------------------
+
+STATE_TIMEOUT_SECONDS = 120
+
+
+class _Clock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def monotonic(self):
+        return self.now
+
+
+class _SlowRequests(_RecordingRequests):
+    """Each call takes `durations[i]` seconds of the fake clock, then answers."""
+
+    def __init__(self, responses, clock, durations):
+        super().__init__(responses)
+        self.clock = clock
+        self.durations = list(durations)
+
+    def _next(self, method, url, **kwargs):
+        response = super()._next(method, url, **kwargs)
+        self.clock.now += self.durations.pop(0) if self.durations else 0
+        return response
+
+
+def _run_with_clock(module, monkeypatch, durations):
+    clock = _Clock()
+    monkeypatch.setattr(module, 'time', clock)
+    fake = _SlowRequests(list(SUCCESSFUL_SEQUENCE), clock, durations)
+    monkeypatch.setattr(module, 'requests', fake)
+    with mock_aws():
+        _wire_s3_object()
+        result = module.process_document_with_mistral_ocr(BUCKET, KEY)
+    return result, fake
+
+
+def test_in_the_ordinary_case_no_request_waits_longer_than_the_attempt_budget(
+        mistral_ocr_module, monkeypatch):
+    result, fake = _run_with_clock(mistral_ocr_module, monkeypatch, durations=[1, 1, 8])
+
+    assert 'error' not in result
+    reads = [call['kwargs']['timeout'][1] for call in fake.calls]
+    # The old OCR read timeout was 300s: three times the state's own limit.
+    assert max(reads) <= mistral_ocr_module.ATTEMPT_BUDGET_SECONDS
+    assert max(reads) < STATE_TIMEOUT_SECONDS
+
+
+def test_a_slow_upload_leaves_the_ocr_call_only_what_is_left_of_the_budget(
+        mistral_ocr_module, monkeypatch):
+    budget = mistral_ocr_module.ATTEMPT_BUDGET_SECONDS
+    # Upload takes 50s and the signed URL 20s: 10s of the budget remain.
+    _, fake = _run_with_clock(mistral_ocr_module, monkeypatch, durations=[50, budget - 60, 0])
+
+    ocr_read = fake.calls[2]['kwargs']['timeout'][1]
+    assert ocr_read == pytest.approx(10)
+
+
+def test_an_exhausted_budget_still_yields_a_positive_timeout_not_none_or_zero(
+        mistral_ocr_module, monkeypatch):
+    # requests treats timeout=0 as an error and None as "wait forever".
+    _, fake = _run_with_clock(mistral_ocr_module, monkeypatch, durations=[500, 500, 500])
+
+    reads = [call['kwargs']['timeout'][1] for call in fake.calls[:3]]
+    assert all(read >= mistral_ocr_module.MIN_READ_TIMEOUT_SECONDS for read in reads)
+    assert reads[1:] == [mistral_ocr_module.MIN_READ_TIMEOUT_SECONDS] * 2
+
+
+def test_the_worst_case_attempt_ends_before_the_state_gives_up(mistral_ocr_module):
+    m = mistral_ocr_module
+    # The last budgeted request can still spend its connect timeout, then the
+    # cleanup delete spends its own connect and read; the handler's save to the
+    # DDB service follows and is quick. All of it must fit under the state.
+    worst = (m.ATTEMPT_BUDGET_SECONDS + m.CONNECT_TIMEOUT_SECONDS
+             + m.DELETE_CONNECT_TIMEOUT_SECONDS + m.DELETE_READ_TIMEOUT_SECONDS)
+    assert worst <= STATE_TIMEOUT_SECONDS - 5
+
+
+def test_the_cleanup_delete_is_bounded_too(mistral_ocr_module, monkeypatch):
+    _, fake = _run_with_clock(mistral_ocr_module, monkeypatch, durations=[1, 1, 1])
+
+    delete, = [c for c in fake.calls if c['method'] == 'DELETE']
+    connect, read = delete['kwargs']['timeout']
+    assert connect <= mistral_ocr_module.DELETE_CONNECT_TIMEOUT_SECONDS
+    assert read <= mistral_ocr_module.DELETE_READ_TIMEOUT_SECONDS

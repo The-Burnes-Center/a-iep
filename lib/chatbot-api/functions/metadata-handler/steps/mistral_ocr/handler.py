@@ -6,6 +6,7 @@ import os
 import traceback
 import boto3
 from mistral_ocr import process_document_with_mistral_ocr, _safe_key
+from language_prefs import target_languages_for
 
 # Only non-sensitive metadata is safe to log. These events can carry
 # FERPA-protected document content (OCR text, parsed sections, translated
@@ -99,6 +100,12 @@ def lambda_handler(event, context):
             print(error_message)
             raise Exception(error_message)
 
+        # Decide the translation languages here, before the paid OCR call, so a
+        # misconfigured table fails fast instead of after the OCR. This used to
+        # be the CheckLanguagePrefs step; see language_prefs.py.
+        target_languages = target_languages_for(user_id)
+        print(f"User {user_id} needs translation for: {target_languages}")
+
         # Process document with Mistral OCR
         print(f"Processing document: s3://{s3_bucket}/{_safe_key(s3_key)}")
         ocr_result = process_document_with_mistral_ocr(s3_bucket, s3_key)
@@ -149,7 +156,9 @@ def lambda_handler(event, context):
             **event_copy,  # Pass through input data except progress tracking
             'ocr_status': 'completed',
             'page_count': len(ocr_result.get('pages', [])),
-            'ddb_save_result': ddb_result
+            'ddb_save_result': ddb_result,
+            'translation_needed': len(target_languages) > 0,
+            'target_languages': target_languages,
         }
         
     except Exception as e:

@@ -27,15 +27,12 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 //
 //   /referral/click  hit by visitors who are not signed in yet, stores no
 //                    PII, and only bumps counters for known active codes.
-//   /auth/signup     there is no token before an account exists, so this
+//   /auth/start      a parent signing in (or up) has no token yet, so this
 //                    cannot be authorized. Everything an authorizer would do
 //                    happens inside the handler instead: destination policy,
-//                    per-source and global rate limits, then anti-abuse
-//                    verification, cheapest check first.
-//   /auth/start      the same, for the passwordless path: a parent signing in
-//                    has no token yet. Unlike /auth/signup this one also
-//                    fronts the OTP SEND, which is why the bot check moved in
-//                    front of it.
+//                    per-source and global rate limits, then the bot check,
+//                    cheapest first. It fronts the OTP SEND and is the only
+//                    way to create an account (/auth/signup is retired).
 //   /auth/verify     reachable only with a challenge handle from /auth/start,
 //                    which cannot be obtained without passing that bot check.
 //   /auth/token      this is the route that ISSUES the JWT, so it cannot
@@ -47,7 +44,6 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 // Anything added here must survive the same scrutiny.
 const PUBLIC_ROUTE_KEYS = [
   'POST /referral/click',
-  'POST /auth/signup',
   'POST /auth/start',
   'POST /auth/verify',
   'POST /auth/token',
@@ -63,7 +59,14 @@ const PUBLIC_ROUTE_KEYS = [
 // parent's upload cannot be undone.
 //
 // Named rather than pattern-matched, so a second state cannot quietly join it.
-const CATCH_EXEMPT_STATES = ['PurgeRedactedOCR'];
+// States whose failure is deliberately NOT a document failure: the two purges
+// are best effort (PurgeReplacedDocuments deletes the child's previous IEP
+// after the new one is complete, so recording a failure there would mark the
+// parent's brand-new document FAILED over a cleanup problem), and the two
+// pre-warm invokes only start a container early.
+const CATCH_EXEMPT_STATES = [
+  'PurgeRedactedOCR', 'PurgeReplacedDocuments', 'WarmParsingAgent', 'WarmTranslateContent',
+];
 
 // Lambdas aws-cdk-lib injects for its own custom resources (log retention,
 // auto-delete-objects, bucket notifications, bucket deployment). Their
@@ -76,7 +79,11 @@ const CDK_HELPER_PREFIXES = [
   'CustomCDKBucketDeployment',
 ];
 
-const APPROVED_RUNTIMES = ['python3.12', 'nodejs20.x'];
+const APPROVED_RUNTIMES = ['python3.12', 'nodejs22.x'];
+
+// The Node runtime this repo refuses anywhere in the stack. aws-cdk-lib 2.197+
+// moved its injected helpers off it, so there is no exemption left.
+const DEPRECATED_NODE_RUNTIME = 'nodejs20.x';
 
 // ── Durable-store retention pins ────────────────────────────────────────
 // WHY (2026-06/07 data-loss incident): e1df452 (2025-09-15) made the
@@ -172,14 +179,13 @@ function resourcesMatching(t: Template, type: string, hint: string): [string, an
 }
 
 // Every env var that decides which countries A-IEP will send a code to: the
-// OTP send path, the /auth/start front door, and the signup endpoint. All
-// three are fed from one constant in lib/authorization/new-auth.ts, so they
-// are asserted together rather than one at a time — a widening that reached
-// only two of the three would be worse than one that reached all three.
+// OTP send path and the /auth/start front door. Both are fed from one constant
+// in lib/authorization/new-auth.ts, so they are asserted together rather than
+// one at a time — a widening that reached only one of them would be worse than
+// one that reached both.
 const COUNTRY_CODE_VARS = [
   'SMS_ALLOWED_COUNTRY_CODES',
   'AUTH_ALLOWED_COUNTRY_CODES',
-  'SIGNUP_ALLOWED_COUNTRY_CODES',
 ];
 
 /**
@@ -488,6 +494,52 @@ describe('HTTP API authorization', () => {
     }
   });
 
+  // The click beacon has no authorizer, so nothing else turns a flood away and
+  // every call that names a real code writes to DynamoDB. Throttling is the
+  // only control in front of it, and it must be on THIS route alone: a
+  // stage-wide default would cap every parent's authenticated calls too.
+  test('the public click beacon is throttled on its own route, and no other route is', () => {
+    const stages = Object.values(template.findResources('AWS::ApiGatewayV2::Stage'))
+      .map((r: any) => r.Properties)
+      .filter((p: any) => p.StageName === '$default');
+    expect(stages).toHaveLength(1);
+    const [stage] = stages;
+
+    expect(Object.keys(stage.RouteSettings ?? {})).toEqual(['POST /referral/click']);
+    const click = stage.RouteSettings['POST /referral/click'];
+    expect(click.ThrottlingRateLimit).toBeGreaterThan(0);
+    expect(click.ThrottlingRateLimit).toBeLessThanOrEqual(10);
+    expect(click.ThrottlingBurstLimit).toBeGreaterThanOrEqual(click.ThrottlingRateLimit);
+    expect(click.ThrottlingBurstLimit).toBeLessThanOrEqual(50);
+
+    // Not a stage-wide cap: that would throttle every authenticated route.
+    expect(stage.DefaultRouteSettings?.ThrottlingRateLimit).toBeUndefined();
+    expect(stage.DefaultRouteSettings?.ThrottlingBurstLimit).toBeUndefined();
+  });
+
+  // Routes with no handler or no callers. The first two were declared but no
+  // lambda registered them, so every call 404ed; the last two had zero calls in
+  // 30 days in prod and staging and no frontend caller. A route that exists is
+  // attack surface and an alarm to maintain, so they must not come back
+  // without a reason.
+  test('retired routes are gone from the API', () => {
+    const routeKeys = Object.values(template.findResources('AWS::ApiGatewayV2::Route'))
+      .map((r: any) => r.Properties.RouteKey);
+
+    // Vacuity floor: the sibling routes they were next to are still there.
+    expect(routeKeys).toContain('GET /profile');
+    expect(routeKeys).toContain('POST /signed-url-knowledge');
+
+    for (const retired of [
+      'GET /documents/{iepId}/status',
+      'POST /summary',
+      'POST /s3-knowledge-bucket-data',
+      'POST /delete-s3-file',
+    ]) {
+      expect(routeKeys).not.toContain(retired);
+    }
+  });
+
   // An AuthorizerId is only as strong as the authorizer behind it: it must
   // validate Authorization-header JWTs issued by OUR user pool for OUR app
   // client, not merely exist.
@@ -541,7 +593,7 @@ describe('HTTP API authorization', () => {
   test('the access log format carries no path parameter, query string or user identifier', () => {
     const stages = template.findResources('AWS::ApiGatewayV2::Stage');
     const format = Object.values(stages).map((s: any) => s.Properties.AccessLogSettings?.Format)
-      .find((f: any) => typeof f === 'string');
+      .find((f: any) => typeof f === 'string') as string;
     expect(format).toBeDefined();
 
     // $context.path is the RESOLVED path (real childId/iepId/referral code/
@@ -598,7 +650,7 @@ describe('Cognito custom-auth wiring', () => {
     // handler; a PreSignUp wired to the wrong file would still pass it.
     template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
       Handler: 'pre-sign-up.handler',
-      Runtime: 'nodejs20.x',
+      Runtime: 'nodejs22.x',
     }));
   });
 
@@ -615,7 +667,7 @@ describe('Cognito custom-auth wiring', () => {
     const rotationStatements = policies
       .flatMap((policy: any) => policy.Properties?.PolicyDocument?.Statement ?? [])
       // AdminDisableUser is what distinguishes the PostConfirmation trigger's
-      // grant from the signup endpoint's, which also rotates a password but
+      // grant from the auth dispatcher's, which also rotates a password but
       // on an account it just created and cannot disable one.
       .filter((statement: any) => [statement.Action].flat().includes('cognito-idp:AdminSetUserPassword'))
       .filter((statement: any) => [statement.Action].flat().includes('cognito-idp:AdminDisableUser'));
@@ -775,6 +827,22 @@ describe('Cognito custom-auth wiring', () => {
     }
   });
 
+  // The AUTH_TIMING line is how a cold sign-in gets diagnosed, so staging must
+  // carry it on all four lambdas a parent waits on.
+  test('staging turns on AUTH_TIMING for every auth endpoint', () => {
+    const AUTH_HANDLERS = [
+      'auth-start.handler', 'auth-verify.handler', 'auth-dispatch.handler', 'auth-session.handler',
+    ];
+    const functions = Object.values(template.findResources('AWS::Lambda::Function'))
+      .map((fn: any) => fn.Properties)
+      .filter((p: any) => AUTH_HANDLERS.includes(p.Handler));
+
+    expect(functions.map((p: any) => p.Handler).sort()).toEqual([...AUTH_HANDLERS].sort());
+    for (const p of functions) {
+      expect(p.Environment?.Variables?.AUTH_TIMING).toBe('1');
+    }
+  });
+
   // The confidential client's secret is read from Cognito at runtime, which
   // only works if the role is allowed to ask. Without this every /auth/*
   // Cognito call throws NotAuthorizedException with nothing in the message
@@ -848,7 +916,8 @@ describe('Cognito custom-auth wiring', () => {
 
     // AFTER the summary is written, never before: the parsing agent reads
     // this text, so purging earlier would break the product itself.
-    expect(states.FinalizeResults.Next).toBe('PurgeRedactedOCR');
+    expect(states.FinalizeResults.Next).toBe('PurgeReplacedDocuments');
+    expect(states.PurgeReplacedDocuments.Next).toBe('PurgeRedactedOCR');
     expect(states.PurgeRedactedOCR.Parameters.params.data_type).toBe('redacted_ocr_result');
     expect(states.PurgeRedactedOCR.Parameters.operation).toBe('delete_ocr_data');
   });
@@ -869,6 +938,69 @@ describe('Cognito custom-auth wiring', () => {
     expect(states.RedactedOCRPurgeSkipped).toMatchObject({ Type: 'Pass', End: true });
   });
 
+  // One active IEP per child, and the previous one goes only AFTER the new one
+  // is complete. The purge state is therefore reachable from exactly one
+  // place, the success path out of FinalizeResults. Before this the upload
+  // handler deleted the old document when the presigned URL was requested,
+  // so a cancelled upload or a failed run left a family with no IEP.
+  describe('replacing a child\'s IEP', () => {
+    const states = () => parseStateMachineDefinition(template, 'IEPProcessingStateMachine').States;
+
+    /** Every state that can transition into `target`, by Next, Catch or Choice. */
+    const predecessorsOf = (all: Record<string, any>, target: string): string[] =>
+      Object.entries(all)
+        .filter(([, state]: [string, any]) =>
+          state.Next === target
+          || (state.Catch ?? []).some((c: any) => c.Next === target)
+          || (state.Choices ?? []).some((c: any) => c.Next === target)
+          || state.Default === target)
+        .map(([name]) => name);
+
+    test('the old document is deleted only on the success path, straight after FinalizeResults', () => {
+      const all = states();
+      expect(predecessorsOf(all, 'PurgeReplacedDocuments')).toEqual(['FinalizeResults']);
+      expect(all.PurgeReplacedDocuments.Parameters.operation).toBe('purge_replaced_documents');
+    });
+
+    test('nothing downstream of a failure can reach the purge', () => {
+      const all = states();
+      const reachable = new Set<string>();
+      const walk = (name: string) => {
+        if (reachable.has(name) || !all[name]) return;
+        reachable.add(name);
+        const state = all[name];
+        [state.Next, state.Default,
+          ...(state.Catch ?? []).map((c: any) => c.Next),
+          ...(state.Choices ?? []).map((c: any) => c.Next)]
+          .filter(Boolean).forEach(walk);
+      };
+      walk('RecordFailure');
+      expect(reachable.has('PurgeReplacedDocuments')).toBe(false);
+    });
+
+    test('the purge names the new document so it can be excluded', () => {
+      const params = states().PurgeReplacedDocuments.Parameters.params;
+      expect(params).toEqual({
+        'iep_id.$': '$.iep_id',
+        'child_id.$': '$.child_id',
+        'user_id.$': '$.user_id',
+      });
+    });
+
+    test('a failed purge does not mark the new document failed, and the run carries on', () => {
+      const all = states();
+      const purge = all.PurgeReplacedDocuments;
+      const catches: any[] = purge.Catch ?? [];
+      expect(catches).toHaveLength(1);
+      expect(catches[0].ErrorEquals).toContain('States.ALL');
+      expect(catches[0].Next).toBe('ReplacedDocumentsPurgeSkipped');
+      expect(all.ReplacedDocumentsPurgeSkipped).toMatchObject({ Type: 'Pass', Next: 'PurgeRedactedOCR' });
+      // The purge result must not overwrite the execution state the next
+      // state reads its ids from.
+      expect(purge.ResultPath).toBeNull();
+    });
+  });
+
   // The change that actually closes the hole. Cognito's SignUp API is public
   // and the app client id necessarily ships in the browser bundle, so while
   // self-service signup was on, anyone could create accounts without ever
@@ -880,13 +1012,36 @@ describe('Cognito custom-auth wiring', () => {
     }));
   });
 
-  test('signup is reachable without a token, because there cannot be one yet', () => {
+  // POST /auth/signup created accounts synchronously, so a stopwatch could
+  // tell a number with an account from one without; /auth/start is built not
+  // to. It had no calls in 30 days, so the route is retired and must not
+  // return. Account creation is reachable only through /auth/start.
+  test('POST /auth/signup is retired; account creation goes through /auth/start', () => {
     const routes = Object.values(template.findResources('AWS::ApiGatewayV2::Route'))
       .map((r: any) => r.Properties);
-    const signup = routes.find((r: any) => r.RouteKey === 'POST /auth/signup');
+    const keys = routes.map((r: any) => r.RouteKey);
 
-    expect(signup).toBeDefined();
-    expect(signup.AuthorizationType).toBe('NONE');
+    expect(keys).not.toContain('POST /auth/signup');
+    expect(keys.filter((k: string) => k.includes('/auth/signup'))).toEqual([]);
+
+    const start = routes.find((r: any) => r.RouteKey === 'POST /auth/start');
+    expect(start).toBeDefined();
+    expect(start.AuthorizationType).toBe('NONE');
+  });
+
+  // The route went first; the lambda behind it is deleted too, so nothing can
+  // be pointed at it again by a stray integration or invoke permission.
+  test('the unrouted get-s3 and delete-s3 lambdas do not exist (staging)', () => {
+    const ids = Object.keys(template.findResources('AWS::Lambda::Function'));
+    expect(ids.length).toBeGreaterThanOrEqual(20);
+    expect(ids.filter((id) => /GetS3Files|DeleteS3Files/.test(id))).toEqual([]);
+  });
+
+  test('no lambda with the signup-endpoint handler exists (staging)', () => {
+    const handlers = Object.values(template.findResources('AWS::Lambda::Function'))
+      .map((fn: any) => fn.Properties.Handler);
+    expect(handlers.length).toBeGreaterThanOrEqual(20);
+    expect(handlers).not.toContain('signup-endpoint.handler');
   });
 
   // AdminCreateUser without AdminSetUserPassword leaves every new account
@@ -905,11 +1060,10 @@ describe('Cognito custom-auth wiring', () => {
     const cognitoAdmin = statements.filter((st) =>
       JSON.stringify(st.Action).includes('cognito-idp:AdminCreateUser'));
 
-    // EXACTLY TWO roles may create an account: the old signup endpoint and the
-    // new auth dispatcher. Both are the same control in two places while the
-    // frontend switches over; the first one goes when /auth/signup does.
-    // Anything else acquiring AdminCreateUser must fail here.
-    expect(cognitoAdmin).toHaveLength(2);
+    // EXACTLY ONE role may create an account: the auth dispatcher. The old
+    // signup endpoint went with /auth/signup. Anything else acquiring
+    // AdminCreateUser must fail here.
+    expect(cognitoAdmin).toHaveLength(1);
 
     const actionSets = cognitoAdmin
       .map((st) => ([] as string[]).concat(st.Action).sort())
@@ -918,11 +1072,6 @@ describe('Cognito custom-auth wiring', () => {
     // Exact matches, not arrayWith: an exact-match IAM assertion is the only
     // kind that catches a permission creeping in.
     expect(actionSets[0]).toEqual([
-      'cognito-idp:AdminCreateUser',
-      'cognito-idp:AdminDeleteUser',
-      'cognito-idp:AdminSetUserPassword',
-    ]);
-    expect(actionSets[1]).toEqual([
       'cognito-idp:AdminCreateUser',
       'cognito-idp:AdminDeleteUser',
       'cognito-idp:AdminGetUser',
@@ -966,6 +1115,16 @@ describe('Cognito custom-auth wiring', () => {
   // The signup abuse control. It only works because it runs in the trigger:
   // the 2026-09-09 run never loaded the site, it called the public SignUp API
   // directly, so anything enforced in the browser was not in its path.
+  // Staging runs Cloudflare's always-pass test keys, which answer with a
+  // placeholder hostname, so a hostname check there would refuse every E2E
+  // sign-in.
+  test('no non-production lambda checks the bot-check hostname', () => {
+    const offenders = Object.entries(template.findResources('AWS::Lambda::Function'))
+      .filter(([, fn]: [string, any]) => 'TURNSTILE_EXPECTED_HOSTNAMES' in (fn.Properties?.Environment?.Variables ?? {}))
+      .map(([logicalId]) => logicalId);
+    expect(offenders).toEqual([]);
+  });
+
   test('pre-sign-up can read the Turnstile secret, and only that', () => {
     template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
       Handler: 'pre-sign-up.handler',
@@ -1056,6 +1215,81 @@ describe('Cognito custom-auth wiring', () => {
     expect(writers).toHaveLength(0);
   });
 
+  // The lambda adds the "A-IEP" display name around SES_FROM_ADDRESS, so the
+  // variable and the IAM ses:FromAddress condition must both stay the BARE
+  // address: a display name in either would stop matching the other, and the
+  // send would fail with an authorization error rather than a bad From line.
+  test('the email sender address and its IAM condition are the same bare address', () => {
+    const fn: any = Object.values(template.findResources('AWS::Lambda::Function'))
+      .find((f: any) => f.Properties?.Handler === 'create-auth-challenge.handler');
+    const address = fn.Properties.Environment.Variables.SES_FROM_ADDRESS;
+    expect(address).toMatch(/^[^<>"\s]+@[^<>"\s]+$/);
+
+    const conditions = Object.values(template.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[])
+      .filter((st) => JSON.stringify(st.Action ?? '').includes('ses:SendEmail'))
+      .map((st) => st.Condition?.StringEquals?.['ses:FromAddress']);
+    expect(conditions.length).toBeGreaterThan(0);
+    for (const c of conditions) expect(c).toBe(address);
+  });
+
+  // Delivery time of a login code is only measurable if SES reports the
+  // Delivery event, so the SNS destination carries it alongside the four
+  // failure events. The CloudWatch destination must NOT grow: it is the
+  // destination that was left alone, and its alarms were sized for the four.
+  test('the auth configuration set reports Delivery on its SNS destination only', () => {
+    const destinations = Object.values(template.findResources('AWS::SES::ConfigurationSetEventDestination'))
+      .map((d: any) => d.Properties.EventDestination);
+    const sns = destinations.filter((d: any) => d.SnsDestination);
+    const cloudWatch = destinations.filter((d: any) => d.CloudWatchDestination);
+    expect(sns).toHaveLength(1);
+    expect(cloudWatch).toHaveLength(1);
+
+    expect([...sns[0].MatchingEventTypes].sort())
+      .toEqual(['bounce', 'complaint', 'deliveryDelay', 'delivery', 'reject'].sort());
+    expect([...cloudWatch[0].MatchingEventTypes].sort())
+      .toEqual(['bounce', 'complaint', 'deliveryDelay', 'reject'].sort());
+  });
+
+  // /auth/token and /auth/logout count calls per source in the OTP rate-limit
+  // table, failing closed. The count is read back from UpdateItem, so write
+  // access is enough; the grant must not grow into a read of anything else.
+  test('the session function meters per-source calls on the rate-limit table, write-only', () => {
+    const fn: any = Object.values(template.findResources('AWS::Lambda::Function'))
+      .find((f: any) => f.Properties?.Handler === 'auth-session.handler');
+    expect(JSON.stringify(fn.Properties.Environment.Variables.OTP_RATE_LIMIT_TABLE))
+      .toContain('OtpRateLimitTable');
+
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .filter((p: any) => JSON.stringify(p.Properties.Roles ?? '').includes('AuthSessionFunctionServiceRole'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[])
+      .filter((st) => JSON.stringify(st.Resource ?? '').includes('OtpRateLimitTable'));
+    expect(statements.length).toBeGreaterThan(0);
+
+    const actions = statements.flatMap((st) => ([] as string[]).concat(st.Action));
+    expect(actions).toContain('dynamodb:UpdateItem');
+    for (const forbidden of ['dynamodb:Scan', 'dynamodb:Query', 'dynamodb:GetItem']) {
+      expect(actions).not.toContain(forbidden);
+    }
+    for (const st of statements) {
+      expect(JSON.stringify(st.Resource)).not.toContain('"*"');
+    }
+  });
+
+  // The optional pinned origination number is read from this same subtree
+  // (`<prefix>/origination-number`), so the existing grant must keep covering
+  // it and must not widen beyond it to make it work.
+  test('the optional origination-number parameter is inside the granted SMS policy subtree', () => {
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[])
+      .filter((st) => JSON.stringify(st.Resource ?? '').includes('sms-policy'));
+    expect(statements.length).toBeGreaterThan(0);
+    const resources = statements.flatMap((st) => ([] as any[]).concat(st.Resource).map((r) => JSON.stringify(r)));
+    expect(resources.some((r) => r.includes('/sms-policy/*'))).toBe(true);
+    // Never the wider hierarchy, which holds the API keys.
+    expect(resources.every((r) => r.includes('sms-policy'))).toBe(true);
+  });
+
   // create-auth-challenge fails open (or falls back to English SMS) when its
   // table wiring is missing, so the env vars are load-bearing: the rate-limit
   // counter and the profile lookup for OTP localization.
@@ -1088,6 +1322,19 @@ describe('Cognito custom-auth wiring', () => {
                           'dynamodb:DeleteItem', 'dynamodb:UpdateItem']) {
       expect(referralActions).toContain(action);
     }
+  });
+
+  // The login SMS ends in `@<host> #<code>` so a phone offers the code only to
+  // a page on that host. A wrong host does not error: the autofill just never
+  // appears, so the value is pinned. Production is pinned in its own synth
+  // below; neither stands in for the other.
+  test('staging names dev.a-iep.org in the SMS domain-bound code line', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
+      Handler: 'create-auth-challenge.handler',
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({ OTP_SMS_DOMAIN: 'dev.a-iep.org' }),
+      }),
+    }));
   });
 
   test('create-auth-challenge lambda is wired to the rate-limit and profiles tables', () => {
@@ -1286,15 +1533,45 @@ describe('S3 data protection', () => {
       return [...actions].sort();
     };
 
-    // get-s3 only lists a caller's own prefix.
-    expect(s3ActionsFor('GetS3FilesHandlerFunctionServiceRole')).toEqual(['s3:ListBucket']);
+    // The get-s3 and delete-s3 lambdas are deleted outright (their routes were
+    // already gone), so no role by those names may come back.
+    expect(s3ActionsFor('GetS3FilesHandlerFunctionServiceRole')).toEqual([]);
+    expect(s3ActionsFor('DeleteS3FilesHandlerFunctionServiceRole')).toEqual([]);
 
-    // upload-s3 presigns a PUT and a GET, and clears the child's previous
-    // document (list + delete) before writing the new one.
+    // upload-s3 presigns a PUT and a GET and nothing else. It used to clear the
+    // child's previous document (list + delete) when the upload URL was
+    // requested, which left a family with no IEP if the upload then failed;
+    // replacing a document is now the pipeline's job once the new one has
+    // finished, so this role holds no delete or list action at all. Narrowed,
+    // not widened: the old pin listed six actions, this lists two.
     expect(s3ActionsFor('UploadS3KnowledgeFilesHandlerFunctionServiceRole')).toEqual([
-      's3:DeleteObject', 's3:DeleteObjectVersion', 's3:GetObject', 's3:ListBucket',
-      's3:ListBucketVersions', 's3:PutObject',
+      's3:GetObject', 's3:PutObject',
     ]);
+  });
+
+  // The same narrowing on the DynamoDB side. upload-s3 writes the
+  // PENDING_UPLOAD row and nothing more: no Query (the first half of a
+  // delete-the-previous-document), no DeleteItem, and no access at all to the
+  // user profiles table, which only the old replace flow touched.
+  test('upload-s3 can only put the new document row', () => {
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .filter((policy: any) =>
+        JSON.stringify(policy.Properties?.Roles ?? []).includes('UploadS3KnowledgeFilesHandlerFunctionServiceRole'))
+      .flatMap((policy: any) => policy.Properties?.PolicyDocument?.Statement ?? [])
+      .filter((statement: any) => statement.Effect === 'Allow');
+
+    const dynamoActions = statements
+      .flatMap((statement: any) => [statement.Action ?? []].flat())
+      .filter((action: unknown) => typeof action === 'string' && action.startsWith('dynamodb:'));
+    expect(dynamoActions).toEqual(['dynamodb:PutItem']);
+
+    const tables = statements
+      .filter((statement: any) => [statement.Action ?? []].flat().includes('dynamodb:PutItem'))
+      .map((statement: any) => JSON.stringify(statement.Resource));
+    expect(tables).toHaveLength(1);
+    expect(tables[0]).toContain('IepDocumentsTable');
+    expect(tables[0]).not.toContain('UserProfilesTable');
+    expect(tables[0]).not.toContain('/index/');
   });
 
   // The bucket is versioned, so DeleteObject alone writes a delete marker and
@@ -1318,11 +1595,13 @@ describe('S3 data protection', () => {
     };
     const deleters = [
       'DeleteOriginalFunction',          // the original, once redaction succeeds
-      'DDBServiceFunction',              // RecordFailure's purge on any failure
-      'DeleteS3FilesHandlerFunction',    // a parent deleting one document
-      'UploadS3KnowledgeFilesHandler',   // re-upload replacing the previous one
+      'DDBServiceFunction',              // RecordFailure's purge, and the previous IEP once a re-upload finishes
       'UserProfileHandlerFunction',      // child and account deletion
     ];
+    // Not in the list, on purpose: DeleteS3FilesHandler (deleted with its
+    // unrouted /delete-s3-file route) and UploadS3KnowledgeFilesHandler. It used to
+    // delete the previous document when the upload URL was requested; it now
+    // holds neither action, and the sum below fails if it ever gets them back.
 
     for (const action of ['s3:DeleteObjectVersion', 's3:ListBucketVersions']) {
       const roles = rolesHolding(action);
@@ -1331,6 +1610,41 @@ describe('S3 data protection', () => {
           .toEqual({ action, fn, held: 1 });
       }
       expect({ action, roles: roles.length }).toEqual({ action, roles: deleters.length });
+    }
+  });
+
+  // The replace-after-success purge runs inside the DDB service, so that is
+  // the one role that can list a child's documents through the byChildId index
+  // and delete their rows. FinalizeResults, which marks the new document
+  // complete, must hold neither: if it did, a bug in the step that tells a
+  // parent their document is ready could also delete a family's records.
+  test('only the DDB service can delete document rows and list them by child', () => {
+    const statementsFor = (roleHint: string): any[] =>
+      Object.values(template.findResources('AWS::IAM::Policy'))
+        .filter((policy: any) => JSON.stringify(policy.Properties?.Roles ?? []).includes(roleHint))
+        .flatMap((policy: any) => policy.Properties?.PolicyDocument?.Statement ?? [])
+        .filter((statement: any) => statement.Effect === 'Allow');
+    const grants = (roleHint: string, action: string, resourceHint: string): boolean =>
+      statementsFor(roleHint).some((statement: any) =>
+        [statement.Action ?? []].flat().includes(action)
+        && JSON.stringify(statement.Resource).includes(resourceHint));
+
+    expect(grants('DDBServiceFunctionServiceRole', 'dynamodb:DeleteItem', 'IepDocumentsTable')).toBe(true);
+    expect(grants('DDBServiceFunctionServiceRole', 'dynamodb:Query', '/index/byChildId')).toBe(true);
+
+    for (const role of [
+      'FinalizeResultsFunctionServiceRole',
+      'DeleteOriginalFunctionServiceRole',
+      'ParsingAgentFunctionServiceRole',
+      'TranslateContentFunctionServiceRole',
+      'MistralOCRFunctionServiceRole',
+      'RedactOCRFunctionServiceRole',
+      'CheckLanguagePrefsFunctionServiceRole',
+    ]) {
+      expect({ role, canDeleteRows: grants(role, 'dynamodb:DeleteItem', 'IepDocumentsTable') })
+        .toEqual({ role, canDeleteRows: false });
+      expect({ role, canQueryByChild: grants(role, 'dynamodb:Query', '/index/byChildId') })
+        .toEqual({ role, canQueryByChild: false });
     }
   });
 });
@@ -1745,6 +2059,272 @@ describe('encryption at rest and in transit', () => {
 
 describeDurableStoreRetention('staging', () => template);
 describeAppClientContract('staging', () => template);
+describeLambdaRuntimes('staging', () => template);
+describeLogRetention('staging', () => template);
+describeStepTimeouts('staging', () => template);
+describeBucketLifecycle('staging', () => template);
+describeRetiredLanguageStep('staging', () => template);
+describeWebsiteHeaders('staging', () => template);
+
+/**
+ * Lambda runtimes that must hold in BOTH synthesized templates. Staging and
+ * production are separate synths, so a pin on one can drift on the other.
+ */
+function describeLambdaRuntimes(envLabel: EnvLabel, getTemplate: () => Template) {
+  describe(`lambda runtimes (${envLabel})`, () => {
+    // WHY: Node 20 is past upstream end of life, and AWS blocks updates to a
+    // deprecated runtime, so no function in the stack may run nodejs20.x. That
+    // includes the helpers aws-cdk-lib injects (log retention, auto-delete,
+    // bucket notifications, bucket deployment): they carried nodejs20.x until
+    // the library upgrade to 2.197+, and a pin that exempted them would let a
+    // downgrade of aws-cdk-lib bring the deprecated runtime back unnoticed.
+    test('no function in the stack runs nodejs20.x, injected CDK helpers included', () => {
+      const isInjected = (logicalId: string) => CDK_HELPER_PREFIXES.some((prefix) => logicalId.startsWith(prefix));
+      const functions = Object.entries(getTemplate().findResources('AWS::Lambda::Function'))
+        .map(([logicalId, fn]: [string, any]) => ({ logicalId, runtime: fn.Properties.Runtime }));
+      expect(functions.filter(({ runtime }) => runtime === DEPRECATED_NODE_RUNTIME)).toEqual([]);
+
+      const owned = functions.filter(({ logicalId }) => !isInjected(logicalId));
+      expect(owned.length).toBeGreaterThanOrEqual(20);
+      expect(owned.filter(({ runtime }) => typeof runtime !== 'string')).toEqual([]);
+      expect(owned.filter(({ runtime }) => (runtime as string).startsWith('nodejs')).length).toBeGreaterThanOrEqual(13);
+
+      // Non-vacuity: the helpers are present, and any Node helper is on a
+      // runtime at or above nodejs22.x.
+      const helpers = functions.filter(({ logicalId }) => isInjected(logicalId));
+      expect(helpers.length).toBeGreaterThanOrEqual(2);
+      const helperNode = helpers.filter(({ runtime }) => typeof runtime === 'string' && runtime.startsWith('nodejs'));
+      expect(helperNode.length).toBeGreaterThanOrEqual(1);
+      for (const { runtime } of helperNode) {
+        expect(parseInt((runtime as string).slice('nodejs'.length), 10)).toBeGreaterThanOrEqual(22);
+      }
+    });
+  });
+}
+
+/**
+ * Log retention that must hold in BOTH synthesized templates.
+ */
+function describeLogRetention(envLabel: EnvLabel, getTemplate: () => Template) {
+  describe(`log retention (${envLabel})`, () => {
+    // WHY: a function with no retention keeps its log group forever, and the
+    // pipeline step lambdas had none. The default lives in createTaggedLambda,
+    // so every function, present or future, gets a RetentionInDays through
+    // CDK's LogRetention resource. A LogRetention with no RetentionInDays means
+    // "never expire", which is what `fn.logGroup` used to create on its own.
+    test('every app lambda has a log retention, and none keeps logs forever', () => {
+      const t = getTemplate();
+      const retained = new Set<string>();
+      const forever: string[] = [];
+      for (const [logicalId, resource] of Object.entries(t.findResources('Custom::LogRetention'))) {
+        const { LogGroupName, RetentionInDays } = (resource as any).Properties;
+        if (RetentionInDays === undefined) {
+          forever.push(logicalId);
+          continue;
+        }
+        const ref = LogGroupName['Fn::Join'][1].find((part: any) => typeof part === 'object' && 'Ref' in part)?.Ref;
+        if (ref) retained.add(ref);
+      }
+      expect(forever).toEqual([]);
+
+      const appFunctions = Object.keys(t.findResources('AWS::Lambda::Function'))
+        .filter((id) => !CDK_HELPER_PREFIXES.some((prefix) => id.startsWith(prefix)));
+      expect(appFunctions.length).toBeGreaterThanOrEqual(20);
+      expect(appFunctions.filter((id) => !retained.has(id))).toEqual([]);
+    });
+  });
+}
+
+/**
+ * Step lambda timeouts that must hold in BOTH synthesized templates.
+ */
+function describeStepTimeouts(envLabel: EnvLabel, getTemplate: () => Template) {
+  describe(`step lambda timeouts (${envLabel})`, () => {
+    // WHY: Step Functions stops waiting for a state at its TimeoutSeconds but
+    // does not cancel the lambda behind it. A lambda timeout at or below its
+    // state's would be killed mid-write, and one far above keeps running after
+    // RecordFailure has purged, so each lambda sits just above its state. The
+    // pinned values are the ones the state timeouts in the ASL were sized for.
+    test('each step lambda outlives its state timeout and keeps its pinned value', () => {
+      const t = getTemplate();
+      const pipeline = parseStateMachineDefinition(t, 'IEPProcessingStateMachine').States;
+      const singleLanguage = parseStateMachineDefinition(t, 'SingleLanguageTranslationStateMachine').States;
+      const bounds: [string, number, number][] = [
+        ['MistralOCRFunction', 150, pipeline.MistralOCR.TimeoutSeconds],
+        ['ParsingAgentFunction', 300, pipeline.ParsingAgent.TimeoutSeconds],
+        // TranslateContent serves both machines, so it outlives the longer of
+        // its two states (both 240s today).
+        ['TranslateContentFunction', 300, Math.max(
+          pipeline.TranslateParsingResult.TimeoutSeconds,
+          singleLanguage.TranslateRequestedLanguage.TimeoutSeconds,
+        )],
+      ];
+      for (const [hint, lambdaTimeout, stateTimeout] of bounds) {
+        const fns = resourcesMatching(t, 'AWS::Lambda::Function', hint);
+        expect(fns).toHaveLength(1);
+        expect(fns[0][1].Properties.Timeout).toBe(lambdaTimeout);
+        expect(lambdaTimeout).toBeGreaterThan(stateTimeout);
+      }
+    });
+  });
+}
+
+/** Lifecycle rules of the one bucket whose logical ID contains hint, keyed by rule ID. */
+function lifecycleRulesOf(t: Template, hint: string): Record<string, any> {
+  const buckets = resourcesMatching(t, 'AWS::S3::Bucket', hint);
+  expect(buckets).toHaveLength(1);
+  const rules: any[] = buckets[0][1].Properties.LifecycleConfiguration?.Rules ?? [];
+  return Object.fromEntries(rules.map((rule) => [rule.Id, rule]));
+}
+
+/**
+ * S3 lifecycle rules that must hold in BOTH synthesized templates. These only
+ * abort stalled uploads or expire superseded versions; none expires current
+ * objects.
+ */
+/**
+ * Security headers on the website distribution. The site sent none before
+ * this policy existed, and CloudFrontWebDistribution attaches it only through
+ * a property override, which a refactor of the distribution could drop
+ * without any type error.
+ */
+function describeWebsiteHeaders(envLabel: EnvLabel, getTemplate: () => Template) {
+  describe(`website security headers (${envLabel})`, () => {
+    const policyOf = (t: Template) => {
+      const policies = Object.entries(t.findResources('AWS::CloudFront::ResponseHeadersPolicy'));
+      expect(policies).toHaveLength(1);
+      const [logicalId, policy] = policies[0] as [string, any];
+      return { logicalId, config: policy.Properties.ResponseHeadersPolicyConfig };
+    };
+
+    test('every behavior of the website distribution sends the policy', () => {
+      const { logicalId } = policyOf(getTemplate());
+      const distributions = Object.values(getTemplate().findResources('AWS::CloudFront::Distribution')) as any[];
+      const website = distributions.filter((d) =>
+        d.Properties.DistributionConfig.DefaultCacheBehavior?.ResponseHeadersPolicyId);
+      expect(website).toHaveLength(1);
+      const config = website[0].Properties.DistributionConfig;
+      const behaviors = [config.DefaultCacheBehavior, ...(config.CacheBehaviors ?? [])];
+      expect(behaviors.length).toBeGreaterThanOrEqual(2);
+      for (const behavior of behaviors) {
+        expect(behavior.ResponseHeadersPolicyId).toEqual({ Ref: logicalId });
+      }
+    });
+
+    test('HSTS, nosniff, framing and referrer headers are set and override the origin', () => {
+      const { config } = policyOf(getTemplate());
+      const sec = config.SecurityHeadersConfig;
+      expect(sec.StrictTransportSecurity).toEqual(expect.objectContaining({
+        AccessControlMaxAgeSec: 31536000, IncludeSubdomains: false, Override: true,
+      }));
+      expect(sec.ContentTypeOptions).toEqual({ Override: true });
+      expect(sec.FrameOptions).toEqual({ FrameOption: 'SAMEORIGIN', Override: true });
+      expect(sec.ReferrerPolicy).toEqual({ ReferrerPolicy: 'strict-origin-when-cross-origin', Override: true });
+    });
+
+    test(envLabel === 'production'
+      ? 'production is indexable: no X-Robots-Tag'
+      : 'staging asks search engines to stay out', () => {
+      const { config } = policyOf(getTemplate());
+      const headers = (config.CustomHeadersConfig?.Items ?? []) as { Header: string; Value: string }[];
+      const robots = headers.find((h) => h.Header === 'X-Robots-Tag');
+      if (envLabel === 'production') {
+        expect(robots).toBeUndefined();
+      } else {
+        expect(robots?.Value).toBe('noindex, nofollow');
+      }
+      expect(headers.find((h) => h.Header === 'Permissions-Policy')?.Value).toMatch(/camera=\(\)/);
+    });
+
+    test('the Content-Security-Policy is sent report-only, naming this stack\'s API', () => {
+      // Report-only until the E2E suite has run clean against it
+      // (e2e/helpers/fixtures.ts). Enforcing it means renaming this header
+      // to Content-Security-Policy, deliberately, in its own change.
+      const { config } = policyOf(getTemplate());
+      const headers = (config.CustomHeadersConfig?.Items ?? []) as { Header: string; Value: unknown }[];
+      expect(headers.find((h) => h.Header === 'Content-Security-Policy')).toBeUndefined();
+      const csp = headers.find((h) => h.Header === 'Content-Security-Policy-Report-Only');
+      expect(csp).toBeDefined();
+      // The API origin is a token, so the value renders as Fn::Join with a
+      // GetAtt of the HTTP API's ApiEndpoint: proof the policy names this
+      // stack's API rather than a pasted-in literal.
+      const rendered = JSON.stringify(csp!.Value);
+      expect(rendered).toContain('Fn::Join');
+      expect(rendered).toMatch(/"Fn::GetAtt":\["ChatbotAPI\w*HTTPAPI\w*","ApiEndpoint"\]/);
+      expect(rendered).toContain("default-src 'self'");
+      expect(rendered).toContain("object-src 'none'");
+    });
+  });
+}
+
+function describeBucketLifecycle(envLabel: EnvLabel, getTemplate: () => Template) {
+  describe(`bucket lifecycle (${envLabel})`, () => {
+    // WHY: the website bucket is versioned, so every replaced build leaves its
+    // old files behind as noncurrent versions. They are expired after a month.
+    // The rule must never reach current objects; the next test pins that.
+    test('the website bucket expires superseded versions after 30 days and aborts stalled uploads', () => {
+      const rules = lifecycleRulesOf(getTemplate(), 'WebsiteBucket');
+      expect(Object.keys(rules).sort()).toEqual(['AbortIncompleteMultipartUploads', 'ExpireNoncurrentVersions']);
+      expect(rules.ExpireNoncurrentVersions.NoncurrentVersionExpiration).toEqual({ NoncurrentDays: 30 });
+      expect(rules.AbortIncompleteMultipartUploads.AbortIncompleteMultipartUpload).toEqual({ DaysAfterInitiation: 7 });
+    });
+
+    // WHY: the document bucket's one-day noncurrent expiry is the deletion
+    // guarantee for families' IEP documents, and this change must not touch it.
+    test('the knowledge bucket keeps its one-day noncurrent expiry and aborts stalled uploads', () => {
+      const rules = lifecycleRulesOf(getTemplate(), 'KnowledgeSourceBucket');
+      expect(rules.ExpireNoncurrentVersions.NoncurrentVersionExpiration).toEqual({ NoncurrentDays: 1 });
+      expect(rules.AbortIncompleteMultipartUploads.AbortIncompleteMultipartUpload).toEqual({ DaysAfterInitiation: 7 });
+    });
+
+    // WHY: a versioned bucket keeps every part of a failed upload as billed
+    // storage until something aborts it. Only the rule that aborts is added
+    // here; it touches no object.
+    test('every versioned bucket aborts multipart uploads that never complete after 7 days', () => {
+      const versioned = Object.entries(getTemplate().findResources('AWS::S3::Bucket'))
+        .filter(([, bucket]: [string, any]) => bucket.Properties.VersioningConfiguration?.Status === 'Enabled');
+      expect(versioned.length).toBeGreaterThanOrEqual(4);
+
+      const offenders = versioned
+        .filter(([, bucket]: [string, any]) => {
+          const rules: any[] = bucket.Properties.LifecycleConfiguration?.Rules ?? [];
+          return !rules.some((rule) => rule.Status === 'Enabled'
+            && rule.AbortIncompleteMultipartUpload?.DaysAfterInitiation === 7);
+        })
+        .map(([logicalId]) => logicalId);
+      expect(offenders).toEqual([]);
+    });
+
+    // WHY: no bucket may gain an expiry on CURRENT objects. The audit log
+    // bucket's 400-day expiry predates this and is the only one allowed.
+    test('no bucket expires current objects, except the audit log bucket it already did', () => {
+      const expiring = Object.entries(getTemplate().findResources('AWS::S3::Bucket'))
+        .filter(([, bucket]: [string, any]) => {
+          const rules: any[] = bucket.Properties.LifecycleConfiguration?.Rules ?? [];
+          return rules.some((rule) => rule.ExpirationInDays !== undefined || rule.ExpirationDate !== undefined);
+        })
+        .map(([logicalId]) => logicalId);
+      expect(expiring).toHaveLength(1);
+      expect(expiring[0]).toContain('AuditLogBucket');
+    });
+  });
+}
+
+/**
+ * The language-prefs step left the pipeline, but its function stays because
+ * scripts/recover-orphaned-documents.py still invokes it by name.
+ */
+function describeRetiredLanguageStep(envLabel: EnvLabel, getTemplate: () => Template) {
+  describe(`retired language step (${envLabel})`, () => {
+    // WHY: deleting the function would break that recovery path. Its alarm is
+    // removed in monitoring.ts; the function itself stays.
+    test('the language-prefs lambda is kept for the recovery script', () => {
+      const fns = resourcesMatching(getTemplate(), 'AWS::Lambda::Function', 'CheckLanguagePrefsFunction');
+      expect(fns).toHaveLength(1);
+      expect(fns[0][1].Properties.Runtime).toBe('python3.12');
+    });
+  });
+}
 
 /**
  * Parse one state machine's ASL out of the template, selected by logical ID.
@@ -1840,6 +2420,73 @@ describe('IEP processing state machine', () => {
     }
   });
 
+  // A failed document used to be a SUCCEEDED execution: RecordFailure ended
+  // the machine with End: true, so the Step Functions console never listed one
+  // and ExecutionsFailed stayed at zero through a total outage. It now ends in
+  // a Fail state. The Error names are static and the Causes fixed strings, so
+  // the console's Error/Cause columns cannot carry document text; a
+  // RecordFailure that itself fails gets its own Error name.
+  describe('a failed document is a failed execution', () => {
+    test('RecordFailure no longer ends the run: it hands over to a Choice', () => {
+      const states: Record<string, any> = stateMachineDefinition().States;
+      expect(states.RecordFailure.End).toBeUndefined();
+      expect(states.RecordFailure.Next).toBe('CheckRecordFailureResult');
+      expect(states.RecordFailure.ResultPath).toBe('$.record_failure_result');
+      expect(states.CheckRecordFailureResult.Type).toBe('Choice');
+    });
+
+    test('the only ways the run can end are the success purges and two Fail states', () => {
+      const states: Record<string, any> = stateMachineDefinition().States;
+      const terminal = Object.entries(states)
+        .filter(([, state]: [string, any]) => state.End === true || state.Type === 'Fail' || state.Type === 'Succeed')
+        .map(([name]) => name)
+        .sort();
+      expect(terminal).toEqual([
+        'DocumentProcessingFailed',
+        'PurgeRedactedOCR',
+        'RecordFailureFailed',
+        'RedactedOCRPurgeSkipped',
+      ]);
+    });
+
+    test('a recorded failure and a failed RecordFailure end under different Error names', () => {
+      const states: Record<string, any> = stateMachineDefinition().States;
+      expect(states.DocumentProcessingFailed).toMatchObject({
+        Type: 'Fail', Error: 'DocumentProcessingFailed' });
+      expect(states.RecordFailureFailed).toMatchObject({
+        Type: 'Fail', Error: 'RecordFailureFailed' });
+
+      // The choice sends a 200 to the first and everything else to the second;
+      // a raise from the task itself goes to the second as well.
+      const choice = states.CheckRecordFailureResult;
+      expect(choice.Choices).toHaveLength(1);
+      expect(choice.Choices[0].Next).toBe('DocumentProcessingFailed');
+      expect(JSON.stringify(choice.Choices[0])).toContain('"NumericEquals":200');
+      expect(JSON.stringify(choice.Choices[0])).toContain('"IsPresent":true');
+      expect(choice.Default).toBe('RecordFailureFailed');
+      expect(states.RecordFailure.Catch).toEqual([
+        expect.objectContaining({ ErrorEquals: ['States.ALL'], Next: 'RecordFailureFailed' }),
+      ]);
+    });
+
+    test('Error and Cause are static: no document data can reach the console', () => {
+      const states: Record<string, any> = stateMachineDefinition().States;
+      for (const name of ['DocumentProcessingFailed', 'RecordFailureFailed']) {
+        expect(Object.keys(states[name]).filter((key) => key.endsWith('.$'))).toEqual([]);
+        expect(typeof states[name].Cause).toBe('string');
+        expect(states[name].Cause).not.toContain('$');
+      }
+    });
+
+    // The translation machine already ends this way (TranslationFailed), so
+    // the two machines now read the same in the console.
+    test('it matches how the on-demand translation machine ends', () => {
+      const translation = parseStateMachineDefinition(template, 'SingleLanguageTranslationStateMachine').States;
+      expect(translation.TranslationFailed.Type).toBe('Fail');
+      expect(stateMachineDefinition().States.DocumentProcessingFailed.Type).toBe('Fail');
+    });
+  });
+
   // Guards the catch-all test against renames hollowing it out: the OCR,
   // redaction, and parsing tasks must exist under these names, and each must
   // be a top-level state so its Catch can route to RecordFailure (a state
@@ -1876,6 +2523,53 @@ describe('IEP processing state machine', () => {
     expect(timeout).toBeGreaterThan(WORST_CASE_RUN_SECONDS);
   });
 
+  // WHY: the pre-warm invokes name ParsingAgent and TranslateContent by ARN and
+  // run as the state machine's role. The grant already existed for the real
+  // invocations; this makes it load-bearing for the warm-ups too, so dropping
+  // either function from the grant list fails here rather than as a silently
+  // ignored AccessDenied (the warm-up's Catch swallows it) and a slower run.
+  test('the warm-up invokes name both functions, and the role may invoke them', () => {
+    const states: Record<string, any> = stateMachineDefinition().States;
+    const named = (state: string) => JSON.stringify(states[state].Parameters.FunctionName);
+    const machine: any = Object.entries(template.findResources('AWS::StepFunctions::StateMachine'))
+      .find(([id]) => id.includes('IEPProcessingStateMachine'))![1];
+    const rawDefinition = JSON.stringify(machine.Properties.DefinitionString);
+    const policies = JSON.stringify(
+      Object.values(template.findResources('AWS::IAM::Policy'))
+        .filter((p: any) => JSON.stringify(p.Properties.Roles ?? []).includes('IEPProcessingStateMachineRole')));
+
+    expect(states.WarmParsingAgent.Parameters.InvocationType).toBe('Event');
+    expect(states.WarmParsingAgent.Parameters.Payload).toEqual({ warmup: true });
+    expect(states.WarmTranslateContent.Parameters.Payload).toEqual({ warmup: true });
+    for (const [state, fn] of [['WarmParsingAgent', 'ParsingAgentFunction'], ['WarmTranslateContent', 'TranslateContentFunction']]) {
+      // The ARN placeholder was substituted with a real reference (the helper
+      // renders every reference as "ARN"), not left as literal text.
+      expect(named(state)).toBe('"ARN"');
+      expect(rawDefinition).toContain(fn);
+      expect(policies).toContain('lambda:InvokeFunction');
+      expect(policies).toContain(fn);
+    }
+  });
+
+  // WHY: ParsingAgent's slowest prod run was 73s against a 900s lambda timeout
+  // and no state timeout, so a call that hung (as opposed to failing) held the
+  // document at PROCESSING for 15 minutes per attempt before any Catch ran.
+  // Pinned on the synthesized definition, i.e. after the ARN substitution in
+  // functions.ts, because that is what Step Functions actually executes.
+  test('every task is bounded by its own TimeoutSeconds', () => {
+    const states: Record<string, any> = stateMachineDefinition().States;
+    const slow: Record<string, number> = {
+      ParsingAgent: 240, TranslateParsingResult: 240, MistralOCR: 120, RedactOCR: 120,
+    };
+    const tasks = Object.entries(states).filter(([, s]) => s.Type === 'Task');
+    expect(tasks.length).toBeGreaterThanOrEqual(10);
+    for (const [name, state] of tasks) {
+      // The pre-warm invokes are asynchronous and return in milliseconds.
+      const expected = name.startsWith('Warm') ? 10 : (slow[name] ?? 60);
+      expect({ name, timeout: state.TimeoutSeconds }).toEqual({ name, timeout: expected });
+    }
+  });
+
   // WHY: failed_step was `$$.State.Name` read INSIDE RecordFailure, so it
   // resolved to the literal string "RecordFailure" for every failure the
   // pipeline has ever recorded. All six failures in production carry that
@@ -1891,11 +2585,32 @@ describe('IEP processing state machine', () => {
     test('every Catch is routed through a marker that injects its own step name', () => {
       const states = stateMachineDefinition().States;
       const caught = Object.entries<any>(states)
-        .flatMap(([name, state]) => (state.Catch ?? []).map((c: any) => [name, c.Next]));
+        .flatMap(([name, state]) => (state.Catch ?? []).map((c: any) => [name, c.Next, c.ErrorEquals]));
 
       expect(caught.length).toBeGreaterThan(0);
-      for (const [source, next] of caught) {
+      for (const [source, next, errors] of caught) {
         if (CATCH_EXEMPT_STATES.includes(source as string)) continue;
+        // RecordFailure's own Catch cannot go through a FailedAt marker: it IS
+        // the destination of those markers, and there is no later stage to name.
+        // It routes to the RecordFailureFailed Fail state instead, which is
+        // pinned in 'a failed document is a failed execution' and nowhere else
+        // may route a Catch there.
+        if (source === 'RecordFailure') {
+          expect(next).toBe('RecordFailureFailed');
+          continue;
+        }
+        if ((errors as string[]).includes('States.Timeout')) {
+          // A timeout may carry no Cause, and RecordFailure reads
+          // $.error.Cause: one Pass supplies it, then hands on to the very
+          // same marker, so there is still exactly one route to RecordFailure.
+          expect(next).toBe(`TimedOutAt${source}`);
+          const hop = states[next as string];
+          expect(hop.Type).toBe('Pass');
+          expect(typeof hop.Result.Cause).toBe('string');
+          expect(hop.ResultPath).toBe('$.error');
+          expect(hop.Next).toBe(`FailedAt${source}`);
+          continue;
+        }
         // Never straight to RecordFailure: that is what made failed_step a lie.
         expect(next).toBe(`FailedAt${source}`);
         const marker = states[next as string];
@@ -2174,11 +2889,10 @@ describe('Lambda environment variables fit inside the 4KB limit', () => {
 });
 
 describe('Lambda runtimes', () => {
-  // One approved runtime per language keeps deprecation upgrades atomic and
-  // matches CI's pinned toolchains (python 3.12 in the pytest job, node 20 in
-  // the jest job) — a stray runtime means tests exercise a different VM than
-  // production runs.
-  test('all app lambdas run python3.12 or nodejs20.x', () => {
+  // One approved runtime per language keeps deprecation upgrades atomic. The
+  // Node lambdas run nodejs22.x; CI's jest job still runs node 20 (ci.yml), so
+  // the two are not the same VM, and that gap is named here rather than hidden.
+  test('all app lambdas run python3.12 or nodejs22.x', () => {
     const functions = Object.entries(template.findResources('AWS::Lambda::Function'))
       .filter(([logicalId]) => !CDK_HELPER_PREFIXES.some((prefix) => logicalId.startsWith(prefix)));
 
@@ -2191,6 +2905,28 @@ describe('Lambda runtimes', () => {
       .map(([logicalId, fn]: [string, any]) => `${logicalId}: ${JSON.stringify(fn.Properties.Runtime)}`);
 
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('user-profile-handler memory', () => {
+  // Lambda gives CPU in proportion to memory, and this function's cold start
+  // is CPU-bound Python import (~550 ms at 128 MB) that every profile and
+  // document request waits on whenever a new container starts. 512 MB is the
+  // setting that removes most of it, so it is pinned: a regression to the 128
+  // MB default would raise nothing but p90 latency. Found by the three env
+  // vars no other function carries together.
+  test('runs with 512 MB', () => {
+    const matches = Object.values(template.findResources('AWS::Lambda::Function'))
+      .filter((fn: any) => {
+        const vars = fn.Properties?.Environment?.Variables ?? {};
+        return fn.Properties?.Handler === 'lambda_function.lambda_handler'
+          && 'REFERRALS_TABLE' in vars
+          && 'DDB_SERVICE_FUNCTION_NAME' in vars
+          && 'USER_POOL_ID' in vars;
+      });
+
+    expect(matches).toHaveLength(1);
+    expect((matches[0] as any).Properties.MemorySize).toBe(512);
   });
 });
 
@@ -2238,12 +2974,12 @@ describe('Python lambda assets exclude __pycache__', () => {
   test('every Python lambda asset is staged with the __pycache__ exclude', () => {
     const pythonSites = assetCallSites().filter((s) => isPythonAsset(s.dir));
 
-    // Vacuity floor: 8 literal-directory Python call sites today
+    // Vacuity floor: 7 literal-directory Python call sites today (8 before delete-s3 was removed)
     // (user-profile-handler is staged twice). A large shrink means the parser
     // broke and the loop below would pass by finding nothing. The step lambdas
     // are staged through a shared helper with a variable path, so they are not
     // literal sites and are pinned separately below.
-    expect(pythonSites.length).toBeGreaterThanOrEqual(8);
+    expect(pythonSites.length).toBeGreaterThanOrEqual(7);
 
     const offenders = pythonSites
       .filter((s) => !s.options.includes('exclude: PYTHON_ASSET_EXCLUDES'))
@@ -2451,12 +3187,12 @@ describe('production synth: the OTP test backdoor must not exist', () => {
     expect(JSON.stringify(prodTemplate.toJSON())).not.toContain('/a-iep/staging/test-otp');
   });
 
-  // The signup endpoint's Turnstile bypass, which exists only so the E2E
-  // suite can complete an account creation: a real widget refuses automated
-  // browsers, which is the entire product. In production there must be no
-  // env var, no SSM grant and no parameter reference, so the bypass branch in
-  // signup-endpoint.js is unreachable rather than merely unused.
-  test('no production lambda can bypass the signup bot check', () => {
+  // The Turnstile bypass, which exists only so the E2E suite can complete an
+  // account creation: a real widget refuses automated browsers, which is the
+  // entire product. In production there must be no env var, no SSM grant and
+  // no parameter reference, so the bypass branch in e2e-bypass.js is
+  // unreachable rather than merely unused.
+  test('no production lambda can bypass the sign-in bot check', () => {
     const functions = Object.entries(prodTemplate.findResources('AWS::Lambda::Function'));
     expect(functions.length).toBeGreaterThanOrEqual(20);
 
@@ -2469,6 +3205,97 @@ describe('production synth: the OTP test backdoor must not exist', () => {
     // IAM grant.
     expect(JSON.stringify(prodTemplate.toJSON()))
       .not.toContain('/a-iep/staging/e2e-turnstile-bypass');
+  });
+
+  test('no lambda with the signup-endpoint handler exists (production)', () => {
+    const handlers = Object.values(prodTemplate.findResources('AWS::Lambda::Function'))
+      .map((fn: any) => fn.Properties.Handler);
+    expect(handlers.length).toBeGreaterThanOrEqual(20);
+    expect(handlers).not.toContain('signup-endpoint.handler');
+  });
+
+  // DeleteS3FilesHandler held s3:DeleteObjectVersion while its route was gone,
+  // which is exactly the shape of a permission nobody is watching. It and the
+  // unrouted get-s3 lambda are deleted; in production the only roles that may
+  // destroy object versions are the three that delete a family's documents.
+  test('only the document-deleting functions hold s3:DeleteObjectVersion (production)', () => {
+    const roles = new Set<string>();
+    for (const policy of Object.values(prodTemplate.findResources('AWS::IAM::Policy'))) {
+      const props = (policy as any).Properties ?? {};
+      const grants = (props.PolicyDocument?.Statement ?? []).some((statement: any) =>
+        statement.Effect === 'Allow' && [statement.Action ?? []].flat().includes('s3:DeleteObjectVersion'));
+      if (!grants) continue;
+      for (const role of props.Roles ?? []) roles.add(role.Ref ?? JSON.stringify(role));
+    }
+    const holders = [...roles];
+    for (const fn of ['DeleteOriginalFunction', 'DDBServiceFunction', 'UserProfileHandlerFunction']) {
+      expect({ fn, held: holders.filter((r) => r.includes(fn)).length }).toEqual({ fn, held: 1 });
+    }
+    expect(holders).toHaveLength(3);
+  });
+
+  test('the unrouted get-s3 and delete-s3 lambdas do not exist (production)', () => {
+    const ids = Object.keys(prodTemplate.findResources('AWS::Lambda::Function'));
+    expect(ids.length).toBeGreaterThanOrEqual(20);
+    expect(ids.filter((id) => /GetS3Files|DeleteS3Files/.test(id))).toEqual([]);
+  });
+
+  // Per-request timing is a staging diagnostic. In production it would be a log
+  // line per sign-in nobody asked for, so no production lambda may carry it.
+  test('no production lambda turns on AUTH_TIMING', () => {
+    const functions = Object.entries(prodTemplate.findResources('AWS::Lambda::Function'));
+    expect(functions.length).toBeGreaterThanOrEqual(20);
+
+    const offenders = functions
+      .filter(([, fn]: [string, any]) => 'AUTH_TIMING' in (fn.Properties?.Environment?.Variables ?? {}))
+      .map(([logicalId]) => logicalId);
+    expect(offenders).toEqual([]);
+  });
+
+  // Cloudflare's server-side recommendation: check the hostname a token was
+  // solved on. Every lambda that verifies a token must carry it in
+  // production, or one of the two doors quietly skips the check.
+  test('every production lambda that verifies a bot-check token checks its hostname', () => {
+    const verifiers = Object.values(prodTemplate.findResources('AWS::Lambda::Function'))
+      .map((fn: any) => fn.Properties?.Environment?.Variables ?? {})
+      .filter((vars: Record<string, unknown>) => 'TURNSTILE_SECRET_PARAM' in vars);
+    expect(verifiers.length).toBe(2);
+    for (const vars of verifiers) {
+      expect(vars.TURNSTILE_EXPECTED_HOSTNAMES).toBe('a-iep.org');
+    }
+  });
+
+  test('production names a-iep.org in the SMS domain-bound code line', () => {
+    prodTemplate.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
+      Handler: 'create-auth-challenge.handler',
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({ OTP_SMS_DOMAIN: 'a-iep.org' }),
+      }),
+    }));
+  });
+
+  // Lambda CPU scales with memory, and a cold start on the sign-in path is
+  // CPU-bound (SDK load, first TLS handshakes): at the 128 MB default a cold
+  // sign-in measured 5-9 s. Every function a parent waits on must keep the
+  // larger size, so a refactor that drops the property fails here instead of
+  // showing up as a slow login.
+  test('every production sign-in lambda has at least 1024 MB', () => {
+    const SIGN_IN_HANDLERS = [
+      'auth-start.handler', 'auth-dispatch.handler', 'auth-verify.handler',
+      'auth-session.handler',
+      'define-auth-challenge.handler', 'create-auth-challenge.handler',
+      'verify-auth-challenge.handler', 'pre-sign-up.handler',
+      'pre-authentication.handler', 'custom-message.handler',
+    ];
+    const functions = Object.values(prodTemplate.findResources('AWS::Lambda::Function'))
+      .map((fn: any) => fn.Properties)
+      .filter((p: any) => SIGN_IN_HANDLERS.includes(p.Handler));
+
+    // Vacuity floor: all ten, or a renamed handler hollowed this out.
+    expect(functions.map((p: any) => p.Handler).sort()).toEqual([...SIGN_IN_HANDLERS].sort());
+    for (const p of functions) {
+      expect(p.MemorySize).toBeGreaterThanOrEqual(1024);
+    }
   });
 
   // A custom SMS sender takes over ALL of a pool's SMS delivery. On staging
@@ -2525,6 +3352,12 @@ describe('production synth: the OTP test backdoor must not exist', () => {
   // were lost), and a second top-level synth would double the suite's runtime.
   describeDurableStoreRetention('production', () => prodTemplate);
   describeAppClientContract('production', () => prodTemplate);
+  describeLambdaRuntimes('production', () => prodTemplate);
+  describeLogRetention('production', () => prodTemplate);
+  describeStepTimeouts('production', () => prodTemplate);
+  describeBucketLifecycle('production', () => prodTemplate);
+  describeRetiredLanguageStep('production', () => prodTemplate);
+  describeWebsiteHeaders('production', () => prodTemplate);
 });
 
 describe('custom-certificate synth: the CloudFront TLS floor', () => {
@@ -2632,12 +3465,17 @@ describe('production synth: the unhashed entry points are revalidated', () => {
         };
       });
 
-  it('serves index.html and aws-exports.json with no-cache', () => {
+  it('serves index.html, aws-exports.json and the well-known files with no-cache', () => {
     const entrypoints = deployments().filter((d) =>
       d.include.includes('aws-exports.json'));
 
     expect(entrypoints).toHaveLength(1);
-    expect(entrypoints[0].include.sort()).toEqual(['aws-exports.json', 'index.html']);
+    // robots.txt, sitemap.xml and security.txt ride with the entry points:
+    // they are unhashed, small, and built per environment at synth, so a long
+    // cache would keep serving the previous environment's answer.
+    expect(entrypoints[0].include.sort()).toEqual([
+      '.well-known/security.txt', 'aws-exports.json', 'index.html', 'robots.txt', 'sitemap.xml',
+    ]);
 
     // no-cache is revalidate-before-use, not "do not store": the browser
     // keeps the file and gets a 304 when nothing changed, so a flag flip
@@ -2650,26 +3488,67 @@ describe('production synth: the unhashed entry points are revalidated', () => {
     // The actual regression, stated as the thing that must not be true again:
     // no deployment may hand this file a long max-age, whether by carrying it
     // in the long-lived bundle or by someone adding a max-age to the pair.
-    const carryingConfig = deployments().filter((d) =>
-      d.include.includes('aws-exports.json') || d.include.length === 0);
+    const namingConfig = deployments().filter((d) =>
+      d.include.includes('aws-exports.json'));
 
-    for (const d of carryingConfig) {
-      const caches = d.include.includes('aws-exports.json');
-      if (!caches) continue;
-      expect(d.cacheControl ?? '').not.toMatch(/max-age=([1-9]\d{3,})/);
-      expect(d.cacheControl ?? '').not.toContain('immutable');
-    }
+    expect(namingConfig).toHaveLength(1);
+    expect(namingConfig[0].cacheControl ?? '').not.toMatch(/max-age=([1-9]\d{3,})/);
+    expect(namingConfig[0].cacheControl ?? '').not.toContain('immutable');
   });
 
-  it('still caches the content-hashed assets, and keeps index.html out of them', () => {
+  it('still caches the content-hashed assets, and nothing else', () => {
     // The other half: assets/ filenames carry a content hash, so a new build
     // is a new URL and the old one is safe to keep forever. Losing this would
     // turn every page load into a full re-download of the bundle.
-    const hashed = deployments().filter((d) => d.exclude.includes('index.html'));
+    const hashed = deployments().filter((d) => d.include.includes('assets/*'));
 
     expect(hashed).toHaveLength(1);
     expect(hashed[0].cacheControl).toContain('immutable');
     expect(hashed[0].cacheControl).toMatch(/max-age=\d{7,}/);
     expect(hashed[0].include).not.toContain('index.html');
+    // Only the hashed bundle may carry immutable. A stable URL marked immutable
+    // is the stale-PDF-worker bug this split exists to prevent.
+    const immutable = deployments().filter((d) => d.cacheControl?.includes('immutable'));
+    expect(immutable).toEqual(hashed);
+  });
+
+  it('gives vendor/, images/ and other stable-URL files a one-day policy with stale-while-revalidate', () => {
+    // These keep their names across releases (pdf.worker.min.mjs is tied to the
+    // pdfjs version), so a long max-age would pin a returning browser to an old
+    // file for a year. One day bounds that, and stale-while-revalidate lets a
+    // return visit paint at once while the copy refreshes behind it.
+    const stable = deployments().filter((d) =>
+      d.exclude.includes('assets/*') && d.exclude.includes('index.html'));
+
+    expect(stable).toHaveLength(1);
+    expect(stable[0].cacheControl).toBe(
+      'public, max-age=86400, stale-while-revalidate=604800',
+    );
+    // It must never upload the runtime config: that file is no-cache, and a
+    // second writer with a different policy would race it.
+    expect(stable[0].exclude).toContain('aws-exports.json');
+  });
+
+  it('publishes index.html and aws-exports.json only after the chunks and stable files', () => {
+    // Without this edge CloudFormation runs the three deployments in parallel.
+    // A parent who fetches the new index.html during that window requests
+    // lazy chunks that are not in the bucket yet, and hits the error boundary.
+    const resources = prodTemplate.findResources('Custom::CDKBucketDeployment');
+    const byProps = (pred: (p: Record<string, unknown>) => boolean) =>
+      Object.entries(resources)
+        .filter(([, r]) => pred((r as { Properties: Record<string, unknown> }).Properties))
+        .map(([id]) => id);
+
+    const entrypoints = byProps((p) => ((p.Include as string[] | undefined) ?? []).includes('aws-exports.json'));
+    const assets = byProps((p) => ((p.Include as string[] | undefined) ?? []).includes('assets/*'));
+    const stable = byProps((p) => ((p.Exclude as string[] | undefined) ?? []).includes('assets/*'));
+
+    expect(entrypoints).toHaveLength(1);
+    expect(assets).toHaveLength(1);
+    expect(stable).toHaveLength(1);
+
+    const dependsOn = (resources[entrypoints[0]] as { DependsOn?: string[] }).DependsOn ?? [];
+    expect(dependsOn).toContain(assets[0]);
+    expect(dependsOn).toContain(stable[0]);
   });
 });

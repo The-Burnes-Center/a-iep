@@ -45,6 +45,15 @@ const SMS_POLICY_PARAM_PREFIX = `/a-iep/${getEnvironment()}/sms-policy`;
 // parameter nobody has created yet would break every signup.
 const TURNSTILE_SECRET_PARAM = `/a-iep/${getEnvironment()}/turnstile/secret`;
 
+// Where a token is allowed to have been solved, checked against siteverify's
+// `hostname` (Cloudflare's server-side recommendation). Production only:
+// staging's E2E sign-ins carry the bypass token below, which no widget solved
+// on any hostname. Adding a domain to the site means adding it here AND to the
+// widget in the Cloudflare dashboard, or sign-in on it is refused.
+const TURNSTILE_HOSTNAME_ENV: Record<string, string> = getEnvironment() === 'prod'
+  ? { TURNSTILE_EXPECTED_HOSTNAMES: 'a-iep.org' }
+  : {};
+
 // ── Staging-only E2E test backdoor: the shared allowlist ─────────────────
 // The Playwright suite signs in as real Cognito users whose numbers are drawn
 // from the NANP-fictional 555-01XX block (+1 555 555-01XX can never be
@@ -121,11 +130,25 @@ const TEST_OTP_PARAM_PREFIX = '/a-iep/staging/test-otp';
 // functions at twenty costs 80 and leaves 860 for everything else.
 const AUTH_RESERVED_CONCURRENCY = 20;
 
+// Memory for every lambda on the parent-facing sign-in path. Lambda hands out
+// CPU in proportion to memory, and a cold start here is CPU-bound (loading the
+// AWS SDK, then the first TLS handshakes), so the 128 MB default made a cold
+// sign-in take 5-9 s on a CPU share a fraction of one core. The extra memory is
+// what buys the CPU; cost stays negligible because sign-in is brief and rare.
+// Pinned in test/infra so a refactor cannot quietly drop back to the default.
+const AUTH_LAMBDA_MEMORY_MB = 1024;
+
+// Staging only: one AUTH_TIMING line per sign-in request with per-step and
+// per-client first-call durations, and no content (see auth-timing.js). Kept off
+// production, where nobody is hunting a cold start and a line per request is
+// just log volume. Absence from the prod template is pinned in test/infra.
+const AUTH_TIMING_ENV: Record<string, string> = getEnvironment() !== 'prod' ? { AUTH_TIMING: '1' } : {};
+
 // Staging-only bypass for the signup bot check, same gate and same reasoning
 // as the OTP backdoor above. Turnstile refuses automated browsers by design,
 // so the real widget and an automated signup cannot both work; staging keeps
 // the real widget for anyone testing by hand, and only the E2E runner holds
-// this. The endpoint additionally requires one of TEST_PHONE_NUMBERS, so a
+// this. /auth/start additionally requires one of TEST_PHONE_NUMBERS, so a
 // leaked token cannot create an account on a number a person could receive a
 // text on. Created out of band, like every other credential here.
 const E2E_TURNSTILE_BYPASS_PARAM = '/a-iep/staging/e2e-turnstile-bypass';
@@ -164,10 +187,6 @@ export class NewAuthorizationStack extends Construct {
    *  budget fails closed on a DynamoDB error, so throttling here stops
    *  login outright rather than just slowing it. */
   public otpRateLimitTable!: dynamodb.Table;
-  /** The only way to create an account, once the pool refuses self-service
-   *  signup. Exposed so ChatbotAPI can put an unauthenticated route on it:
-   *  there is no token to authorize with before an account exists. */
-  public signupFunction!: lambda.Function;
   /** The client the BROWSER holds. Token refresh only: it cannot start a
    *  sign-in. See the note beside it. */
   public readonly userPoolClient: UserPoolClient;
@@ -254,10 +273,10 @@ export class NewAuthorizationStack extends Construct {
       // no matter what we put behind it.
       //
       // With it false, AdminCreateUser is the only route in, and only the
-      // signup endpoint holds that permission. The cost is that neither
+      // auth-dispatch lambda holds that permission. The cost is that neither
       // PreSignUp_SignUp nor PostConfirmation_ConfirmSignUp fires any more,
-      // so auto-confirm and the password rotation both move into that
-      // endpoint. See signup-endpoint.js.
+      // so auto-confirm and the password rotation both live in
+      // auth-dispatch.js.
       selfSignUpEnabled: false,
       // Pinned, not chosen. Both live pools are already ESSENTIALS, put there
       // OUT OF BAND, and CDK set neither this nor the sign-in policy below --
@@ -574,6 +593,7 @@ export class NewAuthorizationStack extends Construct {
       USER_POOL_ID: userPool.userPoolId,
       AUTH_CLIENT_ID: clientId,
       AUTH_SESSION_TABLE: this.authSessionTable.tableName,
+      ...AUTH_TIMING_ENV,
     };
 
     // No environmentEncryption on any of these, deliberately and unlike the
@@ -586,7 +606,8 @@ export class NewAuthorizationStack extends Construct {
     // Only this one can call Cognito's admin APIs for account creation, and
     // it is not reachable from the internet.
     this.authDispatchFunction = new lambda.Function(this, 'AuthDispatchFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(assetPath),
       handler: 'auth-dispatch.handler',
       environment: sharedEnvironment,
@@ -622,7 +643,8 @@ export class NewAuthorizationStack extends Construct {
 
     // ── /auth/start ──────────────────────────────────────────────────────
     this.authStartFunction = new lambda.Function(this, 'AuthStartFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(assetPath),
       handler: 'auth-start.handler',
       environment: {
@@ -630,7 +652,9 @@ export class NewAuthorizationStack extends Construct {
         AUTH_SESSION_TABLE: this.authSessionTable.tableName,
         AUTH_ALLOWED_COUNTRY_CODES: SMS_ALLOWED_COUNTRY_CODES.join(','),
         TURNSTILE_SECRET_PARAM,
+        ...TURNSTILE_HOSTNAME_ENV,
         AUTH_DISPATCH_FUNCTION: this.authDispatchFunction.functionName,
+        ...AUTH_TIMING_ENV,
         // Staging only, and only because the E2E suite signs in repeatedly
         // from one CI address, which no rule can tell apart from abuse.
         ...(getEnvironment() !== 'prod'
@@ -658,7 +682,8 @@ export class NewAuthorizationStack extends Construct {
 
     // ── /auth/verify ─────────────────────────────────────────────────────
     this.authVerifyFunction = new lambda.Function(this, 'AuthVerifyFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(assetPath),
       handler: 'auth-verify.handler',
       environment: {
@@ -693,16 +718,29 @@ export class NewAuthorizationStack extends Construct {
 
     // ── /auth/token and /auth/logout ─────────────────────────────────────
     this.authSessionFunction = new lambda.Function(this, 'AuthSessionFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(assetPath),
       handler: 'auth-session.handler',
-      environment: sharedEnvironment,
+      environment: {
+        ...sharedEnvironment,
+        // The per-source limit on /auth/token and /auth/logout.
+        OTP_RATE_LIMIT_TABLE: this.otpRateLimitTable.tableName,
+        // Staging only, for the same reason as the start limits:
+        // the E2E suite signs in repeatedly from one CI address.
+        ...(getEnvironment() !== 'prod' ? { MAX_AUTH_SESSION_CALLS_PER_IP_HOUR: '1200' } : {}),
+      },
       timeout: cdk.Duration.seconds(30),
       reservedConcurrentExecutions: AUTH_RESERVED_CONCURRENCY,
       logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
       description: 'Exchanges a session handle for short-lived tokens, and revokes it',
     });
     tagResource(this.authSessionFunction, { Resource: 'Lambda', Function: 'AuthSession' });
+
+    // UpdateItem is all the counter needs, and grantWriteData is the same
+    // grant /auth/start holds on this table. No read grant: the count comes
+    // back from the update itself.
+    this.otpRateLimitTable.grantWriteData(this.authSessionFunction);
 
     // AdminInitiateAuth here is REFRESH_TOKEN_AUTH only in practice, but IAM
     // cannot express "only that flow", so the narrowing that IS available is
@@ -751,11 +789,13 @@ export class NewAuthorizationStack extends Construct {
     // pre-sign-up.js. An auto-confirmed account whose client-chosen password
     // still worked would be an account-takeover vector.
     const preSignUpFunction = new lambda.Function(this, 'PreSignUpFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'pre-sign-up.handler',
       environment: {
         TURNSTILE_SECRET_PARAM,
+        ...TURNSTILE_HOSTNAME_ENV,
       },
       // Turnstile adds one outbound call to Cloudflare, bounded at 5s in the
       // trigger, so 30s stays comfortable.
@@ -777,7 +817,8 @@ export class NewAuthorizationStack extends Construct {
 
     // Define Auth Challenge Function
     const defineAuthChallengeFunction = new lambda.Function(this, 'DefineAuthChallengeFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'define-auth-challenge.handler',
       timeout: cdk.Duration.seconds(30),
@@ -807,7 +848,8 @@ export class NewAuthorizationStack extends Construct {
 
     // Create Auth Challenge Function
     const createAuthChallengeFunction = new lambda.Function(this, 'CreateAuthChallengeFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'create-auth-challenge.handler',
       environment: {
@@ -817,6 +859,11 @@ export class NewAuthorizationStack extends Construct {
         // test/infra rather than resting on the lambda default alone.
         SMS_ALLOWED_COUNTRY_CODES: SMS_ALLOWED_COUNTRY_CODES.join(','),
         SMS_POLICY_PARAM_PREFIX,
+        // The host the login SMS's last line names (`@host #code`), so a phone
+        // offers the code only to a page on that host. Chosen here, at
+        // construct time, rather than at import, because the host differs per
+        // deploy and a wrong one would silently stop the autofill working.
+        OTP_SMS_DOMAIN: getEnvironment() === 'prod' ? 'a-iep.org' : 'dev.a-iep.org',
         ...(userProfilesTable && { USER_PROFILES_TABLE: userProfilesTable.tableName })
       },
       timeout: cdk.Duration.seconds(30),
@@ -870,84 +917,6 @@ export class NewAuthorizationStack extends Construct {
     // UpdateItem on the SMS rate-limit counter
     otpRateLimitTable.grantWriteData(createAuthChallengeFunction);
 
-    // ── The signup endpoint ────────────────────────────────────────────────
-    // Lives here rather than with the API lambdas because it needs the pool
-    // and the rate-limit table, and because it is part of the auth flow: it
-    // does what PreSignUp and PostConfirmation used to do for a self-service
-    // signup, in one place where it can be read.
-    const signupFunction = new lambda.Function(this, 'SignupEndpointFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
-      code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
-      handler: 'signup-endpoint.handler',
-      environment: {
-        USER_POOL_ID: userPool.userPoolId,
-        // Same table as the OTP limiter: identical schema (pk plus a TTL on
-        // expiresAt), different key prefixes, and signup is roughly a daily
-        // event so it adds no meaningful load.
-        SIGNUP_RATE_LIMIT_TABLE: otpRateLimitTable.tableName,
-        SIGNUP_ALLOWED_COUNTRY_CODES: SMS_ALLOWED_COUNTRY_CODES.join(','),
-        TURNSTILE_SECRET_PARAM,
-        // Staging only, and only because the E2E suite signs up repeatedly
-        // from one CI address, which no rule can tell apart from abuse.
-        // Production keeps the compiled floors.
-        ...(getEnvironment() !== 'prod'
-          ? { MAX_SIGNUPS_PER_IP_HOUR: '40', MAX_SIGNUPS_PER_HOUR: '80' }
-          : {}),
-      },
-      // One outbound call to Cloudflare, bounded at 5s inside the handler.
-      timeout: cdk.Duration.seconds(30),
-      logRetention: cdk.aws_logs.RetentionDays.ONE_YEAR,
-      description: 'Creates accounts; the only path once self-service signup is off',
-    });
-    this.signupFunction = signupFunction;
-
-    otpRateLimitTable.grantWriteData(signupFunction);
-
-    // Exactly three actions, on exactly this pool. AdminCreateUser without
-    // AdminSetUserPassword would leave every new account holding a password
-    // the caller was given, which is the takeover this pair prevents.
-    //
-    // AdminDeleteUser is the rollback for the gap between those two: an
-    // account that is created and then cannot be secured has to be removed,
-    // because it can neither sign in (it is stuck in FORCE_CHANGE_PASSWORD)
-    // nor sign up again (the number is taken). Scoped to this pool, and the
-    // endpoint only ever calls it on a user it just created in the same
-    // invocation.
-    signupFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'cognito-idp:AdminCreateUser',
-        'cognito-idp:AdminSetUserPassword',
-        'cognito-idp:AdminDeleteUser',
-      ],
-      resources: [userPool.userPoolArn],
-    }));
-
-    signupFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['ssm:GetParameter'],
-      resources: [
-        `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${TURNSTILE_SECRET_PARAM}`,
-      ],
-    }));
-
-    // Production gets no env var and no grant, so the bypass branch in the
-    // endpoint is unreachable there rather than merely unused. Pinned on both
-    // sides in test/infra/gen-ai-mvp-stack.test.ts.
-    if (getEnvironment() !== 'prod') {
-      signupFunction.addEnvironment('E2E_BYPASS_PARAM', E2E_TURNSTILE_BYPASS_PARAM);
-      signupFunction.addEnvironment('TEST_PHONE_NUMBERS', TEST_PHONE_NUMBERS.join(','));
-      signupFunction.addToRolePolicy(new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: ['ssm:GetParameter'],
-        resources: [
-          `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${E2E_TURNSTILE_BYPASS_PARAM}`,
-        ],
-      }));
-    }
-
-    tagResource(signupFunction, { Resource: 'Lambda', Function: 'SignupEndpoint' });
-
     // Allow reading user profiles to localize the OTP SMS. grantReadData
     // (rather than a manual GetItem policy) also grants kms:Decrypt on the
     // table's customer-managed encryption key — without it the profile
@@ -959,7 +928,8 @@ export class NewAuthorizationStack extends Construct {
     // Custom Message Function - localizes Cognito's verification / forgot
     // password / MFA messages (SMS and email) to the user's language
     const customMessageFunction = new lambda.Function(this, 'CustomMessageFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'custom-message.handler',
       environment: {
@@ -981,7 +951,8 @@ export class NewAuthorizationStack extends Construct {
     // validationData) but NOT to create-auth-challenge, so this is the only
     // path from the login screen's language picker to the SMS.
     const preAuthenticationFunction = new lambda.Function(this, 'PreAuthenticationFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'pre-authentication.handler',
       environment: {
@@ -1000,7 +971,8 @@ export class NewAuthorizationStack extends Construct {
 
     // Verify Auth Challenge Function
     const verifyAuthChallengeFunction = new lambda.Function(this, 'VerifyAuthChallengeFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: AUTH_LAMBDA_MEMORY_MB,
       code: lambda.Code.fromAsset(path.join(__dirname, '../chatbot-api/functions/phone-otp-auth')),
       handler: 'verify-auth-challenge.handler',
       environment: {
@@ -1095,7 +1067,7 @@ export class NewAuthorizationStack extends Construct {
    */
   private createCustomSmsSender(userPool: UserPool, customSenderKey: kms.IKey) {
     const customSmsSenderFunction = new lambda.Function(this, 'CustomSmsSenderFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       // The AWS Encryption SDK (@aws-crypto/client-node) is not in the Lambda
       // runtime, so this asset is bundled with `npm ci` at deploy time, the
       // same way pdf-generator is. node_modules stays out of the SOURCE hash
@@ -1104,7 +1076,7 @@ export class NewAuthorizationStack extends Construct {
         assetHashType: cdk.AssetHashType.SOURCE,
         exclude: ['node_modules'],
         bundling: {
-          image: lambda.Runtime.NODEJS_20_X.bundlingImage,
+          image: lambda.Runtime.NODEJS_22_X.bundlingImage,
           command: [
             'bash', '-c',
             'npm --cache /tmp/.npm ci && cp -au . /asset-output'

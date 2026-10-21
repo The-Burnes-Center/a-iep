@@ -21,6 +21,10 @@ _SAFE_LOG_FIELDS = (
 )
 
 
+# Sent by iep-processing.asl.json; see lambda_handler.
+WARMUP_EVENT = {'warmup': True}
+
+
 def _safe_key(key):
     """An S3 key with the parent-chosen filename removed.
 
@@ -49,6 +53,13 @@ def lambda_handler(event, context):
     Generate English-only analysis using OpenAI.
     Core analysis logic only - DDB operations handled by centralized service.
     """
+    # The state machine invokes this function with exactly this payload while
+    # the document is still being OCR'd, so the container's cold start (module
+    # imports, ~4s here) is paid off the critical path. It carries no document
+    # data and must stay inert: no client, no table, no key lookup.
+    if event == WARMUP_EVENT:
+        return {'warmed': True}
+
     print(f"ParsingAgent handler received: {json.dumps(_safe_event_meta(event))}")
     
     try:

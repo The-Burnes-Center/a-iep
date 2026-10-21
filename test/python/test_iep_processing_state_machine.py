@@ -162,7 +162,10 @@ def test_finalize_results_retries_before_anything_is_recorded_as_failed(states):
     task = states['FinalizeResults']
     retrier = next(r for r in task['Retry'] if r['ErrorEquals'] == ['States.ALL'])
     assert retrier['MaxAttempts'] == 3
-    assert [c['ErrorEquals'] for c in task['Catch']] == [['States.ALL']]
+    # A timeout is the one other Catch (see the per-state timeout tests below):
+    # it must come first, since the first matching entry wins, and it names the
+    # same FailedAt marker, so there is still one route to RecordFailure.
+    assert [c['ErrorEquals'] for c in task['Catch']] == [['States.Timeout'], ['States.ALL']]
 
 
 def test_finalize_results_has_exactly_one_route_to_record_failure(states):
@@ -171,8 +174,11 @@ def test_finalize_results_has_exactly_one_route_to_record_failure(states):
     # once here: up to five RECORD_FAILURE markers, which is what
     # MonitoringStack's DocumentFailureFilter counts. A second route added here
     # would recreate the same double-count from the other side.
-    catcher, = states['FinalizeResults']['Catch']
+    timeout_catcher, catcher = states['FinalizeResults']['Catch']
+    assert catcher['ErrorEquals'] == ['States.ALL']
     assert catcher['Next'] == 'FailedAtFinalizeResults'
+    # The timeout entry reaches the very same marker, one Pass later.
+    assert states[timeout_catcher['Next']]['Next'] == 'FailedAtFinalizeResults'
 
     namer = states['FailedAtFinalizeResults']
     assert namer['Type'] == 'Pass'
@@ -181,15 +187,145 @@ def test_finalize_results_has_exactly_one_route_to_record_failure(states):
     assert namer['Next'] == 'RecordFailure'
 
     # And RecordFailure is terminal, so the row cannot be written twice by the
-    # machine looping back through it.
-    assert states['RecordFailure']['End'] is True
+    # machine looping back through it. It no longer says so with End: true (that
+    # ended every failed document as a SUCCEEDED execution); the whole of what
+    # can follow it is pinned in the next test.
+    assert 'End' not in states['RecordFailure']
+
+
+def reachable_from(states, start):
+    """Every state name reachable from `start`, following Next, Catch and Choice."""
+    seen, stack = set(), [start]
+    while stack:
+        name = stack.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        state = states[name]
+        stack.extend(filter(None, [state.get('Next'), state.get('Default')]))
+        stack.extend(c['Next'] for c in state.get('Catch', []))
+        stack.extend(c['Next'] for c in state.get('Choices', []))
+    return seen
 
 
 def test_no_step_lambda_is_reachable_after_record_failure(states):
-    # RecordFailure ends the execution. If it ever gained a Next, every state
-    # downstream would run after the document had already been marked FAILED
-    # and its unredacted artifacts purged.
-    assert 'Next' not in states['RecordFailure']
+    # RecordFailure ends the execution. If it ever gained a route to a step,
+    # every state downstream would run after the document had already been
+    # marked FAILED and its unredacted artifacts purged. Pinned as the exact
+    # set, so a new state hung off RecordFailure has to be a decision.
+    assert reachable_from(states, 'RecordFailure') == {
+        'RecordFailure', 'CheckRecordFailureResult',
+        'DocumentProcessingFailed', 'RecordFailureFailed',
+    }
+
+
+# ---------------------------------------------------------------------------
+# A failed document is a failed execution
+#
+# RecordFailure used to end with End: true, so every failed document was a
+# SUCCEEDED execution: the Step Functions console never showed one and the
+# ExecutionsFailed metric stayed at zero through a total outage. It now ends in
+# a Fail state. The error names are static and the causes are fixed strings, so
+# the console's Error/Cause columns can never carry document text.
+
+def next_after_record_failure(states, record_failure_result):
+    """Walk RecordFailure's tail for a given lambda result, the way Step
+    Functions would: the Choice reads the result stored under
+    $.record_failure_result. Returns the Fail state it lands on."""
+    choice = states['CheckRecordFailureResult']
+    state_input = {} if record_failure_result is None else {'record_failure_result': record_failure_result}
+
+    def holds(rule):
+        if 'And' in rule:
+            return all(holds(r) for r in rule['And'])
+        value = state_input
+        for part in rule['Variable'].removeprefix('$.').split('.'):
+            value = value.get(part) if isinstance(value, dict) else None
+            if value is None:
+                break
+        if 'IsPresent' in rule:
+            return (value is not None) == rule['IsPresent']
+        if 'NumericEquals' in rule:
+            return value == rule['NumericEquals']
+        raise AssertionError(f'unhandled choice rule {rule}')
+
+    for rule in choice['Choices']:
+        if holds(rule):
+            return rule['Next']
+    return choice['Default']
+
+
+def test_a_recorded_failure_ends_the_execution_as_failed(states):
+    landed = next_after_record_failure(states, {'statusCode': 200})
+    assert landed == 'DocumentProcessingFailed'
+    assert states[landed]['Type'] == 'Fail'
+    assert states[landed]['Error'] == 'DocumentProcessingFailed'
+
+
+@pytest.mark.parametrize('result', [
+    {'statusCode': 500},        # the DDB service reports its own errors this way
+    {'statusCode': 404},
+    {},                         # a result with no status at all
+    None,                       # nothing stored
+])
+def test_a_record_failure_that_did_not_work_is_a_different_failure(states, result):
+    landed = next_after_record_failure(states, result)
+    assert landed == 'RecordFailureFailed'
+    assert states[landed]['Type'] == 'Fail'
+    assert states[landed]['Error'] == 'RecordFailureFailed'
+    assert states[landed]['Error'] != states['DocumentProcessingFailed']['Error']
+
+
+def test_record_failure_raising_ends_as_record_failure_failed(states):
+    catches = states['RecordFailure']['Catch']
+    assert len(catches) == 1
+    assert catches[0]['ErrorEquals'] == ['States.ALL']
+    assert catches[0]['Next'] == 'RecordFailureFailed'
+
+
+def test_record_failure_keeps_its_result_for_the_choice(states):
+    task = states['RecordFailure']
+    assert task['ResultPath'] == '$.record_failure_result'
+    assert task['Next'] == 'CheckRecordFailureResult'
+
+
+def test_the_fail_states_carry_static_text_and_no_document_data(states):
+    # A `.$` suffix on Error or Cause would read from the execution state,
+    # which holds the failing step's exception text (it can quote the document).
+    for name in ('DocumentProcessingFailed', 'RecordFailureFailed'):
+        fail = states[name]
+        assert set(fail) <= {'Type', 'Comment', 'Error', 'Cause'}
+        assert 'Error.$' not in fail and 'Cause.$' not in fail
+        assert fail['Cause'] and '$' not in fail['Cause']
+        assert fail['Error'].isidentifier()
+
+
+def test_every_failure_route_ends_in_a_fail_state(states):
+    # From each step's own failure marker down to the end of the run: the only
+    # terminal states reachable are the two Fail states, never an End: true.
+    failure_entries = [name for name in states
+                       if name.startswith(('FailedAt', 'TimedOutAt', 'NoLanguageProducedFor'))]
+    assert failure_entries
+    for entry in failure_entries:
+        terminals = {name for name in reachable_from(states, entry)
+                     if states[name].get('End') or states[name]['Type'] in ('Fail', 'Succeed')}
+        assert terminals == {'DocumentProcessingFailed', 'RecordFailureFailed'}, entry
+
+
+def test_a_finished_document_still_ends_normally(states):
+    # The success path (Next only, never a Catch) from FinalizeResults to the
+    # end of the run must not pass through a Fail: a document that was finalized
+    # and then had a best-effort cleanup go wrong is not a failed document.
+    name, path = 'FinalizeResults', []
+    while True:
+        path.append(name)
+        if states[name].get('End'):
+            break
+        name = states[name]['Next']
+    assert path[-1] == 'PurgeRedactedOCR'
+    assert all(states[step]['Type'] != 'Fail' for step in path)
+    assert states['RedactedOCRPurgeSkipped']['End'] is True
+
 
 
 def test_a_partial_translation_success_is_not_caught_by_this_narrow_guard(states):
@@ -341,3 +477,307 @@ def test_the_on_demand_machine_still_fails_a_skipped_language(states):
         'languages_processed.$': '$.languages_processed'}
     assert [c['Variable'] for c in single['VerifyLanguageProduced']['Choices']] == [
         '$.translation_result.languages_processed[0]']
+
+
+# ---------------------------------------------------------------------------
+# Per-state timeouts
+#
+# Measured in prod (15 executions, 30 days): ParsingAgent's slowest run was
+# 73s, against a lambda timeout of 900s and no TimeoutSeconds on the state. A
+# call that hangs rather than fails therefore sat for fifteen minutes, times
+# four attempts, before anything was recorded. Each Task is now bounded at
+# about three times the slowest run seen.
+# ---------------------------------------------------------------------------
+
+#: seconds. Anything not listed is a small step (a DynamoDB write or a lookup).
+SLOW_STEP_TIMEOUTS = {
+    'ParsingAgent': 240,
+    'TranslateParsingResult': 240,
+    'MistralOCR': 120,
+    'RedactOCR': 120,
+}
+SMALL_STEP_TIMEOUT = 60
+#: The pre-warm invokes are asynchronous and return in milliseconds; a hang
+#: there holds the document for nothing, so they get far less than a real step.
+WARMUP_STEP_TIMEOUT = 10
+WARMUP_STEPS = ('WarmParsingAgent', 'WarmTranslateContent')
+
+
+def _tasks(states):
+    return {name: state for name, state in states.items() if state['Type'] == 'Task'}
+
+
+def test_every_task_has_a_timeout(states):
+    for name, task in _tasks(states).items():
+        assert isinstance(task.get('TimeoutSeconds'), int) and task['TimeoutSeconds'] > 0, (
+            f'{name} has no TimeoutSeconds, so a hung call waits for the lambda timeout')
+
+
+def test_each_task_gets_the_budget_its_measured_run_time_earns(states):
+    for name, task in _tasks(states).items():
+        expected = WARMUP_STEP_TIMEOUT if name in WARMUP_STEPS else SLOW_STEP_TIMEOUTS.get(name, SMALL_STEP_TIMEOUT)
+        assert task['TimeoutSeconds'] == expected, name
+
+
+def _follow_catch(states, step, error):
+    """Replay a failure the way Step Functions routes it.
+
+    The first Catch whose ErrorEquals matches wins (States.ALL matches every
+    error except the two it cannot catch). The error object is written at the
+    catch's ResultPath, then Pass states are applied until RecordFailure.
+    Returns the execution state RecordFailure would receive.
+    """
+    execution = {'iep_id': 'iep-1'}
+    catch = next(c for c in states[step]['Catch']
+                 if error['Error'] in c['ErrorEquals'] or 'States.ALL' in c['ErrorEquals'])
+    assert catch['ResultPath'] == '$.error'
+    execution['error'] = dict(error)
+    current = catch['Next']
+    for _ in range(10):
+        if current == 'RecordFailure':
+            return execution
+        node = states[current]
+        assert node['Type'] == 'Pass', f'{current} is {node["Type"]}, expected a Pass hop'
+        if 'Result' in node:
+            assert node['ResultPath'].startswith('$.')
+            execution[node['ResultPath'][2:]] = node['Result']
+        current = node['Next']
+    pytest.fail(f'{step} never reached RecordFailure')
+
+
+STEPS_THAT_RECORD_A_FAILURE = [
+    'InitializeProcessing', 'MistralOCR', 'UpdateOCRProgress', 'RedactOCR',
+    'UpdateRedactionProgress', 'DeleteOriginal', 'UpdateCleanupProgress',
+    'ParsingAgent', 'UpdateAnalysisProgress',
+    'TranslateParsingResult', 'UpdateTranslationProgress', 'FinalizeResults',
+]
+
+
+@pytest.mark.parametrize('step', STEPS_THAT_RECORD_A_FAILURE)
+def test_a_timed_out_step_still_reaches_record_failure_with_everything_it_reads(states, step):
+    # RecordFailure reads $.error.Cause and $.failed_step. If either path is
+    # missing, the Parameters fail with States.Runtime INSIDE RecordFailure, the
+    # execution fails, and nothing marks the document FAILED or purges its
+    # unredacted artifacts. A timeout may arrive with no Cause at all, so the
+    # route must supply one rather than rely on Step Functions to.
+    execution = _follow_catch(states, step, {'Error': 'States.Timeout'})
+
+    assert isinstance(execution['error'].get('Cause'), str) and execution['error']['Cause']
+    assert execution['failed_step'] == step
+
+
+@pytest.mark.parametrize('step', STEPS_THAT_RECORD_A_FAILURE)
+def test_a_timeout_is_caught_before_the_generic_catch(states, step):
+    # First match wins, so the States.Timeout entry has to come first or the
+    # generic one swallows it and the Cause above is never supplied.
+    errors = [c['ErrorEquals'] for c in states[step]['Catch']]
+    assert errors.index(['States.Timeout']) < errors.index(['States.ALL'])
+
+
+def test_every_step_that_records_a_failure_is_covered_by_the_list_above(states):
+    # Guards the parametrized lists against a renamed or added step hollowing
+    # them out: every Task with a FailedAt marker must be named there.
+    with_marker = sorted(name for name in _tasks(states) if f'FailedAt{name}' in states)
+    assert with_marker == sorted(STEPS_THAT_RECORD_A_FAILURE)
+
+
+def test_the_on_demand_machine_bounds_its_tasks_too():
+    import json, os
+    path = os.path.join(os.path.dirname(__file__), '..', '..', 'lib', 'chatbot-api',
+                        'state-machines', 'single-language-translation.asl.json')
+    single = json.load(open(path))['States']
+    assert single['TranslateRequestedLanguage']['TimeoutSeconds'] == 240
+    for name, state in single.items():
+        if state['Type'] == 'Task':
+            assert isinstance(state.get('TimeoutSeconds'), int), name
+
+
+# ---------------------------------------------------------------------------
+# The language decision moved into the OCR step (mistral_ocr/language_prefs.py)
+#
+# CheckLanguagePrefs used to be its own Task after ParsingAgent. Its output,
+# translation_needed and target_languages, is read by TranslationChoice,
+# TranslateParsingResult and FinalizeResults, and every Pass state in between
+# rebuilds the execution state from an explicit field list, so a field one of
+# them forgets silently vanishes: FinalizeResults then fails on a missing path,
+# or worse, TranslationChoice falls through to its Default and a parent who
+# needs Spanish gets English only. These replay the data flow.
+# ---------------------------------------------------------------------------
+
+def _lookup(state, path):
+    """A `$.a.b` lookup; raises KeyError where Step Functions would fail the state."""
+    assert path.startswith('$.'), path
+    node = state
+    for part in path[2:].split('.'):
+        node = node[part]
+    return node
+
+
+def _resolve(template, state):
+    """Evaluate a Parameters / ResultSelector template against the state."""
+    out = {}
+    for key, value in template.items():
+        if key.endswith('.$'):
+            out[key[:-2]] = _lookup(state, value)
+        else:
+            out[key] = value
+    return out
+
+
+def _run_to_translation_choice(states, handler_output):
+    """Replay the straight line from the start to TranslationChoice.
+
+    Tasks other than MistralOCR are taken to return nothing the machine keeps
+    (their real outputs are discarded by ResultPath: null); MistralOCR returns
+    `handler_output`. Returns the state TranslationChoice is evaluated on and
+    the names of the states visited on the way.
+    """
+    state = {'iep_id': 'iep-1', 'child_id': 'child-1', 'user_id': 'user-1',
+             's3_bucket': 'bucket', 's3_key': 'user/child/iep/file.pdf'}
+    current = 'SetInitialProgress'
+    visited = []
+    for _ in range(40):
+        node = states[current]
+        if current == 'TranslationChoice':
+            return state, visited
+        visited.append(current)
+        if node['Type'] == 'Choice':
+            current = next((c['Next'] for c in node['Choices']
+                            if _lookup(state, c['Variable']) == c['BooleanEquals']), node['Default'])
+            continue
+        if node['Type'] == 'Pass':
+            state = _resolve(node['Parameters'], state)
+        elif current == 'MistralOCR':
+            selected = _resolve(node.get('ResultSelector', {}), handler_output)
+            assert node['ResultPath'].startswith('$.')
+            state = {**state, node['ResultPath'][2:]: selected}
+        elif node['Type'] == 'Task':
+            # Whatever it takes as input must resolve against the state.
+            if 'Parameters' in node:
+                _resolve({k: v for k, v in node['Parameters'].items() if k.endswith('.$')}, state)
+            assert node['ResultPath'] is None, f'{current} would overwrite the state'
+        current = node['Next']
+    pytest.fail('never reached TranslationChoice')
+
+
+@pytest.mark.parametrize('languages', [[], ['es'], ['es', 'vi']])
+def test_the_language_decision_survives_to_the_translation_choice(states, languages):
+    decision = {'translation_needed': bool(languages), 'target_languages': languages}
+    handler_output = {'iep_id': 'iep-1', 'ocr_status': 'completed', 'page_count': 3,
+                      'ddb_save_result': {'statusCode': 200}, **decision}
+
+    state, _ = _run_to_translation_choice(states, handler_output)
+
+    assert state['translation_needed'] is decision['translation_needed']
+    assert state['target_languages'] == languages
+    # Only the decision is kept from the OCR step's return value.
+    assert 'ddb_save_result' not in state and 'page_count' not in state
+
+
+def test_what_the_translate_and_finalize_steps_read_is_still_there(states):
+    state, _ = _run_to_translation_choice(states, {
+        'translation_needed': True, 'target_languages': ['es']})
+
+    translate = states['TranslateParsingResult']['Parameters']
+    _resolve({k: v for k, v in translate.items() if k.endswith('.$')}, state)
+    finalize = states['FinalizeResults']['Parameters']
+    _resolve({k: v for k, v in finalize.items() if k.endswith('.$')}, state)
+
+
+def test_the_ocr_step_hands_over_only_the_two_fields_the_machine_needs(states):
+    ocr = states['MistralOCR']
+    # OCR text is never in what this lambda returns, but its save result and
+    # page count are, and Step Functions keeps every state's output for 90 days.
+    assert ocr['ResultSelector'] == {'translation_needed.$': '$.translation_needed',
+                                     'target_languages.$': '$.target_languages'}
+    assert ocr['ResultPath'] == '$.language_prefs'
+
+
+def test_there_is_no_separate_language_step_left_to_pay_a_cold_start_for(states):
+    assert not [name for name, state in states.items()
+                if 'CheckLanguagePrefs' in json.dumps(state)
+                and 'the CheckLanguagePrefs step used to do' not in json.dumps(state)]
+    assert states['SetAnalysisProgress']['Next'] == 'TranslationChoice'
+
+
+# ---------------------------------------------------------------------------
+# Pre-warming ParsingAgent and TranslateContent while OCR runs
+#
+# The handlers' half (return at once on the payload) is test_warmup.py. This is
+# the state machine's: the payload is a constant that carries no document data,
+# the invoke is asynchronous, a failure never fails the document, and
+# TranslateContent is only warmed for a document that will be translated.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize('name, function_arn', [
+    ('WarmParsingAgent', '${ParsingAgentArn}'),
+    ('WarmTranslateContent', '${TranslateContentArn}'),
+])
+def test_a_warmup_invoke_is_asynchronous_and_carries_no_document_data(states, name, function_arn):
+    task = states[name]
+
+    assert task['Resource'] == 'arn:aws:states:::lambda:invoke'
+    parameters = task['Parameters']
+    assert set(parameters) == {'FunctionName', 'InvocationType', 'Payload'}
+    assert parameters['FunctionName'] == function_arn
+    # Event: Step Functions does not wait for the function to run, so the
+    # container starts while OCR is in flight and nothing here is on the path.
+    assert parameters['InvocationType'] == 'Event'
+    # Constant, and nothing but the flag: no iep_id, no user, no key, no `.$`
+    # reference into the execution state. A path here would copy document
+    # metadata into a payload that exists only to start a container.
+    assert parameters['Payload'] == {'warmup': True}
+    assert task['ResultPath'] is None  # the 202 response is discarded, state untouched
+
+
+@pytest.mark.parametrize('name', WARMUP_STEPS)
+def test_a_failed_warmup_never_fails_the_document(states, name):
+    task = states[name]
+
+    assert 'Retry' not in task  # an optimisation is not worth waiting on
+    catcher, = task['Catch']
+    assert catcher['ErrorEquals'] == ['States.ALL']
+    assert catcher['ResultPath'] is None
+    # Straight on to whatever it would have gone to anyway, never RecordFailure:
+    # a document must not be marked FAILED, and its artifacts purged, because a
+    # container failed to warm up.
+    assert catcher['Next'] == task['Next']
+    assert 'RecordFailure' not in (catcher['Next'], task['Next'])
+
+
+def test_parsing_agent_is_warmed_before_ocr_starts_not_after(states):
+    _, visited = _run_to_translation_choice(
+        states, {'translation_needed': False, 'target_languages': []})
+
+    # Warmed while OCR is the long pole. Warmed any later and the cold start
+    # would again sit between redaction and the summary.
+    assert visited.index('WarmParsingAgent') < visited.index('MistralOCR')
+    assert states['SetInitialProgress']['Next'] == 'WarmParsingAgent'
+    assert states['WarmParsingAgent']['Next'] == 'MistralOCR'
+
+
+def test_translate_content_is_warmed_only_for_a_document_that_will_be_translated(states):
+    _, english_only = _run_to_translation_choice(
+        states, {'translation_needed': False, 'target_languages': []})
+    _, translated = _run_to_translation_choice(
+        states, {'translation_needed': True, 'target_languages': ['es']})
+
+    assert 'WarmTranslateContent' not in english_only
+    assert 'WarmTranslateContent' in translated
+    # Known only once OCR has returned the language decision, so after it...
+    assert translated.index('WarmTranslateContent') > translated.index('MistralOCR')
+    # ...and still well ahead of the translation, behind redaction, deletion
+    # and the ~40s summary.
+    assert translated.index('WarmTranslateContent') < translated.index('RedactOCR')
+    assert 'ParsingAgent' in translated and 'TranslateParsingResult' not in translated
+
+
+def test_the_deliberate_order_of_delete_then_summarize_is_untouched(states):
+    # The warm-ups must not have been wired between the privacy-ordered steps.
+    order = ['RedactOCR', 'DeleteOriginal', 'ParsingAgent']
+    cursor, seen = 'RedactOCR', []
+    while cursor != 'TranslationChoice':
+        seen.append(cursor)
+        cursor = states[cursor]['Next']
+    assert [name for name in seen if name in order] == order
+    assert seen.index('DeleteOriginal') < seen.index('ParsingAgent')

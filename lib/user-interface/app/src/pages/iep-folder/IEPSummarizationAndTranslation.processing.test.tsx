@@ -22,6 +22,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import IEPSummarizationAndTranslation from "./IEPSummarizationAndTranslation";
 import { PIPELINE_MILESTONES } from "../utils/processing-progress.mjs";
 import { AppContext } from "../../common/app-context";
@@ -39,6 +40,10 @@ const API_BASE = "https://api.example.test/api";
 const CHILD_ID = "child-abc";
 const IEP_ID = "doc-1";
 const POLL_INTERVAL_MS = 5000;
+// After the first minute of polling the cadence backs off (see
+// pages/utils/polling-utility.ts). A milestone that lands after that is only
+// seen on the next slow tick.
+const SLOW_POLL_INTERVAL_MS = 15000;
 const DOCUMENTS_URL = `${API_BASE}/profile/children/${CHILD_ID}/documents`;
 
 const ENGLISH_SUMMARY = "The English summary paragraph.";
@@ -130,6 +135,9 @@ const renderPage = (language: SupportedLanguage = "en") => {
   // Returned so a test can unmount the screen and mount it again, which is
   // what the bottom nav does to this page.
   return render(
+    // The app's query client sits above every screen (AppConfigured); the
+    // page reads the shared ['profile'] cache through it.
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <MemoryRouter initialEntries={["/summary-and-translations"]}>
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
@@ -144,7 +152,8 @@ const renderPage = (language: SupportedLanguage = "en") => {
             </Routes>
         </LanguageContext.Provider>
       </AppContext.Provider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </QueryClientProvider>,
   );
 };
 
@@ -559,7 +568,8 @@ describe("the bar between milestones", () => {
       current_step: "analysis_complete",
       updatedAt: nowSeconds(),
     });
-    await settle(POLL_INTERVAL_MS);
+    // The minute above put the poller on its slow cadence.
+    await settle(SLOW_POLL_INTERVAL_MS);
 
     // The confirmed value is the exact one; the drawn value is already easing
     // past it toward 97, so pinning it to 75 would be asserting that the

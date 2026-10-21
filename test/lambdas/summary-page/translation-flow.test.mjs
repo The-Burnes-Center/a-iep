@@ -24,6 +24,7 @@ import {
   resumeTranslationRequest,
   shouldOfferTranslation,
   shouldPollForUpdates,
+  isReplacementInFlight,
   shouldSuppressProcessingTakeover,
 } from '../../../lib/user-interface/app/src/pages/utils/translation-flow.mjs';
 
@@ -597,5 +598,33 @@ describe('mapTranslationResponse: the attempt budget', () => {
     expect(budget.messageKey).toBe('summary.translate.error.budgetSpent');
     expect(budget.messageKey).not.toBe(
       mapTranslationResponse({ httpStatus: 500 }).messageKey);
+  });
+});
+
+// A parent who replaces their IEP keeps seeing the old, finished one while the
+// new one is processed. The document on screen then says PROCESSED, so the
+// poller has to read the replacement the endpoint reports alongside it.
+describe('isReplacementInFlight', () => {
+  test('is true while the newer document is being processed', () => {
+    expect(isReplacementInFlight({ status: 'PROCESSED', replacement: { iepId: 'iep-new', status: 'PROCESSING' } })).toBe(true);
+    expect(isReplacementInFlight({ status: 'PROCESSED', replacement: { iepId: 'iep-new', status: 'PROCESSING_TRANSLATIONS' } })).toBe(true);
+  });
+
+  test('is false once the replacement has failed: nothing is left to wait for', () => {
+    expect(isReplacementInFlight({ status: 'PROCESSED', replacement: { iepId: 'iep-new', status: 'FAILED' } })).toBe(false);
+  });
+
+  test('is false when there is no replacement, whatever else the payload says', () => {
+    expect(isReplacementInFlight({ status: 'PROCESSED' })).toBe(false);
+    expect(isReplacementInFlight({ status: 'PROCESSING' })).toBe(false);
+    expect(isReplacementInFlight({ status: 'PROCESSED', replacement: null })).toBe(false);
+    expect(isReplacementInFlight(null)).toBe(false);
+    expect(isReplacementInFlight(undefined)).toBe(false);
+  });
+
+  test('does not change when a finished document with no replacement is polled', () => {
+    expect(shouldPollForUpdates('PROCESSED', isReplacementInFlight({ status: 'PROCESSED' }))).toBe(false);
+    expect(shouldPollForUpdates('PROCESSED', isReplacementInFlight(
+      { status: 'PROCESSED', replacement: { status: 'PROCESSING' } }))).toBe(true);
   });
 });
