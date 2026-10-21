@@ -39,8 +39,12 @@
     align-items: center;
 }
 
+/* Capped by width as well as height: at 370px tall the illustration is about
+   348px wide, which pushed a 320px phone sideways (WCAG 1.4.10). */
 .hero-section-image {
     max-height: 370px;
+    max-width: 100%;
+    height: auto;
     padding-bottom: 1rem;
 }
 

@@ -59,8 +59,9 @@
 }
 
 @media (max-width: 1024px) { 
+    /* No min-width: a 360px floor made the landing page scroll sideways at
+       320px (WCAG 1.4.10). */
     .multi-face-green-banner-container { 
-        min-width: 360px;
         min-height: 817px;
         flex-direction: column; 
     }

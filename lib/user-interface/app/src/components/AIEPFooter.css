@@ -67,10 +67,13 @@
    (191x35, 204x50, 209x100). Unconstrained, the tallest one alone was 100px of
    footer. Capped on both axes they read at a consistent size and cost a
    predictable amount of height. */
-/* Capped smaller on a phone than on desktop, because three of them now share
-   one 375px-wide row: 3 x 96px plus two 1rem gaps is 320px inside the 335px
-   the content box leaves, so the row holds without wrapping on the narrowest
-   phone the footer supports (min-width: 360px below). */
+/* Capped smaller on a phone than on desktop, because three of them share one
+   375px-wide row: 3 x 96px plus two 1rem gaps is 320px inside the 335px the
+   content box leaves, so the row holds on one line on a 360px phone. Narrower
+   than that the row wraps (flex-wrap above). It used to be held on one line by
+   a min-width: 360px on the whole footer, which made every page scroll
+   sideways at 320px (WCAG 1.4.10), the compact footer included, though it has
+   no logos at all. */
 .footer-project-partners-logo img {
   max-width: 96px;
   max-height: 30px;
@@ -164,10 +167,6 @@
 
 /* Phone and tablet */
 @media (max-width: 1024px) {
-  .aiep-footer {
-    min-width: 360px;
-  }
-
   .footer-stripe-desktop {
     display: none;
   }

@@ -11,6 +11,13 @@
   --bs-gutter-x: 0;
 }
 
+/* Same fix as AccountCenter.css: the container's zero gutter drops its
+   padding, but each .row sets --bs-gutter-x back to 1.5rem on itself and
+   keeps its -0.75rem side margins, so the page ran past a 320px screen. */
+.privacy-policy-container .row {
+  --bs-gutter-x: 0;
+}
+
 .privacy-policy-card {
   border: none;
   box-shadow: none;
