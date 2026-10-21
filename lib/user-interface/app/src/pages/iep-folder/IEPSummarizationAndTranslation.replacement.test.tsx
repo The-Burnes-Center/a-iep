@@ -170,6 +170,26 @@ describe("while the new IEP is being processed", () => {
     expect(screen.queryByTestId("summary-text-en")).not.toBeInTheDocument();
     expect(within(modal).getByRole("button", { name: "summary.replacement.viewCurrent" }))
       .toBeInTheDocument();
+    // The rights carousel, not the bare spinner card: the slides are the point
+    // of this screen. The old document is PROCESSED, which is what used to
+    // send a replacement to the spinner card.
+    expect(modal.querySelector(".processing-summary-parent-rights-card")).not.toBeNull();
+    expect(modal.querySelector(".processing-summary-loader-card")).toBeNull();
+    expect(modal).toHaveTextContent("carousel.section.whatAiepDoes");
+    // Every slide is reachable: what A-IEP does, privacy, the six rights
+    // slides and what comes next, one dot each.
+    expect(within(screen.getByTestId("carousel-dots")).getAllByRole("button")).toHaveLength(15);
+  });
+
+  test("coming back from the current IEP still shows the rights carousel", async () => {
+    renderPage();
+    await settle();
+    await viewCurrent();
+    fireEvent.click(screen.getByRole("button", { name: "summary.replacement.watchProgress" }));
+    await settle();
+
+    const modal = screen.getByTestId("processing-modal");
+    expect(modal.querySelector(".processing-summary-parent-rights-card")).not.toBeNull();
   });
 
   test("the current summary is one tap away, with a note and the way back", async () => {

@@ -291,6 +291,12 @@ test.describe('document lifecycle (upload -> summary -> translations -> replace 
       page.getByTestId(TESTID.processing),
       'a replacement did not show the processing screen'
     ).toBeVisible({ timeout: 60_000 });
+    // ...and on it the rights carousel, not the bare spinner card: the slides
+    // are what the parent is meant to read while they wait.
+    await expect(
+      page.getByTestId('carousel-dots').getByRole('button'),
+      'a replacement showed the spinner card instead of the rights carousel'
+    ).toHaveCount(15);
     await page.getByTestId('replacement-view-current').click();
 
     // Behind it, the old summary is still readable...

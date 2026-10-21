@@ -696,9 +696,13 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // moves this on. Once it does, `isProcessing` goes false, this screen
   // unmounts, and the summary below renders in its place — the summary lives
   // on this same route, so there is nothing to navigate to.
+  //
+  // A replacement counts as processing too. The document on screen during one
+  // is the old, finished IEP, so keying this on `isProcessing` alone put every
+  // replacement on the bare spinner card instead of the rights carousel.
   useEffect(() => {
-    setTutorialPhase(isProcessing ? 'parent-rights' : 'completed');
-  }, [isProcessing]);
+    setTutorialPhase(isProcessing || isReplacementRunning ? 'parent-rights' : 'completed');
+  }, [isProcessing, isReplacementRunning]);
 
 
 
