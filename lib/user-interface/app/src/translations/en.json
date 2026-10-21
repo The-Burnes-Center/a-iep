@@ -116,6 +116,8 @@
     "summary.replacement.processing": "We're processing your new IEP. Your current one stays here until the new one is ready.",
     "summary.replacement.failed": "We couldn't process your new IEP. Your previous one is still here. You can try uploading it again.",
     "summary.replacement.uploadAgain": "Upload Again",
+    "summary.replacement.viewCurrent": "View your current IEP",
+    "summary.replacement.watchProgress": "See progress",
     "summary.error.loadFailed": "We couldn't load your document right now. Please check your connection. We'll keep trying.",
     "summary.preferredLanguage": "English",
     "summary.english": "English",

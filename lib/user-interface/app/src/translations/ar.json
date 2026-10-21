@@ -116,6 +116,8 @@
     "summary.replacement.processing": "نقوم بمعالجة مستند IEP الجديد الخاص بك. سيبقى مستندك الحالي هنا حتى يصبح الجديد جاهزًا.",
     "summary.replacement.failed": "تعذّرت معالجة مستند IEP الجديد الخاص بك. لا يزال مستندك السابق موجودًا هنا. يمكنك محاولة رفعه مرة أخرى.",
     "summary.replacement.uploadAgain": "ارفع مرة أخرى",
+    "summary.replacement.viewCurrent": "عرض مستند IEP الحالي",
+    "summary.replacement.watchProgress": "عرض التقدم",
     "summary.error.loadFailed": "لم نتمكن من تحميل مستندك الآن. يرجى التحقق من اتصالك. سنستمر في المحاولة.",
     "summary.preferredLanguage": "العربية",
     "summary.english": "الإنجليزية",

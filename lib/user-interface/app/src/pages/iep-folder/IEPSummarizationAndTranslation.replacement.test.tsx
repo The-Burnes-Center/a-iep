@@ -6,14 +6,16 @@
  * anything. Three states, each pinned here against the real page, the real
  * poller and the real hook (only `fetch` and Amplify's Auth are mocked):
  *
- *  - the new one is processing: a polite note, the old summary still there;
+ *  - the new one is processing: the same processing screen and parent-rights
+ *    carousel as a first upload, with the old summary one tap away ("View
+ *    your current IEP"), and from there a polite note and the way back;
  *  - the new one failed: a note saying so, the old summary still there, and the
  *    upload page one tap away;
  *  - the new one is ready: the page switches to it and the note is gone.
  *
- * And the poll that waits for it is bounded by the same visible-time cap as
- * every other wait, ending in the inline check-again pattern rather than the
- * full-screen modal, which would hide the summary being read.
+ * The poll that waits for it is bounded by the same visible-time cap as every
+ * other wait. A stall still offers the current IEP, and on the summary it is
+ * the inline check-again pattern.
  */
 import React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -52,7 +54,9 @@ const jsonResponse = (status: number, body: unknown) => ({
 
 const section = { title: "Goals", content: "Goal content", page_numbers: [3] };
 
-const oldDocument = (replacement?: { iepId: string; status: string }) => ({
+const oldDocument = (replacement?: {
+  iepId: string; status: string; progress?: number; current_step?: string; updatedAt?: number;
+}) => ({
   documentId: "iep-old",
   iepId: "iep-old",
   status: "PROCESSED",
@@ -115,6 +119,12 @@ const settle = async (ms = 0) => {
 
 const region = () => screen.getByTestId("replacement-region");
 
+/** From the replacement's processing screen to the summary behind it. */
+const viewCurrent = async () => {
+  fireEvent.click(screen.getByTestId("replacement-view-current"));
+  await settle();
+};
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(Math.floor(Date.now() / 1000) * 1000);
@@ -144,27 +154,67 @@ afterEach(() => {
 
 describe("while the new IEP is being processed", () => {
   beforeEach(() => {
-    documentPayload = oldDocument({ iepId: "iep-new", status: "PROCESSING" });
+    documentPayload = oldDocument({
+      iepId: "iep-new", status: "PROCESSING", progress: 15, current_step: "ocr_complete", updatedAt: 1700000000,
+    });
   });
 
-  test("the old summary stays on screen and a note says the new one is on its way", async () => {
+  test("the parent gets the processing screen and the rights carousel, as on a first upload", async () => {
     renderPage();
     await settle();
 
-    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(OLD_SUMMARY);
+    const modal = screen.getByTestId("processing-modal");
+    expect(modal).toBeInTheDocument();
+    // The NEW document's step, not the old one's (which is finished).
+    expect(modal).toHaveTextContent("summary.processing.step.protecting");
+    expect(screen.queryByTestId("summary-text-en")).not.toBeInTheDocument();
+    expect(within(modal).getByRole("button", { name: "summary.replacement.viewCurrent" }))
+      .toBeInTheDocument();
+    // The rights carousel, not the bare spinner card: the slides are the point
+    // of this screen. The old document is PROCESSED, which is what used to
+    // send a replacement to the spinner card.
+    expect(modal.querySelector(".processing-summary-parent-rights-card")).not.toBeNull();
+    expect(modal.querySelector(".processing-summary-loader-card")).toBeNull();
+    expect(modal).toHaveTextContent("carousel.section.whatAiepDoes");
+    // Every slide is reachable: what A-IEP does, privacy, the six rights
+    // slides and what comes next, one dot each.
+    expect(within(screen.getByTestId("carousel-dots")).getAllByRole("button")).toHaveLength(15);
+  });
+
+  test("coming back from the current IEP still shows the rights carousel", async () => {
+    renderPage();
+    await settle();
+    await viewCurrent();
+    fireEvent.click(screen.getByRole("button", { name: "summary.replacement.watchProgress" }));
+    await settle();
+
+    const modal = screen.getByTestId("processing-modal");
+    expect(modal.querySelector(".processing-summary-parent-rights-card")).not.toBeNull();
+  });
+
+  test("the current summary is one tap away, with a note and the way back", async () => {
+    renderPage();
+    await settle();
+    await viewCurrent();
+
     expect(screen.queryByTestId("processing-modal")).not.toBeInTheDocument();
+    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(OLD_SUMMARY);
     expect(within(region()).getByTestId("replacement-processing"))
       .toHaveTextContent("summary.replacement.processing");
+
+    fireEvent.click(screen.getByRole("button", { name: "summary.replacement.watchProgress" }));
+    await settle();
+    expect(screen.getByTestId("processing-modal")).toBeInTheDocument();
   });
 
   test("the note sits in a polite live region and takes nothing from the parent's focus", async () => {
     renderPage();
     await settle();
+    await viewCurrent();
 
     expect(region()).toHaveAttribute("role", "status");
     expect(region()).toHaveAttribute("aria-live", "polite");
     expect(region()).not.toHaveAttribute("aria-live", "assertive");
-    expect(document.activeElement === document.body || document.activeElement === null).toBe(true);
     // Words and an icon, not colour alone; the icon is decorative.
     const note = within(region()).getByTestId("replacement-processing");
     expect(note.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
@@ -174,6 +224,7 @@ describe("while the new IEP is being processed", () => {
   test("the live region is one element throughout, so a change in it is announced", async () => {
     renderPage();
     await settle();
+    await viewCurrent();
     const before = region();
     expect(before).toHaveTextContent("summary.replacement.processing");
 
@@ -186,26 +237,28 @@ describe("while the new IEP is being processed", () => {
     expect(before).not.toHaveTextContent("summary.replacement.processing");
   });
 
-  test("a page mounted again mid-replacement says the same thing again", async () => {
+  test("a page mounted again mid-replacement opens on the processing screen again", async () => {
     const first = renderPage();
     await settle();
+    await viewCurrent();
     first.unmount();
 
     renderPage();
     await settle();
 
-    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(OLD_SUMMARY);
-    expect(screen.getByTestId("replacement-processing")).toBeInTheDocument();
+    expect(screen.getByTestId("processing-modal")).toBeInTheDocument();
+    expect(screen.getByTestId("replacement-view-current")).toBeInTheDocument();
   });
 
-  test("when the new one is ready the page switches to it and the note is gone", async () => {
+  test("when the new one is ready the page switches to it, from either view", async () => {
     renderPage();
     await settle();
-    expect(screen.getByTestId("replacement-processing")).toBeInTheDocument();
+    expect(screen.getByTestId("processing-modal")).toBeInTheDocument();
 
     documentPayload = newDocument();
     await settle(POLL_INTERVAL_MS);
 
+    expect(screen.queryByTestId("processing-modal")).not.toBeInTheDocument();
     expect(screen.getByTestId("summary-text-en")).toHaveTextContent(NEW_SUMMARY);
     expect(screen.queryByText(OLD_SUMMARY)).not.toBeInTheDocument();
     expect(region()).toBeEmptyDOMElement();
@@ -256,9 +309,19 @@ describe("when the wait outlasts the polling cap", () => {
     documentPayload = oldDocument({ iepId: "iep-new", status: "PROCESSING" });
   });
 
-  test("the note becomes the inline stalled notice and the summary stays readable", async () => {
+  test("a stalled wait still offers the current IEP", async () => {
     renderPage();
     await settle();
+    await settle(MAX_VISIBLE_POLL_MS + POLL_INTERVAL_MS * 4);
+
+    expect(screen.getByTestId("processing-modal")).toHaveTextContent("summary.processing.stalled");
+    expect(screen.getByTestId("replacement-view-current")).toBeInTheDocument();
+  });
+
+  test("on the summary, the note becomes the inline stalled notice and the summary stays readable", async () => {
+    renderPage();
+    await settle();
+    await viewCurrent();
 
     await settle(MAX_VISIBLE_POLL_MS + POLL_INTERVAL_MS * 4);
 

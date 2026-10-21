@@ -284,19 +284,33 @@ test.describe('document lifecycle (upload -> summary -> translations -> replace 
     await uploadFixture(page);
     await waitForReplacementInProgress(page, documentBeforeReplacement as string);
 
-    // The product rule: the parent keeps their old IEP until the new one is
-    // ready, so the old summary is still on screen and nothing says "processing".
+    // The product rule: a replacement gets the same processing screen (and
+    // parent-rights carousel) as a first upload, with the old IEP one tap
+    // away rather than gone.
+    await expect(
+      page.getByTestId(TESTID.processing),
+      'a replacement did not show the processing screen'
+    ).toBeVisible({ timeout: 60_000 });
+    // ...and on it the rights carousel, not the bare spinner card: the slides
+    // are what the parent is meant to read while they wait.
+    await expect(
+      page.getByTestId('carousel-dots').getByRole('button'),
+      'a replacement showed the spinner card instead of the rights carousel'
+    ).toHaveCount(15);
+    await page.getByTestId('replacement-view-current').click();
+
+    // Behind it, the old summary is still readable...
     await expect(
       summaryPanel(page, TRANSLATION_LANGUAGE),
-      'the old IEP left the screen while its replacement was still being processed'
+      'the old IEP was not readable while its replacement was still being processed'
     ).toBeVisible();
-    await expect(page.getByTestId(TESTID.processing)).toHaveCount(0);
-    // ...and a note says the new one is on its way, so the parent is not left
-    // guessing whether the upload did anything.
+    // ...with a note that the new one is on its way, and the way back.
     await expect(
       page.getByTestId('replacement-processing'),
       'no note said the replacement was being processed'
     ).toBeVisible({ timeout: 60_000 });
+    await page.getByTestId('replacement-watch-progress').click();
+    await expect(page.getByTestId(TESTID.processing)).toBeVisible();
   });
 
   test('9. the replacement finishes processing', async () => {

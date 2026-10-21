@@ -116,6 +116,8 @@
     "summary.replacement.processing": "Chúng tôi đang xử lý tài liệu IEP mới của bạn. Tài liệu hiện tại sẽ được giữ ở đây cho đến khi bản mới sẵn sàng.",
     "summary.replacement.failed": "Chúng tôi không thể xử lý tài liệu IEP mới của bạn. Tài liệu trước đó vẫn còn ở đây. Bạn có thể thử tải lên lại.",
     "summary.replacement.uploadAgain": "Tải lên lại",
+    "summary.replacement.viewCurrent": "Xem IEP hiện tại",
+    "summary.replacement.watchProgress": "Xem tiến độ",
     "summary.error.loadFailed": "Chúng tôi không thể tải tài liệu của bạn ngay bây giờ. Vui lòng kiểm tra kết nối của bạn. Chúng tôi sẽ tiếp tục thử.",
     "summary.preferredLanguage": "Tiếng Việt",
     "summary.english": "Tiếng Anh",

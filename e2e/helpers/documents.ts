@@ -521,10 +521,10 @@ export async function waitForProcessingMilestone(
  * Milestone 1 when the upload REPLACES a document: the new upload registered
  * and is being processed while the parent is still shown the old one.
  *
- * There is no processing screen to wait for here, by design: the old IEP stays
- * on screen until the new one is ready. What proves the new upload was picked
- * up is the documents endpoint still answering with the old document and
- * naming a replacement that is in progress. A replacement that is already
+ * The page shows the processing screen for a replacement too, but that screen
+ * alone cannot tell this upload from the one before it. What proves the new
+ * upload was picked up is the documents endpoint still answering with the old
+ * document and naming a replacement that is in progress. A replacement that is already
  * FAILED fails the run, and one that is already finished is accepted (a fast
  * pipeline can beat the first poll).
  */

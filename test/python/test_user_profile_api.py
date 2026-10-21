@@ -2360,7 +2360,14 @@ def test_the_old_document_is_shown_while_the_new_one_is_processing(api):
     assert body['iepId'] == 'iep-old'
     assert body['status'] == 'PROCESSED'
     assert body['summaries']['en'] == 'Old summary'
-    assert body['replacement'] == {'iepId': 'iep-new', 'status': 'PROCESSING'}
+    replacement = body['replacement']
+    assert {k: replacement[k] for k in ('iepId', 'status', 'progress', 'current_step')} == {
+        'iepId': 'iep-new', 'status': 'PROCESSING', 'progress': 40, 'current_step': 'redacting'}
+    # The processing screen eases its bar from this timestamp.
+    assert 'updatedAt' in replacement
+    assert set(replacement) == {'iepId', 'status', 'progress', 'current_step', 'updatedAt'}
+    # Nothing from the new document's content rides along.
+    assert 'New summary' not in json.dumps(body)
 
 
 def test_a_new_upload_that_has_not_reached_the_pipeline_reads_as_processing(api):
@@ -2369,7 +2376,9 @@ def test_a_new_upload_that_has_not_reached_the_pipeline_reads_as_processing(api)
     body = call(api, REPLACEMENT_URL, 'GET')[1]
 
     assert body['iepId'] == 'iep-old'
-    assert body['replacement'] == {'iepId': 'iep-new', 'status': 'PROCESSING'}
+    replacement = body['replacement']
+    assert (replacement['iepId'], replacement['status'], replacement['progress'],
+            replacement['current_step']) == ('iep-new', 'PROCESSING', 0, 'initializing')
 
 
 def test_the_old_document_is_still_shown_when_the_new_one_failed(api):
