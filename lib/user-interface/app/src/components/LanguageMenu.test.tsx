@@ -50,10 +50,14 @@ describe("the toggle's name", () => {
     expect(toggle).not.toHaveAttribute("aria-label");
   });
 
-  test("is the same with the phone's icon-only button", () => {
-    renderMenu({ variant: "bar" });
+  test("on the bar, also contains the short code the phone shows", () => {
+    // The phone shows a globe and "ZH"; the name must contain what a
+    // voice-control user sees, and "ZH" is in no language's own name. CSS
+    // hides the code on desktop, which takes it out of the name there
+    // (jsdom applies no CSS, so it is always present here).
+    renderMenu({ variant: "bar", selected: "zh" });
 
-    expect(screen.getByRole("button", { name: "Language: Español" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Language: 中文 ZH" })).toBeInTheDocument();
   });
 
   test("marks the shown language name up in that language", () => {

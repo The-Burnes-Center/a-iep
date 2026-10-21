@@ -1,6 +1,6 @@
 import React, { useId, useState } from 'react';
 import { Dropdown } from 'react-bootstrap';
-import { IconLanguage } from '@tabler/icons-react';
+import { IconWorld } from '@tabler/icons-react';
 import './LanguageMenu.css';
 
 /**
@@ -41,7 +41,11 @@ interface LanguageMenuProps {
   name: string;
   /** When set, the menu will not open and this is read as the reason. */
   unavailableReason?: string;
-  /** 'bar': icon on phones, pill on desktop. 'plain': the name only. */
+  /**
+   * 'bar': on phones a globe over the language's short code ("EN", "ZH"),
+   * like the nav items beside it; on desktop a pill with the full name.
+   * 'plain': the name only.
+   */
   variant?: 'bar' | 'plain';
   /** Show names in capitals (styling only; the spoken name is unchanged). */
   uppercase?: boolean;
@@ -103,7 +107,7 @@ export default function LanguageMenu({
       >
         <span className="visually-hidden">{`${name}: `}</span>
         {variant === 'bar' && (
-          <IconLanguage className="nav-language-icon" size={24} stroke={1.75} aria-hidden="true" />
+          <IconWorld className="nav-language-icon" size={22} stroke={1.75} aria-hidden="true" />
         )}
         <span
           className={variant === 'bar' ? 'nav-language-label language-menu-name' : 'language-menu-name'}
@@ -112,6 +116,10 @@ export default function LanguageMenu({
         >
           {currentLabel}
         </span>
+        {/* The phone's visible label. Part of the name there (CSS hides it on
+            desktop, which also takes it out of the name), so a voice-control
+            user can say what they see: "ZH" is in no language's own name. */}
+        {variant === 'bar' && <span className="nav-language-code">{` ${selected.toUpperCase()}`}</span>}
       </Dropdown.Toggle>
       {isUnavailable && (
         <span id={reasonId} className="visually-hidden">

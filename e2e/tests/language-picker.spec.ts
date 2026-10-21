@@ -53,3 +53,32 @@ test('every signed-in screen has exactly one language picker, in the top bar', a
     await expect(pickers(page)).toHaveCount(0);
   });
 });
+
+test('on a phone the picker is a button inside the top bar, not over the page', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 320, height: 700 });
+  await loginWithOtp(page, STABLE_USER);
+  await finishLoginAfterOtp(page);
+  await completeOnboardingIfShown(page);
+  await page.goto(appUrl('/support-center'));
+
+  const bar = page.locator('nav.mobile-top-navigation');
+  const toggle = pickers(page);
+  await expect(toggle).toBeVisible({ timeout: 30_000 });
+
+  const barBox = (await bar.boundingBox())!;
+  const box = (await toggle.boundingBox())!;
+  // Inside the bar's box, at its trailing edge (SC 2.4.11: nothing floats
+  // over the content).
+  expect(box.y).toBeGreaterThanOrEqual(barBox.y - 1);
+  expect(box.y + box.height).toBeLessThanOrEqual(barBox.y + barBox.height + 1);
+  expect(box.x + box.width).toBeGreaterThan(barBox.x + barBox.width - 60);
+  // SC 2.5.8, and the 44 px the nav items have.
+  expect(box.width).toBeGreaterThanOrEqual(44);
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  // SC 1.4.10: no sideways scroll at 320 px.
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+  // The visible short code is part of the name (SC 2.5.3).
+  await expect(toggle).toHaveAccessibleName(/: .+ [A-Z]{2}$/);
+});

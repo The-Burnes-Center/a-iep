@@ -22,6 +22,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import IEPSummarizationAndTranslation from "./IEPSummarizationAndTranslation";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
@@ -100,6 +101,9 @@ const renderPage = () => {
   };
 
   render(
+    // The app's query client sits above every screen (AppConfigured); the
+    // page reads the shared ['profile'] cache through it.
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <MemoryRouter initialEntries={["/summary-and-translations"]}>
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
@@ -112,7 +116,8 @@ const renderPage = () => {
           </Routes>
         </LanguageContext.Provider>
       </AppContext.Provider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </QueryClientProvider>,
   );
 };
 

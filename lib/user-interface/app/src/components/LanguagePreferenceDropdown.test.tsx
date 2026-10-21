@@ -101,7 +101,43 @@ describe("the default picker", () => {
     Api.getProfile.mockResolvedValue({ secondaryLanguage: "es" });
     renderPicker();
 
-    await waitFor(() => expect(toggle()).toHaveAccessibleName("languageMenu.label: Español"));
+    await waitFor(() => expect(toggle()).toHaveAccessibleName("languageMenu.label: Español ES"));
+  });
+
+  test("lines the screen up when the pick is the language already saved", async () => {
+    // The browser forgot (cleared storage) and shows English; Spanish is saved.
+    Api.getProfile.mockResolvedValue({ secondaryLanguage: "es" });
+    const user = renderPicker();
+    await waitFor(() => expect(toggle()).toHaveAttribute("data-ready", "true"));
+
+    await pick(user, "es");
+
+    expect(setLanguage).toHaveBeenCalledWith("es");
+    expect(Api.updateProfile).not.toHaveBeenCalled();
+  });
+
+  test("shows the screen's language when the saved one is not offered here", async () => {
+    // Arabic saved, but this environment offers English and Spanish only.
+    Api.getProfile.mockResolvedValue({ secondaryLanguage: "ar" });
+    renderPicker();
+
+    await waitFor(() => expect(toggle()).toHaveAttribute("data-ready", "true"));
+    expect(toggle()).toHaveAccessibleName("languageMenu.label: English EN");
+  });
+
+  test("a second pick while the first is saving sends nothing", async () => {
+    Api.getProfile.mockResolvedValue({ secondaryLanguage: "en" });
+    Api.updateProfile.mockReturnValue(new Promise(() => {}));
+    const user = renderPicker();
+    await waitFor(() => expect(toggle()).toHaveAttribute("data-ready", "true"));
+
+    await pick(user, "es");
+    expect(toggle()).toHaveAttribute("aria-disabled", "true");
+    await user.click(toggle());
+
+    // The menu stays mounted once opened, so "did not open" is aria-expanded.
+    expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    expect(Api.updateProfile).toHaveBeenCalledTimes(1);
   });
 
   test("without the app's query client, switches the screen only", async () => {

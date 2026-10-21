@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useMemo, useContext } from 'react';
+import React, { useState, useEffect, useMemo, useContext, useRef } from 'react';
 import { Container, Row, Col, Card, Alert, Button, Accordion, Tabs, Tab, Offcanvas, ProgressBar } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useNavigate } from 'react-router-dom';
 import { faLanguage, faDownload, faArrowsRotate } from '@fortawesome/free-solid-svg-icons';
 import './IEPSummarizationAndTranslation.css';
-import { IEPDocument, IEPSection, UserProfile } from '../../common/types';
+import { IEPDocument, IEPSection } from '../../common/types';
 import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useFeatures } from '../../common/hooks/use-features';
+import { useLanguagePreference } from '../../common/hooks/use-language-preference';
 import { getDirForLanguage } from '../../common/direction';
 import { useDocumentFetch, processContentWithJargon } from '../utils';
 import { FetchedIEPDocument } from '../utils/useDocumentFetch';
@@ -100,11 +101,18 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     ar: false
   });
   
-  // Profile-related state
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [profileLoading, setProfileLoading] = useState<boolean>(true);
-  const [originalProfile, setOriginalProfile] = useState<UserProfile | null>(null);
-  const [, setSaving] = useState<boolean>(false);
+  // The parent's profile and language preference, from the shared ['profile']
+  // cache the top bar's picker uses too (common/hooks/use-language-preference),
+  // so a choice made here is what every other screen shows, and a save still
+  // in flight from another screen is not read back as the old value.
+  const {
+    profile,
+    isProfileLoading: profileLoading,
+    isSaving: isSavingLanguage,
+    saveFailed: languageSaveFailed,
+    preferred: pickerLanguage,
+    choose: chooseLanguage,
+  } = useLanguagePreference();
   
   // Tutorial flow state management
   const [tutorialPhase, setTutorialPhase] = useState< 'parent-rights' | 'completed'>('parent-rights');
@@ -150,30 +158,17 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // Get preferred language from profile API, fallback to context language, then to 'en'
   const preferredLanguage = profile?.secondaryLanguage || language || 'en';
 
-  // Load profile data on component mount
+  // Once, when the profile first arrives: put the screen in the saved
+  // language if the browser remembered another one.
+  const syncedProfileLanguage = useRef(false);
   useEffect(() => {
-    const loadProfile = async () => {
-      try {
-        setProfileLoading(true);
-        const profileData = await apiClient.profile.getProfile();
-        setProfile(profileData);
-        setOriginalProfile(profileData);
-        
-        // Sync the language context if profile has a different secondary language
-        if (profileData?.secondaryLanguage && profileData.secondaryLanguage !== language) {
-          setLanguage(profileData.secondaryLanguage as SupportedLanguage);
-        }
-      } catch (err) {
-        // console.error('Error loading profile:', err);
-        // Profile loading failure is not critical, continue with context language
-      } finally {
-        setProfileLoading(false);
-      }
-    };
-
-    loadProfile();
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only profile load by design; apiClient/setLanguage are recreated every render
-  }, []);
+    if (syncedProfileLanguage.current || !profile) return;
+    syncedProfileLanguage.current = true;
+    if (profile.secondaryLanguage && profile.secondaryLanguage !== language) {
+      setLanguage(profile.secondaryLanguage as SupportedLanguage);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the first profile only, by design
+  }, [profile]);
 
   // Initialize selectedLanguage and activeTab after document loads
   useEffect(() => {
@@ -197,34 +192,10 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // translated or not — see languageMenuOptions below.
   const allLanguageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
-  const handlePreferredLanguageChange = async (languageCode: string) => {
-    if (!profile || languageCode === profile.secondaryLanguage) return;
-
-    const previousLanguage = language;
-    const updatedProfile = {...profile, secondaryLanguage: languageCode};
-    setProfile(updatedProfile);
-    // Switch the UI immediately; the profile save runs in the background
-    setLanguage(languageCode as SupportedLanguage);
-
-    try {
-      setSaving(true);
-      // Send only the changed field: a partial update skips re-encrypting
-      // untouched PII fields (phone/city/parentName) with KMS on the backend
-      await apiClient.profile.updateProfile({ secondaryLanguage: languageCode });
-
-      setOriginalProfile(updatedProfile);
-    } catch (err) {
-      // Revert on error
-      setProfile(originalProfile);
-      setLanguage(previousLanguage);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Handle language change - updates tab content and app language
+  // A pick saves the preference (optimistically, with rollback and a message
+  // on failure); the shown translation and tab follow from preferredLanguage.
   const handleLanguageChange = (lang: SupportedLanguage) => {
-    handlePreferredLanguageChange(lang);
+    chooseLanguage(lang);
   };
 
 
@@ -1041,7 +1012,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // already-authenticated parent onto the marketing site staring at a sign-in
   // form. Nothing signs them out; it only looks that way. /preferred-language
   // is where the other onboarding redirects go, and it gates onward from there.
-  if(profile.showOnboarding){
+  if(profile?.showOnboarding){
     navigate('/preferred-language');
     return null;
   }
@@ -1064,7 +1035,9 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     ? t('languageMenu.unavailableProcessing')
     : isTranslatingOnDemand
       ? t('languageMenu.unavailableTranslating')
-      : undefined;
+      : isSavingLanguage
+        ? t('languageMenu.saving')
+        : undefined;
   const summaryLanguagePicker = (
     <NavLanguageSlot>
       {languageMenuOptions.length > 1 ? (
@@ -1074,7 +1047,9 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             label: option.label,
             hint: option.isTranslated ? undefined : t('summary.translate.notTranslatedYet'),
           }))}
-          selected={selectedLanguage}
+          // The parent's choice, not the translation on screen: a language not
+          // translated yet is still what they picked (the banner offers it).
+          selected={pickerLanguage}
           onSelect={(value) => handleLanguageChange(value as SupportedLanguage)}
           name={t('languageMenu.label')}
           unavailableReason={pickerUnavailableReason}
@@ -1088,6 +1063,11 @@ const IEPSummarizationAndTranslation: React.FC = () => {
           hintTestId={(value) => `summary-language-untranslated-${value}`}
         />
       ) : null}
+      {languageSaveFailed && (
+        <p className="language-menu-error" role="alert">
+          {t('languageMenu.saveFailed')}
+        </p>
+      )}
     </NavLanguageSlot>
   );
 

@@ -22,6 +22,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import IEPSummarizationAndTranslation from "./IEPSummarizationAndTranslation";
 import { PIPELINE_MILESTONES } from "../utils/processing-progress.mjs";
 import { AppContext } from "../../common/app-context";
@@ -134,6 +135,9 @@ const renderPage = (language: SupportedLanguage = "en") => {
   // Returned so a test can unmount the screen and mount it again, which is
   // what the bottom nav does to this page.
   return render(
+    // The app's query client sits above every screen (AppConfigured); the
+    // page reads the shared ['profile'] cache through it.
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <MemoryRouter initialEntries={["/summary-and-translations"]}>
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider value={languageValue}>
@@ -148,7 +152,8 @@ const renderPage = (language: SupportedLanguage = "en") => {
             </Routes>
         </LanguageContext.Provider>
       </AppContext.Provider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </QueryClientProvider>,
   );
 };
 
