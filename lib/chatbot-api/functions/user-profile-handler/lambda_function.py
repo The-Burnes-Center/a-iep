@@ -1268,11 +1268,21 @@ def get_child_documents(event: Dict) -> Dict:
             except DocumentContentUnavailable as e:
                 return service_unavailable(event, 'get_child_documents content read', e.cause)
         if latest_doc is not None and replacement_row is not None:
-            # Id and status only, never anything from the row's content.
+            # Id, status and, while it runs, the same progress fields the
+            # processing screen reads off a first upload, so a replacement gets
+            # the same progress screen. Never anything from the row's content,
+            # and never a failure's own text.
+            replacement_status = _display_status(replacement_row)
             latest_doc['replacement'] = {
                 'iepId': replacement_row['iepId'],
-                'status': _display_status(replacement_row),
+                'status': replacement_status,
             }
+            if replacement_status != 'FAILED':
+                latest_doc['replacement'].update({
+                    'progress': replacement_row.get('progress', 0),
+                    'current_step': replacement_row.get('current_step', 'initializing'),
+                    'updatedAt': _document_updated_at(replacement_row),
+                })
             print(f"Showing {latest_doc['iepId']} while {replacement_row['iepId']} is "
                   f"{latest_doc['replacement']['status']}")
 

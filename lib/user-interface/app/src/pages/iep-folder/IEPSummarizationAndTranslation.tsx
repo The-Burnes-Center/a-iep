@@ -571,6 +571,20 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // Check if document is processing (includes both initial processing and translations)
   const isProcessing = document && (document.status === "PROCESSING" || document.status === "PROCESSING_TRANSLATIONS");
 
+  // A replacement still running behind the IEP on screen. The parent gets the
+  // same processing screen (and parent-rights carousel) as a first upload, with
+  // their current IEP one tap away instead of hidden. Which of the two they are
+  // looking at is a view choice, not server state, so it resets to the
+  // processing screen for each new replacement and on returning to the page.
+  const replacementStatus = document?.replacement?.status;
+  const isReplacementRunning =
+    replacementStatus === "PROCESSING" || replacementStatus === "PROCESSING_TRANSLATIONS";
+  const [viewingCurrentDuringReplacement, setViewingCurrentDuringReplacement] = useState(false);
+  const replacementId = document?.replacement?.iepId;
+  useEffect(() => {
+    setViewingCurrentDuringReplacement(false);
+  }, [replacementId]);
+
   // An on-demand translation puts the document back into
   // PROCESSING_TRANSLATIONS, which would otherwise hide the page behind the
   // full-screen ProcessingModal. The parent already has readable English
@@ -1101,6 +1115,32 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     );
   }
 
+  // A replacement in flight: the processing screen for the NEW document, with
+  // the way back to the one the parent can already read.
+  if (isReplacementRunning && !viewingCurrentDuringReplacement && document.replacement) {
+    return (
+      <>
+      {summaryLanguagePicker}
+      <ProcessingModal
+        error={error}
+        tutorialPhase={tutorialPhase}
+        t={t}
+        parentRightsSlideData={parentRightsSlideData}
+        headerPinkTitle={t('rights.header.title.pink')}
+        headerGreenTitle={t('rights.header.title.green')}
+        rightsIndicatorTemplate={t('carousel.rights.indicator')}
+        sectionHint={t('carousel.section.hint')}
+        progressDocument={document.replacement}
+        progressStepLabel={t(processingStepKey(document.replacement))}
+        pollingStopped={pollingStopped}
+        onCheckAgain={checkAgain}
+        onViewCurrent={() => setViewingCurrentDuringReplacement(true)}
+        viewCurrentLabel={t('summary.replacement.viewCurrent')}
+      />
+      </>
+    );
+  }
+
   // Processed Container - when document is processed, failed, or in other states
   return (
     <>
@@ -1152,6 +1192,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               t={t}
               onCheckAgain={checkAgain}
               onUploadAgain={() => navigate('/iep-documents')}
+              onWatchProgress={() => setViewingCurrentDuringReplacement(false)}
             />
 
             <Card className="summary-card">

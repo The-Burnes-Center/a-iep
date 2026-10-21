@@ -116,6 +116,8 @@
     "summary.replacement.processing": "我们正在处理您的新IEP文档。在新文档准备好之前，您当前的文档会保留在这里。",
     "summary.replacement.failed": "我们无法处理您的新IEP文档。您之前的文档仍保留在这里。您可以尝试重新上传。",
     "summary.replacement.uploadAgain": "重新上传",
+    "summary.replacement.viewCurrent": "查看当前的 IEP",
+    "summary.replacement.watchProgress": "查看进度",
     "summary.error.loadFailed": "我们现在无法加载您的文档。请检查您的网络连接。我们会继续尝试。",
     "summary.preferredLanguage": "中文",
     "summary.english": "英文",

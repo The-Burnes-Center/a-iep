@@ -154,11 +154,15 @@ export interface IEPDocument {
    * A newer document being processed behind this one. Present only while the
    * parent is shown their previous IEP because a replacement has not finished
    * (or has failed): the documents endpoint returns the newest document the
-   * parent can read, and names the newer one here. Id and status only.
+   * parent can read, and names the newer one here. Id and status, plus the
+   * progress fields while it runs, so the processing screen can show it.
    */
   replacement?: {
     iepId: string;
     status: "PROCESSING" | "PROCESSING_TRANSLATIONS" | "FAILED";
+    progress?: number;
+    current_step?: string;
+    updatedAt?: number;
   };
   /**
    * Unix timestamp (seconds since epoch), normalized server-side.

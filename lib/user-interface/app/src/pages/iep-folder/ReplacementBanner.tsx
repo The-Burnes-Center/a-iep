@@ -12,6 +12,8 @@ interface ReplacementBannerProps {
   t: (key: string) => string;
   onCheckAgain: () => void;
   onUploadAgain: () => void;
+  /** Back to the processing screen, while the replacement is running. */
+  onWatchProgress?: () => void;
 }
 
 /**
@@ -41,6 +43,7 @@ const ReplacementBanner: React.FC<ReplacementBannerProps> = ({
   t,
   onCheckAgain,
   onUploadAgain,
+  onWatchProgress,
 }) => {
   const status = replacement?.status;
   const isFailed = status === 'FAILED';
@@ -82,6 +85,16 @@ const ReplacementBanner: React.FC<ReplacementBannerProps> = ({
       <div className="replacement-banner replacement-banner-processing" data-testid="replacement-processing">
         <FontAwesomeIcon icon={faCircleInfo} aria-hidden="true" className="replacement-banner-icon" />
         <p className="replacement-banner-message">{t('summary.replacement.processing')}</p>
+        {onWatchProgress && (
+          <Button
+            variant="outline-dark"
+            className="replacement-banner-button"
+            onClick={onWatchProgress}
+            data-testid="replacement-watch-progress"
+          >
+            {t('summary.replacement.watchProgress')}
+          </Button>
+        )}
       </div>
     );
   }

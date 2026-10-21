@@ -33,6 +33,13 @@ interface ProcessingModalProps {
   pollingStopped: boolean;
   /** Restarts polling and asks for a fresh read of the document. */
   onCheckAgain: () => void;
+  /**
+   * A replacement: the parent already has a readable IEP behind this screen.
+   * Offers it, so the wait (and the rights carousel) is the default without
+   * holding the current summary hostage.
+   */
+  onViewCurrent?: () => void;
+  viewCurrentLabel?: string;
 }
 
 const ProcessingModal: React.FC<ProcessingModalProps> = ({
@@ -48,6 +55,8 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
   progressStepLabel,
   pollingStopped,
   onCheckAgain,
+  onViewCurrent,
+  viewCurrentLabel,
 }) => {
   /**
    * The step in flight and the bar, as one block.
@@ -59,6 +68,23 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
   const statusBlock = (
     <ProcessingStatusBar document={progressDocument} stepLabel={progressStepLabel} />
   );
+
+  /**
+   * The way back to the IEP the parent can already read, during a replacement.
+   * Outside the status block on purpose: a stalled wait replaces that block,
+   * and the summary behind this screen is still there to read.
+   */
+  const viewCurrentButton = onViewCurrent && viewCurrentLabel ? (
+    <button
+      type="button"
+      className="btn btn-outline-light processing-view-current"
+      onClick={onViewCurrent}
+      // Stable E2E hook: the label is localized
+      data-testid="replacement-view-current"
+    >
+      {viewCurrentLabel}
+    </button>
+  ) : null;
 
   /**
    * What the screen says once polling has stopped. It replaces the headline,
@@ -99,6 +125,7 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
                     {statusBlock}
                   </>
                 )}
+                {viewCurrentButton}
               </div>
               <div className="carousel-with-button">
                 {/* Loops for as long as this screen is up. Nothing the parent
@@ -132,6 +159,7 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
                     {statusBlock}
                   </>
                 )}
+                {viewCurrentButton}
               </div>
             </Card.Body>
           </Card>
