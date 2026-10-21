@@ -33,6 +33,7 @@ import { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
 import DocumentFailureState from './DocumentFailureState';
 import ReplacementBanner from './ReplacementBanner';
+import { NavLanguageSlot, NavLanguageToggleContent } from '../../components/NavLanguageSlot';
 import { ApiClient } from '../../common/api-client/api-client';
 import {
   IEPDocumentClient,
@@ -1112,40 +1113,45 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               the preference mid-flight would leave the running request pointing
               at a language the parent no longer wants. */}
           {document && (document.status === "PROCESSED" || suppressProcessingTakeover) && languageMenuOptions.length > 1 && (
-            <Dropdown className='language-dropdown-toggle'>
-              <Dropdown.Toggle
-                variant="outline-primary"
-                id="language-dropdown"
-                size="sm"
-                disabled={isTranslatingOnDemand}
-              >
-                {(languageMenuOptions.find(option => option.value === selectedLanguage)?.label || 'English').toUpperCase()}
-              </Dropdown.Toggle>
-              <Dropdown.Menu>
-                {languageMenuOptions.map(option => (
-                  <Dropdown.Item
-                    key={option.value}
-                    onClick={() => handleLanguageChange(option.value as SupportedLanguage)}
-                    active={selectedLanguage === option.value}
-                    className="d-flex justify-content-between align-items-center gap-3"
-                    // Stable E2E hook: the items are labelled with each
-                    // language's own endonym
-                    data-testid={`summary-language-option-${option.value}`}
-                  >
-                    <span>{option.label.toUpperCase()}</span>
-                    {!option.isTranslated && (
-                      <small
-                        className="text-muted"
-                        // Stable E2E hook: "this language has no translation yet"
-                        data-testid={`summary-language-untranslated-${option.value}`}
-                      >
-                        {t('summary.translate.notTranslatedYet')}
-                      </small>
-                    )}
-                  </Dropdown.Item>
-                ))}
-              </Dropdown.Menu>
-            </Dropdown>
+            // Rendered into the in-app bar (components/NavLanguageSlot.tsx).
+            <NavLanguageSlot>
+              <Dropdown className='language-dropdown-toggle' align="end">
+                <Dropdown.Toggle
+                  variant="outline-primary"
+                  id="language-dropdown"
+                  size="sm"
+                  disabled={isTranslatingOnDemand}
+                >
+                  <NavLanguageToggleContent
+                    label={(languageMenuOptions.find(option => option.value === selectedLanguage)?.label || 'English').toUpperCase()}
+                  />
+                </Dropdown.Toggle>
+                <Dropdown.Menu>
+                  {languageMenuOptions.map(option => (
+                    <Dropdown.Item
+                      key={option.value}
+                      onClick={() => handleLanguageChange(option.value as SupportedLanguage)}
+                      active={selectedLanguage === option.value}
+                      className="d-flex justify-content-between align-items-center gap-3"
+                      // Stable E2E hook: the items are labelled with each
+                      // language's own endonym
+                      data-testid={`summary-language-option-${option.value}`}
+                    >
+                      <span>{option.label.toUpperCase()}</span>
+                      {!option.isTranslated && (
+                        <small
+                          className="text-muted"
+                          // Stable E2E hook: "this language has no translation yet"
+                          data-testid={`summary-language-untranslated-${option.value}`}
+                        >
+                          {t('summary.translate.notTranslatedYet')}
+                        </small>
+                      )}
+                    </Dropdown.Item>
+                  ))}
+                </Dropdown.Menu>
+              </Dropdown>
+            </NavLanguageSlot>
           )}
         </div>
         

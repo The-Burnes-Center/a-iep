@@ -6,6 +6,7 @@ import { ApiClient } from '../common/api-client/api-client';
 import { UserProfile } from '../common/types';
 import { useLanguage, SupportedLanguage } from '../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../common/languages';
+import { NavLanguageSlot, NavLanguageToggleContent } from './NavLanguageSlot';
 import './LanguagePreferenceDropdown.css';
 
 /**
@@ -88,8 +89,9 @@ const LanguagePreferenceDropdown: React.FC = () => {
     languageOptions.find((option) => option.value === selectedLanguage)?.label || 'English';
 
   return (
-    <div className="language-preference-bar d-flex justify-content-end align-items-center">
-      <Dropdown className="language-preference-dropdown">
+    // Rendered into the in-app bar, not where the page places it.
+    <NavLanguageSlot>
+      <Dropdown className="language-preference-dropdown" align="end">
         <Dropdown.Toggle
           variant="outline-primary"
           id="language-preference-dropdown"
@@ -104,7 +106,7 @@ const LanguagePreferenceDropdown: React.FC = () => {
           // Stable E2E hook: the label is a language endonym
           data-testid="language-preference-toggle"
         >
-          {selectedLabel.toUpperCase()}
+          <NavLanguageToggleContent label={selectedLabel.toUpperCase()} />
         </Dropdown.Toggle>
         <Dropdown.Menu>
           {languageOptions.map((option) => (
@@ -121,7 +123,7 @@ const LanguagePreferenceDropdown: React.FC = () => {
           ))}
         </Dropdown.Menu>
       </Dropdown>
-    </div>
+    </NavLanguageSlot>
   );
 };
 

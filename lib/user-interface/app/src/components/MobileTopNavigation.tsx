@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useLanguage } from '../common/language-context';
+import { NavLanguageSlotTarget } from './NavLanguageSlot';
 import { IconFileDescription, IconHeartHandshake, IconUser, IconInfoCircle } from '@tabler/icons-react';
 import './MobileTopNavigation.css';
 
@@ -68,6 +69,8 @@ const MobileTopNavigation: React.FC = () => {
           );
         })}
       </div>
+      {/* The screen's own language picker lands here (NavLanguageSlot.tsx). */}
+      <NavLanguageSlotTarget />
     </nav>
   );
 };

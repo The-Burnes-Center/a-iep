@@ -4,6 +4,7 @@ import AppShell from './AppShell';
 import LandingTopNavigation from './LandingTopNavigation';
 import MobileTopNavigation from './MobileTopNavigation';
 import PageLoading from './PageLoading';
+import { NavLanguageSlotProvider } from './NavLanguageSlot';
 import { useLanguage } from '../common/language-context';
 import { usePublicPageMeta } from '../common/page-meta';
 
@@ -59,11 +60,15 @@ export function InAppChrome() {
   // the shell, not above the routes, so the bar and footer stay on screen
   // while a page downloads. The fallback is the guard's own loading state, so
   // a parent sees the same mark for the route check and for the page fetch.
+  // The provider spans bar and page so a screen can put its language picker
+  // in the bar (NavLanguageSlot.tsx).
   return (
-    <AppShell nav={<MobileTopNavigation />} footerVariant="compact">
-      <Suspense fallback={<PageLoading label={t('common.loading')} />}>
-        <Outlet />
-      </Suspense>
-    </AppShell>
+    <NavLanguageSlotProvider>
+      <AppShell nav={<MobileTopNavigation />} footerVariant="compact">
+        <Suspense fallback={<PageLoading label={t('common.loading')} />}>
+          <Outlet />
+        </Suspense>
+      </AppShell>
+    </NavLanguageSlotProvider>
   );
 }

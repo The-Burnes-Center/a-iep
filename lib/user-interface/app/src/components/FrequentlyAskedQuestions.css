@@ -4,6 +4,14 @@
   --bs-gutter-x: 0;
 }
 
+/* The container's zero gutter drops its padding, but Bootstrap's .row sets
+   --bs-gutter-x back to 1.5rem on itself, keeping its -0.75rem side margins
+   with nothing to absorb them: the row ran 12px past the right edge and phones
+   scrolled sideways onto a blank strip. Zero it on the row as well. */
+.faqs-container > .row {
+  --bs-gutter-x: 0;
+}
+
 .faqs-card {
   border: none;
   box-shadow: none;
