@@ -7,7 +7,6 @@ import { useLanguage } from '../../common/language-context';
 import { useAdminIdentity } from '../../common/helpers/use-admin-identity';
 import { useFeatures } from '../../common/hooks/use-features';
 import { IconArrowRight, IconLogout } from '@tabler/icons-react';
-import LanguagePreferenceDropdown from '../../components/LanguagePreferenceDropdown';
 import './AccountCenter.css';
 
 const AccountCenter: React.FC = () => {
@@ -56,9 +55,6 @@ const AccountCenter: React.FC = () => {
       case '0':
         navigate('/account-center/profile');
         break;
-      case '1':
-        navigate('/account-center/change-language');
-        break;
       case '6':
         navigate('/view-update-add-child');
         break;
@@ -87,11 +83,6 @@ const AccountCenter: React.FC = () => {
       id: "0",
       title: t("accountCenter.updateProfile"),
       testId: "account-center-update-profile",
-    },
-    {
-      id: "1",
-      title: t("accountCenter.changeLanguage"),
-      testId: "account-center-change-language",
     },
     // The only way back to the child's name once onboarding has asked for it.
     // Without this a parent who mistyped it was stuck with it: the name heads
@@ -138,7 +129,6 @@ const AccountCenter: React.FC = () => {
       <Container className="account-center-container mt-3 mb-3">
         <Row className="mt-2">
           <Col>
-            <LanguagePreferenceDropdown />
             <Card className="account-center-card">
               <Row className="g-0">
                 <Col md={12} className="no-padding-inherit-faq">

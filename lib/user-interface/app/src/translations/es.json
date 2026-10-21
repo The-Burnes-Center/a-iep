@@ -427,7 +427,6 @@
     "footer.faqs": "Preguntas Frecuentes",
     "accountCenter.title": "Centro de Cuenta",
     "accountCenter.updateProfile": "Actualizar Su Perfil",
-    "accountCenter.changeLanguage": "Cambiar su idioma",
     "accountCenter.childName": "El nombre de su hijo/a",
     "accountCenter.deleteAccount": "Eliminar su cuenta",
     "accountCenter.logOut": "Cerrar sesión",
@@ -496,11 +495,7 @@
     "updateProfile.error.serviceUnavailable": "Servicio no disponible",
     "updateProfile.error.saveFailed": "Error al guardar la información del padre",
     "changeLanguage.breadcrumb.account": "CUENTA",
-    "changeLanguage.breadcrumb.changeLanguage": "CAMBIAR IDIOMA",
-    "changeLanguage.title": "Su Idioma",
     "changeLanguage.description": "El resumen original de su IEP siempre se generará en inglés. Podemos traducir este resumen al idioma de su elección.",
-    "changeLanguage.label.translation": "TRADUCCIÓN",
-    "changeLanguage.loading": "Cargando...",
     "preferredLanguage.update.title": "Actualizar preferencias de idioma",
     "preferredLanguage.update.description": "Seleccione su idioma preferido para las traducciones del IEP",
     "preferredLanguage.lede": "Seleccione su idioma preferido:",
@@ -754,5 +749,10 @@
     "meta.privacy.title": "Política de privacidad | A-IEP",
     "meta.privacy.description": "Cómo A-IEP trata el IEP de su hijo: los datos personales se eliminan antes de que cualquier IA lo vea, el archivo original se borra y usted puede borrarlo todo en cualquier momento.",
     "meta.hub.title": "El centro de A-IEP | A-IEP",
-    "meta.hub.description": "Empiece aquí: qué hace A-IEP por los padres, cómo mantiene privada la información de su hijo y cómo obtener un resumen sencillo del IEP de su hijo."
+    "meta.hub.description": "Empiece aquí: qué hace A-IEP por los padres, cómo mantiene privada la información de su hijo y cómo obtener un resumen sencillo del IEP de su hijo.",
+    "languageMenu.label": "Idioma",
+    "languageMenu.saving": "Guardando su idioma.",
+    "languageMenu.saveFailed": "No pudimos guardar su idioma. Inténtelo de nuevo.",
+    "languageMenu.unavailableProcessing": "Podrá cambiar el idioma cuando su documento esté listo.",
+    "languageMenu.unavailableTranslating": "Podrá cambiar el idioma cuando termine esta traducción."
 }

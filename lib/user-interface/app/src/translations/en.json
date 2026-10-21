@@ -436,7 +436,6 @@
     "footer.faqs": "FAQs",
     "accountCenter.title": "Account Center",
     "accountCenter.updateProfile": "Update Your Profile",
-    "accountCenter.changeLanguage": "Change your Language",
     "accountCenter.childName": "Your child's name",
     "accountCenter.deleteAccount": "Delete your account",
     "accountCenter.logOut": "Log out",
@@ -505,11 +504,7 @@
     "updateProfile.error.serviceUnavailable": "Service unavailable",
     "updateProfile.error.saveFailed": "Failed to save parent information",
     "changeLanguage.breadcrumb.account": "ACCOUNT",
-    "changeLanguage.breadcrumb.changeLanguage": "CHANGE LANGUAGE",
-    "changeLanguage.title": "Your Language",
     "changeLanguage.description": "The original summary of your IEP will always be generated in English. We can translate this summary to the language of your choice.",
-    "changeLanguage.label.translation": "TRANSLATION",
-    "changeLanguage.loading": "Loading...",
     "preferredLanguage.update.title": "Update Language Preferences",
     "preferredLanguage.update.description": "Select your preferred language for IEP translations",
     "preferredLanguage.lede": "Select your preferred language:",
@@ -754,5 +749,10 @@
     "meta.privacy.title": "Privacy policy | A-IEP",
     "meta.privacy.description": "How A-IEP handles your child's IEP: personal details are removed before any AI sees it, the original file is deleted, and you can delete everything at any time.",
     "meta.hub.title": "The A-IEP hub | A-IEP",
-    "meta.hub.description": "Start here: what A-IEP does for parents, how it keeps your child's information private, and how to get a plain-language summary of your child's IEP."
+    "meta.hub.description": "Start here: what A-IEP does for parents, how it keeps your child's information private, and how to get a plain-language summary of your child's IEP.",
+    "languageMenu.label": "Language",
+    "languageMenu.saving": "Saving your language.",
+    "languageMenu.saveFailed": "We couldn't save your language. Please try again.",
+    "languageMenu.unavailableProcessing": "You can change the language when your document is ready.",
+    "languageMenu.unavailableTranslating": "You can change the language when this translation is finished."
 }

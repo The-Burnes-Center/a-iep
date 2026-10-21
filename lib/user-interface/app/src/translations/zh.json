@@ -427,7 +427,6 @@
     "footer.faqs": "常见问题",
     "accountCenter.title": "账号中心",
     "accountCenter.updateProfile": "更新您的个人资料",
-    "accountCenter.changeLanguage": "更改您的语言",
     "accountCenter.childName": "您孩子的姓名",
     "accountCenter.deleteAccount": "删除您的账号",
     "accountCenter.logOut": "退出登录",
@@ -495,11 +494,7 @@
     "updateProfile.error.serviceUnavailable": "服务不可用",
     "updateProfile.error.saveFailed": "保存家长信息失败",
     "changeLanguage.breadcrumb.account": "账号",
-    "changeLanguage.breadcrumb.changeLanguage": "更改语言",
-    "changeLanguage.title": "您的语言",
     "changeLanguage.description": "您的IEP原始摘要将始终以英语生成。我们可以将此摘要翻译为您选择的语言。",
-    "changeLanguage.label.translation": "翻译",
-    "changeLanguage.loading": "加载中...",
     "preferredLanguage.update.title": "更新语言偏好",
     "preferredLanguage.update.description": "选择您希望用于 IEP 翻译的语言",
     "preferredLanguage.lede": "请选择您偏好的语言：",
@@ -754,5 +749,10 @@
     "meta.privacy.title": "隐私政策 | A-IEP",
     "meta.privacy.description": "A-IEP 如何处理孩子的 IEP：在任何 AI 读取之前先删除个人信息，原始文件会被删除，您也可以随时删除全部内容。",
     "meta.hub.title": "A-IEP 中心 | A-IEP",
-    "meta.hub.description": "从这里开始：了解 A-IEP 能为家长做什么、如何保护孩子的信息，以及如何获得孩子 IEP 的通俗摘要。"
+    "meta.hub.description": "从这里开始：了解 A-IEP 能为家长做什么、如何保护孩子的信息，以及如何获得孩子 IEP 的通俗摘要。",
+    "languageMenu.label": "语言",
+    "languageMenu.saving": "正在保存您的语言。",
+    "languageMenu.saveFailed": "无法保存您的语言，请重试。",
+    "languageMenu.unavailableProcessing": "文件准备好后，您可以更改语言。",
+    "languageMenu.unavailableTranslating": "此翻译完成后，您可以更改语言。"
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useContext } from 'react';
-import { Container, Row, Col, Card, Alert, Button, Accordion, Tabs, Tab, Offcanvas, Dropdown, ProgressBar } from 'react-bootstrap';
+import { Container, Row, Col, Card, Alert, Button, Accordion, Tabs, Tab, Offcanvas, ProgressBar } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useNavigate } from 'react-router-dom';
 import { faLanguage, faDownload, faArrowsRotate } from '@fortawesome/free-solid-svg-icons';
@@ -33,7 +33,8 @@ import { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
 import DocumentFailureState from './DocumentFailureState';
 import ReplacementBanner from './ReplacementBanner';
-import { NavLanguageSlot, NavLanguageToggleContent } from '../../components/NavLanguageSlot';
+import { NavLanguageSlot } from '../../components/NavLanguageSlot';
+import LanguageMenu from '../../components/LanguageMenu';
 import { ApiClient } from '../../common/api-client/api-client';
 import {
   IEPDocumentClient,
@@ -1049,12 +1050,55 @@ const IEPSummarizationAndTranslation: React.FC = () => {
       navigate('/iep-documents');
   }
 
+  // The summary's language picker, in the bar's language spot on every state
+  // of this screen (NavLanguageSlot.tsx), so it never moves or swaps for the
+  // bar's default. It offers every language enabled in this environment and
+  // marks the ones this document has no translation for: picking one is how a
+  // parent gets offered a translation of it. It saves the same preference as
+  // the default picker. Unavailable, and saying why, while the document is
+  // processing or a translation is being generated, because changing the
+  // preference mid-flight would leave the running request pointing at a
+  // language the parent no longer wants.
+  const isDocumentReady = document.status === "PROCESSED" || suppressProcessingTakeover;
+  const pickerUnavailableReason = !isDocumentReady
+    ? t('languageMenu.unavailableProcessing')
+    : isTranslatingOnDemand
+      ? t('languageMenu.unavailableTranslating')
+      : undefined;
+  const summaryLanguagePicker = (
+    <NavLanguageSlot>
+      {languageMenuOptions.length > 1 ? (
+        <LanguageMenu
+          options={languageMenuOptions.map(option => ({
+            value: option.value,
+            label: option.label,
+            hint: option.isTranslated ? undefined : t('summary.translate.notTranslatedYet'),
+          }))}
+          selected={selectedLanguage}
+          onSelect={(value) => handleLanguageChange(value as SupportedLanguage)}
+          name={t('languageMenu.label')}
+          unavailableReason={pickerUnavailableReason}
+          variant="bar"
+          uppercase
+          id="language-dropdown"
+          className="language-dropdown-toggle"
+          // Stable E2E hooks: the items are labelled with each language's own
+          // endonym, and the hint is "this language has no translation yet".
+          optionTestId={(value) => `summary-language-option-${value}`}
+          hintTestId={(value) => `summary-language-untranslated-${value}`}
+        />
+      ) : null}
+    </NavLanguageSlot>
+  );
+
   // Processing Container - when document is being processed. A translation the
   // parent requested from the banner is deliberately excluded: it reports its
   // progress inline so the English content they are reading stays on screen.
   if (isProcessing && !suppressProcessingTakeover) {
     // console.log("tutorialPhase", tutorialPhase);
     return (
+      <>
+      {summaryLanguagePicker}
       <ProcessingModal
         error={error}
         tutorialPhase={tutorialPhase}
@@ -1073,6 +1117,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         pollingStopped={pollingStopped}
         onCheckAgain={checkAgain}
       />
+      </>
     );
   }
 
@@ -1106,53 +1151,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             )}
           </div>
           
-          {/* Language Dropdown - every language enabled in this environment,
-              with the ones this document has no translation for marked as such:
-              picking one is how a parent gets offered a translation of it.
-              Disabled while a translation is being generated, because changing
-              the preference mid-flight would leave the running request pointing
-              at a language the parent no longer wants. */}
-          {document && (document.status === "PROCESSED" || suppressProcessingTakeover) && languageMenuOptions.length > 1 && (
-            // Rendered into the in-app bar (components/NavLanguageSlot.tsx).
-            <NavLanguageSlot>
-              <Dropdown className='language-dropdown-toggle' align="end">
-                <Dropdown.Toggle
-                  variant="outline-primary"
-                  id="language-dropdown"
-                  size="sm"
-                  disabled={isTranslatingOnDemand}
-                >
-                  <NavLanguageToggleContent
-                    label={(languageMenuOptions.find(option => option.value === selectedLanguage)?.label || 'English').toUpperCase()}
-                  />
-                </Dropdown.Toggle>
-                <Dropdown.Menu>
-                  {languageMenuOptions.map(option => (
-                    <Dropdown.Item
-                      key={option.value}
-                      onClick={() => handleLanguageChange(option.value as SupportedLanguage)}
-                      active={selectedLanguage === option.value}
-                      className="d-flex justify-content-between align-items-center gap-3"
-                      // Stable E2E hook: the items are labelled with each
-                      // language's own endonym
-                      data-testid={`summary-language-option-${option.value}`}
-                    >
-                      <span>{option.label.toUpperCase()}</span>
-                      {!option.isTranslated && (
-                        <small
-                          className="text-muted"
-                          // Stable E2E hook: "this language has no translation yet"
-                          data-testid={`summary-language-untranslated-${option.value}`}
-                        >
-                          {t('summary.translate.notTranslatedYet')}
-                        </small>
-                      )}
-                    </Dropdown.Item>
-                  ))}
-                </Dropdown.Menu>
-              </Dropdown>
-            </NavLanguageSlot>
-          )}
+          {summaryLanguagePicker}
         </div>
         
         {pdfError && (

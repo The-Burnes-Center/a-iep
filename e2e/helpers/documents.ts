@@ -20,7 +20,7 @@ import { ensureTestUser } from './aws';
 import { loginWithOtp } from './app';
 import { DOCUMENTS_USER } from './phones';
 import {
-  languageSelect,
+  offeredLanguageCount,
   openLanguageForm,
   readLanguagePreference,
   setLanguagePreference,
@@ -386,13 +386,13 @@ export async function ensureTranslationLanguage(
   // the on-demand stage rotates onto Arabic, which ships on staging and is
   // dark on prod (ENABLED_LANGUAGES in lib/user-interface/index.ts, pinned by
   // test/infra/enabled-languages.test.ts). Without this the failure is
-  // selectOption() timing out with no clue as to why.
-  await expect(
-    languageSelect(page).locator(`option[value="${language}"]`),
+  // the option click timing out with no clue as to why.
+  expect(
+    await offeredLanguageCount(page, language),
     `the deployed site does not offer ${language} in its language picker: ` +
     'enabledLanguages in its aws-exports.json (ENABLED_LANGUAGES at deploy time) ' +
     'no longer includes it'
-  ).toHaveCount(1);
+  ).toBe(1);
 
   if ((await readLanguagePreference(page)) !== language) {
     await setLanguagePreference(page, language);
@@ -643,6 +643,9 @@ export async function selectSummaryLanguage(page: Page, lang: string): Promise<v
     'the summary page language dropdown is missing: the document has content in only one ' +
     'language, so the translation step never produced anything'
   ).toBeVisible({ timeout: 30_000 });
+  // The picker sits in the top bar from the first render, marked unavailable
+  // (aria-disabled) while the document is processing or a translation runs.
+  await expect(toggle).not.toHaveAttribute('aria-disabled', 'true', { timeout: 60_000 });
 
   await toggle.click();
   await page.getByTestId(TESTID.languageOption(lang)).click();

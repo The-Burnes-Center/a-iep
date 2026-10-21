@@ -599,17 +599,14 @@ describe("the breadcrumb trail", () => {
 });
 
 describe("the language selector", () => {
-  test("switches the app's language through the app's own language state", async () => {
-    // Reuse, not a second copy: the control writes to the LanguageContext
-    // every other language picker in the app writes to.
+  test("is not drawn on the screen: the top bar carries the one picker", async () => {
+    // It used to sit on the onboarding row, in a different place from every
+    // other screen. NavLanguageSlot.test.tsx pins the bar's picker.
     stubFetch(profileWith({}));
-    const user = renderPage();
+    renderPage();
     await waitForForm();
 
-    await user.click(screen.getByRole("button", { name: /English/ }));
-    await user.click(await screen.findByText("Español"));
-
-    expect(setLanguage).toHaveBeenCalledWith("es");
+    expect(screen.queryByRole("button", { name: /English/ })).toBeNull();
   });
 });
 

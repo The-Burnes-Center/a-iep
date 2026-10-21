@@ -436,7 +436,6 @@
     "footer.faqs": "الأسئلة الشائعة",
     "accountCenter.title": "مركز الحساب",
     "accountCenter.updateProfile": "تحديث ملفك الشخصي",
-    "accountCenter.changeLanguage": "تغيير لغتك",
     "accountCenter.childName": "اسم طفلك",
     "accountCenter.deleteAccount": "حذف حسابك",
     "accountCenter.logOut": "تسجيل الخروج",
@@ -505,11 +504,7 @@
     "updateProfile.error.serviceUnavailable": "الخدمة غير متاحة",
     "updateProfile.error.saveFailed": "فشل حفظ معلومات ولي الأمر",
     "changeLanguage.breadcrumb.account": "الحساب",
-    "changeLanguage.breadcrumb.changeLanguage": "تغيير اللغة",
-    "changeLanguage.title": "لغتك",
     "changeLanguage.description": "سيتم دائمًا إنشاء الملخص الأصلي لبرنامج IEP الخاص بك باللغة الإنجليزية، ويمكننا ترجمة هذا الملخص إلى اللغة التي تختارها.",
-    "changeLanguage.label.translation": "الترجمة",
-    "changeLanguage.loading": "جارٍ التحميل...",
     "preferredLanguage.update.title": "تحديث تفضيلات اللغة",
     "preferredLanguage.update.description": "اختر لغتك المفضلة لترجمات IEP",
     "preferredLanguage.lede": "اختر لغتك المفضّلة:",
@@ -754,5 +749,10 @@
     "meta.privacy.title": "سياسة الخصوصية | A-IEP",
     "meta.privacy.description": "كيف يتعامل A-IEP مع برنامج IEP الخاص بطفلك: تُحذف البيانات الشخصية قبل أن يطّلع عليها أي ذكاء اصطناعي، ويُحذف الملف الأصلي، ويمكنك حذف كل شيء في أي وقت.",
     "meta.hub.title": "مركز A-IEP | A-IEP",
-    "meta.hub.description": "ابدأ من هنا: ماذا يقدّم A-IEP لأولياء الأمور، وكيف يحافظ على خصوصية معلومات طفلك، وكيف تحصل على ملخص بسيط لبرنامج IEP الخاص بطفلك."
+    "meta.hub.description": "ابدأ من هنا: ماذا يقدّم A-IEP لأولياء الأمور، وكيف يحافظ على خصوصية معلومات طفلك، وكيف تحصل على ملخص بسيط لبرنامج IEP الخاص بطفلك.",
+    "languageMenu.label": "اللغة",
+    "languageMenu.saving": "جارٍ حفظ لغتك.",
+    "languageMenu.saveFailed": "تعذّر حفظ لغتك. يُرجى المحاولة مرة أخرى.",
+    "languageMenu.unavailableProcessing": "يمكنك تغيير اللغة عندما يصبح مستندك جاهزًا.",
+    "languageMenu.unavailableTranslating": "يمكنك تغيير اللغة عند انتهاء هذه الترجمة."
 }

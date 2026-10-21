@@ -24,8 +24,8 @@ export const PROFILE_PATHS = {
   accountCenter: '/account-center',
   /** parent-name form (UpdateProfileName) */
   parentName: '/account-center/profile',
-  /** secondary-language picker (ChangeLanguage) */
-  language: '/account-center/change-language',
+  /** any signed-in screen: the language picker lives in the top bar */
+  language: '/account-center',
   /** first child's name + school district (ViewAndAddChild) */
   child: '/view-update-add-child',
 } as const;
@@ -57,13 +57,13 @@ export function markedValue(prefix: string): string {
 
 export const parentNameInput = (page: Page): Locator => page.locator('#formParentName');
 export const parentNameSubmit = (page: Page): Locator => page.getByTestId('update-profile-submit');
-export const languageSelect = (page: Page): Locator => page.getByTestId('language-select');
+/** The top bar's language picker (LanguagePreferenceDropdown via LanguageMenu). */
+export const languageToggle = (page: Page): Locator => page.getByTestId('language-preference-toggle');
 export const childNameInput = (page: Page): Locator => page.locator('#formChildName');
 export const childSubmit = (page: Page): Locator => page.getByTestId('child-save-button');
 
 export type AccountCenterRow =
   | 'update-profile'
-  | 'change-language'
   | 'delete-account'
   | 'invite'
   | 'log-out';
@@ -138,21 +138,41 @@ export async function saveChild(page: Page, name: string): Promise<void> {
 
 export async function openLanguageForm(page: Page): Promise<void> {
   await page.goto(appUrl(PROFILE_PATHS.language));
-  await expect(languageSelect(page)).toBeVisible();
-}
-
-/** The stored secondary language, as the reloaded picker shows it (the select
- * renders straight from the fetched profile, no effect in between). */
-export async function readLanguagePreference(page: Page): Promise<string> {
-  await expect(languageSelect(page)).toBeEnabled();
-  return languageSelect(page).inputValue();
+  await expect(languageToggle(page)).toBeVisible();
 }
 
 /**
- * Pick a language on the loaded picker. There is no save button: the change
+ * The language the bar's picker shows as chosen. The toggle marks its
+ * language name up in that language (lang="es"), which is the one value on it
+ * that does not depend on the copy around it. Before the profile has loaded
+ * the picker shows the screen's language as a stand-in (data-ready="false"),
+ * so this waits for the profile and for any save in flight first.
+ */
+export async function readLanguagePreference(page: Page): Promise<string> {
+  await expect(languageToggle(page)).toHaveAttribute('data-ready', 'true');
+  await expect(languageToggle(page)).not.toHaveAttribute('aria-disabled', 'true');
+  return (await languageToggle(page).locator('[lang]').getAttribute('lang')) ?? '';
+}
+
+/** Whether the bar's picker offers a language. The menu mounts only when
+ * open, so this opens it, counts, and closes it again with Escape. */
+export async function offeredLanguageCount(page: Page, code: string): Promise<number> {
+  await languageToggle(page).click();
+  await expect(page.getByTestId('language-preference-option-en')).toBeVisible();
+  const count = await page.getByTestId(`language-preference-option-${code}`).count();
+  await page.keyboard.press('Escape');
+  return count;
+}
+
+export async function expectLanguagePreference(page: Page, code: string): Promise<void> {
+  await expect(languageToggle(page).locator('[lang]')).toHaveAttribute('lang', code);
+}
+
+/**
+ * Pick a language in the bar's picker. There is no save button: the choice
  * fires an optimistic UI switch plus PUT /profile, so we wait for that exact
- * response (and for the select, disabled while the mutation is in flight, to
- * come back) instead of guessing at a settle time.
+ * response, and for the picker (unavailable while the save is in flight) to
+ * come back, instead of guessing at a settle time.
  */
 export async function setLanguagePreference(page: Page, code: string): Promise<void> {
   const saved = page.waitForResponse(
@@ -162,9 +182,10 @@ export async function setLanguagePreference(page: Page, code: string): Promise<v
       response.ok(),
     { timeout: 45_000 }
   );
-  await languageSelect(page).selectOption(code);
+  await languageToggle(page).click();
+  await page.getByTestId(`language-preference-option-${code}`).click();
   await saved;
-  await expect(languageSelect(page)).toBeEnabled();
+  await expect(languageToggle(page)).not.toHaveAttribute('aria-disabled', 'true');
 }
 
 /** Forget the browser's copy of the UI language. The next load then boots in
@@ -193,7 +214,7 @@ export async function ensureProfileBaseline(page: Page): Promise<void> {
     await setLanguagePreference(page, PROFILE_BASELINE.language);
     await openLanguageForm(page);
   }
-  await expect(languageSelect(page)).toHaveValue(PROFILE_BASELINE.language);
+  await expectLanguagePreference(page, PROFILE_BASELINE.language);
 
   await openParentNameForm(page);
   if ((await readParentName(page)) !== PROFILE_BASELINE.parentName) {

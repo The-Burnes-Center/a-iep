@@ -48,7 +48,6 @@ const ParentRightsCarousel = lazy(() => import('../components/ParentRightsCarous
 const AccountCenter = lazy(() => import('../pages/profile/AccountCenter'));
 const AboutAIEP = lazy(() => import('../components/AboutAIEP'));
 const DeleteAccount = lazy(() => import('../pages/profile/DeleteAccount'));
-const ChangeLanguage = lazy(() => import('../pages/profile/ChangeLanguage'));
 const ViewResources = lazy(() => import('../pages/profile/ViewResources'));
 const ParentRights = lazy(() => import('../pages/ParentRights'));
 const InvitePage = lazy(() => import('../pages/profile/InvitePage'));
@@ -139,7 +138,6 @@ export default function AppRoutes() {
         <Route path="/account-center" element={<AccountCenter />} />
         <Route path="/account-center/profile" element={<UpdateProfileName />} />
         <Route path="/account-center/delete-account" element={<DeleteAccount />} />
-        <Route path="/account-center/change-language" element={<ChangeLanguage />} />
         <Route path="/support-center" element={<SupportCenter />} />
 
         {/* Children & Parents */}

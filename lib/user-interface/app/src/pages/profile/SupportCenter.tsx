@@ -4,7 +4,6 @@ import { Container, Row, Col, Card, Accordion } from 'react-bootstrap';
 import PageLoading from '../../components/PageLoading';
 import { useLanguage } from '../../common/language-context';
 import { IconArrowRight } from '@tabler/icons-react';
-import LanguagePreferenceDropdown from '../../components/LanguagePreferenceDropdown';
 import './AccountCenter.css';
 
 interface SupportCenterProps {
@@ -64,7 +63,6 @@ const SupportCenter: React.FC<SupportCenterProps> = ({
       <Container className="account-center-container mt-3 mb-3">
         <Row className="mt-2">
           <Col>
-            <LanguagePreferenceDropdown />
             <Card className="account-center-card">
               <Row className="g-0">
                 <Col md={12} className="no-padding-inherit-faq">

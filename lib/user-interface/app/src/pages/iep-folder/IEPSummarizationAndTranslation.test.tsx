@@ -329,13 +329,16 @@ describe("the translate button", () => {
   test("locks the language picker while the request is in flight", async () => {
     renderPage();
     await settle();
-    expect(screen.getByRole("button", { name: "ENGLISH" })).toBeEnabled();
+    const picker = () => screen.getByRole("button", { name: "languageMenu.label: English" });
+    expect(picker()).not.toHaveAttribute("aria-disabled");
 
     await clickTranslate();
 
     // Changing the preference mid-flight would leave the running request
-    // pointing at a language the parent no longer wants.
-    expect(screen.getByRole("button", { name: "ENGLISH" })).toBeDisabled();
+    // pointing at a language the parent no longer wants. aria-disabled, not
+    // disabled: the picker keeps keyboard focus and says why it is locked.
+    expect(picker()).toHaveAttribute("aria-disabled", "true");
+    expect(picker()).toHaveAccessibleDescription("languageMenu.unavailableTranslating");
   });
 });
 
@@ -465,7 +468,7 @@ describe("when the translation lands", () => {
 
     expect(screen.getByTestId("summary-text-es")).toHaveTextContent(SPANISH_SUMMARY);
     // The picker reflecting the new selection is how the language switch shows.
-    expect(screen.getByRole("button", { name: "ESPAÑOL" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "languageMenu.label: Español" })).toBeInTheDocument();
   });
 
   test("retires the banner and the progress bar", async () => {
@@ -474,7 +477,7 @@ describe("when the translation lands", () => {
     expect(screen.queryByTestId("translate-preferred-language")).not.toBeInTheDocument();
     expect(screen.queryByTestId("translation-progress")).not.toBeInTheDocument();
     // Request finished: the picker is usable again.
-    expect(screen.getByRole("button", { name: "ESPAÑOL" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "languageMenu.label: Español" })).not.toHaveAttribute("aria-disabled");
   });
 });
 
@@ -561,7 +564,7 @@ describe("stepping away to another tab mid-translation", () => {
     await settle(POLL_INTERVAL_MS);
 
     expect(screen.getByTestId("summary-text-es")).toHaveTextContent(SPANISH_SUMMARY);
-    expect(screen.getByRole("button", { name: "ESPAÑOL" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "languageMenu.label: Español" })).toBeInTheDocument();
   });
 
   test("a run that fails while they are away is still reported", async () => {
@@ -685,7 +688,7 @@ describe("stepping away to another tab mid-translation", () => {
     // never coming, and the picker stays locked against a parent who is no
     // longer waiting for anything. The banner is already gone by now (their
     // language arrived), so this lock is the only surviving symptom.
-    expect(screen.getByRole("button", { name: "ESPAÑOL" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "languageMenu.label: Español" })).not.toHaveAttribute("aria-disabled");
   });
 
   test("an error already shown is not resurrected into a spinner", async () => {

@@ -11,6 +11,7 @@ import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useFeatures } from '../../common/hooks/use-features';
 import { isStudentNameMissing } from '../../common/features';
 import OnboardingTopBar from '../../components/OnboardingChrome';
+import { NavLanguageSlot } from '../../components/NavLanguageSlot';
 import { STEP } from '../../common/breadcrumb-steps';
 import './ProfileForms.css';
 
@@ -137,15 +138,21 @@ export default function PreferredLanguage() {
     }
   };
 
+  // Every state of this screen empties the bar's language spot, so the
+  // default picker does not show while it loads and then vanish.
   if (loading) {
     return (
-      <PageLoading message={t('common.loading')} />
+      <>
+        <NavLanguageSlot />
+        <PageLoading message={t('common.loading')} />
+      </>
     );
   }
 
   if (error) {
     return (
       <Container>
+        <NavLanguageSlot />
         <Alert variant="danger">{error}</Alert>
       </Container>
     );
@@ -156,15 +163,16 @@ export default function PreferredLanguage() {
     <>
       <div className="onboarding-page">
         {/* No language dropdown: this screen IS the language picker, and the
-            bar put a second copy of the same choice in the corner of it.
+            bar would put a second copy of the same choice in the corner of it.
 
             A way back only when a parent got here from their profile, where
             there is a real screen to return to. In onboarding this is the
             FIRST step: the entry behind it is the sign-in card, so the trail
             is the one crumb saying where they are, with nothing to follow
             out of the app. */}
+        {/* Empties the top bar's language spot (NavLanguageSlot.tsx). */}
+        <NavLanguageSlot />
         <OnboardingTopBar
-          showLanguagePicker={false}
           trail={isUpdatingFromProfile ? [STEP.account, STEP.language] : [STEP.language]}
         />
 

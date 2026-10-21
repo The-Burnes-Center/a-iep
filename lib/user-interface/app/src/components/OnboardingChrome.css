@@ -24,10 +24,6 @@
 }
 
 /* Sits right whether or not the Back button rendered. */
-.onboarding-language {
-  margin-inline-start: auto;
-}
-
 /* The trail sits in the bar, not on the page, so it drops the page gutter and
    the centred half-width column Breadcrumbs.css gives it everywhere else:
    .onboarding-page already supplies the padding, and the bar is a flex row

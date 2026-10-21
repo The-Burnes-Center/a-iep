@@ -432,7 +432,6 @@
     "footer.faqs": "Câu Hỏi Thường Gặp",
     "accountCenter.title": "Trung Tâm Tài Khoản",
     "accountCenter.updateProfile": "Cập Nhật Hồ Sơ Của Bạn",
-    "accountCenter.changeLanguage": "Thay đổi ngôn ngữ của bạn",
     "accountCenter.childName": "Tên con của bạn",
     "accountCenter.deleteAccount": "Xóa tài khoản của bạn",
     "accountCenter.logOut": "Đăng xuất",
@@ -501,11 +500,7 @@
     "updateProfile.error.serviceUnavailable": "Dịch vụ không khả dụng",
     "updateProfile.error.saveFailed": "Không thể lưu thông tin phụ huynh",
     "changeLanguage.breadcrumb.account": "TÀI KHOẢN",
-    "changeLanguage.breadcrumb.changeLanguage": "THAY ĐỔI NGÔN NGỮ",
-    "changeLanguage.title": "Ngôn Ngữ Của Bạn",
     "changeLanguage.description": "Bản tóm tắt gốc của IEP sẽ luôn được tạo bằng tiếng Anh. Chúng tôi có thể dịch bản tóm tắt này sang ngôn ngữ bạn chọn.",
-    "changeLanguage.label.translation": "DỊCH THUẬT",
-    "changeLanguage.loading": "Đang tải...",
     "preferredLanguage.update.title": "Cập nhật tùy chọn ngôn ngữ",
     "preferredLanguage.update.description": "Chọn ngôn ngữ bạn muốn dùng cho bản dịch IEP",
     "preferredLanguage.lede": "Chọn ngôn ngữ bạn muốn dùng:",
@@ -754,5 +749,10 @@
     "meta.privacy.title": "Chính sách quyền riêng tư | A-IEP",
     "meta.privacy.description": "Cách A-IEP xử lý IEP của con bạn: thông tin cá nhân được xóa trước khi bất kỳ AI nào đọc, tệp gốc bị xóa, và bạn có thể xóa mọi thứ bất cứ lúc nào.",
     "meta.hub.title": "Trung tâm A-IEP | A-IEP",
-    "meta.hub.description": "Bắt đầu tại đây: A-IEP làm gì cho phụ huynh, cách bảo mật thông tin của con bạn, và cách nhận bản tóm tắt dễ hiểu về IEP của con bạn."
+    "meta.hub.description": "Bắt đầu tại đây: A-IEP làm gì cho phụ huynh, cách bảo mật thông tin của con bạn, và cách nhận bản tóm tắt dễ hiểu về IEP của con bạn.",
+    "languageMenu.label": "Ngôn ngữ",
+    "languageMenu.saving": "Đang lưu ngôn ngữ của bạn.",
+    "languageMenu.saveFailed": "Không thể lưu ngôn ngữ của bạn. Vui lòng thử lại.",
+    "languageMenu.unavailableProcessing": "Bạn có thể đổi ngôn ngữ khi tài liệu đã sẵn sàng.",
+    "languageMenu.unavailableTranslating": "Bạn có thể đổi ngôn ngữ khi bản dịch này hoàn tất."
 }

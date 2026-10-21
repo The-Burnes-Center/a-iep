@@ -47,8 +47,26 @@
   box-shadow: 0 0 0 4px var(--aiep-green-dark);
 }
 
-.nav-language-slot .dropdown .dropdown-toggle:disabled {
+.nav-language-slot .dropdown .dropdown-toggle[aria-disabled='true'] {
   opacity: 0.6;
+}
+
+/* A failed save, said under the picker (role="alert" in
+   LanguagePreferenceDropdown.tsx). */
+.nav-language-slot .language-menu-error {
+  position: absolute;
+  inset-inline-end: 0;
+  top: calc(100% + 0.5rem);
+  width: max-content;
+  max-width: min(18rem, calc(100vw - 2rem));
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #842029;
+  border-radius: 8px;
+  background-color: #f8d7da;
+  color: #842029;
+  font-size: 0.875rem;
+  white-space: normal;
 }
 
 /* No caret on the round button: the icon already says what it is. */
@@ -56,8 +74,8 @@
   display: none;
 }
 
-/* Hidden visually, not removed: it is still the toggle's accessible name
-   where the control has no aria-label of its own. */
+/* Hidden visually, not removed: with the visually hidden prefix before it,
+   it is the toggle's accessible name on the phone's icon button too. */
 .nav-language-slot .nav-language-label {
   position: absolute;
   width: 1px;

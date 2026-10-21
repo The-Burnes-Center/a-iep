@@ -1,0 +1,29 @@
+/* Shared by every language picker (LanguageMenu.tsx). Colours and shape stay
+   with each placement (NavLanguageSlot.css, LanguageDropdown.css); this file
+   only carries what the menu itself needs. */
+
+/* Capitals by CSS, not by .toUpperCase(): the spoken name stays "Español",
+   not a word a screen reader may spell out letter by letter. */
+.language-menu--uppercase .language-menu-name {
+  text-transform: uppercase;
+}
+
+.language-menu .language-menu-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: start;
+}
+
+.language-menu .language-menu-hint {
+  color: var(--aiep-muted);
+  font-size: 0.8125rem;
+}
+
+/* Unavailable: still focusable and still says why, but looks inactive. */
+.language-menu .dropdown-toggle[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
