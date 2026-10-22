@@ -702,7 +702,11 @@ def update_user_profile(event: Dict) -> Dict:
             'secondaryLanguage': 'secondaryLanguage',
             'consentGiven': 'consentGiven',
             'parentName': 'parentName',
-            'showOnboarding': 'showOnboarding'
+            'showOnboarding': 'showOnboarding',
+            # The summary page's guided tour, offered once per parent rather
+            # than once per browser: parents move between a phone and a laptop.
+            # Absent means not seen yet, so every existing parent gets it once.
+            'summaryTourSeen': 'summaryTourSeen'
         }
 
         # If email is in the request, return an error
@@ -733,6 +737,11 @@ def update_user_profile(event: Dict) -> Dict:
                         event, 'update_user_profile', user_id, 'showOnboarding is not a boolean',
                         'showOnboarding must be a boolean value (true or false)')
                 
+                if field == 'summaryTourSeen' and not isinstance(body[field], bool):
+                    return bad_request(
+                        event, 'update_user_profile', user_id, 'summaryTourSeen is not a boolean',
+                        'summaryTourSeen must be a boolean value (true or false)')
+
                 # Encrypt selected PII fields at rest
                 value_to_store = body[field]
                 if field in ['phone', 'city', 'parentName'] and isinstance(value_to_store, str):

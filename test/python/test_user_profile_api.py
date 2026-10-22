@@ -294,12 +294,33 @@ def test_update_profile_encrypts_pii_at_rest(api):
     assert decrypted == 'Jane P.'
 
 
+def test_the_summary_tour_is_remembered_per_parent(api):
+    # Stored on the profile, not in the browser: a parent who saw the tour on
+    # their phone is not shown it again on a laptop.
+    api.profiles.put_item(Item={'userId': USER})
+    status, _ = call(api, '/profile', 'PUT', body={'summaryTourSeen': True})
+    assert status == 200
+    assert stored_profile(api)['summaryTourSeen'] is True
+
+    status, body = call(api, '/profile', 'GET')
+    assert status == 200
+    assert body['profile']['summaryTourSeen'] is True
+
+
+def test_a_profile_without_the_tour_field_has_not_seen_it(api):
+    # Every parent who existed before the tour gets it once: absent, not False.
+    api.profiles.put_item(Item={'userId': USER})
+    body = call(api, '/profile', 'GET')[1]
+    assert 'summaryTourSeen' not in body['profile']
+
+
 @pytest.mark.parametrize('body,fragment', [
     ({'email': 'x@y.org'}, 'Email cannot be updated'),
     ({'primaryLanguage': 'fr'}, 'Unsupported language'),
     ({'secondaryLanguage': 'klingon'}, 'Unsupported language'),
     ({'consentGiven': 'yes'}, 'must be a boolean'),
     ({'showOnboarding': 1}, 'must be a boolean'),
+    ({'summaryTourSeen': 'yes'}, 'must be a boolean'),
     ({}, 'No fields to update'),
     ({'children': [{'name': 'No City Kid'}]}, 'name and schoolCity'),
     ({'children': [{'name': '', 'schoolCity': 'Boston'}]}, 'blank'),
