@@ -78,6 +78,12 @@ import {
   waitForProcessingMilestone,
   waitForReplacementInProgress,
 } from '../helpers/documents';
+import {
+  setSummaryTourSeen,
+  summaryTour,
+  summaryTourSkip,
+  waitForTourSeenSaved,
+} from '../helpers/summary-tour';
 
 // Serial: every stage depends on the one before it, and they share the signed
 // in page. Retries are off on purpose: a retry restarts the whole group,
@@ -192,6 +198,39 @@ test.describe('document lifecycle (upload -> summary -> translations -> replace 
       `no ${TRANSLATION_LANGUAGE} translation was produced (check the translation step ` +
       "and the profile's secondaryLanguage at upload time)"
     ).toBeVisible({ timeout: 60_000 });
+  });
+
+  test('4b. the guided tour is offered on the finished summary, can be skipped, and stays dismissed', async () => {
+    test.setTimeout(STAGE_TIMEOUT_MS.quick);
+
+    // This context does not install dismissSummaryTourWhenShown (the fixtures
+    // do for every other journey): the tour is what is under test here. The
+    // flag is reset first because the parent may have been through it on an
+    // earlier night. It is reset here rather than at the top of the spec
+    // because the summary is first visited in stage 3, where an open tour
+    // over the old document would be harmless but pointless.
+    await setSummaryTourSeen(page, false);
+
+    await gotoSummaryPage(page);
+    const tour = summaryTour(page);
+    await expect(tour, 'a parent who has not seen the tour was not offered it').toBeVisible({ timeout: 60_000 });
+    await expect(tour).toHaveAttribute('aria-modal', 'true');
+    // Named by its step's title, so a screen reader announces something.
+    await expect(tour.getByRole('heading', { level: 2 })).not.toBeEmpty();
+
+    const saved = waitForTourSeenSaved(page);
+    await summaryTourSkip(page).click();
+    await saved;
+    await expect(tour).toBeHidden();
+
+    // A full reload empties the app's cache, so what decides this is the
+    // flag the server now holds, not React state.
+    await page.reload();
+    await expect(summaryPanel(page, TRANSLATION_LANGUAGE)).toBeVisible({ timeout: 60_000 });
+    // The tour opens after the summary and the profile have both loaded; give
+    // it that long before calling its absence real.
+    await page.waitForTimeout(3_000);
+    await expect(tour, 'the tour came back after it was skipped').toHaveCount(0);
   });
 
   test('5. the English tab and the translated tab hold different content', async () => {

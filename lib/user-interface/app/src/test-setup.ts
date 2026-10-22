@@ -31,3 +31,9 @@ if (typeof window !== "undefined" && !window.matchMedia) {
       dispatchEvent: () => false,
     }) as MediaQueryList;
 }
+
+// jsdom implements no scrolling: window.scrollBy logs "not implemented" on
+// every call. The guided tour scrolls its target into view.
+if (typeof window !== "undefined") {
+  window.scrollBy = () => {};
+}

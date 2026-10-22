@@ -57,6 +57,7 @@
  */
 import { BrowserContext, Locator, Page } from '@playwright/test';
 import { test, expect, watchCsp, expectNoCspViolations } from '../helpers/fixtures';
+import { dismissSummaryTourWhenShown } from '../helpers/summary-tour';
 import playwrightConfig from '../playwright.config';
 import { loginWithOtp } from '../helpers/app';
 import { ensureTestUser } from '../helpers/aws';
@@ -227,6 +228,8 @@ test.describe('password-protected PDF upload (detect, prompt, decrypt in the bro
     // the mobile viewport this app is built for.
     context = await browser.newContext({ viewport: playwrightConfig.use?.viewport ?? null });
     cspViolations = await watchCsp(context);
+    // Landing on the summary shows a first-time parent the guided tour.
+    await dismissSummaryTourWhenShown(context);
     page = await context.newPage();
     await stubTheUploadBoundary(page);
 

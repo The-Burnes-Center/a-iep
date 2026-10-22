@@ -143,6 +143,7 @@ beforeEach(() => {
           userId: "user-1",
           secondaryLanguage: "en",
           showOnboarding: false,
+          summaryTourSeen: true,
           children: [{ childId: CHILD_ID, name: "Child" }],
         },
       });

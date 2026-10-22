@@ -34,6 +34,8 @@ import { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
 import DocumentFailureState from './DocumentFailureState';
 import ReplacementBanner from './ReplacementBanner';
+import SummaryTour from './SummaryTour';
+import { useTourReplayRequest } from './summary-tour';
 import { NavLanguageSlot } from '../../components/NavLanguageSlot';
 import LanguageMenu from '../../components/LanguageMenu';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -114,6 +116,9 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     choose: chooseLanguage,
   } = useLanguagePreference();
   
+  // The Support page's "Show me around" sends the parent here asking for the tour.
+  const { requested: tourReplayRequested, consume: consumeTourReplay } = useTourReplayRequest();
+
   // Tutorial flow state management
   const [tutorialPhase, setTutorialPhase] = useState< 'parent-rights' | 'completed'>('parent-rights');
 
@@ -1325,6 +1330,17 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             <p>{selectedJargon?.definition}</p>
           </Offcanvas.Body>
         </Offcanvas>
+
+        {/* The processing screens return above, so reaching here already rules
+            them out; the status and content checks rule out a failed or empty
+            document. The drawer holds the screen while it is open. */}
+        <SummaryTour
+          ready={document.status === "PROCESSED" && hasContent(activeTab)}
+          blocked={showJargonDrawer}
+          activeTab={activeTab}
+          replayRequested={tourReplayRequested}
+          onReplayConsumed={consumeTourReplay}
+        />
       </Container>
     </>
   );

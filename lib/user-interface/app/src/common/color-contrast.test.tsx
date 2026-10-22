@@ -208,7 +208,9 @@ const PAIRS: Pair[] = [
 
   // -- links and the jargon terms -----------------------------------------
   { fg: "--aiep-link", bg: "--aiep-cream", level: "text", where: "links in the privacy policy and in summaries" },
-  { fg: "--aiep-link", bg: "--aiep-surface-white", level: "text", where: "links inside a code or quote block" },
+  { fg: "--aiep-link", bg: "--aiep-surface-white", level: "text", where: "links inside a code or quote block; the focus ring on the guided tour card" },
+  { fg: "--aiep-green", bg: "--aiep-surface-white", level: "text", where: "the guided tour card's Back and Skip labels" },
+  { fg: "--aiep-ink", bg: "--aiep-cream", level: "ui", where: "the guided tour cut-out's inner ring against the page it frames" },
   { fg: "--aiep-accent-blue", bg: "--aiep-cream", level: "text", where: "jargon terms in a summary (also underlined)" },
   { fg: "--aiep-accent-blue", bg: "--aiep-surface-sunk", level: "ui", where: "the icon on the document-failure card; a fanned document edge against the provider card" },
   { fg: "--aiep-accent-blue-hover", bg: "--aiep-cream", level: "text", where: "a jargon term under the pointer" },

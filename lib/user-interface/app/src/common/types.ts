@@ -73,6 +73,10 @@ export interface UserProfile {
   // arrived on (stamped once at signup, never overwritten)
   referralCode?: string;
   referredBy?: string;
+  // The summary page's guided tour has been finished or skipped. Kept on the
+  // profile, not in the browser, so a parent who moves from a phone to a
+  // laptop is not shown it twice. Absent means not seen yet.
+  summaryTourSeen?: boolean;
 }
 
 export interface ReferralJoin {

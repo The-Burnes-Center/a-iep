@@ -136,7 +136,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
     if (url === `${API_BASE}/profile`) {
       return jsonResponse(200, { profile: {
-        userId: "user-1", secondaryLanguage: "en", showOnboarding: false,
+        userId: "user-1", secondaryLanguage: "en", showOnboarding: false, summaryTourSeen: true,
         children: [{ childId: CHILD_ID, name: "Child" }],
       } });
     }

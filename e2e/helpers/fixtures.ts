@@ -11,8 +11,13 @@
  * Specs import `test` and `expect` from here, never from '@playwright/test'.
  * A spec that builds its own BrowserContext (browser.newContext) is outside
  * the default fixture, so it calls watchCsp on that context itself.
+ *
+ * It also gets the summary page's guided tour out of the way: a first-time
+ * parent is shown it as a modal over the page, which would swallow the clicks
+ * of every journey that lands on the summary. See helpers/summary-tour.ts.
  */
 import { test as base, expect, BrowserContext } from '@playwright/test';
+import { dismissSummaryTourWhenShown } from './summary-tour';
 
 const MARKER = '[csp-violation]';
 
@@ -43,7 +48,14 @@ export function expectNoCspViolations(violations: readonly string[]): void {
   expect([...new Set(violations)], 'Content-Security-Policy violations').toEqual([]);
 }
 
-export const test = base.extend<{ cspWatch: void }>({
+export const test = base.extend<{ cspWatch: void; tourDismissal: void }>({
+  tourDismissal: [
+    async ({ context }, use) => {
+      await dismissSummaryTourWhenShown(context);
+      await use();
+    },
+    { auto: true },
+  ],
   cspWatch: [
     async ({ context }, use) => {
       const violations = await watchCsp(context);

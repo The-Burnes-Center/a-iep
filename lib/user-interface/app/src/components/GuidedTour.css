@@ -1,0 +1,155 @@
+/* The guided tour: a dim with one target cut out of it, and a card beside it.
+   Positions are set from script in viewport coordinates (see
+   guided-tour-layout.ts); everything else here is direction-neutral and uses
+   logical properties, so right-to-left needs no overrides. */
+
+.guided-tour {
+  /* Above the sticky nav (1000), the skip link (1100) and Bootstrap's drawers (1045-1055). */
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  pointer-events: none;
+}
+
+.guided-tour-shield {
+  position: fixed;
+  inset: 0;
+  /* Catches every click and tap, over the cut-out too. A page scroll that
+     starts here still scrolls the page. */
+  pointer-events: auto;
+  background: transparent;
+}
+
+/* The cut-out. Its enormous shadow IS the dim, so the hole follows the box.
+   Two rings keep it visible on either side: ink against the light page inside
+   (15:1 on cream), white against the dim outside (the scrim over cream or
+   white is about 4.4:1 to 4.7:1 against it). Both clear the 3:1 a graphic
+   needs. */
+.guided-tour-highlight {
+  position: fixed;
+  border-radius: 8px;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px var(--aiep-ink), 0 0 0 5px var(--aiep-surface-white), 0 0 0 100vmax var(--aiep-image-scrim);
+}
+
+.guided-tour-highlight[data-empty='true'] {
+  box-shadow: 0 0 0 100vmax var(--aiep-image-scrim);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .guided-tour-highlight,
+  .guided-tour-card {
+    transition:
+      top 0.18s ease,
+      left 0.18s ease,
+      width 0.18s ease,
+      height 0.18s ease;
+  }
+}
+
+.guided-tour-card {
+  position: fixed;
+  box-sizing: border-box;
+  max-height: calc(100vh - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  padding: 16px;
+  pointer-events: auto;
+  background: var(--aiep-surface-white);
+  color: var(--aiep-ink);
+  border: 2px solid var(--aiep-ink);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px var(--aiep-image-scrim);
+  /* A card that grows with the text size must stay readable, not clip. */
+  overflow-wrap: anywhere;
+}
+
+.guided-tour-card:focus {
+  outline: none;
+}
+
+.guided-tour-card:focus-visible {
+  outline: 3px solid var(--aiep-link);
+  outline-offset: 2px;
+}
+
+.guided-tour-eyebrow {
+  margin: 0 0 4px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--aiep-muted);
+}
+
+.guided-tour-title {
+  margin: 0 0 8px;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--aiep-ink);
+}
+
+.guided-tour-text {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.guided-tour-step {
+  margin: 0 0 12px;
+  font-size: 0.875rem;
+  color: var(--aiep-muted);
+}
+
+.guided-tour-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.guided-tour-button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 16px;
+  font: inherit;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 2px solid var(--aiep-green);
+  cursor: pointer;
+}
+
+.guided-tour-button-primary {
+  background: var(--aiep-green);
+  color: var(--aiep-surface-white);
+}
+
+.guided-tour-button-secondary {
+  background: var(--aiep-surface-white);
+  color: var(--aiep-green);
+}
+
+/* Skip is the quiet way out, at the end of the row whichever way the page reads. */
+.guided-tour-skip {
+  margin-inline-start: auto;
+  background: transparent;
+  border-color: transparent;
+  color: var(--aiep-green);
+  text-decoration: underline;
+}
+
+.guided-tour-button:focus-visible {
+  outline: 3px solid var(--aiep-link);
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  /* Shadows are dropped in forced-colors mode, so the cut-out needs a real outline. */
+  .guided-tour-highlight {
+    border: 3px solid CanvasText;
+    outline: 3px solid Canvas;
+  }
+
+  .guided-tour-button {
+    border-color: ButtonText;
+  }
+}

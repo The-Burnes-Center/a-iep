@@ -250,6 +250,7 @@ beforeEach(async () => {
           userId: "user-1",
           secondaryLanguage: savedLanguage,
           showOnboarding: false,
+          summaryTourSeen: true,
           children: [{ childId: CHILD_ID, name: "Child" }],
         },
       });
@@ -664,6 +665,7 @@ describe("stepping away to another tab mid-translation", () => {
             userId: "user-1",
             secondaryLanguage: "es",
             showOnboarding: false,
+            summaryTourSeen: true,
             children: [{ childId: CHILD_ID, name: "Child" }],
           },
         });
