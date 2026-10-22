@@ -15,7 +15,6 @@ interface ProcessingModalProps {
   headerGreenTitle: string;
   /** e.g. "{number}. {title}", localized by the page that owns t(). */
   rightsIndicatorTemplate: string;
-  sectionHint: string;
   /**
    * The document's progress fields, passed through to ProcessingStatusBar,
    * which derives everything it draws from them. See
@@ -50,7 +49,6 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
   headerPinkTitle,
   headerGreenTitle,
   rightsIndicatorTemplate,
-  sectionHint,
   progressDocument,
   progressStepLabel,
   pollingStopped,
@@ -66,7 +64,25 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
    * says how far along they are.
    */
   const statusBlock = (
-    <ProcessingStatusBar document={progressDocument} stepLabel={progressStepLabel} />
+    <>
+      <ProcessingStatusBar
+        document={progressDocument}
+        stepLabel={progressStepLabel}
+        stepOfTemplate={t('summary.processing.stepOf')}
+        valueTextTemplate={t('summary.processing.stepValueText')}
+      />
+      {/* One fixed line, not an estimate: the run's length is anything from
+          one minute to eight, so a number here would be wrong for most
+          documents. The second sentence is true because the pipeline is a
+          server-side state machine that runs whether or not this page is
+          open, and the document's status lives in the document: on return the
+          page fetches it and lands on this screen or on the finished summary
+          (see useDocumentFetch). Inside the block, so a stalled wait, which
+          replaces the block, stops saying "usually". */}
+      <p className="processing-status-expectation">
+        {t('summary.processing.expectation')}
+      </p>
+    </>
   );
 
   /**
@@ -119,9 +135,10 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
               <div className="loading-while-parent-rights">
                 {pollingStopped ? stalledNotice : (
                   <>
-                    <p className="processing-status-headline">
+                    {/* The screen's one h1: the slides below are h2. */}
+                    <h1 className="processing-status-headline">
                       {t('summary.processing.hangTight')}
-                    </p>
+                    </h1>
                     {statusBlock}
                   </>
                 )}
@@ -136,7 +153,6 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
                   headerPinkTitle={headerPinkTitle}
                   headerGreenTitle={headerGreenTitle}
                   rightsIndicatorTemplate={rightsIndicatorTemplate}
-                  sectionHint={sectionHint}
                 />
               </div>
             </Card.Body>
@@ -153,9 +169,9 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
                           green. */}
                       <AIEPSpinner size="lg" className="aiep-spinner-inverse" />
                     </div>
-                    <h3 className="processing-status-headline">
+                    <h1 className="processing-status-headline">
                       {t('summary.processing.hangTight')}
-                    </h3>
+                    </h1>
                     {statusBlock}
                   </>
                 )}

@@ -3,6 +3,7 @@ import { ProgressBar } from 'react-bootstrap';
 import {
   displayPercent,
   processingProgressState,
+  processingStepPosition,
 } from '../pages/utils/processing-progress.mjs';
 import type { ProcessingProgressState } from '../pages/utils/processing-progress.mjs';
 
@@ -23,7 +24,21 @@ interface ProcessingStatusBarProps {
   };
   /** Already-translated name of the step in flight. */
   stepLabel: string;
+  /** "Step {number} of {total}", localized by the page that owns t(). */
+  stepOfTemplate?: string;
+  /** "Step {number} of {total}, {step}": what the bar reads aloud. */
+  valueTextTemplate?: string;
 }
+
+const DEFAULT_STEP_OF_TEMPLATE = 'Step {number} of {total}';
+
+const DEFAULT_VALUE_TEXT_TEMPLATE = 'Step {number} of {total}, {step}';
+
+const fill = (template: string, values: Record<string, string | number>): string =>
+  Object.entries(values).reduce(
+    (text, [name, value]) => text.replace(`{${name}}`, String(value)),
+    template,
+  );
 
 /**
  * How often the eased value is recomputed.
@@ -34,10 +49,15 @@ interface ProcessingStatusBarProps {
  */
 const TICK_MS = 1000;
 
-const ProcessingStatusBar: React.FC<ProcessingStatusBarProps> = ({ document: doc, stepLabel }) => {
-  // The bar's accessible name is the step line beside it, so a screen reader
-  // reads "Writing your plain-language summary, 38 percent" rather than an
-  // unnamed progressbar.
+const ProcessingStatusBar: React.FC<ProcessingStatusBarProps> = ({
+  document: doc,
+  stepLabel,
+  stepOfTemplate = DEFAULT_STEP_OF_TEMPLATE,
+  valueTextTemplate = DEFAULT_VALUE_TEXT_TEMPLATE,
+}) => {
+  // The bar's accessible name is the step name beside it, so a screen reader
+  // reads "Writing your plain-language summary" rather than an unnamed
+  // progressbar. The count rides in aria-valuetext below.
   const stepLabelId = useId();
 
   const state: ProcessingProgressState = processingProgressState(doc);
@@ -89,10 +109,19 @@ const ProcessingStatusBar: React.FC<ProcessingStatusBarProps> = ({ document: doc
 
   const percent = displayPercent(easedState, now);
 
+  // Null for a step this build has no number for: the line then shows the
+  // name alone and the bar keeps its percentage, rather than a made-up count.
+  const position = processingStepPosition(doc);
+  const stepOf = position ? fill(stepOfTemplate, position) : null;
+  const valueText = position
+    ? fill(valueTextTemplate, { ...position, step: stepLabel })
+    : undefined;
+
   return (
     <>
-      <p className="processing-status-step" id={stepLabelId}>
-        {stepLabel}
+      <p className="processing-status-step">
+        {stepOf && <span className="processing-status-step-count">{stepOf}</span>}
+        <span id={stepLabelId}>{stepLabel}</span>
       </p>
       {/* Determinate on purpose. The indeterminate barber-pole this replaced
           ran at the same speed for the two seconds of redaction and the
@@ -108,6 +137,7 @@ const ProcessingStatusBar: React.FC<ProcessingStatusBarProps> = ({ document: doc
           min={0}
           max={100}
           aria-labelledby={stepLabelId}
+          aria-valuetext={valueText}
           data-testid="processing-progress-bar"
           // The confirmed milestone, beside the eased value the bar draws. A
           // test asserting on aria-valuenow alone cannot tell the two apart,

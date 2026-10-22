@@ -25,6 +25,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import IEPSummarizationAndTranslation from "./IEPSummarizationAndTranslation";
 import { PIPELINE_MILESTONES } from "../utils/processing-progress.mjs";
+import en from "../../translations/en.json";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
 import type { AppConfig } from "../../common/types";
@@ -50,30 +51,20 @@ const ENGLISH_SUMMARY = "The English summary paragraph.";
 const PUBLIC_LANDING = "you are on the logged-out marketing site";
 const ONBOARDING_LANDING = "you are on the preferred-language step";
 
-/** The deck the page builds, in the order a parent meets it. */
+/**
+ * The deck the page builds, in the order a parent meets it: two privacy
+ * slides, then the six rights. No dividers (the slides carry a section label
+ * instead) and no tutorial slides (the guided tour owns those).
+ */
 const EXPECTED_DECK = [
-  "section-what-aiep-does",
   "privacy-slide-1",
   "privacy-slide-2",
-  "section-your-rights",
   "rights-slide-1",
   "rights-slide-2",
   "rights-slide-3",
   "rights-slide-4",
   "rights-slide-5",
   "rights-slide-6",
-  "section-what-you-will-see-next",
-  "tutorial-slide-1",
-  "tutorial-slide-2",
-  "tutorial-slide-3",
-  "tutorial-slide-4",
-];
-
-/** One divider opens each of the deck's three sections. */
-const DIVIDERS = [
-  "section-what-aiep-does",
-  "section-your-rights",
-  "section-what-you-will-see-next",
 ];
 
 const appConfig = {
@@ -117,11 +108,16 @@ let fetchMock: ReturnType<typeof vi.fn>;
 
 /**
  * t() is the identity so assertions read translation KEYS, except for the
- * indicator template: that one IS the contract the carousel formats against,
- * so the real English value is used.
+ * templates: those ARE the contract the screen formats against, so their real
+ * English values are used.
  */
+const TEMPLATE_KEYS = [
+  "carousel.rights.indicator",
+  "summary.processing.stepOf",
+  "summary.processing.stepValueText",
+];
 const translate = (key: string) =>
-  key === "carousel.rights.indicator" ? "{number}. {title}" : key;
+  TEMPLATE_KEYS.includes(key) ? (en as Record<string, string>)[key] : key;
 
 const renderPage = (language: SupportedLanguage = "en") => {
   const languageValue = {
@@ -244,7 +240,7 @@ describe("while the document is processing", () => {
     expect(activeSlideId()).toBe(EXPECTED_DECK[0]);
   });
 
-  test("the deck is fifteen slides in three divided sections", async () => {
+  test("the deck is eight slides: two privacy, then six rights", async () => {
     renderPage();
     await settle();
 
@@ -255,35 +251,75 @@ describe("while the document is processing", () => {
     }
 
     expect(visited).toEqual(EXPECTED_DECK);
-    expect(visited).toHaveLength(15);
+    expect(visited).toHaveLength(8);
+    expect(document.querySelectorAll(".carousel-slide")).toHaveLength(8);
+    // No divider and no tutorial slide anywhere in it.
+    expect(document.querySelector("[data-slide-type='section']")).toBeNull();
+    expect(document.querySelector("[data-slide-type='tutorial']")).toBeNull();
   });
 
-  test("each divider sits immediately before the group it opens", async () => {
+  test("the counter starts at 1 / 8, between the arrows, and reads as a sentence", async () => {
     renderPage();
     await settle();
 
-    // Read the real order out of the DOM rather than off EXPECTED_DECK, so
-    // this fails on its own if a divider drifts away from its group.
-    const rendered: Array<{ id: string; type: string }> = [];
+    expect(screen.getByTestId("carousel-counter")).toHaveTextContent("1 / 8");
+    expect(screen.getByText("Slide 1 of 8", { selector: ".visually-hidden" })).toBeInTheDocument();
+    clickNext();
+    expect(screen.getByTestId("carousel-counter")).toHaveTextContent("2 / 8");
+    expect(document.querySelector(".parent-rights-dot")).toBeNull();
+  });
+
+  test("each slide is labelled with its section and position in it", async () => {
+    renderPage();
+    await settle();
+
+    const labels = Array.from(document.querySelectorAll(".slide-eyebrow")).map((n) => n.textContent);
+    expect(labels).toEqual([
+      "What AIEP does · 1 of 2",
+      "What AIEP does · 2 of 2",
+      "Your Rights · 1 of 6",
+      "Your Rights · 2 of 6",
+      "Your Rights · 3 of 6",
+      "Your Rights · 4 of 6",
+      "Your Rights · 5 of 6",
+      "Your Rights · 6 of 6",
+    ]);
+  });
+
+  test("the screen has one h1, the headline, on every slide", async () => {
+    renderPage();
+    await settle();
+
     for (let i = 0; i < EXPECTED_DECK.length; i += 1) {
-      const card = screen.getByTestId("carousel-active-slide");
-      rendered.push({
-        id: card.getAttribute("data-slide-id") as string,
-        type: card.getAttribute("data-slide-type") as string,
-      });
+      const headings = screen.getAllByRole("heading", { level: 1 });
+      expect(headings).toHaveLength(1);
+      expect(headings[0]).toHaveTextContent("summary.processing.hangTight");
       clickNext();
     }
+  });
 
-    const slideAfter = (dividerId: string) =>
-      rendered[rendered.findIndex((slide) => slide.id === dividerId) + 1];
+  test("says what to expect, and the claim holds: leaving and coming back lands on the same wait", async () => {
+    // The line promises "you can leave this page and come back". That is true
+    // only because the run is the server's and the page rebuilds from the
+    // document, so it is checked the way a parent would use it: leave
+    // mid-run, return, then finish while away.
+    const first = renderPage();
+    await settle();
+    expect(screen.getByText("summary.processing.expectation")).toBeInTheDocument();
 
-    expect(rendered.filter((slide) => slide.type === "section").map((slide) => slide.id))
-      .toEqual(DIVIDERS);
-    expect(slideAfter("section-what-aiep-does")).toEqual({ id: "privacy-slide-1", type: "privacy" });
-    expect(slideAfter("section-your-rights")).toEqual({ id: "rights-slide-1", type: "rights" });
-    // The tutorial slides used to trail the rights with nothing announcing them.
-    expect(slideAfter("section-what-you-will-see-next"))
-      .toEqual({ id: "tutorial-slide-1", type: "tutorial" });
+    first.unmount();
+    const second = renderPage();
+    await settle();
+    expect(screen.getByText("summary.processing.expectation")).toBeInTheDocument();
+    expect(screen.getByTestId("processing-modal")).toBeInTheDocument();
+
+    second.unmount();
+    documentPayload = processedDocument();
+    renderPage();
+    await settle();
+
+    expect(screen.queryByTestId("processing-modal")).not.toBeInTheDocument();
+    expect(screen.getByTestId("summary-text-en")).toHaveTextContent(ENGLISH_SUMMARY);
   });
 
   test("each right is headed by its own number and title", async () => {
@@ -492,6 +528,24 @@ describe("the progress bar", () => {
     expect(progressValue()).toBe(beforeLeaving);
     expect(confirmedValue()).toBe(75);
     expect(stepLine()).toBe("summary.processing.step.translating");
+  });
+
+  test("says which of the five steps it is on, beside the step, and the bar reads it aloud", async () => {
+    documentPayload = processingDocument({ progress: 22, current_step: "pii_redaction_complete" });
+    renderPage();
+    await settle();
+
+    expect(screen.getByText("Step 2 of 5")).toBeInTheDocument();
+    expect(screen.getByTestId("processing-progress-bar")).toHaveAttribute(
+      "aria-valuetext",
+      "Step 2 of 5, summary.processing.step.protecting",
+    );
+
+    documentPayload = processingDocument({ progress: 65, current_step: "cleanup_complete", updatedAt: nowSeconds() });
+    await settle(POLL_INTERVAL_MS);
+
+    expect(screen.getByText("Step 3 of 5")).toBeInTheDocument();
+    expect(screen.queryByText("Step 2 of 5")).toBeNull();
   });
 
   test("is never empty, even before the pipeline has picked the document up", async () => {

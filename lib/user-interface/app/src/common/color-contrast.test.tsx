@@ -221,6 +221,7 @@ const PAIRS: Pair[] = [
 
   // -- the greens ----------------------------------------------------------
   { fg: "--aiep-green", bg: "--aiep-cream", level: "text", where: "the unselected login-method label; section headings" },
+  { fg: "--aiep-green", bg: "--aiep-surface-sunk", level: "text", where: "the section label above a slide's title (\"Your Rights · 3 of 6\")" },
   { fg: "--aiep-green", bg: "--aiep-surface-sunk", level: "ui", where: "the active carousel dot; a fanned document edge against the provider card" },
   { fg: "--aiep-green", bg: "--aiep-surface-field", level: "ui", where: "the processing bar's fill against its own track; the inactive carousel dots sit on the same fill" },
   { fg: "--aiep-green-dark", bg: "--aiep-cream", level: "text", where: "dark-green headings" },
@@ -229,6 +230,7 @@ const PAIRS: Pair[] = [
   { fg: "--aiep-surface-white", bg: "--aiep-green", level: "text", where: "the partner banner labels" },
   { fg: "--aiep-on-green-muted", bg: "--aiep-green", level: "text", where: "the four nav labels on the in-app bar" },
   { fg: "--aiep-on-green-muted", bg: "--aiep-green-dark", level: "text", where: "the four nav labels on the public bar" },
+  { fg: "--aiep-on-green-muted", bg: "--aiep-green-dark", level: "text", where: "the step name, \"Step N of 5\" and the expectation line in the processing band (#014620)" },
   { fg: "--aiep-sage", bg: "--aiep-green-dark", level: "text", where: "the language dropdown on the login screen (label and border)" },
 
   // -- large display type --------------------------------------------------

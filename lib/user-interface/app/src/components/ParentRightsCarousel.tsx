@@ -95,42 +95,6 @@ const DEFAULT_DECK: DefaultSlide[] = [
         content: 'By law, your case manager must provide you with a booklet of your parental rights before the IEP meeting.',
         image: '/images/carousel/blissful.png'
       },
-      {
-        id: 'slide-9',
-        type: 'tutorial',
-        titleKey: 'rights.slide7.title',
-        contentKey: 'rights.slide7.content',
-        title: 'Get a first glimpse of the entire IEP document',
-        content: 'At the top of the screen, you will find a short summary of the information we found on your IEP document.',
-        image: '/images/tutorial-01.jpg'
-      },
-      {
-        id: 'slide-10',
-        type: 'tutorial',
-        titleKey: 'rights.slide8.title',
-        contentKey: 'rights.slide8.content',
-        title: 'Understand the main insights from the IEP',
-        content: 'In the sections below, you will find the key insights we drew from the document you uploaded. Click on the titles to read the information.',
-        image: '/images/tutorial-02.jpg'
-      },
-      {
-        id: 'slide-11',
-        type: 'tutorial',
-        titleKey: 'rights.slide9.title',
-        contentKey: 'rights.slide9.content',
-        title: 'Find the meaning of complex terms',
-        content: "Whenever you see a blue word, you will be able to click on it to show its definition. When you're done, click on the X to return to your summary.",
-        image: '/images/tutorial-03.jpg'
-      },
-      {
-        id: 'slide-12',
-        type: 'tutorial',
-        titleKey: 'rights.slide10.title',
-        contentKey: 'rights.slide10.content',
-        title: 'Contrast the content with the original IEP',
-        content: 'Below the title of each key insight, you will find the page number where we took the information from. If something feels wrong, always double check!',
-        image: '/images/tutorial-04.jpg'
-      },
     ];
 
 /**
@@ -154,41 +118,25 @@ const localizeDeck = (t: (key: string) => string): SlideData[] =>
     content: withFallback(t, contentKey, slide.content),
   }));
 
-// Preload tutorial images at module load time to prevent lag when navigating
-DEFAULT_DECK
-  .filter(slide => slide.type === 'tutorial')
-  .forEach(slide => {
-    const img = new Image();
-    img.src = slide.image;
-  });
-
 /**
- * A slide's kind decides which card it wears above the text:
- * - `privacy`  green pattern card under the "your data is safe" header
- * - `rights`   pink pattern card under the "your rights" header
- * - `tutorial` full-bleed screenshot card, no header
- * - `section`  a divider that introduces the group of slides after it. It
- *              carries only its own title and an image, no body copy.
+ * A slide's kind decides which card it wears above the text, and which section
+ * its eyebrow label names:
+ * - `privacy`  green pattern card, in the "What AIEP does" section
+ * - `rights`   pink pattern card, in the "Your Rights" section
+ *
+ * The deck used to carry divider slides between sections and the screenshot
+ * tutorial slides after them. The dividers are labels now and the tutorial
+ * belongs to the guided tour on the finished summary.
  */
-export type SlideType = 'privacy' | 'rights' | 'tutorial' | 'section';
+export type SlideType = 'privacy' | 'rights';
 
 export interface SlideData {
   id: string;
   type: SlideType;
   title: string;
   content: string;
-  /** Absent on `section` dividers, which carry their title alone. */
-  image?: string;
-  /**
-   * Only read for `section` dividers: one colour per section, so the three
-   * dividers are told apart at a glance. Defaults to green.
-   */
-  theme?: SectionTheme;
+  image: string;
 }
-
-const SECTION_THEMES = ['green', 'pink', 'blue'] as const;
-
-export type SectionTheme = (typeof SECTION_THEMES)[number];
 
 /**
  * Every string below is a fallback, not a default: a caller's prop wins, and
@@ -201,18 +149,15 @@ export type SectionTheme = (typeof SECTION_THEMES)[number];
  */
 const DEFAULT_RIGHTS_INDICATOR_TEMPLATE = '{number}. {title}';
 
-const DEFAULT_SECTION_HINT = 'Swipe or tap the arrows to learn more';
-
 /**
  * The card patterns ParentRightsCarousel.css paints the header cards with.
  * The browser only fetches a CSS background when an element using it renders,
- * so the pink and blue dividers used to start their 1 MB download the moment a
- * parent reached them. Fetched on mount instead, they are cached by then.
+ * so the pink one used to start its 1 MB download the moment a parent reached
+ * the first right. Fetched on mount instead, they are cached by then.
  */
 export const CARD_PATTERN_URLS = [
   '/images/patterns-dark-green.jpg',
   '/images/patterns-pink.jpg',
-  '/images/patterns-blue.jpg',
 ] as const;
 
 const DEFAULT_HEADER_PINK_TITLE = 'Your rights as a parent';
@@ -223,8 +168,38 @@ const DEFAULT_PREVIOUS_LABEL = 'Previous';
 
 const DEFAULT_NEXT_LABEL = 'Next';
 
-/** A template for the same reason the rights indicator is one: word order. */
-const DEFAULT_GO_TO_SLIDE_TEMPLATE = 'Go to slide {number}';
+/**
+ * Templates for the same reason the rights indicator is one: word order, and
+ * the separators each language uses. They are read from the dictionary by the
+ * carousel itself; these are the English shown only before one is in memory.
+ */
+const DEFAULT_SECTION_POSITION_TEMPLATE = '{section} · {number} of {total}';
+
+const DEFAULT_COUNTER_TEMPLATE = '{number} / {total}';
+
+const DEFAULT_COUNTER_LABEL_TEMPLATE = 'Slide {number} of {total}';
+
+const DEFAULT_ANNOUNCE_TEMPLATE = 'Slide {number} of {total}: {title}';
+
+const DEFAULT_CAROUSEL_LABEL = 'While you wait: your data and your rights';
+
+const DEFAULT_SECTION_LABELS: Record<SlideType, string> = {
+  privacy: 'What AIEP does',
+  rights: 'Your Rights',
+};
+
+/** The dictionary key of the name each kind of slide's section goes by. */
+const SECTION_LABEL_KEYS: Record<SlideType, string> = {
+  privacy: 'carousel.section.whatAiepDoes',
+  rights: 'carousel.section.yourRights',
+};
+
+/** Fills `{name}` placeholders. Each locale's template owns word order. */
+const fillTemplate = (template: string, values: Record<string, string | number>): string =>
+  Object.entries(values).reduce(
+    (text, [name, value]) => text.replace(`{${name}}`, String(value)),
+    template,
+  );
 
 /**
  * Every text prop here is optional and every one of them wins when given. A
@@ -251,18 +226,6 @@ export interface ParentRightsCarouselProps {
    */
   loop?: boolean;
   rightsIndicatorTemplate?: string;
-  /** Accessible name for each dot, e.g. "Go to slide {number}". */
-  goToSlideTemplate?: string;
-  /**
-   * Body copy for a section divider, which has no content of its own. It fills
-   * what would otherwise be an empty block and tells a parent how to move on.
-   *
-   * Deliberately says "the arrows" rather than naming a side: the app sets
-   * document.dir, and this carousel mirrors its own buttons under RTL, so in
-   * Arabic "next" sits on the LEFT. Naming a side would point Arabic readers
-   * the wrong way.
-   */
-  sectionHint?: string;
 }
 
 const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
@@ -272,8 +235,6 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
   headerGreenTitle,
   loop = true,
   rightsIndicatorTemplate,
-  goToSlideTemplate,
-  sectionHint,
 }) => {
 
   const { t } = useLanguage();
@@ -297,8 +258,11 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
   const displayHeaderPinkTitle = headerPinkTitle ?? translated('rights.header.title.pink', DEFAULT_HEADER_PINK_TITLE);
   const displayHeaderGreenTitle = headerGreenTitle ?? translated('rights.header.title.green', DEFAULT_HEADER_GREEN_TITLE);
   const displayRightsIndicatorTemplate = rightsIndicatorTemplate ?? translated('carousel.rights.indicator', DEFAULT_RIGHTS_INDICATOR_TEMPLATE);
-  const displayGoToSlideTemplate = goToSlideTemplate ?? translated('carousel.goToSlide', DEFAULT_GO_TO_SLIDE_TEMPLATE);
-  const displaySectionHint = sectionHint ?? translated('carousel.section.hint', DEFAULT_SECTION_HINT);
+  const sectionPositionTemplate = translated('carousel.section.position', DEFAULT_SECTION_POSITION_TEMPLATE);
+  const counterTemplate = translated('carousel.counter', DEFAULT_COUNTER_TEMPLATE);
+  const counterLabelTemplate = translated('carousel.counter.label', DEFAULT_COUNTER_LABEL_TEMPLATE);
+  const announceTemplate = translated('carousel.announce', DEFAULT_ANNOUNCE_TEMPLATE);
+  const carouselLabel = translated('carousel.label', DEFAULT_CAROUSEL_LABEL);
 
   const slideCount = slides.length;
 
@@ -317,9 +281,9 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
 
   const goToSlide = (index: number) => setActiveIndex(clampIndex(index));
 
-  // The rights are numbered among THEMSELVES: the dividers, the app slides and
-  // the tutorial slides are not rights and are not counted, so "3." always
-  // means the third right no matter what else the deck carries.
+  // The rights are numbered among THEMSELVES: the privacy slides are not
+  // rights and are not counted, so "3." always means the third right no matter
+  // what else the deck carries.
   const rightsIds = slides.filter(slide => slide.type === 'rights').map(slide => slide.id);
 
   const rightsIndicator = (slide: SlideData): string | null => {
@@ -328,6 +292,21 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
       .replace('{number}', String(rightsIds.indexOf(slide.id) + 1))
       .replace('{title}', slide.title);
   };
+
+  // "Your Rights · 3 of 6": the section this slide is in and where in it. The
+  // slide's own title sits under it, so the label never repeats the title.
+  const sectionEyebrow = (slide: SlideData): string => {
+    const siblings = slides.filter(other => other.type === slide.type);
+    return fillTemplate(sectionPositionTemplate, {
+      section: translated(SECTION_LABEL_KEYS[slide.type], DEFAULT_SECTION_LABELS[slide.type]),
+      number: siblings.findIndex(other => other.id === slide.id) + 1,
+      total: siblings.length,
+    });
+  };
+
+  const position = { number: currentIndex + 1, total: slideCount };
+  const counterLabel = (index: number) =>
+    fillTemplate(counterLabelTemplate, { number: index + 1, total: slideCount });
 
   // Stable hook for "which slide is the carousel actually on": the header card
   // is driven straight off activeIndex, whereas every slide's text stays in the
@@ -338,54 +317,41 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
     'data-slide-type': currentSlide.type,
   };
 
+  // The card is a banner for the slide under it, not a heading: the screen's
+  // one h1 is the status headline, and the slide's own h2 is below. Its image
+  // is decoration for the same reason: the words under it say the same thing,
+  // so alt text would have a screen reader read each title twice.
   const renderHeaderCard = () => {
-    if (currentSlide.type === 'section') {
-      const theme = SECTION_THEMES.includes(currentSlide.theme) ? currentSlide.theme : 'green';
-      // Title only. A divider's job is to mark a boundary, and an illustration
-      // reads as content rather than as a break.
-      return (
-        <div className={`parent-rights-card parent-rights-card--${theme} parent-rights-card--section`} {...activeSlideProps}>
-          <h1>{currentSlide.title}</h1>
-        </div>
-      );
-    }
-
-    if (currentSlide.type === 'privacy') {
-      return (
-        <div className="parent-rights-card parent-rights-card--green" {...activeSlideProps}>
-          <h1>{displayHeaderGreenTitle}</h1>
-          <img src={currentSlide.image} className="slide-rights-image" alt={currentSlide.title} />
-        </div>
-      );
-    }
-
-    if (currentSlide.type === 'rights') {
-      return (
-        <div className="parent-rights-card parent-rights-card--pink" {...activeSlideProps}>
-          <h1>{displayHeaderPinkTitle}</h1>
-          <img src={currentSlide.image} className="slide-rights-image" alt={currentSlide.title} />
-        </div>
-      );
-    }
-
+    const isPrivacy = currentSlide.type === 'privacy';
     return (
       <div
-        key={currentSlide.id}
-        className="tutorial-card"
-        style={{ '--tutorial-bg': `url(${currentSlide.image})` } as React.CSSProperties}
+        className={`parent-rights-card parent-rights-card--${isPrivacy ? 'green' : 'pink'}`}
         {...activeSlideProps}
       >
+        <p className="parent-rights-card-title">{isPrivacy ? displayHeaderGreenTitle : displayHeaderPinkTitle}</p>
+        <img src={currentSlide.image} className="slide-rights-image" alt="" />
       </div>
     );
   };
 
-  const goToSlideLabel = (index: number) =>
-    displayGoToSlideTemplate.replace('{number}', String(index + 1));
-
   return (
-    <div className="parent-rights-container">
+    // A named region, so a screen reader can find the deck and says what it is.
+    <div
+      className="parent-rights-container"
+      role="region"
+      aria-roledescription="carousel"
+      aria-label={carouselLabel}
+    >
 
       {renderHeaderCard()}
+
+      {/* Which slide is showing, said aloud when it changes. Polite, and a
+          plain text region that nothing focuses: pressing an arrow keeps the
+          parent's place on the arrow. Always mounted, so the first change is
+          spoken. */}
+      <div aria-live="polite" aria-atomic="true" className="visually-hidden">
+        {fillTemplate(announceTemplate, { ...position, title: currentSlide.title })}
+      </div>
 
       {/* Carousel*/}
       <div className="parent-rights-carousel-wrapper">
@@ -393,10 +359,6 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
           activeIndex={currentIndex}
           onSelect={goToSlide}
           controls={false}
-          /* Ours instead, below: react-bootstrap's own dots are absolutely
-             positioned inside the deck, which is what forced every slide's
-             text block to reserve a fixed 228px of clearance whether it
-             needed it or not. */
           indicators={false}
           interval={null}
           pause="hover"
@@ -405,42 +367,38 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
         >
           {slides.map((slide, index) => (
             <Carousel.Item key={slide.id}>
-              <div className={`carousel-slide slide-${index + 1}`}>
-                {slide.type === 'section' ? (
-                  // A divider's title lives in the card above, so repeating it
-                  // here would say the same thing twice. The block still has to
-                  // hold its full height (anything shorter moves the indicator
-                  // dots under the parent's thumb), so it carries the hint
-                  // rather than sitting empty.
-                  <div className="slide-rights-content slide-rights-content--section">
-                    <p>{displaySectionHint}</p>
-                  </div>
-                ) : (
-                  <div className="slide-rights-content">
-                    {/* A right is headed by its own number and title — the one
-                        the parent is on, not a list of all six. Everything else
-                        is headed by its plain title. */}
-                    <h2 data-testid={slide.type === 'rights' ? 'rights-indicator' : undefined}>
-                      {rightsIndicator(slide) ?? slide.title}
-                    </h2>
-                    <p>{slide.content}</p>
-                  </div>
-                )}
+              <div
+                className={`carousel-slide slide-${index + 1}`}
+                role="group"
+                aria-roledescription="slide"
+                aria-label={counterLabel(index)}
+              >
+                <div className="slide-rights-content">
+                  <p className="slide-eyebrow">{sectionEyebrow(slide)}</p>
+                  {/* A right is headed by its own number and title, the one
+                      the parent is on, not a list of all six. Everything else
+                      is headed by its plain title. */}
+                  <h2 data-testid={slide.type === 'rights' ? 'rights-indicator' : undefined}>
+                    {rightsIndicator(slide) ?? slide.title}
+                  </h2>
+                  <p>{slide.content}</p>
+                </div>
               </div>
             </Carousel.Item>
           ))}
         </Carousel>
       </div>
 
-      {/* One row of controls, under the deck, rather than arrows floating
-          between the illustration and the words they belong to. Everything
-          that moves the carousel is now in the same place and within a
-          thumb's reach on a phone.
+      {/* One row of controls, under the deck: the two arrows with a text
+          counter between them. The arrows are the control; the counter only
+          says where you are, so it is not a button. (It was fifteen dots,
+          which on a phone were 16px targets the parent never needed.)
 
           The alt text is the only name the two arrows have, so it is the
           parent's label for them and is localized like any other. */}
       <div className='parent-rights-carousel-buttons'>
           <button
+            type="button"
             onClick={() => goToSlide(currentIndex - 1)}
             disabled={!loop && currentIndex === 0}
             className='carousel-nav-button carousel-prev-button'
@@ -448,24 +406,19 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
             <img loading="lazy" decoding="async" src="/images/arrow.svg" alt={translated('common.previous', DEFAULT_PREVIOUS_LABEL)} className="arrow-icon-prev" />
           </button>
 
-          {/* react-bootstrap hardcodes "Slide N" in English on its own dots,
-              so a screen reader in any of the other four languages read the
-              one English string on the screen. These are named from the
-              dictionary like everything else. */}
-          <div className="parent-rights-dots" data-testid="carousel-dots">
-            {slides.map((slide, index) => (
-              <button
-                key={slide.id}
-                type="button"
-                className={`parent-rights-dot ${index === currentIndex ? 'active' : ''}`}
-                aria-label={goToSlideLabel(index)}
-                aria-current={index === currentIndex ? 'true' : undefined}
-                onClick={() => goToSlide(index)}
-              />
-            ))}
+          {/* The glyphs are what a sighted parent reads; "3 / 8" alone is
+              ambiguous aloud, so a screen reader gets the sentence instead.
+              dir="ltr" keeps the numerals in reading order under RTL, where
+              the bidi algorithm would otherwise put the total first. */}
+          <div className="parent-rights-counter">
+            <span aria-hidden="true" dir="ltr" data-testid="carousel-counter">
+              {fillTemplate(counterTemplate, position)}
+            </span>
+            <span className="visually-hidden">{counterLabel(currentIndex)}</span>
           </div>
 
           <button
+            type="button"
             onClick={() => goToSlide(currentIndex + 1)}
             disabled={!loop && currentIndex === slideCount - 1}
             className='carousel-nav-button carousel-next-button'

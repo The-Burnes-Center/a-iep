@@ -46,3 +46,71 @@ describe('ProcessingStatusBar progress semantics', () => {
     );
   });
 });
+
+describe('ProcessingStatusBar step count', () => {
+  test('shows "Step N of 5" beside the name, and keeps the name as the bar\'s label', () => {
+    render(
+      <ProcessingStatusBar
+        document={{ status: 'PROCESSING', current_step: 'cleanup_complete' }}
+        stepLabel={STEP_LABEL}
+      />,
+    );
+
+    const line = document.querySelector('.processing-status-step') as HTMLElement;
+    expect(line.querySelector('.processing-status-step-count')).toHaveTextContent('Step 3 of 5');
+    // The name alone still names the bar; the count is carried by valuetext.
+    expect(screen.getByRole('progressbar', { name: STEP_LABEL })).toBeInTheDocument();
+  });
+
+  test.each([
+    [undefined, 1],
+    ['ocr_complete', 2],
+    ['cleanup_complete', 3],
+    ['analysis_complete', 4],
+    ['translation_complete', 5],
+  ])('after %s the bar reads "Step %i of 5, <step>"', (current_step, number) => {
+    render(
+      <ProcessingStatusBar
+        document={{ status: 'PROCESSING', current_step }}
+        stepLabel={STEP_LABEL}
+      />,
+    );
+
+    expect(screen.getByTestId('processing-progress-bar')).toHaveAttribute(
+      'aria-valuetext',
+      `Step ${number} of 5, ${STEP_LABEL}`,
+    );
+    expect(screen.getByText(`Step ${number} of 5`)).toBeInTheDocument();
+  });
+
+  test('takes the wording from the templates it is given, word order included', () => {
+    render(
+      <ProcessingStatusBar
+        document={{ status: 'PROCESSING', current_step: 'ocr_complete' }}
+        stepLabel="Paso"
+        stepOfTemplate="Paso {number} de {total}"
+        valueTextTemplate="{step}: paso {number} de {total}"
+      />,
+    );
+
+    expect(screen.getByText('Paso 2 de 5')).toBeInTheDocument();
+    expect(screen.getByTestId('processing-progress-bar')).toHaveAttribute(
+      'aria-valuetext',
+      'Paso: paso 2 de 5',
+    );
+  });
+
+  test('claims no number for a step it does not know, and keeps the bar honest', () => {
+    const { container } = render(
+      <ProcessingStatusBar
+        document={{ status: 'PROCESSING', current_step: 'some_future_step' }}
+        stepLabel={STEP_LABEL}
+      />,
+    );
+
+    expect(container.querySelector('.processing-status-step-count')).toBeNull();
+    const bar = screen.getByTestId('processing-progress-bar');
+    expect(bar).not.toHaveAttribute('aria-valuetext');
+    expect(bar).toHaveAttribute('aria-valuenow');
+  });
+});

@@ -76,8 +76,10 @@
   padding: 1rem;
 }
 
-.loading-final-screen h3 {
+.loading-final-screen h1 {
   margin: 0px;
+  /* The headline is an h1 now; this keeps it the size the h3 was. */
+  font-size: 1.75rem;
 }
 
 /* Passes the fill from the wrapper down to the card.

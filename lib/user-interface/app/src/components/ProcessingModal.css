@@ -35,15 +35,48 @@
    The bar used to float on the cream below the band, unlabelled, which is
    where an indeterminate barber-pole can sit without anyone asking what it
    means. */
+/* The screen's one h1. It was a <p> beside the carousel and an <h3> on the
+   final screen; sized here rather than left to Bootstrap's 2.5rem, which
+   would shout over a band this small. */
 .processing-status-headline {
   margin: 0;
   text-align: center;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.3;
 }
 
+/* "Step 2 of 5" beside the step's name. Wraps to two centred lines on a
+   narrow phone rather than overflowing, in any language. */
 .processing-status-step {
   margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  column-gap: 0.5rem;
   text-align: center;
   font-size: 0.9375rem;
+  color: var(--aiep-on-green-muted);
+}
+
+.processing-status-step-count {
+  font-weight: 600;
+}
+
+.processing-status-step-count::after {
+  content: '\00b7';
+  margin-inline-start: 0.5rem;
+}
+
+/* The fixed expectation under the bar. Same muted-on-green as the step line
+   (7.88:1 on #014620), a little smaller because it is the quietest thing in
+   the band. */
+.processing-status-expectation {
+  margin: 0;
+  max-width: 36rem;
+  text-align: center;
+  font-size: 0.875rem;
+  line-height: 1.4;
   color: var(--aiep-on-green-muted);
 }
 
@@ -146,6 +179,31 @@
 
   .processing-summary-loader-card {
     background-color: #014620;
+  }
+
+  /* Two columns while the deck is showing: the status band on the start side,
+     the slide on the other, instead of one 600px column in a 1200px window.
+     The loader card (no deck) stays the single 600px column above.
+
+     minmax(0, ...) so a long slide in Vietnamese cannot widen its column, and
+     the band stretches to the slide's height: the grid's default alignment is
+     what makes it a full-height panel rather than a strip at the top. The
+     page's dark-green band rule is on .loading-while-parent-rights, so it
+     needs no colour here. `direction` is left alone: the grid follows the
+     document's, so in Arabic the band sits on the right. */
+  .processing-modal-container .processing-summary-parent-rights-card {
+    width: min(1080px, 95vw);
+  }
+
+  .processing-modal-container .processing-summary-parent-rights-card .processing-summary-card-body {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    align-items: stretch;
+  }
+
+  .processing-modal-container .loading-while-parent-rights {
+    padding: 2rem;
+    gap: 0.75rem;
   }
 
   /* Show spinner only on desktop */

@@ -294,9 +294,11 @@ test.describe('document lifecycle (upload -> summary -> translations -> replace 
     // ...and on it the rights carousel, not the bare spinner card: the slides
     // are what the parent is meant to read while they wait.
     await expect(
-      page.getByTestId('carousel-dots').getByRole('button'),
+      page.getByTestId('carousel-counter'),
       'a replacement showed the spinner card instead of the rights carousel'
-    ).toHaveCount(15);
+    ).toHaveText('1 / 8');
+    // One h1 for the screen, the headline; the slides under it are h2.
+    await expect(page.getByTestId(TESTID.processing).getByRole('heading', { level: 1 })).toHaveCount(1);
     await page.getByTestId('replacement-view-current').click();
 
     // Behind it, the old summary is still readable...

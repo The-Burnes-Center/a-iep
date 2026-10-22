@@ -175,10 +175,12 @@ describe("while the new IEP is being processed", () => {
     // send a replacement to the spinner card.
     expect(modal.querySelector(".processing-summary-parent-rights-card")).not.toBeNull();
     expect(modal.querySelector(".processing-summary-loader-card")).toBeNull();
-    expect(modal).toHaveTextContent("carousel.section.whatAiepDoes");
-    // Every slide is reachable: what A-IEP does, privacy, the six rights
-    // slides and what comes next, one dot each.
-    expect(within(screen.getByTestId("carousel-dots")).getAllByRole("button")).toHaveLength(15);
+    // The first slide is a privacy slide, labelled with its section.
+    expect(modal).toHaveTextContent("What AIEP does · 1 of 2");
+    // Eight slides, two privacy and six rights, counted between the arrows.
+    expect(within(modal).getByTestId("carousel-counter")).toHaveTextContent("1 / 8");
+    expect(modal.querySelectorAll(".carousel-slide")).toHaveLength(8);
+    expect(screen.queryByTestId("carousel-dots")).toBeNull();
   });
 
   test("the bar and the step follow the new IEP as it moves through the pipeline", async () => {

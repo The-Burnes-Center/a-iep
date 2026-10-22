@@ -1,5 +1,5 @@
 
-/* Arrows and dots on one line, under the deck. The arrows used to sit
+/* Arrows and the counter on one line, under the deck. The arrows used to sit
    between the illustration and the words it belongs to, which both split the
    slide in half and left a band of empty cream nobody could use. */
 .parent-rights-carousel-buttons {
@@ -20,9 +20,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Never squeezed by the dots: 15 of them on a 360px phone would otherwise
-     shrink the two controls a parent actually aims at. */
+  /* Never squeezed by the counter: these are what a parent aims at. */
   flex: 0 0 auto;
+  /* 44px each way (WCAG 2.5.5, above the 24px 2.5.8 asks for): they are the
+     whole control now, and a parent may be tapping with a thumb while
+     anxious. Explicit, because the padding and the 15x18 glyph alone came to
+     a few pixels under at 360px. */
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .carousel-nav-button:hover:not(:disabled) {
@@ -59,7 +64,7 @@
 
 /* Centred in whatever height it is given, not parked at the top. On a phone
    the card is 100dvh, so top-aligning it left a screen's worth of empty cream
-   under the dots. `gap` owns every vertical space in here: the pieces used to
+   under the controls. `gap` owns every vertical space in here: the pieces used to
    carry their own margins and padding, which is how 20px of arrow padding and
    a 24px slide margin ended up stacked on top of each other. */
 .parent-rights-container {
@@ -96,7 +101,7 @@
    first renders, so without it the card showed the scrim alone over nothing,
    a grey frame, before snapping to its colour. The scrim sits over this colour
    too, so the card looks the same before and after the image arrives.
-   ParentRightsCarousel also preloads all three on mount. */
+   ParentRightsCarousel also preloads both on mount. */
 .parent-rights-card--pink {
   background-color: var(--aiep-pattern-pink-base);
   background-image: linear-gradient(var(--aiep-image-scrim-soft), var(--aiep-image-scrim-soft)), url('/images/patterns-pink.jpg');
@@ -107,64 +112,17 @@
   background-image: linear-gradient(var(--aiep-image-scrim-soft), var(--aiep-image-scrim-soft)), url('/images/patterns-dark-green.jpg');
 }
 
-/* Divider-only: the third section has no slide colour of its own to borrow.
-   It is the darkest of the remaining patterns but that was not enough on its
-   own -- bare, its brightest pixel puts the cream h1 at 2.49:1, under the 3:1
-   AA asks for at 40px. --aiep-image-scrim-soft is what carries it (5.55:1). */
-.parent-rights-card--blue {
-  background-color: var(--aiep-pattern-blue-base);
-  background-image: linear-gradient(var(--aiep-image-scrim-soft), var(--aiep-image-scrim-soft)), url('/images/patterns-blue.jpg');
-}
-
-/* Single h1 style for both variants */
-.parent-rights-card h1 {
+/* The card's caption, for both variants. A <p> rather than an h1: the screen's
+   one h1 is the status headline, and the heading's weight and leading are
+   what it looked like as one. */
+.parent-rights-card-title {
   width: 60%;
+  margin: 0 0 0.5rem;
   font-size: 2.5rem;
+  font-weight: 500;
+  line-height: 1.2;
   padding: 1rem;
   color: #F5F3EE;
-}
-
-/* Section dividers ("What AIEP does", "Your Rights") wear the same card as the
-   slides they introduce — same size, border and pattern — so they read as a
-   breath in the deck rather than a different screen. */
-/* A divider carries its title and nothing else, so the title owns the whole
-   card instead of sharing it with an illustration. */
-.parent-rights-card--section {
-  justify-content: center;
-  align-items: center;
-}
-
-.parent-rights-card--section h1 {
-  align-self: center;
-  text-align: center;
-  margin: 0;
-}
-
-.tutorial-card {
-  width: 100%;
-  display: flex;
-  flex-direction: row;
-  background-image: var(--tutorial-bg);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  /* Exactly the 200px of .parent-rights-card. This was min-height: 240px,
-     which made the deck 40px taller on the four tutorial slides and shifted
-     the indicator dots again on the way in and out of them. Every card type
-     is now the same height, so nothing below the carousel moves. */
-  height: 200px;
-  border-radius: 12px;
-  border: 1px solid #1E1E1E;
-  animation: fadeIn 0.3s ease-in-out;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0.7;
-  }
-  to {
-    opacity: 1;
-  }
 }
 
 .parent-rights-carousel-wrapper {
@@ -228,15 +186,16 @@
    min-height rather than height: the value below is the tallest slide there
    is, measured across all five dictionaries with padding included (Spanish
    and Vietnamese tie at 175px on a 1280px window and 136px on a 390px phone;
-   Arabic and Chinese wrap shortest at 144px and 112px), plus a little slack.
+   Arabic and Chinese wrap shortest at 144px and 112px), plus a little slack,
+   plus the eyebrow line above the title (about 28px with its margin).
    A locale that one day needs more gets a taller block rather than clipped
    words. It was a flat 228px with 24px of margin under it, which left 53px of
-   dead cream on the tallest slide there is and 204px on a section divider. */
+   dead cream on the tallest slide there is. */
 .slide-rights-content {
   position: relative;
   z-index: 2;
   width: 100%;
-  min-height: 184px;
+  min-height: 212px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -260,70 +219,30 @@
   color: var(--aiep-muted);
 }
 
-/* A divider's text block stays exactly as tall as every other slide's, even
-   though it only carries the hint. Anything shorter and the whole slide
-   shrinks, which moves the controls under the parent's thumb as they swipe
-   past each of the three dividers. It inherits the min-height above; the suite
-   asserts a divider renders no body copy through it.
+/* "Your Rights · 3 of 6" above the slide's own title.
 
-   The hint is centred, not start-aligned like body copy: it is the only line
-   in the block, under a centred title, so start-aligned it floated alone at
-   the left edge of an empty panel and read as a stray caption. */
-.slide-rights-content--section {
-  align-items: center;
-  text-align: center;
+   Green on the deck's cream is 5.84:1 (the contrast suite pins the pair). No
+   letter-spacing or text-transform: both break joined Arabic script and
+   mean nothing in Chinese, and this has to read the same in all five
+   languages. */
+.slide-rights-content .slide-eyebrow {
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--aiep-green);
 }
 
-
-/* Indicators styling.
-
-   Ours, not react-bootstrap's: see the `indicators={false}` comment in the
-   component. Wrapping rather than clipping is the deliberate failure mode --
-   fifteen dots plus two arrows do not fit on the narrowest phones, and a
-   second row of dots is better than dots a parent cannot see or reach. */
-.parent-rights-dots {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
+/* "3 / 8", between the arrows. Not a control, so no target to size; it takes
+   the room the arrows leave and centres in it. */
+.parent-rights-counter {
+  flex: 1 1 auto;
   min-width: 0;
-}
-
-/* The button is the 24px target WCAG 2.2 asks for; the 8px dot inside it is
-   what the parent sees. These were 8px buttons, so the whole hit area was the
-   dot. */
-.parent-rights-dot {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  background: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.parent-rights-dot::before {
-  content: '';
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  border: 0.5px solid #1E1E1E;
-  background-color: var(--aiep-surface-field);
-  transition: background-color 0.3s ease, transform 0.3s ease;
-}
-
-.parent-rights-dot.active::before {
-  background-color: #00682F;
-  transform: scale(1.25);
-}
-
-.parent-rights-dot:focus-visible {
-  outline: 2px solid #0040BA;
-  outline-offset: -2px;
-  border-radius: 50%;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--aiep-ink);
 }
 
 /* Ensure controls are hidden (double check) */
@@ -360,23 +279,9 @@
     padding: 1rem;
   }
 
-  /* Fifteen 24px targets plus two arrows do not fit across a phone: the
-     arrows and the dots each give up a little so that they do. A 16px dot is
-     still four times the area of the 8px one this replaced, where the dot WAS
-     the whole button, and the arrows stay the biggest thing in the row
-     because they are what a parent aims at. Measured at 360px: 240px of dots
-     in 256px of room. The wrap above is what happens below ~330px. */
+  /* Tighter padding on a phone; the 44px minimum above still holds. */
   .carousel-nav-button {
     padding: 0.625rem;
-  }
-
-  .parent-rights-dots {
-    gap: 0;
-  }
-
-  .parent-rights-dot {
-    width: 16px;
-    height: 16px;
   }
 
   .slide-rights-content h2 {
@@ -396,6 +301,17 @@
 /* Smooth animations */
 .parent-rights-carousel .carousel-item {
   transition: transform 0.6s ease-in-out;
+}
+
+/* A parent who has asked their device for less motion gets the slide swapped,
+   not slid (WCAG 2.3.3). Bootstrap carries a rule like this, but ours above
+   out-ranks it, so it has to be said again here. */
+@media (prefers-reduced-motion: reduce) {
+  .parent-rights-carousel .carousel-item,
+  .parent-rights-carousel .carousel-item-next,
+  .parent-rights-carousel .carousel-item-prev {
+    transition: none;
+  }
 }
 
 .parent-rights-carousel .carousel-item.active {

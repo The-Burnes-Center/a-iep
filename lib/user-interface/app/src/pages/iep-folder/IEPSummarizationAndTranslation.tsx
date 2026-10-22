@@ -201,22 +201,16 @@ const IEPSummarizationAndTranslation: React.FC = () => {
 
   // Parent Rights carousel data - internationalized using useLanguage hook.
   //
-  // Three dividers split the deck into the sections a parent is walked
-  // through: what the app is doing with their document, the rights they hold,
-  // and what the finished summary will look like. Reaching the end does NOT
-  // end the wait — the carousel wraps and keeps going until the document's
-  // status says it is done.
+  // Two privacy slides, then the six rights. Which section a slide belongs to
+  // is its `type`: the carousel labels each slide with it, so there are no
+  // divider slides in the deck. The tutorial slides (rights.slide7..10) are
+  // not in the deck; the guided tour on the finished summary owns them.
+  // Reaching the end does NOT end the wait: the carousel wraps and keeps going
+  // until the document's status says it is done.
   const parentRightsSlideData = useMemo(() => {
     if (!translationsLoaded) return [];
 
     return [
-      {
-        id: 'section-what-aiep-does',
-        type: 'section',
-        title: t('carousel.section.whatAiepDoes'),
-        content: '',
-        theme: 'green'
-      },
       {
         id: 'privacy-slide-1',
         type: 'privacy',
@@ -230,13 +224,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         title: t('privacy.slide2.title'),
         content: t('privacy.slide2.content'),
         image: '/images/carousel/joyful.png'
-      },
-      {
-        id: 'section-your-rights',
-        type: 'section',
-        title: t('carousel.section.yourRights'),
-        content: '',
-        theme: 'pink'
       },
       {
         id: 'rights-slide-1',
@@ -279,41 +266,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         title: t('rights.slide6.title'),
         content: t('rights.slide6.content'),
         image: '/images/carousel/blissful.png'
-      },
-      {
-        id: 'section-what-you-will-see-next',
-        type: 'section',
-        title: t('carousel.section.whatYouWillSeeNext'),
-        content: '',
-        theme: 'blue'
-      },
-      {
-        id: 'tutorial-slide-1',
-        type: 'tutorial',
-        title: t('rights.slide7.title'),
-        content: t('rights.slide7.content'),
-        image: '/images/tutorial-01.jpg'
-      },
-      {
-        id: 'tutorial-slide-2',
-        type: 'tutorial',
-        title: t('rights.slide8.title'),
-        content: t('rights.slide8.content'),
-        image: '/images/tutorial-02.jpg'
-      },
-      {
-        id: 'tutorial-slide-3',
-        type: 'tutorial',
-        title: t('rights.slide9.title'),
-        content: t('rights.slide9.content'),
-        image: '/images/tutorial-03.jpg'
-      },
-      {
-        id: 'tutorial-slide-4',
-        type: 'tutorial',
-        title: t('rights.slide10.title'),
-        content: t('rights.slide10.content'),
-        image: '/images/tutorial-04.jpg'
       }
     ] as SlideData[];
   }, [t, translationsLoaded]);
@@ -1105,7 +1057,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         headerPinkTitle={t('rights.header.title.pink')}
         headerGreenTitle={t('rights.header.title.green')}
         rightsIndicatorTemplate={t('carousel.rights.indicator')}
-        sectionHint={t('carousel.section.hint')}
         // The document itself rather than a number off it: the bar eases
         // between milestones and needs the timestamp to ease from. Nothing is
         // kept in state, so a parent who taps Account mid-run and comes back
@@ -1133,7 +1084,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         headerPinkTitle={t('rights.header.title.pink')}
         headerGreenTitle={t('rights.header.title.green')}
         rightsIndicatorTemplate={t('carousel.rights.indicator')}
-        sectionHint={t('carousel.section.hint')}
         progressDocument={document.replacement}
         progressStepLabel={t(processingStepKey(document.replacement))}
         pollingStopped={pollingStopped}

@@ -27,6 +27,14 @@ export declare const processingStepKey: (
   document: ProcessingProgressInput | null | undefined,
 ) => string;
 
+/** The five numbered steps, in pipeline order. */
+export declare const PROCESSING_STEP_KEYS: readonly string[];
+
+/** "Step N of 5" for the step in flight; null for the unnumbered catch-all. */
+export declare const processingStepPosition: (
+  document: ProcessingProgressInput | null | undefined,
+) => { number: number; total: number } | null;
+
 /** The milestone the run is heading for. */
 export declare const nextMilestonePercent: (
   document: ProcessingProgressInput | null | undefined,

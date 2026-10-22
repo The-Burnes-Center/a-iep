@@ -30,17 +30,13 @@ import ar from "../translations/ar.json";
 
 const INDICATOR_TEMPLATE = "{number}. {title}";
 
-/** The real deck's shape: a divider, the app slides, a divider, the rights. */
+/** The real deck's shape, shorter: the privacy slides, then the rights. */
 const deck: SlideData[] = [
-  { id: "section-what-aiep-does", type: "section", title: "What AIEP does", content: "", theme: "green" },
   { id: "privacy-slide-1", type: "privacy", title: "Your IEP won't be changed", content: "A separate document.", image: "/images/carousel/joyful.png" },
   { id: "privacy-slide-2", type: "privacy", title: "We care about your privacy", content: "We remove personal details.", image: "/images/carousel/joyful.png" },
-  { id: "section-your-rights", type: "section", title: "Your Rights", content: "", theme: "pink" },
   { id: "rights-slide-1", type: "rights", title: "You can request a translator", content: "Ask for one.", image: "/images/carousel/blissful.png" },
   { id: "rights-slide-2", type: "rights", title: "You can take your time", content: "No rush.", image: "/images/carousel/blissful.png" },
   { id: "rights-slide-3", type: "rights", title: "You can consent or not", content: "All, some or none.", image: "/images/carousel/blissful.png" },
-  { id: "section-what-you-will-see-next", type: "section", title: "What you'll see next", content: "", theme: "blue" },
-  { id: "tutorial-slide-1", type: "tutorial", title: "Where the summary lives", content: "At the top.", image: "/images/tutorial-01.jpg" },
 ];
 
 const LAST_ID = deck[deck.length - 1].id;
@@ -162,78 +158,108 @@ describe("looping", () => {
   });
 });
 
-describe("the section dividers", () => {
-  test("open each of the deck's three sections, in order", () => {
+describe("the section labels", () => {
+  const eyebrows = () =>
+    Array.from(document.querySelectorAll(".slide-eyebrow")).map((node) => node.textContent);
+
+  test("every slide says which section it is in and where in it, in order", () => {
     renderCarousel();
 
+    expect(eyebrows()).toEqual([
+      "What AIEP does · 1 of 2",
+      "What AIEP does · 2 of 2",
+      "Your Rights · 1 of 3",
+      "Your Rights · 2 of 3",
+      "Your Rights · 3 of 3",
+    ]);
+  });
+
+  test("the deck has no divider slides: one slide per privacy or rights entry", () => {
+    const { container } = renderCarousel();
+
+    expect(container.querySelectorAll(".carousel-slide")).toHaveLength(deck.length);
     const visited = [activeSlideId()];
     for (let i = 1; i < deck.length; i += 1) {
       clickNext();
       visited.push(activeSlideId());
     }
-
-    expect(visited).toEqual([
-      "section-what-aiep-does",
-      "privacy-slide-1",
-      "privacy-slide-2",
-      "section-your-rights",
-      "rights-slide-1",
-      "rights-slide-2",
-      "rights-slide-3",
-      "section-what-you-will-see-next",
-      "tutorial-slide-1",
-    ]);
+    expect(visited).toEqual(deck.map((slide) => slide.id));
   });
 
-  test("carry their title alone, with no image and no body text", () => {
-    // A divider marks a boundary between sections. The illustrations read as
-    // content rather than as a break, so it is title-only by design; this pins
-    // that so one cannot drift back in.
-    renderCarousel();
+  test("the label sits above the slide's own title, and does not repeat it", () => {
+    const { container } = renderCarousel();
 
-    const divider = screen.getByTestId("carousel-active-slide");
-    expect(divider).toHaveAttribute("data-slide-type", "section");
-    expect(within(divider).getByRole("heading", { level: 1 })).toHaveTextContent("What AIEP does");
-    expect(divider.querySelector("img")).toBeNull();
+    const slide = container.querySelectorAll(".carousel-slide")[2] as HTMLElement;
+    const label = slide.querySelector(".slide-eyebrow") as HTMLElement;
+    const title = within(slide).getByRole("heading", { level: 2 });
+
+    expect(label.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(label.textContent).not.toContain(title.textContent);
+    expect(title.textContent).not.toContain("Your Rights");
   });
 
-  test("wear one colour each, so three dividers are told apart", () => {
+  test("the card wears the slide's kind: green for privacy, pink for rights", () => {
     renderCarousel();
 
-    expect(screen.getByTestId("carousel-active-slide")).toHaveClass(
-      "parent-rights-card",
-      "parent-rights-card--green",
-    );
-    clickNext(3);
+    expect(screen.getByTestId("carousel-active-slide")).toHaveClass("parent-rights-card--green");
+    clickNext(2);
     expect(screen.getByTestId("carousel-active-slide")).toHaveClass("parent-rights-card--pink");
-    clickNext(4);
-    expect(screen.getByTestId("carousel-active-slide")).toHaveClass("parent-rights-card--blue");
   });
 
-  test("every divider's text block carries the hint, not its repeated title", () => {
-    // The block has to hold its full height or the indicator dots move under
-    // the parent's thumb, so it shows the hint rather than sitting empty. It
-    // must NOT repeat the divider's title, which is already in the card above.
-    const { container } = renderCarousel({ sectionHint: "Swipe to learn more" });
+  test("takes its words and its punctuation from the locale's template", () => {
+    inLanguage("zh", <ParentRightsCarousel slides={deck} />);
 
-    const dividerText = container.querySelectorAll(".slide-rights-content--section");
-    expect(dividerText).toHaveLength(3);
-    dividerText.forEach((block) => {
-      expect(block).toHaveTextContent("Swipe to learn more");
-      expect(block.querySelector("h1, h2")).toBeNull();
-    });
+    const labels = eyebrows();
+    expect(labels[0]).toBe(
+      zh["carousel.section.position"]
+        .replace("{section}", zh["carousel.section.whatAiepDoes"])
+        .replace("{number}", "1")
+        .replace("{total}", "2"),
+    );
+    expect(labels[2]).toContain(zh["carousel.section.yourRights"]);
+    // Not the English template with the Chinese section name poured into it.
+    expect(labels[2]).not.toContain(" of ");
   });
 
-  test("the hint never names a side, because RTL mirrors the arrows", () => {
-    // The app sets document.dir and this carousel flips its own buttons under
-    // RTL, so in Arabic "next" sits on the LEFT. Copy naming a side would send
-    // Arabic readers the wrong way; the shipped strings say "the arrows".
-    const sides = /\b(right|left|derecha|izquierda|phải|trái|右|左|يمين|يسار)\b/;
-    for (const [code, dict] of Object.entries({ en, es, zh, vi, ar })) {
-      const hint = (dict as Record<string, string>)["carousel.section.hint"];
-      expect(hint, `${code} hint must exist`).toBeTruthy();
-      expect(hint, `${code} hint must not name a side: ${hint}`).not.toMatch(sides);
+  test("reads right to left in Arabic, with the locale's own word for 'of'", () => {
+    render(
+      <LanguageContext.Provider
+        value={{
+          language: "ar" as SupportedLanguage,
+          setLanguage: () => {},
+          t: (key: string) => dictionaries.ar[key] || key,
+          translationsLoaded: true,
+          enabledLanguages: ["ar"] as SupportedLanguage[],
+        }}
+      >
+        <div dir="rtl">
+          <ParentRightsCarousel slides={deck} />
+        </div>
+      </LanguageContext.Provider>,
+    );
+
+    const first = document.querySelector(".slide-eyebrow") as HTMLElement;
+    expect(first).toHaveTextContent(ar["carousel.section.whatAiepDoes"]);
+    expect(first.textContent).toContain(" من ");
+    expect(first.closest('[dir="rtl"]')).not.toBeNull();
+  });
+});
+
+describe("the heading outline", () => {
+  test("a slide never renders an h1: the screen's one h1 is the status headline", () => {
+    const { container } = renderCarousel();
+
+    for (let i = 0; i < deck.length; i += 1) {
+      expect(container.querySelectorAll("h1")).toHaveLength(0);
+      clickNext();
     }
+  });
+
+  test("the card's illustration is decoration, so a title is not read twice", () => {
+    renderCarousel();
+
+    const card = screen.getByTestId("carousel-active-slide");
+    expect(card.querySelector("img")).toHaveAttribute("alt", "");
   });
 });
 
@@ -250,11 +276,11 @@ describe("the rights indicator", () => {
     ]);
   });
 
-  test("counts the rights only, not the dividers or the other slides", () => {
+  test("counts the rights only, not the privacy slides", () => {
     renderCarousel();
 
-    // Three rights in a deck of nine with three dividers in it: the first
-    // right is "1.", not "5.".
+    // Three rights in a deck of five with two privacy slides in it: the first
+    // right is "1.", not "3.".
     expect(screen.getAllByTestId("rights-indicator")).toHaveLength(3);
     expect(screen.getByText("1. You can request a translator")).toBeInTheDocument();
     // And the old "n/6" progress count is gone.
@@ -264,21 +290,19 @@ describe("the rights indicator", () => {
   test("is the only heading on a right, so the title is not said twice", () => {
     const { container } = renderCarousel();
 
-    const rightsSlide = container.querySelectorAll(".carousel-slide")[4];
+    const rightsSlide = container.querySelectorAll(".carousel-slide")[2];
     expect(
       within(rightsSlide as HTMLElement).getAllByRole("heading", { level: 2 }),
     ).toHaveLength(1);
     expect(rightsSlide).toHaveTextContent("1. You can request a translator");
   });
 
-  test("the app slides, the tutorial slides and the dividers show no number", () => {
+  test("the privacy slides show no number", () => {
     renderCarousel();
 
     expect(screen.getByText("Your IEP won't be changed")).toBeInTheDocument();
-    expect(screen.getByText("Where the summary lives")).toBeInTheDocument();
     expect(screen.queryByText(/^\d+\. Your IEP/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^\d+\. Where the summary/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^\d+\. What AIEP does$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^\d+\. We care/)).not.toBeInTheDocument();
   });
 
   test("follows the locale's own template, right-to-left included", () => {
@@ -319,15 +343,22 @@ describe("the standalone /rights-of-parents route", () => {
     const { container } = inLanguage("es", bare());
 
     const text = container.textContent ?? "";
-    // One of each kind of slide: the privacy pair, the six rights, the
-    // tutorial slides. Each is a different key namespace, and each was
-    // English before.
+    // One of each kind of slide: the privacy pair and the six rights. Each is
+    // a different key namespace, and each was English before.
     expect(text).toContain(es["privacy.slide2.content"]);
     expect(text).toContain(es["privacy.slide1.content"]);
     expect(text).toContain(es["rights.slide1.content"]);
     expect(text).toContain(es["rights.slide6.content"]);
-    expect(text).toContain(es["rights.slide7.content"]);
-    expect(text).toContain(es["rights.slide10.content"]);
+  });
+
+  test("is the same eight slides as the processing screen: no tutorial slides", () => {
+    // The tutorial slides (rights.slide7..10) moved to the guided tour.
+    const { container } = inLanguage("es", bare());
+
+    expect(container.querySelectorAll(".carousel-slide")).toHaveLength(8);
+    expect(container.textContent).not.toContain(es["rights.slide7.content"]);
+    expect(container.textContent).not.toContain(es["rights.slide10.content"]);
+    expect(screen.getByTestId("carousel-counter")).toHaveTextContent("1 / 8");
   });
 
   test("leaves no English and no raw translation key behind", () => {
@@ -339,15 +370,16 @@ describe("the standalone /rights-of-parents route", () => {
     // t() renders the key itself on a miss, so a slide wired to a key that
     // does not exist would print "rights.slide7.content" at the parent.
     expect(text).not.toMatch(/\b(rights|privacy|carousel)\.[a-zA-Z0-9.]+/);
+    // The chrome this change added is translated too: no English counter label.
+    expect(text).not.toContain("Slide 1 of 8");
+    expect(text).not.toContain(" of 6");
   });
 
   test("translates the header cards, the numbering and the arrows too", () => {
     inLanguage("es", bare());
 
     // The green privacy header is what slide 1 wears.
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
-      es["rights.header.title.green"],
-    );
+    expect(screen.getByText(es["rights.header.title.green"])).toBeInTheDocument();
     expect(screen.getByRole("button", { name: es["common.previous"] })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: es["common.next"] })).toBeInTheDocument();
     expect(screen.getAllByTestId("rights-indicator")[0]).toHaveTextContent(
@@ -414,10 +446,10 @@ describe("the processing screen's own slides", () => {
    * ProcessingModal is rendered by a page that already owns a translator and
    * hands over a finished deck. Now that the carousel has a deck of its own,
    * the caller's has to keep winning: the two are not the same length and the
-   * processing one carries the section dividers.
+   * processing one is eight slides.
    */
   const callerDeck: SlideData[] = [
-    { id: "caller-section", type: "section", title: "Lo que hace AIEP", content: "", theme: "green" },
+    { id: "caller-privacy", type: "privacy", title: "Privacidad del interlocutor", content: "Privacidad.", image: "/images/carousel/joyful.png" },
     { id: "caller-right", type: "rights", title: "Derecho del interlocutor", content: "Texto del interlocutor.", image: "/images/carousel/blissful.png" },
   ];
 
@@ -441,13 +473,12 @@ describe("the processing screen's own slides", () => {
         headerPinkTitle="Encabezado del interlocutor"
         headerGreenTitle="Encabezado verde del interlocutor"
         rightsIndicatorTemplate="[{number}] {title}"
-        sectionHint="Pista del interlocutor"
       />,
     );
 
-    // On the divider: its hint, and its green header, not the dictionary's.
-    expect(screen.getAllByText("Pista del interlocutor").length).toBeGreaterThan(0);
-    expect(screen.queryByText(es["carousel.section.hint"])).toBeNull();
+    // On the first slide: the caller's green header, not the dictionary's.
+    expect(screen.getByText("Encabezado verde del interlocutor")).toBeInTheDocument();
+    expect(screen.queryByText(es["rights.header.title.green"])).toBeNull();
     expect(screen.getByTestId("rights-indicator")).toHaveTextContent(
       "[1] Derecho del interlocutor",
     );
@@ -467,7 +498,6 @@ describe("the processing screen's own slides", () => {
         headerPinkTitle={t("rights.header.title.pink")}
         headerGreenTitle={t("rights.header.title.green")}
         rightsIndicatorTemplate={t("carousel.rights.indicator")}
-        sectionHint={t("carousel.section.hint")}
         progressDocument={{ status: "PROCESSING", progress: 22, current_step: "cleanup_complete" }}
         progressStepLabel={t("summary.processing.step.summarizing")}
         pollingStopped={false}
@@ -483,63 +513,111 @@ describe("the processing screen's own slides", () => {
 });
 
 /**
- * The dots under the deck.
+ * The counter between the arrows.
  *
- * Ours rather than react-bootstrap's, for two reasons that both showed up on
- * screen: theirs are absolutely positioned inside the deck, which forced every
- * slide's text block to reserve a fixed 228px of clearance whether it needed
- * it or not, and theirs are named "Slide N" in hardcoded English — the one
- * English string on an otherwise translated screen.
+ * It replaced fifteen dots: on a phone they were 16px targets nobody needed,
+ * and they carried no information a number does not. The arrows are the
+ * control; this only says where you are, in the parent's language.
  */
-describe("the dots", () => {
-  const dots = () => within(screen.getByTestId("carousel-dots")).getAllByRole("button");
+describe("the counter", () => {
+  const counter = () => screen.getByTestId("carousel-counter");
 
-  const activeDotIndex = () =>
-    dots().findIndex((dot) => dot.getAttribute("aria-current") === "true");
-
-  test("there is one per slide", () => {
+  test("reads 'n / total' between the arrows, and follows the slide", () => {
     renderCarousel();
 
-    expect(dots()).toHaveLength(deck.length);
-  });
-
-  test("the one for the slide on screen is the current one", () => {
-    renderCarousel();
-
-    expect(activeDotIndex()).toBe(0);
-
+    expect(counter()).toHaveTextContent("1 / 5");
     clickNext(3);
-
-    expect(activeSlideId()).toBe(deck[3].id);
-    expect(activeDotIndex()).toBe(3);
+    expect(counter()).toHaveTextContent("4 / 5");
+    clickNext(2);
+    // Wrapped round the back, as the loop does.
+    expect(counter()).toHaveTextContent("1 / 5");
   });
 
-  test("tapping one goes to that slide", () => {
+  test("sits between the previous and next arrows", () => {
+    const { container } = renderCarousel();
+
+    const row = container.querySelector(".parent-rights-carousel-buttons") as HTMLElement;
+    const children = Array.from(row.children);
+    expect(children[0]).toHaveClass("carousel-prev-button");
+    expect(children[1]).toContainElement(counter());
+    expect(children[2]).toHaveClass("carousel-next-button");
+  });
+
+  test("is not a control: no dots, nothing to tab to but the two arrows", () => {
+    const { container } = renderCarousel();
+
+    expect(container.querySelector(".parent-rights-dot")).toBeNull();
+    expect(screen.queryByTestId("carousel-dots")).toBeNull();
+    expect(screen.getAllByRole("button")).toHaveLength(2);
+  });
+
+  test("a screen reader gets a sentence, not '1 / 5'", () => {
+    const { container } = renderCarousel();
+
+    // The glyphs are hidden from assistive technology...
+    expect(counter()).toHaveAttribute("aria-hidden", "true");
+    // ...and the sentence beside them is what it reads.
+    const spoken = container.querySelector(".parent-rights-counter .visually-hidden") as HTMLElement;
+    expect(spoken).toHaveTextContent("Slide 1 of 5");
+    clickNext();
+    expect(spoken).toHaveTextContent("Slide 2 of 5");
+  });
+
+  test("keeps its numerals in reading order under right-to-left", () => {
     renderCarousel();
 
-    fireEvent.click(dots()[6]);
-
-    expect(activeSlideId()).toBe(deck[6].id);
-    expect(activeDotIndex()).toBe(6);
+    expect(counter()).toHaveAttribute("dir", "ltr");
   });
 
-  test("each is named in the parent's language, not in English", () => {
-    renderCarousel({ goToSlideTemplate: "Ir a la diapositiva {number}" });
+  test("is in the parent's language, from the dictionary", () => {
+    inLanguage("es", <ParentRightsCarousel slides={deck} />);
 
-    expect(dots()[0]).toHaveAccessibleName("Ir a la diapositiva 1");
-    expect(dots()[8]).toHaveAccessibleName("Ir a la diapositiva 9");
-    // react-bootstrap's own wording, which is what this replaced.
-    expect(screen.queryByRole("button", { name: "Slide 1" })).toBeNull();
+    expect(screen.getByText("Diapositiva 1 de 5", { selector: ".visually-hidden" })).toBeInTheDocument();
+    expect(counter()).toHaveTextContent("1 / 5");
+  });
+});
+
+describe("the carousel as a region", () => {
+  test("is a named carousel landmark", () => {
+    const { container } = renderCarousel();
+
+    const region = container.querySelector(".parent-rights-container") as HTMLElement;
+    expect(region).toHaveAttribute("role", "region");
+    expect(region).toHaveAttribute("aria-roledescription", "carousel");
+    expect(region).toHaveAttribute("aria-label", "While you wait: your data and your rights");
+    expect(screen.getByRole("region", { name: /while you wait/i })).toBe(region);
   });
 
-  test("the name is read from the dictionary when no caller passes one", () => {
-    // The standalone /rights-of-parents route mounts this component with no
-    // text props at all.
-    inLanguage("es", <ParentRightsCarousel />);
+  test("each slide is a numbered group", () => {
+    const { container } = renderCarousel();
 
-    expect(
-      screen.getByRole("button", { name: es["carousel.goToSlide"].replace("{number}", "1") }),
-    ).toBeInTheDocument();
+    const groups = Array.from(container.querySelectorAll('[aria-roledescription="slide"]'));
+    expect(groups).toHaveLength(deck.length);
+    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual([
+      "Slide 1 of 5", "Slide 2 of 5", "Slide 3 of 5", "Slide 4 of 5", "Slide 5 of 5",
+    ]);
+  });
+
+  test("announces the current slide politely, without moving focus", () => {
+    const { container } = renderCarousel();
+    const region = container.querySelector('[aria-live="polite"]') as HTMLElement;
+
+    expect(region).toHaveAttribute("aria-atomic", "true");
+    expect(region).toHaveTextContent("Slide 1 of 5: Your IEP won't be changed");
+
+    const next = screen.getByRole("button", { name: "Next" });
+    next.focus();
+    fireEvent.click(next);
+
+    expect(region).toHaveTextContent("Slide 2 of 5: We care about your privacy");
+    // The parent is still on the arrow they pressed.
+    expect(document.activeElement).toBe(next);
+  });
+
+  test("there is exactly one live region, so a change is spoken once", () => {
+    const { container } = renderCarousel();
+
+    expect(container.querySelectorAll("[aria-live]")).toHaveLength(1);
   });
 });
 
@@ -550,11 +628,23 @@ describe("the strings this change adds", () => {
     "carousel.section.whatAiepDoes",
     "carousel.section.yourRights",
     "carousel.section.whatYouWillSeeNext",
+    "carousel.counter.label",
+    "carousel.announce",
+    "carousel.label",
+    "summary.processing.stepOf",
+    "summary.processing.stepValueText",
+    "summary.processing.expectation",
     // Added for PreferredLanguage.tsx, which hardcodes them in English today.
     "preferredLanguage.update.title",
     "preferredLanguage.update.description",
   ];
-  const allKeys = [...proseKeys, "carousel.rights.indicator", "carousel.goToSlide"];
+  const allKeys = [
+    ...proseKeys,
+    "carousel.rights.indicator",
+    "carousel.goToSlide",
+    "carousel.section.position",
+    "carousel.counter",
+  ];
 
   test.each(Object.keys(locales))("%s translates all of them", (code) => {
     for (const key of allKeys) {
@@ -564,9 +654,19 @@ describe("the strings this change adds", () => {
     // right's title in that language only.
     expect(locales[code]["carousel.rights.indicator"]).toContain("{number}");
     expect(locales[code]["carousel.rights.indicator"]).toContain("{title}");
-    // Same trap for the dots: a locale that dropped {number} would name all
-    // fifteen of them identically, in that language only.
+    // Same trap for the counter and the eyebrow: a locale that dropped a
+    // placeholder would show every slide the same number, in that language only.
     expect(locales[code]["carousel.goToSlide"]).toContain("{number}");
+    for (const key of [
+      "carousel.section.position", "carousel.counter", "carousel.counter.label",
+      "summary.processing.stepOf",
+    ]) {
+      expect(locales[code][key], `${code} ${key}`).toContain("{number}");
+      expect(locales[code][key], `${code} ${key}`).toContain("{total}");
+    }
+    expect(locales[code]["carousel.section.position"]).toContain("{section}");
+    expect(locales[code]["carousel.announce"]).toContain("{title}");
+    expect(locales[code]["summary.processing.stepValueText"]).toContain("{step}");
   });
 
   test.each(["es", "zh", "vi", "ar"])("%s does not fall back to the English wording", (code) => {
@@ -599,18 +699,34 @@ function rule(selector: string): string {
   return topLevel.slice(open + 1, topLevel.indexOf("}", open));
 }
 
-describe("the divider hint", () => {
-  // jsdom lays nothing out, so this pins the rule itself: the hint is the only
-  // line in a divider's text block, under a centred title, and start-aligned it
-  // floated alone at the left edge of an empty panel.
-  test("is centred on a divider, where it is the only line", () => {
-    const body = rule(".slide-rights-content--section");
-    expect(body).toMatch(/text-align:\s*center/);
-    expect(body).toMatch(/align-items:\s*center/);
+describe("the stylesheet", () => {
+  // jsdom lays nothing out and applies no media queries, so these pin the
+  // rules themselves.
+  test("the eyebrow is the green that clears 4.5:1 on the deck, and is never spaced or upper-cased", () => {
+    const body = rule(".slide-rights-content .slide-eyebrow");
+    expect(body).toMatch(/color:\s*var\(--aiep-green\)/);
+    // Both break joined Arabic script and mean nothing in Chinese.
+    expect(body).not.toMatch(/letter-spacing|text-transform/);
   });
 
-  test("stays start-aligned on ordinary slides, whose body copy is paragraphs", () => {
+  test("slides stay start-aligned, so Arabic reads from the right", () => {
     expect(rule(".slide-rights-content")).toMatch(/text-align:\s*start/);
+  });
+
+  test("the arrows are 44px targets", () => {
+    const body = rule(".carousel-nav-button");
+    expect(body).toMatch(/min-width:\s*44px/);
+    expect(body).toMatch(/min-height:\s*44px/);
+  });
+
+  test("the slide transition is switched off for a parent who asked for less motion", () => {
+    const block = CSS.match(/@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n\}/);
+    expect(block, "no prefers-reduced-motion block").not.toBeNull();
+    const body = block?.[1] ?? "";
+    expect(body).toContain(".parent-rights-carousel .carousel-item");
+    expect(body).toMatch(/transition:\s*none/);
+    // And the motion it switches off really is there to switch off.
+    expect(CSS).toMatch(/\.parent-rights-carousel \.carousel-item\s*\{\s*transition:\s*transform/);
   });
 });
 
@@ -623,7 +739,7 @@ describe("the header card patterns", () => {
   // A CSS background is only fetched when an element using it renders, and
   // until it arrived the card showed the scrim over nothing: a grey frame
   // before each divider's colour.
-  test.each(["green", "pink", "blue"])("the %s card has a solid colour under its pattern", (theme) => {
+  test.each(["green", "pink"])("the %s card has a solid colour under its pattern", (theme) => {
     expect(rule(`.parent-rights-card--${theme}`)).toMatch(/background-color:\s*var\(--aiep-pattern-[a-z]+-base\)/);
   });
 
@@ -633,7 +749,7 @@ describe("the header card patterns", () => {
     expect([...new Set(used)].sort()).toEqual([...CARD_PATTERN_URLS].sort());
   });
 
-  test("all three are requested as soon as the carousel mounts, before any divider shows", () => {
+  test("both are requested as soon as the carousel mounts, before the first right shows", () => {
     const requested: string[] = [];
     globalThis.Image = class {
       set src(value: string) {

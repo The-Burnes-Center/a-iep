@@ -29,7 +29,9 @@ import {
   hasProgressChanged,
   nextMilestonePercent,
   processingProgressState,
+  PROCESSING_STEP_KEYS,
   processingStepKey,
+  processingStepPosition,
   progressPercent,
 } from '../../../lib/user-interface/app/src/pages/utils/processing-progress.mjs';
 
@@ -257,6 +259,47 @@ describe('processingStepKey', () => {
     for (const key of keys) {
       expect(typeof ENGLISH[key]).toBe('string');
       expect(ENGLISH[key]).not.toBe('');
+    }
+  });
+});
+
+
+describe('processingStepPosition', () => {
+  const position = (current_step, status = 'PROCESSING') =>
+    processingStepPosition({ status, current_step });
+
+  test('numbers the five steps 1 to 5, in the order the pipeline runs them', () => {
+    expect(position(undefined)).toEqual({ number: 1, total: 5 });
+    expect(position('ocr_complete')).toEqual({ number: 2, total: 5 });
+    expect(position('cleanup_complete')).toEqual({ number: 3, total: 5 });
+    expect(position('analysis_complete')).toEqual({ number: 4, total: 5 });
+    expect(position('translation_complete')).toEqual({ number: 5, total: 5 });
+    // PROCESSED wins over the step, exactly as it does for the line itself.
+    expect(position('ocr_complete', 'PROCESSED')).toEqual({ number: 5, total: 5 });
+  });
+
+  test('always agrees with the step line, so the two cannot drift apart', () => {
+    const steps = [
+      undefined, '', 'initializing', 'ocr_complete', 'pii_redaction_complete',
+      'cleanup_complete', 'analysis_complete', 'translation_requested',
+      'translation_complete', 'completed',
+    ];
+    for (const current_step of steps) {
+      const document = { status: 'PROCESSING', current_step };
+      const { number, total } = processingStepPosition(document);
+      expect(total).toBe(PROCESSING_STEP_KEYS.length);
+      expect(PROCESSING_STEP_KEYS[number - 1]).toBe(processingStepKey(document));
+    }
+  });
+
+  test('claims no number for a step it does not recognise', () => {
+    expect(position('some_future_step')).toBeNull();
+  });
+
+  test('the five keys exist in the English dictionary, and the total is five', () => {
+    expect(PROCESSING_STEP_KEYS).toHaveLength(5);
+    for (const key of PROCESSING_STEP_KEYS) {
+      expect(typeof ENGLISH[key]).toBe('string');
     }
   });
 });
