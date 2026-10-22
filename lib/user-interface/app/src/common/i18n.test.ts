@@ -150,6 +150,20 @@ describe("translation dictionaries", () => {
   });
 });
 
+describe("copy that names a control", () => {
+  // The tour's glossary step tells a parent which button closes the glossary.
+  // It named an X until the drawer got a worded Close button, so the step has
+  // to carry that button's own label, in every language.
+  test.each(ALL_LANGUAGES)("%s: the glossary step names the Close button by its label", (lang) => {
+    const dictionary = readDictionary(lang);
+    const close = dictionary["common.close"];
+    const step = dictionary["rights.slide9.content"];
+    expect(typeof close).toBe("string");
+    expect(step).toEqual(expect.stringContaining(close as string));
+    expect(step).not.toMatch(/\bX\b/);
+  });
+});
+
 describe("language metadata", () => {
   /**
    * Adding a code to SupportedLanguage without adding it here fails the app's

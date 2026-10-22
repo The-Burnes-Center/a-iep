@@ -388,6 +388,33 @@ font-family: 'akzidenz-grotesk-next-pro', sans-serif;
 
 }
 
+/* The worded Close in place of Bootstrap's X: the title's cream on the
+   header's blue, as an outlined button, so it reads as the way back. */
+.jargon-drawer .jargon-drawer-header {
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.jargon-drawer .jargon-drawer-close {
+  min-height: 44px;
+  color: #F5F3EE;
+  border: 2px solid #F5F3EE;
+  background-color: transparent;
+  font-weight: 600;
+}
+
+.jargon-drawer .jargon-drawer-close:hover,
+.jargon-drawer .jargon-drawer-close:active {
+  color: var(--aiep-accent-blue);
+  background-color: #F5F3EE;
+  border-color: #F5F3EE;
+}
+
+.jargon-drawer .jargon-drawer-close:focus-visible {
+  outline: 3px solid #F5F3EE;
+  outline-offset: 2px;
+}
+
 .jargon-drawer .offcanvas-body {
 padding: 1.5rem;
 }

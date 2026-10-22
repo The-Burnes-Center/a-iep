@@ -20,16 +20,14 @@
   background: transparent;
 }
 
-/* The cut-out. Its enormous shadow IS the dim, so the hole follows the box.
-   Two rings keep it visible on either side: ink against the light page inside
-   (15:1 on cream), white against the dim outside (the scrim over cream or
-   white is about 4.4:1 to 4.7:1 against it). Both clear the 3:1 a graphic
-   needs. */
+/* The cut-out. Its enormous shadow IS the dim, so the hole follows the box,
+   and the step between the lit page and the dim is the only edge it needs. */
 .guided-tour-highlight {
   position: fixed;
   border-radius: 8px;
   pointer-events: none;
-  box-shadow: 0 0 0 2px var(--aiep-ink), 0 0 0 5px var(--aiep-surface-white), 0 0 0 100vmax var(--aiep-image-scrim);
+  /* No ring of its own: the dim around it is what marks it out. */
+  box-shadow: 0 0 0 100vmax var(--aiep-image-scrim);
 }
 
 .guided-tour-highlight[data-empty='true'] {

@@ -1322,8 +1322,18 @@ const IEPSummarizationAndTranslation: React.FC = () => {
           placement="end"
           className="jargon-drawer"
         >
-          <Offcanvas.Header closeButton>
+          {/* A worded Close rather than Bootstrap's bare X, which parents did
+              not recognise as a way back. The tour's glossary step names it. */}
+          <Offcanvas.Header className="jargon-drawer-header">
             <Offcanvas.Title>{t('glossary.header')}</Offcanvas.Title>
+            <Button
+              variant="outline-dark"
+              className="jargon-drawer-close"
+              onClick={() => setShowJargonDrawer(false)}
+              data-testid="glossary-close"
+            >
+              {t('common.close')}
+            </Button>
           </Offcanvas.Header>
           <Offcanvas.Body>
             <h3>{selectedJargon?.term}</h3>

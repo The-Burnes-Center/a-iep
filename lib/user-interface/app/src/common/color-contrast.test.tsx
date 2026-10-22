@@ -212,6 +212,7 @@ const PAIRS: Pair[] = [
   { fg: "--aiep-green", bg: "--aiep-surface-white", level: "text", where: "the guided tour card's Back and Skip labels" },
   { fg: "--aiep-ink", bg: "--aiep-cream", level: "ui", where: "the guided tour cut-out's inner ring against the page it frames" },
   { fg: "--aiep-accent-blue", bg: "--aiep-cream", level: "text", where: "jargon terms in a summary (also underlined)" },
+  { fg: "--aiep-cream", bg: "--aiep-accent-blue", level: "text", where: "the glossary drawer's title and its Close button" },
   { fg: "--aiep-accent-blue", bg: "--aiep-surface-sunk", level: "ui", where: "the icon on the document-failure card; a fanned document edge against the provider card" },
   { fg: "--aiep-accent-blue-hover", bg: "--aiep-cream", level: "text", where: "a jargon term under the pointer" },
   { fg: "--aiep-cream", bg: "--aiep-accent-blue", level: "text", where: "the jargon drawer title, and the resources banner heading" },

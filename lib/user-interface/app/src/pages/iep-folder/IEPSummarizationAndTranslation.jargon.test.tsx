@@ -155,3 +155,23 @@ describe("tapping a highlighted word", () => {
     expect(screen.getByTestId("summary-text-en")).toHaveTextContent(SUMMARY);
   });
 });
+
+describe("closing the glossary drawer", () => {
+  test("is a worded Close button, not a bare X", async () => {
+    renderPage();
+    (await highlightedWord()).click();
+    await screen.findByRole("heading", { level: 3 });
+
+    // Parents did not recognise Bootstrap's X as the way back, and the tour's
+    // glossary step tells them to press Close.
+    expect(document.querySelector(".jargon-drawer .btn-close")).toBeNull();
+    const close = screen.getByTestId("glossary-close");
+    expect(close).toHaveTextContent("common.close");
+    expect(close.tagName).toBe("BUTTON");
+
+    close.click();
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { level: 3 })).not.toBeInTheDocument(),
+    );
+  });
+});
