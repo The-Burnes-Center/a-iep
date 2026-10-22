@@ -1,10 +1,5 @@
 import React, { useContext, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Form,
-  InputGroup,
-} from 'react-bootstrap';
+import { Alert, Button } from 'react-bootstrap';
 import { useQuery } from '@tanstack/react-query';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -23,6 +18,12 @@ import {
 import InviteQrCode from './InviteQrCode';
 import InviteQrOverlay from './InviteQrOverlay';
 import './InvitePage.css';
+
+/**
+ * Renders `btn-invite`, a class Bootstrap and the app's global stylesheets
+ * leave alone, so InvitePage.css alone decides how these buttons look.
+ */
+const BUTTON_VARIANT = 'invite';
 
 export default function InvitePage() {
   const appContext = useContext(AppContext);
@@ -111,41 +112,51 @@ export default function InvitePage() {
                       {t('invite.shareSection.title')}
                     </h2>
 
-                    <Form.Label className="invite-field-label" htmlFor="invite-link">
-                      {t('invite.yourLink')}
-                    </Form.Label>
-                    <InputGroup className="mb-3 invite-link-group">
-                      <Form.Control
-                        id="invite-link"
-                        readOnly
-                        value={inviteUrl}
-                        onFocus={(e) => e.target.select()}
-                        aria-label={t('invite.yourLink')}
-                      />
-                      <Button
-                        variant="primary"
-                        className={copied ? 'invite-copy is-copied' : 'invite-copy'}
-                        onClick={handleCopy}
-                      >
-                        <ClipboardIcon className="me-2" />
-                        {copied ? t('invite.copied') : t('invite.copy')}
-                      </Button>
-                    </InputGroup>
+                    {/* The whole link as wrapping text, not a read-only input:
+                        an input cuts the link off on a phone, so a parent cannot
+                        see what they are sending. Still selectable by hand. */}
+                    <div className="invite-link-group">
+                      <span className="invite-field-label" id="invite-link-label">
+                        {t('invite.yourLink')}
+                      </span>
+                      <p className="invite-link-url" aria-labelledby="invite-link-label">
+                        {inviteUrl}
+                      </p>
+                    </div>
 
                     <div className="invite-share-row">
-                      {canNativeShare && (
-                        <Button variant="primary" className="invite-share-primary" onClick={handleNativeShare}>
-                          <ShareIcon className="me-2" />
-                          {t('invite.share')}
+                      {/* Variant "invite", not "primary": CustomLogin.css styles
+                          every .btn-primary app-wide (margins, !important
+                          colours), and the production bundle ships it to this
+                          page. That margin pushed Copy into the link field and
+                          Share past the card edge on iOS. */}
+                      <div className="invite-actions">
+                        <Button
+                          variant={BUTTON_VARIANT}
+                          className={copied ? 'invite-action is-copied' : 'invite-action'}
+                          onClick={handleCopy}
+                        >
+                          <ClipboardIcon className="me-2" />
+                          {copied ? t('invite.copied') : t('invite.copy')}
                         </Button>
-                      )}
+                        {canNativeShare && (
+                          <Button
+                            variant={BUTTON_VARIANT}
+                            className="invite-action"
+                            onClick={handleNativeShare}
+                          >
+                            <ShareIcon className="me-2" />
+                            {t('invite.share')}
+                          </Button>
+                        )}
+                      </div>
                       <div className="invite-share-grid">
                         <Button
                           as="a"
                           href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
                           target="_blank"
                           rel="noreferrer"
-                          variant="light"
+                          variant={BUTTON_VARIANT}
                           className="invite-share-tile"
                           aria-label={t('invite.shareVia.whatsapp')}
                         >
@@ -159,7 +170,7 @@ export default function InvitePage() {
                           href={`sms:?&body=${encodeURIComponent(shareText)}`}
                           target="_blank"
                           rel="noreferrer"
-                          variant="light"
+                          variant={BUTTON_VARIANT}
                           className="invite-share-tile"
                           aria-label={t('invite.shareVia.sms')}
                         >
@@ -173,7 +184,7 @@ export default function InvitePage() {
                           href={`mailto:?subject=${encodeURIComponent(t('invite.emailSubject'))}&body=${encodeURIComponent(shareText)}`}
                           target="_blank"
                           rel="noreferrer"
-                          variant="light"
+                          variant={BUTTON_VARIANT}
                           className="invite-share-tile"
                           aria-label={t('invite.shareVia.email')}
                         >
@@ -183,7 +194,7 @@ export default function InvitePage() {
                           Email
                         </Button>
                         <Button
-                          variant="light"
+                          variant={BUTTON_VARIANT}
                           className="invite-share-tile"
                           onClick={() => setQrOpen(true)}
                         >

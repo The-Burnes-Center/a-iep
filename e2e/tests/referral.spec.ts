@@ -69,7 +69,7 @@ async function readInviteStats(page: Page): Promise<InviteStats> {
 
 /** The personal code, read from the share-link field the parent would copy. */
 async function readInviteCode(page: Page): Promise<string> {
-  const inviteUrl = await page.locator('.invite-link-group input').inputValue();
+  const inviteUrl = (await page.locator('.invite-link-url').innerText()).trim();
   const match = /\/r\/([A-Za-z0-9-]+)$/.exec(inviteUrl);
   if (!match) {
     throw new Error(`The invite link field does not hold a /r/<code> URL (saw: "${inviteUrl}")`);

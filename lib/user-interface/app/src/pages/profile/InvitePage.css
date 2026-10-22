@@ -188,62 +188,25 @@
   color: var(--aiep-muted);
 }
 
-/* ---- The link: one pill, field and button joined ------------------------- */
+/* ---- The link -------------------------------------------------------------
+   Shown whole, wrapping at any character, so a parent can read exactly what
+   they are about to send. */
 .invite-page .invite-link-group {
-  flex-wrap: nowrap;
+  margin-bottom: 1rem;
 }
 
-.invite-page .invite-link-group .form-control {
-  min-width: 0;
-  padding: 0.75rem 1rem;
+.invite-page .invite-link-url {
+  margin: 0;
+  padding: 0.85rem 1rem;
   border: 1px solid var(--aiep-border);
-  border-inline-end: 0;
-  border-radius: 999px 0 0 999px;
+  border-radius: 14px;
   background-color: var(--aiep-cream);
   color: var(--aiep-ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.9rem;
-}
-
-[dir="rtl"] .invite-page .invite-link-group .form-control {
-  border-radius: 0 999px 999px 0;
-}
-
-.invite-page .invite-link-group .invite-copy {
-  flex-shrink: 0;
-  padding: 0.75rem 1.25rem;
-  border-radius: 0 999px 999px 0;
-  font-family: akzidenz-grotesk-next-conden, sans-serif;
-  font-weight: 500;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-[dir="rtl"] .invite-page .invite-link-group .invite-copy {
-  border-radius: 999px 0 0 999px;
-}
-
-/* Set explicitly rather than trusting the app-wide .btn-primary override, so
-   the page's two solid buttons are brand green wherever it renders. */
-.invite-page .invite-copy.btn,
-.invite-page .invite-share-primary.btn {
-  background-color: var(--aiep-green-dark);
-  border-color: var(--aiep-green-dark);
-  color: var(--aiep-cream);
-}
-
-.invite-page .invite-copy.btn:hover,
-.invite-page .invite-share-primary.btn:hover,
-.invite-page .invite-link-group .invite-copy.is-copied {
-  background-color: var(--aiep-green);
-  border-color: var(--aiep-green);
-  color: var(--aiep-cream);
-}
-
-.invite-page .invite-copy.btn:focus-visible,
-.invite-page .invite-share-primary.btn:focus-visible {
-  outline: 3px solid var(--aiep-link);
-  outline-offset: 2px;
+  font-size: 1rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  user-select: all;
 }
 
 /* ---- Share ------------------------------------------------------------------ */
@@ -253,15 +216,44 @@
   gap: 0.75rem;
 }
 
-.invite-page .invite-share-primary {
-  width: 100%;
-  padding: 0.8rem 1rem;
+/* Copy and (where the phone has one) Share, side by side and equal. */
+.invite-page .invite-actions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.invite-page .invite-action.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.25rem;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--aiep-green-dark);
   border-radius: 999px;
+  background-color: var(--aiep-green-dark);
+  color: var(--aiep-cream);
   font-family: akzidenz-grotesk-next-conden, sans-serif;
   font-weight: 500;
   font-size: 1rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.invite-page .invite-action.btn:hover,
+.invite-page .invite-action.btn:active,
+.invite-page .invite-action.btn.is-copied {
+  border-color: var(--aiep-green);
+  background-color: var(--aiep-green);
+  color: var(--aiep-cream);
+}
+
+.invite-page .invite-action.btn:focus-visible {
+  outline: 3px solid var(--aiep-link);
+  outline-offset: 2px;
 }
 
 /* Phones first: two columns of compact rows, icon beside the label, each a
@@ -289,6 +281,21 @@
   line-height: 1.2;
   text-align: start;
   transition: background-color 150ms ease, transform 150ms ease;
+}
+
+/* Small phones (320-374px): a tile is too narrow for an icon beside
+   "WhatsApp", so the label goes under the icon, as on wide screens. */
+@media (max-width: 374px) {
+  .invite-page .invite-card {
+    padding: 1.25rem 1rem;
+  }
+
+  .invite-page .invite-share-tile.btn {
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.65rem 0.25rem;
+    text-align: center;
+  }
 }
 
 @media (min-width: 576px) {

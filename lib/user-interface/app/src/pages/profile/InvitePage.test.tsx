@@ -405,6 +405,30 @@ describe('InvitePage hero QR code', () => {
     expect(within(progress).getByText('1')).toBeInTheDocument();
   });
 
+  test('shows the whole invite link as text, not a field that cuts it off', async () => {
+    await renderLoaded();
+
+    const share = screen.getByRole('region', { name: 'invite.shareSection.title' });
+    const url = within(share).getByText(`${window.location.origin}/r/${REFERRAL_CODE}`);
+    expect(url.tagName.toLowerCase()).toBe('p');
+    // A read-only input truncated the link on phones; there must be none.
+    expect(share.querySelector('input')).toBeNull();
+  });
+
+  /**
+   * CustomLogin.css styles every .btn-primary app-wide (a 5px margin and
+   * !important colours) and Vite bundles it into the page in production. On
+   * iOS that margin pushed Copy into the link and Share past the card edge.
+   * The page's own buttons must stay out of reach of those global rules.
+   */
+  test('no page button is a .btn-primary the global login styles can reach', async () => {
+    const { container } = await renderLoaded();
+
+    expect(container.querySelectorAll('.btn-primary')).toHaveLength(0);
+    expect(shareControl('invite.copy')).toHaveClass('btn-invite');
+    expect(shareControl('WhatsApp')).toHaveClass('btn-invite');
+  });
+
   test('dates each join with a machine-readable time', async () => {
     await renderLoaded();
 
