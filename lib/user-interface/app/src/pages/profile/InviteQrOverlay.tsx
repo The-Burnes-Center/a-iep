@@ -4,9 +4,9 @@
  * The point is a parent holding their phone up so somebody across a table can
  * scan it, which drives every decision here:
  *
- *  - The code is rendered by `qrcode.react`'s QRCodeSVG, already a dependency
- *    (AdminReferrals uses the Canvas variant). SVG, not Canvas and emphatically
- *    not a remote QR service: the icons on this page were just moved off a web
+ *  - The code is InviteQrCode, the same inline SVG the page shows, drawn from
+ *    a locally computed matrix. SVG, not Canvas and emphatically not a remote
+ *    QR service: the icons on this page were just moved off a web
  *    font because blocked/filtered resources are a real failure for families on
  *    school and public networks, and fetching a QR from a third party would
  *    reintroduce exactly that — while also handing the referral code to someone
@@ -14,9 +14,10 @@
  *  - It is sized in CSS off the SMALLER viewport axis (`min(vw, vh)`), so it
  *    stays square and fully visible in either orientation without a resize
  *    listener. The `size` prop only sets the fallback width/height attributes.
- *  - Dark-on-white with an explicit 4-module quiet zone (the QR spec's
- *    minimum), on a white card rather than the page's cream, because scanners
- *    key off that contrast.
+ *  - Dark brand greens on white with an explicit 4-module quiet zone (the QR
+ *    spec's minimum), on a white card rather than the page's cream, because
+ *    scanners key off that contrast. InviteQrCode.test.tsx decodes the drawn
+ *    code with an independent decoder, so the decoration is held to scanning.
  *
  * The URL is passed in rather than rebuilt, so the code can never encode
  * something different from what the other share controls send.
@@ -26,17 +27,10 @@
  * selectable so it can be copied by hand.
  */
 import React, { useCallback, useEffect, useRef } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
 import { useLanguage } from '../../common/language-context';
 import { CloseIcon } from './InviteIcons';
+import InviteQrCode from './InviteQrCode';
 import './InviteQrOverlay.css';
-
-// True black on true white, not the brand ink on the brand cream: a scanner
-// reads module contrast, and this is the one place in the app where the
-// palette's warmer neutrals would cost a parent a failed scan. Named here so
-// the contrast test can see them (--aiep-black / --aiep-surface-white).
-const QR_DARK = '#000000';
-const QR_LIGHT = '#FFFFFF';
 
 /**
  * Screen Wake Lock, feature-detected. Holding a phone up for someone else to
@@ -183,19 +177,7 @@ export default function InviteQrOverlay({ url, onClose }: InviteQrOverlayProps) 
           {t('invite.qr.title')}
         </h2>
 
-        <QRCodeSVG
-          className="invite-qr-code"
-          value={url}
-          // Only the fallback intrinsic size; CSS drives the rendered size.
-          size={512}
-          // 'M' survives a bit of glare and camera blur without making the
-          // modules noticeably denser at this URL length.
-          level="M"
-          marginSize={4}
-          bgColor={QR_LIGHT}
-          fgColor={QR_DARK}
-          aria-label={t('invite.qr.imageAlt')}
-        />
+        <InviteQrCode value={url} label={t('invite.qr.imageAlt')} />
 
         <p className="invite-qr-hint">{t('invite.qr.description')}</p>
         {/* Selectable, and the accessible equivalent of the code itself. */}

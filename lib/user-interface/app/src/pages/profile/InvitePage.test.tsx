@@ -29,9 +29,9 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { QRCodeSVG } from 'qrcode.react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import InvitePage from './InvitePage';
+import { decodeQrSvg } from './invite-qr-decode.testutil';
 import { AppContext } from '../../common/app-context';
 import { LanguageContext } from '../../common/language-context';
 import type { SupportedLanguage } from '../../common/languages';
@@ -253,27 +253,6 @@ describe('InvitePage share controls', () => {
  * notice until a parent scanned it.
  */
 describe('InvitePage QR code overlay', () => {
-  /**
-   * qrcode.react draws a white background path first, then one path holding
-   * every dark module. That second path IS the encoded payload.
-   */
-  const qrModulePath = (svg: HTMLElement) =>
-    svg.querySelectorAll('path')[1]?.getAttribute('d') ?? '';
-
-  /** The same code the component asks for, rendered in isolation. */
-  const referenceQrPath = (value: string) => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const { unmount, container } = render(
-      <QRCodeSVG value={value} size={512} level="M" marginSize={4} />,
-      { container: host },
-    );
-    const path = qrModulePath(container.querySelector('svg') as unknown as HTMLElement);
-    unmount();
-    host.remove();
-    return path;
-  };
-
   const openQr = async () => {
     const user = userEvent.setup();
     await renderLoaded();
@@ -301,16 +280,11 @@ describe('InvitePage QR code overlay', () => {
     const smsHref = shareControl('SMS').getAttribute('href') ?? '';
     expect(decodeURIComponent(smsHref)).toContain(inviteUrl);
 
-    // qrcode.react exposes no DOM hook for its input, so compare the drawn
-    // modules against a reference encoding of that same url. The module path
-    // is a pure function of the value, so this fails the moment the QR encodes
-    // anything else.
-    const drawn = qrModulePath(within(dialog).getByRole('img'));
-    expect(drawn).toBe(referenceQrPath(inviteUrl));
-
-    // Guard that the comparison above can actually discriminate: a different
-    // url must produce a different path, otherwise the assertion is vacuous.
-    expect(drawn).not.toBe(referenceQrPath(`${inviteUrl}X`));
+    // Decode what was actually drawn, with a decoder independent of the
+    // encoder. This fails the moment the code encodes anything else, or the
+    // decoration stops it scanning at all.
+    const svg = within(dialog).getByRole('img') as unknown as SVGSVGElement;
+    expect(decodeQrSvg(svg)).toBe(inviteUrl);
   });
 
   test('draws the code inline with no network request', async () => {
@@ -318,8 +292,8 @@ describe('InvitePage QR code overlay', () => {
 
     const svg = within(dialog).getByRole('img');
     expect(svg.tagName.toLowerCase()).toBe('svg');
-    // Real modules, drawn as vector paths.
-    expect(svg.querySelectorAll('path').length).toBeGreaterThan(0);
+    // Real modules, drawn as vector shapes.
+    expect(svg.querySelectorAll('path.invite-qr-module').length).toBeGreaterThan(0);
     // Not a canvas, not a remote image, not a sprite reference.
     expect(dialog.querySelector('canvas')).toBeNull();
     expect(dialog.querySelectorAll('img')).toHaveLength(0);
@@ -386,5 +360,80 @@ describe('InvitePage QR code overlay', () => {
     // Tab must not walk out into the page behind the modal.
     await user.tab();
     expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+});
+
+/**
+ * The code on the page itself, above the link. It is the same component the
+ * overlay uses, so it must encode the same link, and tapping it is a second
+ * way into the full-screen overlay.
+ */
+describe('InvitePage hero QR code', () => {
+  const inviteUrl = () => `${window.location.origin}/r/${REFERRAL_CODE}`;
+
+  test('shows a scannable code for the invite link on the page', async () => {
+    await renderLoaded();
+
+    const enlarge = screen.getByRole('button', { name: 'invite.qr.enlarge' });
+    const svg = enlarge.querySelector('svg.invite-qr-code') as SVGSVGElement;
+    expect(svg).not.toBeNull();
+    expect(decodeQrSvg(svg)).toBe(inviteUrl());
+  });
+
+  test('tapping the code opens the full-screen overlay for the same link', async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    await user.click(screen.getByRole('button', { name: 'invite.qr.enlarge' }));
+
+    const dialog = await screen.findByRole('dialog');
+    const svg = within(dialog).getByRole('img') as unknown as SVGSVGElement;
+    expect(decodeQrSvg(svg)).toBe(inviteUrl());
+  });
+
+  test('lays the page out as sharing, progress and joins sections', async () => {
+    await renderLoaded();
+
+    // Named regions, so a screen reader can jump straight to each one.
+    for (const name of ['invite.shareSection.title', 'invite.stats.title', 'invite.joins.title']) {
+      const region = screen.getByRole('region', { name });
+      expect(within(region).getByRole('heading', { level: 2, name })).toBeInTheDocument();
+    }
+
+    const progress = screen.getByRole('region', { name: 'invite.stats.title' });
+    expect(within(progress).getByText('4')).toBeInTheDocument();
+    expect(within(progress).getByText('1')).toBeInTheDocument();
+  });
+
+  test('dates each join with a machine-readable time', async () => {
+    await renderLoaded();
+
+    const joins = screen.getByRole('region', { name: 'invite.joins.title' });
+    const time = joins.querySelector('time');
+    expect(time).toHaveAttribute('dateTime', STATS.joins[0].joinedAt);
+    expect(within(joins).getByText('invite.joins.item')).toBeInTheDocument();
+  });
+
+  test('keeps the page title as the one top-level heading', async () => {
+    await renderLoaded();
+
+    const h1s = screen.getAllByRole('heading', { level: 1 });
+    expect(h1s).toHaveLength(1);
+    expect(h1s[0]).toHaveTextContent('invite.title');
+  });
+
+  test('draws no code when the link failed to load', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, json: async () => ({}) }),
+    );
+
+    const { container } = renderInvitePage();
+
+    await waitFor(() => {
+      expect(screen.getByText('invite.error')).toBeInTheDocument();
+    });
+    expect(container.querySelector('svg.invite-qr-code')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'invite.qr.enlarge' })).toBeNull();
   });
 });

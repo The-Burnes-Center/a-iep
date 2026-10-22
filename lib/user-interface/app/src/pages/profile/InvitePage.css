@@ -1,6 +1,6 @@
-/* Brand kit: ink #1E1E1E, warm gray #CBC6BC, cream #F5F3EE, greens
-   #014620 (primary) / #00682F (hover, accents) — same palette as
-   AdminReferrals.css, scoped here under .invite-page. */
+/* The invite page. Brand kit: ink, cream, the two greens, and the accent
+   stripe, all from styles/palette.css. One column, a dark-green hero, then
+   white cards on the cream page. */
 
 /* Inline SVG icons (InviteIcons.tsx). They replaced bootstrap-icons glyphs,
    which are a web font and so vanish wherever web fonts are blocked — iOS
@@ -11,51 +11,337 @@
   vertical-align: -0.125em;
 }
 
+.invite-page .invite-shell {
+  width: 100%;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 0 1rem 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* ---- Hero ------------------------------------------------------------------
+   The dark-green grid paper of the processing modal and the brand pattern
+   cards, with the invite QR sitting on it like a card pinned to a board. The
+   grid is drawn in CSS rather than loaded from patterns-dark-green.jpg, so
+   nothing on this page is fetched (see InvitePage.test.tsx). */
+.invite-page .invite-hero {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 1.5rem;
+  margin: 0.5rem 0 0;
+  padding: 1.75rem 1.5rem 2rem;
+  border-radius: 20px;
+  background-color: var(--aiep-green-dark);
+  color: var(--aiep-cream);
+  text-align: start;
+}
+
+.invite-page .invite-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to bottom, var(--aiep-cream-veil) 1px, transparent 1px),
+    linear-gradient(to right, var(--aiep-cream-veil) 1px, transparent 1px);
+  background-size: 28px 28px;
+  opacity: 0.22;
+  pointer-events: none;
+}
+
+/* The brand stripe, from the same accents as the rainbow-stripe artwork. */
+.invite-page .invite-hero::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 6px;
+  background-image: linear-gradient(
+    to right,
+    var(--aiep-accent-rose) 0 25%,
+    var(--aiep-accent-orange) 25% 50%,
+    var(--aiep-amber) 50% 75%,
+    var(--aiep-accent-blue) 75% 100%
+  );
+}
+
+.invite-page .invite-hero-text,
+.invite-page .invite-hero-qr {
+  position: relative; /* above the grid */
+}
+
+.invite-page .invite-hero-title {
+  margin: 0 0 0.5rem;
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-size: clamp(1.75rem, 6vw, 2.25rem);
+  line-height: 1.15;
+  color: var(--aiep-cream);
+}
+
+.invite-page .invite-hero-description {
+  margin: 0;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--aiep-cream);
+}
+
+.invite-page .invite-hero-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.invite-page .invite-hero-qr-button {
+  display: block;
+  width: min(15rem, 100%);
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--aiep-surface-white);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  transform: rotate(-2deg);
+  transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  cursor: zoom-in;
+}
+
+.invite-page .invite-hero-qr-button:hover,
+.invite-page .invite-hero-qr-button:focus-visible {
+  transform: rotate(0deg) scale(1.03);
+}
+
+.invite-page .invite-hero-qr-button:active {
+  transform: scale(0.98);
+}
+
+.invite-page .invite-hero-qr-button:focus-visible {
+  outline: 3px solid var(--aiep-cream);
+  outline-offset: 4px;
+}
+
+.invite-page .invite-hero-qr-button .invite-qr-code {
+  width: 100%;
+  height: auto;
+}
+
+.invite-page .invite-hero-hint {
+  margin: 0;
+  max-width: 28ch;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--aiep-on-green-muted);
+}
+
+/* Side by side once there is room: copy on the left, the code on the right. */
+@media (min-width: 768px) {
+  .invite-page .invite-hero {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 2rem;
+    padding: 2.25rem 2.5rem 2.5rem;
+  }
+
+  .invite-page .invite-hero-qr-button {
+    width: 13rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .invite-page .invite-hero-qr-button {
+    transition: none;
+  }
+}
+
+/* ---- Cards ---------------------------------------------------------------- */
+.invite-page .invite-card {
+  padding: 1.5rem;
+  border: 1px solid var(--aiep-surface-field);
+  border-radius: 20px;
+  background-color: var(--aiep-surface-white);
+  box-shadow: 0 1px 2px rgba(30, 30, 30, 0.06);
+  text-align: start;
+}
+
+.invite-page .invite-card-title {
+  margin: 0 0 1rem;
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-size: 1.35rem;
+  color: var(--aiep-ink);
+}
+
+.invite-page .invite-field-label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-family: akzidenz-grotesk-next-conden, sans-serif;
+  font-weight: 500;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--aiep-muted);
+}
+
+/* ---- The link: one pill, field and button joined ------------------------- */
+.invite-page .invite-link-group {
+  flex-wrap: nowrap;
+}
+
 .invite-page .invite-link-group .form-control {
-  background-color: #F5F3EE;
-  border-color: var(--aiep-border);
-  color: #1E1E1E;
-}
-
-.invite-page .invite-link-group .btn {
-  border-color: var(--aiep-border);
-  color: #1E1E1E;
-}
-
-.invite-page .invite-link-group .btn:hover {
-  background-color: #00682F;
-  border-color: #00682F;
-  color: #F5F3EE;
-}
-
-/* Primary Share pill already renders brand green via the app-wide
-   .btn-primary override; these secondary chips get the same green
-   language instead of Bootstrap's default outline colors (WhatsApp's
-   outline-success and SMS's outline-primary render off-brand otherwise).
-   ".btn" is appended to out-specificity Bootstrap's own same-weight
-   ".btn.btn-outline-secondary" rule, which otherwise wins on source order. */
-.invite-page .invite-share-chip.btn {
-  color: #00682F;
-  border-color: #00682F;
-  background-color: transparent;
-}
-
-.invite-page .invite-share-chip.btn:hover,
-.invite-page .invite-share-chip.btn:focus {
-  color: #F5F3EE;
-  background-color: #00682F;
-  border-color: #00682F;
-}
-
-.invite-page .invite-share-chip.btn:active {
-  color: #F5F3EE;
-  background-color: #014620;
-  border-color: #014620;
-}
-
-.invite-page .invite-stats-panel {
+  min-width: 0;
+  padding: 0.75rem 1rem;
   border: 1px solid var(--aiep-border);
-  border-radius: 10px;
+  border-inline-end: 0;
+  border-radius: 999px 0 0 999px;
+  background-color: var(--aiep-cream);
+  color: var(--aiep-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
+}
+
+[dir="rtl"] .invite-page .invite-link-group .form-control {
+  border-radius: 0 999px 999px 0;
+}
+
+.invite-page .invite-link-group .invite-copy {
+  flex-shrink: 0;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0 999px 999px 0;
+  font-family: akzidenz-grotesk-next-conden, sans-serif;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+[dir="rtl"] .invite-page .invite-link-group .invite-copy {
+  border-radius: 999px 0 0 999px;
+}
+
+/* Set explicitly rather than trusting the app-wide .btn-primary override, so
+   the page's two solid buttons are brand green wherever it renders. */
+.invite-page .invite-copy.btn,
+.invite-page .invite-share-primary.btn {
+  background-color: var(--aiep-green-dark);
+  border-color: var(--aiep-green-dark);
+  color: var(--aiep-cream);
+}
+
+.invite-page .invite-copy.btn:hover,
+.invite-page .invite-share-primary.btn:hover,
+.invite-page .invite-link-group .invite-copy.is-copied {
+  background-color: var(--aiep-green);
+  border-color: var(--aiep-green);
+  color: var(--aiep-cream);
+}
+
+.invite-page .invite-copy.btn:focus-visible,
+.invite-page .invite-share-primary.btn:focus-visible {
+  outline: 3px solid var(--aiep-link);
+  outline-offset: 2px;
+}
+
+/* ---- Share ------------------------------------------------------------------ */
+.invite-page .invite-share-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.invite-page .invite-share-primary {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  border-radius: 999px;
+  font-family: akzidenz-grotesk-next-conden, sans-serif;
+  font-weight: 500;
+  font-size: 1rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* Phones first: two columns of compact rows, icon beside the label, each a
+   comfortable thumb target. Wider screens get four stacked tiles below. */
+.invite-page .invite-share-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.invite-page .invite-share-tile.btn {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 3.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  background-color: var(--aiep-cream);
+  color: var(--aiep-ink);
+  font-family: akzidenz-grotesk-next-conden, sans-serif;
+  font-weight: 500;
+  font-size: 0.95rem;
+  letter-spacing: 0.03em;
+  line-height: 1.2;
+  text-align: start;
+  transition: background-color 150ms ease, transform 150ms ease;
+}
+
+@media (min-width: 576px) {
+  .invite-page .invite-share-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .invite-page .invite-share-tile.btn {
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.9rem 0.25rem 0.75rem;
+    font-size: 0.85rem;
+    text-align: center;
+  }
+}
+
+.invite-page .invite-share-tile.btn:hover {
+  background-color: var(--aiep-surface-field);
+  color: var(--aiep-ink);
+}
+
+.invite-page .invite-share-tile.btn:active {
+  transform: scale(0.97);
+}
+
+.invite-page .invite-share-tile.btn:focus-visible {
+  outline: 3px solid var(--aiep-link);
+  outline-offset: 2px;
+}
+
+.invite-page .invite-share-tile-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background-color: var(--aiep-green-dark);
+  color: var(--aiep-cream);
+  font-size: 1.15rem;
+}
+
+.invite-page .invite-share-tile-icon .invite-icon {
+  vertical-align: 0;
+}
+
+/* ---- Stats: one band, two tones ---------------------------------------------- */
+.invite-page .invite-stats-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-radius: 16px;
+  overflow: hidden;
 }
 
 .invite-page .invite-stat {
@@ -63,58 +349,154 @@
   text-align: center;
 }
 
-.invite-page .invite-stat + .invite-stat {
-  border-inline-start: 1px solid var(--aiep-border);
+.invite-page .invite-stat--visits {
+  background-color: var(--aiep-cream);
+}
+
+.invite-page .invite-stat--joined {
+  background-color: var(--aiep-green-dark);
 }
 
 .invite-page .invite-stat-value {
   font-family: "Fjalla One", sans-serif;
   font-weight: 400;
-  font-size: 2rem;
-  color: #1E1E1E;
-  line-height: 1.2;
+  font-size: 2.5rem;
+  line-height: 1.1;
+  color: var(--aiep-green-dark);
 }
 
 .invite-page .invite-stat-label {
+  margin-top: 0.25rem;
   font-family: akzidenz-grotesk-next-conden, sans-serif;
   font-weight: 500;
-  font-size: 0.85rem;
-  letter-spacing: 0.05em;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #1E1E1E;
-  opacity: 0.7;
+  color: var(--aiep-muted);
 }
 
-.invite-page .invite-section-title {
-  font-family: "Fjalla One", sans-serif;
-  font-weight: 400;
-  font-style: normal;
-  font-size: 1.25rem;
+.invite-page .invite-stat--joined .invite-stat-value {
+  color: var(--aiep-cream);
 }
 
+.invite-page .invite-stat--joined .invite-stat-label {
+  color: var(--aiep-on-green-muted);
+}
+
+/* ---- Joins -------------------------------------------------------------------- */
 .invite-page .invite-joins-panel {
-  border: 1px solid var(--aiep-border);
-  border-radius: 10px;
-  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .invite-page .invite-join-row {
-  padding: 0.85rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
   font-family: 'akzidenz-grotesk-next-pro', sans-serif;
-  font-weight: 400;
+  color: var(--aiep-ink);
 }
 
 .invite-page .invite-join-row + .invite-join-row {
-  border-top: 1px solid var(--aiep-border);
+  border-top: 1px solid var(--aiep-surface-field);
 }
 
-.invite-page .invite-join-row .invite-icon {
-  color: #00682F;
-  /* The row is a flex container, so keep the fixed-size icon from being
-     squeezed by the text beside it. */
+.invite-page .invite-join-badge {
+  display: flex;
   flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  background-color: var(--aiep-cream);
+  color: var(--aiep-green);
+}
+
+.invite-page .invite-join-badge .invite-icon {
+  vertical-align: 0;
+}
+
+.invite-page .invite-join-text {
+  flex: 1;
+}
+
+.invite-page .invite-join-date {
+  font-size: 0.9rem;
+  color: var(--aiep-muted);
+  white-space: nowrap;
 }
 
 .invite-page .invite-joins-empty {
+  margin: 0;
+  padding: 1.25rem;
+  border: 1px dashed var(--aiep-border);
+  border-radius: 14px;
   font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  color: var(--aiep-muted);
+  text-align: center;
+}
+
+/* ---- Laptops ------------------------------------------------------------------
+   Parents mostly arrive on a phone, so the single column above is the design.
+   With room to spare, the hero runs across the top and the cards pair up:
+   sharing on the left, how the link is doing on the right. */
+@media (min-width: 992px) {
+  .invite-page .invite-shell {
+    max-width: 64rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    grid-template-areas:
+      "hero hero"
+      "share stats"
+      "share joins";
+    grid-template-rows: auto auto 1fr;
+    align-items: start;
+    gap: 1.25rem;
+  }
+
+  .invite-page .invite-hero {
+    grid-area: hero;
+  }
+
+  .invite-page .invite-card--share {
+    grid-area: share;
+  }
+
+  .invite-page .invite-card--stats {
+    grid-area: stats;
+  }
+
+  .invite-page .invite-card--joins {
+    grid-area: joins;
+  }
+
+  .invite-page .invite-shell > .alert {
+    grid-column: 1 / -1;
+  }
+
+  .invite-page .invite-card {
+    padding: 1.75rem;
+  }
+
+  .invite-page .invite-hero-qr-button {
+    width: 14rem;
+  }
+
+  .invite-page .invite-hero-title {
+    font-size: 2.75rem;
+  }
+
+  .invite-page .invite-hero-description {
+    max-width: 34rem;
+    font-size: 1.1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .invite-page .invite-share-tile.btn {
+    transition: none;
+  }
 }

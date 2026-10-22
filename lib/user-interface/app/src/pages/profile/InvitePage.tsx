@@ -1,8 +1,5 @@
 import React, { useContext, useState } from 'react';
 import {
-  Container,
-  Row,
-  Col,
   Alert,
   Button,
   Form,
@@ -23,8 +20,8 @@ import {
   SmsIcon,
   WhatsAppIcon,
 } from './InviteIcons';
+import InviteQrCode from './InviteQrCode';
 import InviteQrOverlay from './InviteQrOverlay';
-import './ProfileForms.css';
 import './InvitePage.css';
 
 export default function InvitePage() {
@@ -82,114 +79,164 @@ export default function InvitePage() {
           ]}
         />
 
-        <Container fluid className="update-profile-container">
-          <Row style={{ width: '100%', justifyContent: 'center' }}>
-            <Col xs={12} md={8} lg={6}>
-              <div className="profile-form">
-                <h4 className="update-profile-header">{t('invite.title')}</h4>
-                <p className="update-profile-description">{t('invite.description')}</p>
+        <div className="invite-shell">
+              <section className="invite-hero" aria-labelledby="invite-title">
+                <div className="invite-hero-text">
+                  <h1 id="invite-title" className="invite-hero-title">{t('invite.title')}</h1>
+                  <p className="invite-hero-description">{t('invite.description')}</p>
+                </div>
+                {inviteUrl && (
+                  <div className="invite-hero-qr">
+                    {/* The same overlay the QR chip opens: tapping the small
+                        code is the obvious way to ask for a bigger one. */}
+                    <button
+                      type="button"
+                      className="invite-hero-qr-button"
+                      onClick={() => setQrOpen(true)}
+                      aria-label={t('invite.qr.enlarge')}
+                    >
+                      <InviteQrCode value={inviteUrl} label={t('invite.qr.imageAlt')} />
+                    </button>
+                    <p className="invite-hero-hint">{t('invite.qr.inlineHint')}</p>
+                  </div>
+                )}
+              </section>
 
-                {error ? (
-                  <Alert variant="danger">{t('invite.error')}</Alert>
-                ) : (
-                  <>
-                    <Form.Label className="form-label mt-2">{t('invite.yourLink')}</Form.Label>
+              {error ? (
+                <Alert variant="danger">{t('invite.error')}</Alert>
+              ) : (
+                <>
+                  <section className="invite-card invite-card--share" aria-labelledby="invite-share-title">
+                    <h2 id="invite-share-title" className="invite-card-title">
+                      {t('invite.shareSection.title')}
+                    </h2>
+
+                    <Form.Label className="invite-field-label" htmlFor="invite-link">
+                      {t('invite.yourLink')}
+                    </Form.Label>
                     <InputGroup className="mb-3 invite-link-group">
                       <Form.Control
+                        id="invite-link"
                         readOnly
                         value={inviteUrl}
                         onFocus={(e) => e.target.select()}
                         aria-label={t('invite.yourLink')}
                       />
-                      <Button variant="outline-secondary" onClick={handleCopy}>
-                        <ClipboardIcon className="me-1" />
+                      <Button
+                        variant="primary"
+                        className={copied ? 'invite-copy is-copied' : 'invite-copy'}
+                        onClick={handleCopy}
+                      >
+                        <ClipboardIcon className="me-2" />
                         {copied ? t('invite.copied') : t('invite.copy')}
                       </Button>
                     </InputGroup>
 
-                    <div className="d-flex flex-wrap gap-2 mb-4 invite-share-row">
+                    <div className="invite-share-row">
                       {canNativeShare && (
-                        <Button variant="primary" className="button-text" onClick={handleNativeShare}>
+                        <Button variant="primary" className="invite-share-primary" onClick={handleNativeShare}>
                           <ShareIcon className="me-2" />
                           {t('invite.share')}
                         </Button>
                       )}
-                      <Button
-                        as="a"
-                        href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        variant="outline-secondary"
-                        className="button-text invite-share-chip"
-                        aria-label={t('invite.shareVia.whatsapp')}
-                      >
-                        <WhatsAppIcon className="me-2" />
-                        WhatsApp
-                      </Button>
-                      <Button
-                        as="a"
-                        href={`sms:?&body=${encodeURIComponent(shareText)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        variant="outline-secondary"
-                        className="button-text invite-share-chip"
-                        aria-label={t('invite.shareVia.sms')}
-                      >
-                        <SmsIcon className="me-2" />
-                        SMS
-                      </Button>
-                      <Button
-                        as="a"
-                        href={`mailto:?subject=${encodeURIComponent(t('invite.emailSubject'))}&body=${encodeURIComponent(shareText)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        variant="outline-secondary"
-                        className="button-text invite-share-chip"
-                        aria-label={t('invite.shareVia.email')}
-                      >
-                        <EnvelopeIcon className="me-2" />
-                        Email
-                      </Button>
-                      <Button
-                        variant="outline-secondary"
-                        className="button-text invite-share-chip"
-                        onClick={() => setQrOpen(true)}
-                      >
-                        <QrCodeIcon className="me-2" />
-                        {t('invite.qr.show')}
-                      </Button>
+                      <div className="invite-share-grid">
+                        <Button
+                          as="a"
+                          href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          variant="light"
+                          className="invite-share-tile"
+                          aria-label={t('invite.shareVia.whatsapp')}
+                        >
+                          <span className="invite-share-tile-icon">
+                            <WhatsAppIcon />
+                          </span>
+                          WhatsApp
+                        </Button>
+                        <Button
+                          as="a"
+                          href={`sms:?&body=${encodeURIComponent(shareText)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          variant="light"
+                          className="invite-share-tile"
+                          aria-label={t('invite.shareVia.sms')}
+                        >
+                          <span className="invite-share-tile-icon">
+                            <SmsIcon />
+                          </span>
+                          SMS
+                        </Button>
+                        <Button
+                          as="a"
+                          href={`mailto:?subject=${encodeURIComponent(t('invite.emailSubject'))}&body=${encodeURIComponent(shareText)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          variant="light"
+                          className="invite-share-tile"
+                          aria-label={t('invite.shareVia.email')}
+                        >
+                          <span className="invite-share-tile-icon">
+                            <EnvelopeIcon />
+                          </span>
+                          Email
+                        </Button>
+                        <Button
+                          variant="light"
+                          className="invite-share-tile"
+                          onClick={() => setQrOpen(true)}
+                        >
+                          <span className="invite-share-tile-icon">
+                            <QrCodeIcon />
+                          </span>
+                          {t('invite.qr.show')}
+                        </Button>
+                      </div>
                     </div>
+                  </section>
 
-                    <Row className="mb-4 g-0 invite-stats-panel">
-                      <Col xs={6} className="invite-stat">
+                  <section className="invite-card invite-card--stats" aria-labelledby="invite-stats-title">
+                    <h2 id="invite-stats-title" className="invite-card-title">
+                      {t('invite.stats.title')}
+                    </h2>
+                    <div className="invite-stats-panel">
+                      <div className="invite-stat invite-stat--visits">
                         <div className="invite-stat-value">{data?.clicks ?? 0}</div>
                         <div className="invite-stat-label">{t('invite.stats.clicks')}</div>
-                      </Col>
-                      <Col xs={6} className="invite-stat">
+                      </div>
+                      <div className="invite-stat invite-stat--joined">
                         <div className="invite-stat-value">{data?.signups ?? 0}</div>
                         <div className="invite-stat-label">{t('invite.stats.joined')}</div>
-                      </Col>
-                    </Row>
-
-                    <h5 className="text-start mb-2 invite-section-title">{t('invite.joins.title')}</h5>
-                    {data && data.joins.length > 0 ? (
-                      <div className="invite-joins-panel text-start">
-                        {data.joins.map((join, index) => (
-                          <div key={index} className="invite-join-row d-flex align-items-center">
-                            <PersonCheckIcon className="me-3" />
-                            {t('invite.joins.item')} · {formatJoinDate(join.joinedAt)}
-                          </div>
-                        ))}
                       </div>
+                    </div>
+                  </section>
+
+                  <section className="invite-card invite-card--joins" aria-labelledby="invite-joins-title">
+                    <h2 id="invite-joins-title" className="invite-card-title">
+                      {t('invite.joins.title')}
+                    </h2>
+                    {data && data.joins.length > 0 ? (
+                      <ul className="invite-joins-panel">
+                        {data.joins.map((join, index) => (
+                          <li key={index} className="invite-join-row">
+                            <span className="invite-join-badge">
+                              <PersonCheckIcon />
+                            </span>
+                            <span className="invite-join-text">{t('invite.joins.item')}</span>
+                            <time className="invite-join-date" dateTime={join.joinedAt}>
+                              {formatJoinDate(join.joinedAt)}
+                            </time>
+                          </li>
+                        ))}
+                      </ul>
                     ) : (
-                      <p className="text-muted text-start invite-joins-empty">{t('invite.joins.empty')}</p>
+                      <p className="invite-joins-empty">{t('invite.joins.empty')}</p>
                     )}
-                  </>
-                )}
-              </div>
-            </Col>
-          </Row>
-        </Container>
+                  </section>
+                </>
+              )}
+        </div>
       </div>
       {/* `inviteUrl` is the same value every other share control sends, so the
           code can never encode a different link. Empty until the referral

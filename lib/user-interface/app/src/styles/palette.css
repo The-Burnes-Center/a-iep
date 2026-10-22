@@ -31,7 +31,6 @@
   --aiep-surface-tint-strong: #e9ecef; /* the same, pressed or inert */
   --aiep-cream-veil: #f5f3ee70; /* 1px grid texture on the modal scrim */
   --aiep-overlay-navy: #0e1b2a; /* full-bleed QR overlay */
-  --aiep-black: #000000; /* QR modules only: scanners need true black */
 
   /* ---- Boundaries ----------------------------------------------------- */
   /* Was #CBC6BC (1.53) for card, table and control edges, plus #dee2e6 (1.17)

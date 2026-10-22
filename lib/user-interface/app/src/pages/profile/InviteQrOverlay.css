@@ -57,15 +57,15 @@
 
 /* The whole point of the feature: as large as the SHORTER viewport axis
    allows, so it stays square and fully on screen in portrait or landscape
-   without a resize listener. Overrides the width/height attributes
-   QRCodeSVG renders (presentation attributes lose to any CSS rule). */
-.invite-qr-code {
+   without a resize listener. Scoped to the overlay so it does not also size
+   the page's small copy of the same component. */
+.invite-qr-overlay .invite-qr-code {
   width: min(90vw, 62vh);
   height: auto;
   max-width: 100%;
   border-radius: 8px;
-  /* qrcode.react paints its own white background path across the quiet zone,
-     so the card needs no extra padding to preserve it. */
+  /* InviteQrCode paints its own white ground across the quiet zone, so the
+     card needs no extra padding to preserve it. */
   background-color: var(--aiep-surface-white);
 }
 
@@ -98,7 +98,7 @@
     display: none;
   }
 
-  .invite-qr-code {
+  .invite-qr-overlay .invite-qr-code {
     width: min(90vw, 78vh);
   }
 }

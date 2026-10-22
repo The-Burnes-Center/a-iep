@@ -1,0 +1,77 @@
+/* The custom QR code (InviteQrCode.tsx). Modules and eyes are painted with
+   one gradient between two dark brand tokens on white, because a scanner
+   reads luminance contrast and nothing else. Both ends are measured against
+   white in color-contrast.test.tsx. */
+
+.invite-qr-code {
+  display: block;
+}
+
+.invite-qr-ground {
+  fill: var(--aiep-surface-white);
+}
+
+.invite-qr-module {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: invite-qr-grow 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.invite-qr-ink-start {
+  stop-color: var(--aiep-green-dark);
+}
+
+.invite-qr-ink-end {
+  stop-color: var(--aiep-accent-blue);
+}
+
+.invite-qr-eye {
+  animation: invite-qr-fade 300ms ease-out both;
+}
+
+/* The face arrives last, once the code has grown in around it. */
+.invite-qr-face {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: invite-qr-grow 480ms cubic-bezier(0.34, 1.56, 0.64, 1) 520ms both;
+}
+
+.invite-qr-face-bg {
+  fill: var(--aiep-amber);
+}
+
+.invite-qr-face-ink {
+  fill: var(--aiep-ink);
+}
+
+.invite-qr-face-smile {
+  stroke: var(--aiep-ink);
+}
+
+@keyframes invite-qr-grow {
+  from {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes invite-qr-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .invite-qr-module,
+  .invite-qr-eye,
+  .invite-qr-face {
+    animation: none;
+  }
+}

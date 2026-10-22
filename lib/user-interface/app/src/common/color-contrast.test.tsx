@@ -276,7 +276,16 @@ const PAIRS: Pair[] = [
   // -- full-bleed QR overlay ----------------------------------------------
   { fg: "--aiep-cream", bg: "--aiep-overlay-navy", level: "text", where: "the referral URL under the QR code" },
   { fg: "--aiep-surface-white", bg: "--aiep-overlay-navy", level: "ui", where: "the QR quiet zone against the overlay" },
-  { fg: "--aiep-black", bg: "--aiep-surface-white", level: "ui", where: "the QR modules a camera has to separate" },
+  // The QR modules are graphics a camera has to separate from the white
+  // ground, painted with a gradient between these two. "ui" is the floor;
+  // both clear 6:1, and InviteQrCode.test.tsx decodes the drawn code.
+  { fg: "--aiep-green-dark", bg: "--aiep-surface-white", level: "ui", where: "QR modules and eyes, gradient start" },
+  { fg: "--aiep-accent-blue", bg: "--aiep-surface-white", level: "ui", where: "QR modules and eyes, gradient end" },
+  { fg: "--aiep-ink", bg: "--aiep-amber", level: "ui", where: "the face in the middle of the QR code" },
+
+  // -- invite hero ------------------------------------------------------------
+  { fg: "--aiep-on-green-muted", bg: "--aiep-green-dark", level: "text", where: "the hint under the QR on the invite hero" },
+  { fg: "--aiep-surface-white", bg: "--aiep-green-dark", level: "surface", where: "the QR card against the invite hero" },
 
   // -- vendor alert palette, reproduced in AlertMessages.css ---------------
   { fg: "--aiep-alert-success-fg", bg: "--aiep-alert-success-bg", level: "text", where: "'Signed in' and other success alerts" },
