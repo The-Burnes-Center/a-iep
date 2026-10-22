@@ -181,6 +181,24 @@ describe("while the new IEP is being processed", () => {
     expect(within(screen.getByTestId("carousel-dots")).getAllByRole("button")).toHaveLength(15);
   });
 
+  test("the bar and the step follow the new IEP as it moves through the pipeline", async () => {
+    documentPayload = oldDocument({
+      iepId: "iep-new", status: "PROCESSING", progress: 20, current_step: "pii_redaction_complete", updatedAt: 1700000000,
+    });
+    renderPage();
+    await settle();
+    expect(screen.getByTestId("processing-modal")).toHaveTextContent("summary.processing.step.protecting");
+
+    // The next milestone arrives while the document on screen stays PROCESSED
+    // and the replacement stays PROCESSING: only its progress moved.
+    documentPayload = oldDocument({
+      iepId: "iep-new", status: "PROCESSING", progress: 22, current_step: "cleanup_complete", updatedAt: 1700000010,
+    });
+    await settle(POLL_INTERVAL_MS);
+
+    expect(screen.getByTestId("processing-modal")).toHaveTextContent("summary.processing.step.summarizing");
+  });
+
   test("coming back from the current IEP still shows the rights carousel", async () => {
     renderPage();
     await settle();

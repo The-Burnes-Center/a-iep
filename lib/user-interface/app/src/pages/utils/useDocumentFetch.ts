@@ -137,7 +137,12 @@ export const useDocumentFetch = ({
                 // status moves while the document on screen stays PROCESSED.
                 prev.replacement?.iepId !== retrievedDocument.replacement?.iepId ||
                 prev.replacement?.status !== retrievedDocument.replacement?.status ||
-                hasProgressChanged(prev, retrievedDocument)) {
+                hasProgressChanged(prev, retrievedDocument) ||
+                // ...and so is its progress. A replacement's milestones all
+                // arrive while both statuses stay put, so without this the
+                // processing screen kept the first reading it got and sat at
+                // about 20% until the new IEP was ready.
+                hasProgressChanged(prev.replacement, retrievedDocument.replacement)) {
                   
               // console.log("if (prev) is true");
               // Log timing when status changes
