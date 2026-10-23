@@ -75,7 +75,7 @@
 }
 
 /* Submit buttons need no rules here: the app-wide .btn-primary override
-   (CustomLogin.css) already renders variant="primary" as the standard green
+   (styles/controls.css) already renders variant="primary" as the standard green
    #00682F pill. */
 
 /* Icon action buttons (copy, QR): green instead of link blue; the

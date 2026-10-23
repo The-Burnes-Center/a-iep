@@ -1,0 +1,179 @@
+/* App-wide Bootstrap control overrides: the brand look of every .btn-primary,
+   .btn-outline-primary, .form-control and tel input in the app.
+
+   These used to live in components/CustomLogin.css, where they read as login
+   styles but applied everywhere (Vite bundles every stylesheet into the page).
+   AdminReferrals, onboarding and the profile forms rely on them on purpose, so
+   they are global by design; this is where that is written down.
+
+   Imported in main.tsx BEFORE the app, which puts these rules at the very top
+   of the bundle, in the same order as before and ahead of nothing that targets
+   the same elements, so the cascade is unchanged. A page that needs its own
+   button look should use its own variant (see InvitePage's "invite") rather
+   than fight .btn-primary's margin and !important rules.
+
+   common/global-overrides.test.ts keeps new global overrides out of component
+   stylesheets. */
+
+/* Apply styles to form controls for placeholder text */
+.form-control::placeholder {
+  font-family: 'akzidenz-grotesk-next-pro' sans-serif;
+  font-weight: 400;
+  font-size: 1rem;
+  color: #1E1E1E;
+  opacity: 0.7;
+}
+
+/* Primary button color override */
+.btn-primary {
+  background-color: #00682F !important;
+  margin: 0 5px;
+  padding-left: 1.2rem !important;
+  padding-right: 1.2rem !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  font-family: akzidenz-grotesk-next-conden, sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-size: 1rem !important;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border: none;
+  border-radius: 20px !important;
+  transition: all 0.1s ease !important;
+  min-width: 120px;
+}
+
+/* Button hover effect */
+.btn-primary:hover {
+  background-color: #00682F !important;
+  border-color: #00682F !important;
+  color: #F5F3EE !important;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Form control focus */
+.form-control:focus {
+  border-color: #0040BA;
+  box-shadow: 0 0 0 0.25rem rgba(0, 64, 186, 0.25);
+}
+
+.btn-outline-primary {
+  color: #00682F;
+  background-color: transparent;
+  --bs-btn-active-bg: #00682F !important;
+  --bs-btn-active-border-color: #00682F !important;
+}
+
+.btn-outline-primary:hover {
+  color: #F5F3EE;
+  background-color: #00682F;
+  border-color: #F5F3EE;
+}
+
+.btn-outline-primary:focus {
+  box-shadow: 0 0 0 0.25rem rgba(255, 181, 34, 0.25);
+}
+
+/* Phone number input specific styling */
+input[type="tel"] {
+  font-family: 'akzidenz-grotesk-next-pro' sans-serif;
+  font-weight: 400;
+  font-size: 1rem;
+}
+
+input[type="tel"]:focus {
+  border-color: #0040BA;
+  box-shadow: 0 0 0 0.25rem rgba(0, 64, 186, 0.25);
+}
+
+/* Enhanced button styling for mobile login */
+.btn-primary[type="submit"] {
+  padding: 12px 20px;
+  font-size: 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 64, 186, 0.2);
+}
+
+.btn-primary[type="submit"]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 64, 186, 0.3);
+}
+
+.btn-primary[type="submit"]:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 64, 186, 0.2);
+}
+
+/* Enhanced form control styling */
+.form-control {
+  padding: 12px 16px;
+  font-size: 1rem;
+  border-radius: 0.5rem;
+  border: 2px solid var(--aiep-border);
+  transition: all 0.3s ease;
+  background-color: var(--aiep-surface-field);
+  color: #1E1E1E;
+}
+
+.form-control:focus {
+  border-color: #0040BA;
+  box-shadow: 0 0 0 0.25rem rgba(0, 64, 186, 0.15);
+  transform: translateY(-1px);
+}
+
+/* Mobile responsive styling */
+@media (max-width: 767px) {
+  .form-control {
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+
+  input[type="tel"] {
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+}
+
+/* Extra small screens */
+@media (max-width: 575px) {
+  .btn-primary[type="submit"] {
+    padding: 14px 20px;
+    font-size: 1.1rem;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .form-control {
+    border-width: 3px;
+  }
+
+  .btn-primary {
+    border-width: 2px;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .btn-primary[type="submit"] {
+    transition: none;
+  }
+
+  .form-control {
+    transition: none;
+  }
+
+  .btn-primary[type="submit"]:hover {
+    transform: none;
+  }
+}
+
+/* Accessibility improvements */
+
+.btn:focus {
+  outline: 2px solid #0040BA;
+  outline-offset: 2px;
+}

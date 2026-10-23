@@ -1,70 +1,11 @@
-/* Apply styles to form controls for placeholder text */
-.form-control::placeholder {
-  font-family: 'akzidenz-grotesk-next-pro' sans-serif;
-  font-weight: 400;
-  font-size: 1rem;
-  color: #1E1E1E;
-  opacity: 0.7;
-}
+/* The login and sign-up screens only. Every rule here is scoped to a class
+   those screens own. The app-wide button and field styles that used to sit in
+   this file are in styles/controls.css. */
 
 /* Background color for login container */
 .login-container {
   background-color: #F5F3EE;
   margin-bottom: 10rem;
-}
-
-/* Primary button color override */
-.btn-primary {
-  background-color: #00682F !important;
-  margin: 0 5px;
-  padding-left: 1.2rem !important;
-  padding-right: 1.2rem !important;
-  display: flex !important;
-  align-items: center;
-  justify-content: center;
-  font-family: akzidenz-grotesk-next-conden, sans-serif;
-  font-weight: 400;
-  font-style: normal;
-  font-size: 1rem !important;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  border: none;
-  border-radius: 20px !important;
-  transition: all 0.1s ease !important;
-  min-width: 120px;
-}
-
-/* Button hover effect */
-.btn-primary:hover {
-  background-color: #00682F !important;
-  border-color: #00682F !important;
-  color: #F5F3EE !important;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-}
-
-/* Form control focus */
-.form-control:focus {
-  border-color: #0040BA;
-  box-shadow: 0 0 0 0.25rem rgba(0, 64, 186, 0.25);
-}
-
-.btn-outline-primary {
-  color: #00682F;
-  background-color: transparent;
-  --bs-btn-active-bg: #00682F !important;
-  --bs-btn-active-border-color: #00682F !important;
-}
-
-.btn-outline-primary:hover {
-  color: #F5F3EE;
-  background-color: #00682F;
-  border-color: #F5F3EE;
-}
-
-.btn-outline-primary:focus {
-  box-shadow: 0 0 0 0.25rem rgba(255, 181, 34, 0.25);
 }
 
 /* Mobile form container styling */
@@ -83,18 +24,6 @@
   padding: 0 15px;
 }
 
-/* Phone number input specific styling */
-input[type="tel"] {
-  font-family: 'akzidenz-grotesk-next-pro' sans-serif;
-  font-weight: 400;
-  font-size: 1rem;
-}
-
-input[type="tel"]:focus {
-  border-color: #0040BA;
-  box-shadow: 0 0 0 0.25rem rgba(0, 64, 186, 0.25);
-}
-
 /* Mobile consent text styling */
 .mobile-consent-text {
   font-family: 'akzidenz-grotesk-next-pro' sans-serif;
@@ -107,49 +36,11 @@ input[type="tel"]:focus {
   padding: 0 10px;
 }
 
-/* Enhanced button styling for mobile login */
-.btn-primary[type="submit"] {
-  padding: 12px 20px;
-  font-size: 1rem;
-  border-radius: 0.5rem;
-  transition: all 0.3s ease;
-  box-shadow: 0 2px 4px rgba(0, 64, 186, 0.2);
-}
-
-.btn-primary[type="submit"]:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0, 64, 186, 0.3);
-}
-
-.btn-primary[type="submit"]:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 4px rgba(0, 64, 186, 0.2);
-}
-
 /* Form group spacing for mobile */
 .mobile-form-container .form-group,
 .email-form-container .form-group {
   margin-bottom: 1.5rem;
 }
-
-/* Enhanced form control styling */
-.form-control {
-  padding: 12px 16px;
-  font-size: 1rem;
-  border-radius: 0.5rem;
-  border: 2px solid var(--aiep-border);
-  transition: all 0.3s ease;
-  background-color: var(--aiep-surface-field);
-  color: #1E1E1E;
-}
-
-.form-control:focus {
-  border-color: #0040BA;
-  box-shadow: 0 0 0 0.25rem rgba(0, 64, 186, 0.15);
-  transform: translateY(-1px);
-}
-
-
 
 /* Mobile responsive styling */
 @media (max-width: 767px) {
@@ -158,18 +49,10 @@ input[type="tel"]:focus {
     width: 90%;
     padding: 0 10px;
   }
-  
+
   .mobile-consent-text {
     font-size: 0.75rem !important;
     padding: 0 5px;
-  }
-  
-  .form-control {
-    font-size: 16px; /* Prevents zoom on iOS */
-  }
-  
-  input[type="tel"] {
-    font-size: 16px; /* Prevents zoom on iOS */
   }
 }
 
@@ -178,18 +61,13 @@ input[type="tel"]:focus {
   .login-container {
     padding: 10px 15px;
   }
-  
+
   .mobile-form-container,
   .email-form-container {
     width: 95%;
     padding: 0 5px;
   }
-  
-  .btn-primary[type="submit"] {
-    padding: 14px 20px;
-    font-size: 1.1rem;
-  }
-  
+
   .mobile-consent-text {
     font-size: 0.7rem !important;
     line-height: 1.3;
@@ -198,41 +76,9 @@ input[type="tel"]:focus {
 
 /* High contrast mode support */
 @media (prefers-contrast: high) {
-  .form-control {
-    border-width: 3px;
-  }
-  
-  .btn-primary {
-    border-width: 2px;
-  }
-  
   .mobile-consent-text {
     color: var(--aiep-ink-soft) !important;
   }
-}
-
-/* Reduced motion support */
-@media (prefers-reduced-motion: reduce) {
-  
-  .btn-primary[type="submit"] {
-    transition: none;
-  }
-  
-  .form-control {
-    transition: none;
-  }
-  
-  .btn-primary[type="submit"]:hover {
-    transform: none;
-  }
-}
-
-/* Accessibility improvements */
-
-
-.btn:focus {
-  outline: 2px solid #0040BA;
-  outline-offset: 2px;
 }
 
 /*To be moved in individual styling pages */

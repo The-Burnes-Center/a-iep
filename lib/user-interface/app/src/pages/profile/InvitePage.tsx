@@ -125,11 +125,10 @@ export default function InvitePage() {
                     </div>
 
                     <div className="invite-share-row">
-                      {/* Variant "invite", not "primary": CustomLogin.css styles
-                          every .btn-primary app-wide (margins, !important
-                          colours), and the production bundle ships it to this
-                          page. That margin pushed Copy into the link field and
-                          Share past the card edge on iOS. */}
+                      {/* Variant "invite", not "primary": styles/controls.css
+                          gives every .btn-primary a 5px side margin and
+                          !important colours. That margin pushed Copy into the
+                          link field and Share past the card edge on iOS. */}
                       <div className="invite-actions">
                         <Button
                           variant={BUTTON_VARIANT}

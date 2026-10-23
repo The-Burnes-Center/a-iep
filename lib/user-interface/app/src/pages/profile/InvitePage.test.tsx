@@ -416,12 +416,12 @@ describe('InvitePage hero QR code', () => {
   });
 
   /**
-   * CustomLogin.css styles every .btn-primary app-wide (a 5px margin and
-   * !important colours) and Vite bundles it into the page in production. On
+   * styles/controls.css styles every .btn-primary app-wide (a 5px margin and
+   * !important colours). On
    * iOS that margin pushed Copy into the link and Share past the card edge.
    * The page's own buttons must stay out of reach of those global rules.
    */
-  test('no page button is a .btn-primary the global login styles can reach', async () => {
+  test('no page button is a .btn-primary the global control styles can reach', async () => {
     const { container } = await renderLoaded();
 
     expect(container.querySelectorAll('.btn-primary')).toHaveLength(0);

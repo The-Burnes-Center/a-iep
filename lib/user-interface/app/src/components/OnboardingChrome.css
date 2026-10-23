@@ -3,8 +3,8 @@
    stacked down a cream page.
 
    Buttons here are the shared .aiep-button / .btn-primary /
-   .btn-outline-secondary, which styles/buttons.css and CustomLogin.css load
-   AFTER this file (main.tsx imports the app before the style sheets), so
+   .btn-outline-secondary, which styles/buttons.css loads AFTER this file
+   (main.tsx imports the app before most style sheets), so
    every rule that adjusts one is written as a compound selector rather than
    relying on source order. .btn-primary in particular sets uppercase, a
    padding shorthand and a 20px pill, several of them !important. */

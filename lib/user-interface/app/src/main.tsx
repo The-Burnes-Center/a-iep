@@ -3,6 +3,10 @@ import "regenerator-runtime/runtime";
 // document direction. Must stay before the other style imports so custom CSS
 // keeps winning the cascade.
 import "./common/direction";
+// App-wide button and field overrides. Before the app import on purpose: it
+// puts them at the top of the bundle, where CustomLogin.css used to put them,
+// so every component stylesheet still overrides them exactly as before.
+import "./styles/controls.css";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import AppConfigured from "./components/app-configured";

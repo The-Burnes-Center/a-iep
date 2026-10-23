@@ -17,7 +17,7 @@
 }
 
 .sms-code-box {
-  /* Shares the field look with .form-control in CustomLogin.css: same
+  /* Shares the field look with .form-control in styles/controls.css: same
      2px border, same fill, same radius. */
   flex: 1 1 0;
   min-width: 0;
@@ -88,7 +88,7 @@
   /* 1rem = 16px, the threshold below which iOS Safari zooms the page in on
      focus. The value is never seen, but the zoom would be. */
   font-size: 1rem;
-  /* Beats .form-control's own padding and focus ring from CustomLogin.css;
+  /* Beats .form-control's own padding and focus ring from styles/controls.css;
      the boxes underneath draw both. */
   padding: 0;
   text-align: center;
