@@ -64,7 +64,7 @@
     "postcss": "^8.5.10",
     "sass": "^1.65.1",
     "typescript": "^5.9.3",
-    "vite": "^7.3.6",
+    "vite": "^7.3.7",
     "vitest": "^5.0.3",
     "zen-observable": "^0.10.0"
   },
