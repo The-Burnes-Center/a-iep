@@ -37,7 +37,9 @@ const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ isPublic = false }) => {
     const heading = contactHeading.current;
     if (!heading) return;
     heading.focus({ preventScroll: true });
-    heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Instant, not smooth: this runs within the first paint after a page
+    // load, and Chrome drops a smooth scroll started then without moving.
+    heading.scrollIntoView({ behavior: 'instant', block: 'start' });
   }, [location, translationsLoaded]);
 
   // Return loading state if translations aren't ready

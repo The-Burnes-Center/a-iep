@@ -48,6 +48,9 @@ describe("the privacy policy's contact anchor", () => {
     expect(heading.closest("section")).toHaveAttribute("id", "contact");
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
     expect(scrollIntoView.mock.contexts[0]).toBe(heading);
+    // A smooth scroll started during the first paint after a load is dropped
+    // by Chrome, which is where a parent arriving from /contact always is.
+    expect(scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ behavior: "instant" }));
     expect(heading).toHaveFocus();
   });
 
