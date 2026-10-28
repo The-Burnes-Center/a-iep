@@ -42,7 +42,9 @@ const HeroSection: React.FC = () => {
         // renders without a heading.
         const heading = card.querySelector<HTMLElement>('h1, h2, h3, h4, h5, h6');
         (heading ?? card).focus({ preventScroll: true });
-        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Instant, not smooth: /login is usually a fresh page load, and Chrome
+        // silently drops a smooth scroll started during the first paint.
+        card.scrollIntoView({ behavior: 'instant', block: 'center' });
     }, [location]);
 
     return (

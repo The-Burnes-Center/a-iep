@@ -217,6 +217,17 @@ describe("/login, the URL that is in outreach material and in parents' history",
     expect(scrollIntoView).toHaveBeenCalled();
   });
 
+  test("scrolls instantly, because Chrome drops a smooth scroll started while the page loads", async () => {
+    renderApp("/login");
+
+    // /login is usually a fresh page load (a deep link, or ProtectedRoute
+    // after a reload), and the effect runs during the first paint. Chrome
+    // silently ignores a smooth scrollIntoView started then, so a parent on a
+    // phone got focus on the form with the page still at the top.
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ behavior: "instant", block: "center" });
+  });
+
   test("puts focus on the card's heading, not on the box around it", async () => {
     renderApp("/login");
 
