@@ -103,14 +103,16 @@ const ParentRightsBanner: React.FC<ParentRightsBannerProps> = ({ slides, classNa
             <div className='parent-rights-banner-content'>
                 <div className='parent-rights-banner-content-left'>
                     {
+                        // h2, not h1: a section of the landing page, whose
+                        // one h1 is the hero title (HeroSection.tsx).
                         activeIndex <= 1 ? 
                         <div className="banner-card banner-card--green">
-                        <h1>{displayHeaderGreenTitle}</h1>
+                        <h2>{displayHeaderGreenTitle}</h2>
                         <img loading="lazy" decoding="async" src={displaySlides[activeIndex].image} className="banner-slide-image" alt={displaySlides[activeIndex].title} /> 
                     </div>
                         : (
                         <div className="banner-card banner-card--pink">
-                        <h1>{displayHeaderPinkTitle}</h1>
+                        <h2>{displayHeaderPinkTitle}</h2>
                         <img loading="lazy" decoding="async" src={displaySlides[activeIndex].image} className="banner-slide-image" alt={displaySlides[activeIndex].title} /> 
                         </div>
                         )

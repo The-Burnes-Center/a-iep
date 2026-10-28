@@ -54,7 +54,7 @@ function resolveEnabledFeatures(): string[] {
 }
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ isSsrBuild }) => ({
   define: {
     "process.env": {},
   },
@@ -107,8 +107,12 @@ export default defineConfig({
     // 'baseline-widely-available' (Safari 16.4+, Chrome 107+), which would
     // stop serving parents on older phones without anyone deciding that.
     target: ["es2020", "edge88", "firefox78", "chrome87", "safari14"],
+    // The --ssr build is the build-time page renderer (src/prerender/), run
+    // once by scripts/prerender.mjs and never deployed. Its own directory,
+    // and none of public/ copied into it.
+    ...(isSsrBuild ? { outDir: "dist-ssr", copyPublicDir: false } : {}),
   },
   server: {
     port: 3000,
   },
-});
+}));

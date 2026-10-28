@@ -67,7 +67,7 @@ export function applyPageMeta(meta: PageMeta, doc: Document = document): void {
   setCanonical(doc, meta.canonicalUrl);
 }
 
-/** What index.html shipped with, so leaving the public pages restores it. */
+/** The tags the document currently carries. */
 export function readPageMeta(doc: Document = document): PageMeta {
   return {
     title: doc.title,
@@ -89,12 +89,20 @@ export function usePublicPageMeta(): void {
     // An unknown path (a typo, a removed page) keeps the defaults rather than
     // claiming a canonical URL that does not exist.
     if (!keys || !translationsLoaded) return undefined;
-    const defaults = readPageMeta();
     applyPageMeta({
       title: t(keys.title),
       description: t(keys.description),
       canonicalUrl: `${SITE_ORIGIN}${pathname}`,
     });
-    return () => applyPageMeta(defaults);
+    // Leaving puts the home page's tags back, which is what index.html
+    // carries. Not "whatever the head held before": a prerendered page
+    // (src/prerender/page-html.ts) loads with its own tags already there,
+    // and those would follow the parent onto every signed-in screen.
+    const home = PUBLIC_PAGE_META['/'];
+    return () => applyPageMeta({
+      title: t(home.title),
+      description: t(home.description),
+      canonicalUrl: `${SITE_ORIGIN}/`,
+    });
   }, [pathname, t, translationsLoaded]);
 }

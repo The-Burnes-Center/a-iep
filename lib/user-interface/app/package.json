@@ -6,8 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "tsc && vite build",
-    "build:dev": "tsc && cross-env NODE_ENV=development vite build",
+    "build": "tsc && vite build && vite build --ssr src/prerender/render-page.tsx && node scripts/prerender.mjs",
+    "build:dev": "tsc && cross-env NODE_ENV=development vite build && vite build --ssr src/prerender/render-page.tsx && node scripts/prerender.mjs",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -118,12 +118,25 @@ describe("usePublicPageMeta", () => {
     expect(head().title).toBe(translated("meta.faqs.title"));
   });
 
-  test("leaving the public pages puts the defaults back", async () => {
+  test("leaving the public pages puts the home page's tags back", async () => {
+    // The home page's, in the parent's language: index.html carries those
+    // same tags in English, and they are what a signed-in page shows.
     renderAt("/faqs");
     goTo("/iep-documents");
-    await vi.waitFor(() => expect(head().title).toBe(DEFAULTS.title));
-    expect(head().canonical).toBe(DEFAULTS.canonicalUrl);
-    expect(head().description).toBe(DEFAULTS.description);
+    await vi.waitFor(() => expect(head().title).toBe(translated("meta.home.title")));
+    expect(head().canonical).toBe(`${SITE_ORIGIN}/`);
+    expect(head().description).toBe(translated("meta.home.description"));
+  });
+
+  test("a prerendered page's own head does not follow the parent into the app", async () => {
+    // faqs.html ships with the FAQ page's tags already in <head>
+    // (src/prerender/page-html.ts). Restoring "whatever was there before"
+    // would put them back on every signed-in screen after the parent left.
+    applyPageMeta({ title: "FAQ tags", description: "FAQ description", canonicalUrl: `${SITE_ORIGIN}/faqs` });
+    renderAt("/faqs");
+    goTo("/iep-documents");
+    await vi.waitFor(() => expect(head().title).toBe(translated("meta.home.title")));
+    expect(head().canonical).toBe(`${SITE_ORIGIN}/`);
   });
 
   test("an unknown path keeps the defaults rather than claiming a canonical", () => {

@@ -3473,8 +3473,12 @@ describe('production synth: the unhashed entry points are revalidated', () => {
     // robots.txt, sitemap.xml and security.txt ride with the entry points:
     // they are unhashed, small, and built per environment at synth, so a long
     // cache would keep serving the previous environment's answer.
+    // So do the prerendered public pages and 404.html: each names the
+    // current hashed bundle exactly as index.html does.
     expect(entrypoints[0].include.sort()).toEqual([
-      '.well-known/security.txt', 'aws-exports.json', 'index.html', 'robots.txt', 'sitemap.xml',
+      '.well-known/security.txt', '404.html', 'about-the-project.html', 'aiep-hub.html',
+      'aws-exports.json', 'faqs.html', 'index.html', 'llms.txt', 'public-privacy-policy.html',
+      'robots.txt', 'sitemap.xml',
     ]);
 
     // no-cache is revalidate-before-use, not "do not store": the browser
@@ -3527,6 +3531,13 @@ describe('production synth: the unhashed entry points are revalidated', () => {
     // It must never upload the runtime config: that file is no-cache, and a
     // second writer with a different policy would race it.
     expect(stable[0].exclude).toContain('aws-exports.json');
+    // Nor any HTML entry point: a day-cached page would name last release's
+    // bundle, whose chunks this deploy does not promise to keep.
+    const htmlEntrypoints = deployments()
+      .find((d) => d.include.includes('aws-exports.json'))!.include
+      .filter((f) => f.endsWith('.html'));
+    expect(htmlEntrypoints.length).toBeGreaterThanOrEqual(6);
+    for (const file of htmlEntrypoints) expect(stable[0].exclude).toContain(file);
   });
 
   it('publishes index.html and aws-exports.json only after the chunks and stable files', () => {
@@ -3550,5 +3561,53 @@ describe('production synth: the unhashed entry points are revalidated', () => {
     const dependsOn = (resources[entrypoints[0]] as { DependsOn?: string[] }).DependsOn ?? [];
     expect(dependsOn).toContain(assets[0]);
     expect(dependsOn).toContain(stable[0]);
+  });
+});
+
+describe('production synth: the website answers unknown paths with a real 404', () => {
+  let prodTemplate: Template;
+  let saved: string | undefined;
+
+  beforeAll(() => {
+    saved = process.env.ENVIRONMENT;
+    process.env.ENVIRONMENT = 'production';
+    jest.resetModules();
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const { GenAiMvpStack } = require('../../lib/gen-ai-mvp-stack');
+    /* eslint-enable @typescript-eslint/no-var-requires */
+    const app = new App({ context: { 'aws:cdk:bundling-stacks': [] } });
+    prodTemplate = Template.fromStack(new GenAiMvpStack(app, 'AIEPStack', {}));
+  }, 180_000);
+
+  afterAll(() => {
+    process.env.ENVIRONMENT = saved;
+    jest.resetModules();
+  });
+
+  const websiteConfig = () => {
+    const website = (Object.values(prodTemplate.findResources('AWS::CloudFront::Distribution')) as any[])
+      .filter((d) => d.Properties.DistributionConfig.DefaultCacheBehavior?.ResponseHeadersPolicyId);
+    expect(website).toHaveLength(1);
+    return website[0].Properties.DistributionConfig;
+  };
+
+  test('a missing object is a 404 with 404.html, never a 200', () => {
+    // It was 404 -> 200 index.html, which told every crawler that any path
+    // it guessed was a real page. Routes the app knows no longer depend on
+    // this fallback: the viewer-request function sends them to their file.
+    expect(websiteConfig().CustomErrorResponses).toEqual([
+      expect.objectContaining({ ErrorCode: 404, ResponseCode: 404, ResponsePagePath: '/404.html' }),
+    ]);
+  });
+
+  test('the routing function runs on every default-behavior request', () => {
+    const functions = Object.entries(prodTemplate.findResources('AWS::CloudFront::Function'));
+    expect(functions).toHaveLength(1);
+    const [logicalId, fn] = functions[0] as [string, any];
+    expect(fn.Properties.FunctionConfig.Runtime).toBe('cloudfront-js-2.0');
+    expect(fn.Properties.AutoPublish).toBe(true);
+    expect(websiteConfig().DefaultCacheBehavior.FunctionAssociations).toEqual([
+      { EventType: 'viewer-request', FunctionARN: { 'Fn::GetAtt': [logicalId, 'FunctionARN'] } },
+    ]);
   });
 });

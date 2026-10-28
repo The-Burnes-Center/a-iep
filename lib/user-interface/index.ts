@@ -20,7 +20,8 @@ import {
   WEBSITE_NONCURRENT_VERSION_DAYS,
 } from "../constants";
 import { getEnvironment } from "../tags";
-import { buildRobotsTxt, buildSecurityTxt, buildSitemapXml } from "./site-files";
+import { PUBLIC_PATHS, buildLlmsTxt, buildRobotsTxt, buildSecurityTxt, buildSitemapXml } from "./site-files";
+import { NOT_FOUND_FILE, prerenderedFile } from "./edge-routing";
 
 // Languages offered in the UI per environment. Arabic ships on dev/staging but
 // not prod; an explicit ENABLED_LANGUAGES env var (comma-separated codes)
@@ -199,13 +200,14 @@ export class UserInterface extends Construct {
       environment : getEnvironment()
     });
 
-    // robots.txt, sitemap.xml and security.txt (see site-files.ts). The host
+    // robots.txt, sitemap.xml, llms.txt and security.txt (see site-files.ts). The host
     // matches the one the login SMS names (OTP_SMS_DOMAIN in new-auth.ts).
     const isProduction = getEnvironment() === "prod";
     const siteFiles = { host: isProduction ? "a-iep.org" : "dev.a-iep.org", isProduction };
     const wellKnownAssets = [
       s3deploy.Source.data("robots.txt", buildRobotsTxt(siteFiles)),
       s3deploy.Source.data("sitemap.xml", buildSitemapXml(siteFiles)),
+      s3deploy.Source.data("llms.txt", buildLlmsTxt(siteFiles)),
       s3deploy.Source.data(".well-known/security.txt", buildSecurityTxt(siteFiles)),
     ];
 
@@ -308,13 +310,18 @@ export class UserInterface extends Construct {
       ephemeralStorageSize: cdk.Size.gibibytes(1),
     });
 
+    // The HTML entry points: index.html, one prerendered file per public page
+    // (scripts/prerender.mjs) and 404.html. Each names the current hashed
+    // bundle, so all of them are revalidated like index.html always was.
+    const htmlEntrypoints = [...PUBLIC_PATHS.map(prerenderedFile), NOT_FOUND_FILE];
+
     // Everything else in the build that has a stable URL: vendor/, images/ and
-    // any top-level static file. Not index.html or aws-exports.json (the two
-    // entry points, deployed below with no-cache) and not assets/ (above).
+    // any top-level static file. Not the HTML or aws-exports.json (the entry
+    // points, deployed below with no-cache) and not assets/ (above).
     const stableFilesDeployment = new s3deploy.BucketDeployment(this, "UserInterfaceStableFiles", {
       prune: false,
       sources: [asset],
-      exclude: ["index.html", "aws-exports.json", "assets/*"],
+      exclude: [...htmlEntrypoints, "aws-exports.json", "assets/*"],
       destinationBucket: websiteBucket,
       distribution: distribution,
       cacheControl: [
@@ -336,7 +343,7 @@ export class UserInterface extends Construct {
       prune: false,
       sources: [asset, exportsAsset, ...wellKnownAssets],
       exclude: ["*"],
-      include: ["index.html", "aws-exports.json", "robots.txt", "sitemap.xml", ".well-known/security.txt"],
+      include: [...htmlEntrypoints, "aws-exports.json", "robots.txt", "sitemap.xml", "llms.txt", ".well-known/security.txt"],
       destinationBucket: websiteBucket,
       distribution: distribution,
       cacheControl: [

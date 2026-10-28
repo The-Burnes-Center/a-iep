@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   PUBLIC_PATHS,
+  buildLlmsTxt,
   buildRobotsTxt,
   buildSecurityTxt,
   buildSitemapXml,
@@ -78,5 +79,42 @@ describe('security.txt', () => {
 
   test('the linked policy exists in the repo', () => {
     expect(fs.existsSync(path.join(__dirname, '../../SECURITY.md'))).toBe(true);
+  });
+});
+
+describe('llms.txt', () => {
+  const prod = buildLlmsTxt(PROD);
+  const staging = buildLlmsTxt(STAGING);
+  const sections = (txt: string) => [...txt.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+
+  test('follows the llmstxt.org shape: one H1, then a blockquote summary', () => {
+    const lines = prod.split('\n');
+    expect(lines[0]).toBe('# A-IEP');
+    expect(prod.match(/^# /gm)).toHaveLength(1);
+    expect(lines.find((l) => l.trim() !== '' && !l.startsWith('# '))).toMatch(/^> .{100,}/);
+  });
+
+  test('says when to use the tool, and when not to', () => {
+    expect(sections(prod)).toEqual(['When to use A-IEP', 'When not to use A-IEP', 'Pages', 'Optional']);
+    // The line that keeps an assistant from acting for the parent.
+    expect(prod).toMatch(/Do not upload a document or create an account on a parent's behalf/);
+  });
+
+  test('links every public page on its own host, in the words the page uses', () => {
+    const en = JSON.parse(fs.readFileSync(
+      path.join(__dirname, '../../lib/user-interface/app/src/translations/en.json'), 'utf8'));
+    const links = [...prod.matchAll(/^- \[([^\]]+)\]\((https:\/\/a-iep\.org[^)]*)\): (.+)$/gm)];
+    const pageLinks = links.map((m) => m[2]).filter((u) => !u.endsWith('.xml'));
+    expect(pageLinks).toEqual(PUBLIC_PATHS.map((p) => `https://a-iep.org${p}`));
+    expect(links[0][1]).toBe(en['meta.home.title']);
+    expect(links[0][3]).toBe(en['meta.home.description']);
+    // No raw dictionary key leaked through a missing translation.
+    expect(prod).not.toMatch(/meta\.[a-z]+\./);
+  });
+
+  test('staging says it is staging and points at its own host', () => {
+    expect(staging).toContain('This is the staging copy');
+    expect(staging).toContain('(https://dev.a-iep.org/faqs)');
+    expect(prod).not.toContain('staging');
   });
 });

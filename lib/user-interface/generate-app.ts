@@ -8,6 +8,7 @@ import { NagSuppressions } from "cdk-nag";
 import { getEnvironment, getTagProps, tagResource } from '../tags';
 import * as path from 'node:path';
 import { buildContentSecurityPolicy, inlineScriptHashes } from './content-security-policy';
+import { NOT_FOUND_FILE, buildViewerRequestFunction } from './edge-routing';
 
 
 export interface WebsiteProps {  
@@ -55,6 +56,13 @@ export class Website extends Construct {
       'Purpose': 'CloudFrontLogs'
     });
 
+    // Which file each path gets, and real 404s for the rest (edge-routing.ts).
+    const viewerRequest = new cf.Function(this, "ViewerRequestRouting", {
+      code: cf.FunctionCode.fromInline(buildViewerRequestFunction()),
+      runtime: cf.FunctionRuntime.JS_2_0,
+      comment: "A-IEP page routing, redirects and 404s",
+    });
+
     const distribution = new cf.CloudFrontWebDistribution(
       this,
       "Distribution",
@@ -99,6 +107,10 @@ export class Website extends Construct {
               compress: true,
               allowedMethods: cf.CloudFrontAllowedMethods.GET_HEAD_OPTIONS,
               cachedMethods: cf.CloudFrontAllowedCachedMethods.GET_HEAD,
+              functionAssociations: [{
+                function: viewerRequest,
+                eventType: cf.FunctionEventType.VIEWER_REQUEST,
+              }],
             }],
             s3OriginSource: {
               s3BucketSource: props.websiteBucket,
@@ -138,12 +150,16 @@ export class Website extends Construct {
         ],
         
         // geoRestriction: cfGeoRestrictEnable ? cf.GeoRestriction.allowlist(...cfGeoRestrictList): undefined,
+        // A missing path is a 404 with the app shell as its body. The viewer-
+        // request function has already sent every route the app knows to its
+        // own file, so whatever reaches here really does not exist; the
+        // body keeps a parent who mistyped an address on the home page.
         errorConfigurations: [
           {
             errorCode: 404,
             errorCachingMinTtl: 0,
-            responseCode: 200,
-            responsePagePath: "/index.html",
+            responseCode: 404,
+            responsePagePath: `/${NOT_FOUND_FILE}`,
           },
         ],
       }

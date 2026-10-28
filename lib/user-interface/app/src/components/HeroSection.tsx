@@ -58,7 +58,10 @@ const HeroSection: React.FC = () => {
                 <div className='hero-section-image-container'>
                     <img src="/images/hero-section-image.png" alt="Hero Section Image" className='hero-section-image' />
                     <div className='hero-illustration-text-container'>
-                        <h2 className='hero-illustration-title'>{t('hero.title')}</h2>
+                        {/* The page's one h1: the landing page had none, so a screen
+                            reader's heading list and a crawler both started
+                            at h2. The class sets every visual property. */}
+                        <h1 className='hero-illustration-title'>{t('hero.title')}</h1>
                         <p className='hero-illustration-text'>{t('hero.description')}</p>
                         <HowToUseToolButton
                             buttonText={t('hero.howToUseTool')}

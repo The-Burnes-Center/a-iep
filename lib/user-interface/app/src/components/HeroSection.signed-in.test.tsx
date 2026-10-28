@@ -103,4 +103,14 @@ describe("the hero card", () => {
     const card = screen.getByTestId("hero-signed-in");
     expect(card.querySelector("h1, h2, h3, h4, h5, h6")).not.toBeNull();
   });
+
+  test.each([false, true])("the hero title is the landing page's one h1 (signed in: %s)", (authenticated) => {
+    // The page had no h1, so a screen reader's heading list and a crawler
+    // reading the prerendered HTML both started at h2.
+    renderHero({ authenticated, loading: false });
+
+    const h1s = screen.getAllByRole("heading", { level: 1 });
+    expect(h1s).toHaveLength(1);
+    expect(h1s[0]).toHaveTextContent("hero.title");
+  });
 });

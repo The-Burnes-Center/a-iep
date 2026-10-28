@@ -88,6 +88,14 @@ describe('enabled features per environment', () => {
     expect(readArrayLiteral(viteSource, 'PROD_FEATURES')).toEqual(CDK_PROD_FEATURES);
   });
 
+  it('prerenders the public pages on the production list', () => {
+    // src/prerender/render-page.tsx draws the HTML a crawler of a-iep.org
+    // reads. On any other list it would describe a site prod is not running.
+    const renderSource = fs.readFileSync(
+      path.join(__dirname, '../../lib/user-interface/app/src/prerender/render-page.tsx'), 'utf8');
+    expect(readArrayLiteral(renderSource, 'PRERENDER_FEATURES')).toEqual(CDK_PROD_FEATURES);
+  });
+
   it('declares the same master list in all three places', () => {
     // The UI's own list is the source of truth for what a feature name means;
     // a name in either build config that the UI does not know is dropped

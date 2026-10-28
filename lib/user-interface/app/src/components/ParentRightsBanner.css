@@ -42,7 +42,7 @@
     background-image: linear-gradient(var(--aiep-image-scrim-soft), var(--aiep-image-scrim-soft)), url('/images/patterns-dark-green.jpg');
 }
 
-.banner-card h1 {
+.banner-card h2 {
     width: 60%;
     font-size: 2.5rem;
     padding: 1rem;
@@ -283,7 +283,7 @@
         color: #1E1E1E;
     }
 
-    .banner-card h1 {
+    .banner-card h2 {
         font-size: 2.25rem;
     }
 

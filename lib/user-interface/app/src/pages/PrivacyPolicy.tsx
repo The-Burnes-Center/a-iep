@@ -1,9 +1,12 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Container, Row, Col, Card } from 'react-bootstrap';
 import PageLoading from '../components/PageLoading';
 import { useLanguage } from '../common/language-context';
 import Breadcrumbs from '../components/Breadcrumbs';
 import './PrivacyPolicy.css';
+
+const CONTACT_HASH = '#contact';
 
 interface PrivacyPolicyProps {
   /**
@@ -21,6 +24,21 @@ interface PrivacyPolicyProps {
 
 const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ isPublic = false }) => {
   const { t, translationsLoaded } = useLanguage();
+  const location = useLocation();
+  const contactHeading = useRef<HTMLHeadingElement>(null);
+
+  // a-iep.org/contact redirects to #contact here (lib/user-interface/
+  // edge-routing.ts). The page renders after the browser has already looked
+  // for the anchor, and ScrollToTop leaves hash locations alone, so the
+  // scroll is ours. Focus goes to the heading so a screen reader announces
+  // where the parent landed.
+  useEffect(() => {
+    if (location.hash !== CONTACT_HASH || !translationsLoaded) return;
+    const heading = contactHeading.current;
+    if (!heading) return;
+    heading.focus({ preventScroll: true });
+    heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [location, translationsLoaded]);
 
   // Return loading state if translations aren't ready
   if (!translationsLoaded) {
@@ -174,8 +192,8 @@ const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ isPublic = false }) => {
                   </section>
 
                   {/* Section 6: Contact */}
-                  <section className="privacy-section">
-                    <h5 className="section-heading">{t('privacyPolicy.contact.title')}</h5>
+                  <section className="privacy-section" id="contact">
+                    <h5 className="section-heading" ref={contactHeading} tabIndex={-1}>{t('privacyPolicy.contact.title')}</h5>
           
                     <p className="contact-info">
                       {t('privacyPolicy.contact.intro')}
