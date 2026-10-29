@@ -8,8 +8,10 @@
 //
 // It now decides per path, before the cache:
 //   - a few short, guessable names redirect to the real page (/about, /privacy)
-//   - each public page gets its own prerendered HTML file (scripts/prerender.mjs)
-//   - every other route the app knows gets index.html, as before
+//   - each public page gets its own prerendered HTML file (scripts/prerender.mjs),
+//     and any other spelling of it (/FAQs, /faqs/) a 301 to the real one
+//   - every other route the app knows gets app.html: the same app, but noindex,
+//     so /login and /profile are not indexed as copies of the home page
 //   - anything else goes to S3 untouched, so a missing path is a real 404,
 //     which the distribution answers with 404.html (still the app shell, so a
 //     parent who mistypes an address lands on the home page as before)
@@ -28,6 +30,9 @@ export function prerenderedFile(publicPath: string): string {
 }
 
 export const NOT_FOUND_FILE = "404.html";
+
+/** The app's shell, noindex (src/prerender/page-html.ts says why). */
+export const APP_SHELL_FILE = "app.html";
 
 /**
  * Every signed-in or redirect-only route in AppRoutes.tsx. The public ones are
@@ -101,6 +106,7 @@ export function buildViewerRequestFunction(): string {
   for (const r of APP_ROUTES) exact[r] = true;
 
   return `var PAGES = ${JSON.stringify(pages)};
+var APP_SHELL = ${JSON.stringify(`/${APP_SHELL_FILE}`)};
 var APP_ROUTES = ${JSON.stringify(exact)};
 var APP_ROUTE_PREFIXES = ${JSON.stringify(APP_ROUTE_PREFIXES)};
 var REDIRECTS = ${JSON.stringify(REDIRECTS)};
@@ -126,6 +132,11 @@ function handler(event) {
   if (path.length > 1 && path.charAt(path.length - 1) === '/') path = path.slice(0, -1);
 
   var target = REDIRECTS[path];
+  // A public page asked for under another spelling is one page with several
+  // addresses to a crawler. Send it to the one the sitemap and the canonical
+  // name. Only public pages: an app route keeps its spelling, because a
+  // referral code in /r/:code is case-sensitive.
+  if (!target && PAGES[path] && request.uri !== path) target = path;
   if (target) {
     // The query string goes before the fragment, or the browser reads it as
     // part of the fragment.
@@ -144,12 +155,12 @@ function handler(event) {
     return request;
   }
   if (APP_ROUTES[path]) {
-    request.uri = '/index.html';
+    request.uri = APP_SHELL;
     return request;
   }
   for (var i = 0; i < APP_ROUTE_PREFIXES.length; i++) {
     if (path.indexOf(APP_ROUTE_PREFIXES[i]) === 0) {
-      request.uri = '/index.html';
+      request.uri = APP_SHELL;
       return request;
     }
   }

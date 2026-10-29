@@ -21,7 +21,7 @@ import {
 } from "../constants";
 import { getEnvironment } from "../tags";
 import { PUBLIC_PATHS, buildLlmsTxt, buildRobotsTxt, buildSecurityTxt, buildSitemapXml } from "./site-files";
-import { NOT_FOUND_FILE, prerenderedFile } from "./edge-routing";
+import { APP_SHELL_FILE, NOT_FOUND_FILE, prerenderedFile } from "./edge-routing";
 
 // Languages offered in the UI per environment. Arabic ships on dev/staging but
 // not prod; an explicit ENABLED_LANGUAGES env var (comma-separated codes)
@@ -311,9 +311,9 @@ export class UserInterface extends Construct {
     });
 
     // The HTML entry points: index.html, one prerendered file per public page
-    // (scripts/prerender.mjs) and 404.html. Each names the current hashed
-    // bundle, so all of them are revalidated like index.html always was.
-    const htmlEntrypoints = [...PUBLIC_PATHS.map(prerenderedFile), NOT_FOUND_FILE];
+    // (scripts/prerender.mjs), 404.html and app.html. Each names the current
+    // hashed bundle, so all of them are revalidated like index.html always was.
+    const htmlEntrypoints = [...PUBLIC_PATHS.map(prerenderedFile), NOT_FOUND_FILE, APP_SHELL_FILE];
 
     // Everything else in the build that has a stable URL: vendor/, images/ and
     // any top-level static file. Not the HTML or aws-exports.json (the entry

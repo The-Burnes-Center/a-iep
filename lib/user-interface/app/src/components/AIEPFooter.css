@@ -142,12 +142,13 @@
   gap: 0.75rem 1.5rem;
 }
 
-/* A real button, so the four links are in the tab order and answer Enter and
-   Space; styled back down to the plain text they have always looked like. */
+/* Real links, so the four are in the tab order and crawlable. Styled back down
+   to the plain text they have always looked like: no underline, and the hover
+   colour is set here too because Bootstrap's `a:hover` would otherwise recolour
+   and underline them. */
 .footer-link {
-  background: none;
-  border: none;
-  padding: 0;
+  display: inline-block;
+  text-decoration: none;
   color: var(--aiep-surface-white);
   font-family: inherit;
   font-size: 16px;
@@ -157,6 +158,8 @@
 }
 
 .footer-link:hover {
+  color: var(--aiep-surface-white);
+  text-decoration: none;
   opacity: 0.7;
 }
 

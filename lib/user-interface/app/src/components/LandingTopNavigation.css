@@ -24,6 +24,15 @@
   display: none;
 }
 
+.landing-top-navigation .nav-logo {
+  cursor: pointer;
+}
+
+.landing-top-navigation .nav-logo:focus-visible {
+  outline: 2px solid var(--aiep-cream);
+  outline-offset: 2px;
+}
+
 .landing-top-navigation .nav-logo img {
   height: 40px;
   width: auto;

@@ -107,7 +107,7 @@ const renderShell = (
 
 const footerLinkRoutes = async (authenticated: boolean, labelKey: string) => {
   const user = renderShell(authenticated);
-  await user.click(screen.getByRole("button", { name: labelKey }));
+  await user.click(screen.getByRole("link", { name: labelKey }));
   return screen.getByTestId("landed-on").textContent;
 };
 
@@ -301,14 +301,14 @@ describe("how much footer a block gets", () => {
     // Same four as the full footer's signed-in set: nothing is dropped, only
     // the 570px of logo, tagline, stripe and funder marks around them.
     for (const labelKey of ["footer.home", "footer.uploadIEP", "footer.supportCenter", "footer.aboutUs"]) {
-      expect(screen.getByRole("button", { name: labelKey })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: labelKey })).toBeInTheDocument();
     }
   });
 
   test("the compact footer still navigates", async () => {
     const user = renderShell(true, false, "compact");
 
-    await user.click(screen.getByRole("button", { name: "footer.supportCenter" }));
+    await user.click(screen.getByRole("link", { name: "footer.supportCenter" }));
 
     expect(screen.getByTestId("landed-on").textContent).toBe("/support-center");
   });

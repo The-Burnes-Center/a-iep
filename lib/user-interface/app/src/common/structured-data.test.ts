@@ -25,6 +25,13 @@ describe("structured data", () => {
     expect(data.url).toBe("https://a-iep.org/");
   });
 
+  test("links the app to its public source repository", () => {
+    // sameAs ties this entity to one that names it the same way, so an
+    // assistant does not confuse A-IEP with other "AIEP"s. The repo's own
+    // homepage field points back at a-iep.org.
+    expect(structuredData().sameAs).toEqual(["https://github.com/The-Burnes-Center/a-iep"]);
+  });
+
   test("names the publisher with a postal address", () => {
     const { publisher } = structuredData();
     expect(publisher["@type"]).toBe("Organization");

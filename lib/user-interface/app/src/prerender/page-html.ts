@@ -19,6 +19,12 @@ import { SITE_ORIGIN } from '../common/page-meta';
 
 export const NOT_FOUND_FILE = '404.html';
 
+/** Every signed-in or redirect-only route (edge-routing.ts APP_ROUTES). The
+ * app's shell with noindex: /login, /profile and the rest are screens of the
+ * app, not pages, and answering them with the home page's file made each one
+ * an indexable duplicate of the home page. */
+export const APP_SHELL_FILE = 'app.html';
+
 export function prerenderedFile(publicPath: string): string {
   return publicPath === '/' ? 'index.html' : `${publicPath.slice(1)}.html`;
 }

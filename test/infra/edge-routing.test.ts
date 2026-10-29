@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   APP_ROUTES,
+  APP_SHELL_FILE,
   APP_ROUTE_PREFIXES,
   NOT_FOUND_MARKDOWN,
   REDIRECTS,
@@ -45,19 +46,37 @@ describe('public pages get their prerendered file', () => {
     expect(request(p, { accept: BROWSER_ACCEPT }).uri).toBe(file);
   });
 
-  test('matches the way the router does: any case, trailing slash or not', () => {
-    expect(request('/FAQs/').uri).toBe('/faqs.html');
-    expect(request('/About-The-Project').uri).toBe('/about-the-project.html');
+  // The router matches any case and a trailing slash, so these used to be
+  // served the page under their own address: one page, several URLs.
+  test('another spelling of a public page is a 301 to the real one', () => {
+    for (const [asked, real] of [['/FAQs/', '/faqs'], ['/About-The-Project', '/about-the-project'], ['/faqs/', '/faqs']]) {
+      const res = request(asked);
+      expect([asked, res.statusCode, res.headers?.location?.value]).toEqual([asked, 301, real]);
+    }
+  });
+
+  test('the 301 keeps the query string', () => {
+    const res = request('/FAQS', { querystring: { utm_source: { value: 'flyer' } } });
+    expect(res.headers.location.value).toBe('/faqs?utm_source=flyer');
+  });
+
+  test('the real spelling is served, not redirected', () => {
+    expect(request('/').uri).toBe('/index.html');
+    expect(request('/faqs').statusCode).toBeUndefined();
   });
 });
 
-describe('the app routes still get the app', () => {
-  test.each([...APP_ROUTES])('%s -> /index.html', (route) => {
-    expect(request(route).uri).toBe('/index.html');
+// app.html, not index.html: index.html is the home page's prerendered file,
+// so serving it here made every app route an indexable copy of the home page.
+describe('the app routes get the noindex app shell', () => {
+  test.each([...APP_ROUTES])(`%s -> /${APP_SHELL_FILE}`, (route) => {
+    expect(request(route).uri).toBe(`/${APP_SHELL_FILE}`);
   });
 
-  test('a referral link, whatever its code, gets the app', () => {
-    expect(request('/r/AbC123').uri).toBe('/index.html');
+  test('a referral link keeps its case: the code is case-sensitive', () => {
+    const res = request('/r/AbC123');
+    expect(res.statusCode).toBeUndefined();
+    expect(res.uri).toBe(`/${APP_SHELL_FILE}`);
   });
 
   test('every route in AppRoutes.tsx is covered, so none of them 404s', () => {
@@ -101,7 +120,7 @@ describe('files and unknown paths go to S3 untouched', () => {
 
   test('a real page asked for as Markdown is still the page, not a 404', () => {
     expect(request('/', { accept: 'text/markdown' }).uri).toBe('/index.html');
-    expect(request('/summary-and-translations', { accept: 'text/markdown' }).uri).toBe('/index.html');
+    expect(request('/summary-and-translations', { accept: 'text/markdown' }).uri).toBe(`/${APP_SHELL_FILE}`);
   });
 });
 

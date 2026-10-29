@@ -109,7 +109,7 @@ describe("a screen that is still loading", () => {
     expect(screen.getByRole("status")).toHaveTextContent("common.loading");
     expect(mainNav()).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Navigate to navigation.faqs" }),
+      screen.getByRole("link", { name: "navigation.faqs" }),
     ).toBeInTheDocument();
   });
 
@@ -138,7 +138,7 @@ describe("which bar a block gets", () => {
       ).toBeInTheDocument();
     }
     // The public header's items are not a signed-in parent's navigation.
-    expect(screen.queryByRole("button", { name: "Navigate to navigation.faqs" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "navigation.faqs" })).toBeNull();
   });
 
   test("the public block gets the public header, once", () => {
@@ -147,7 +147,7 @@ describe("which bar a block gets", () => {
     expect(screen.getAllByRole("navigation", MAIN_NAV)).toHaveLength(1);
     for (const key of ["home", "uploadIEP", "faqs", "about"]) {
       expect(
-        screen.getByRole("button", { name: `Navigate to navigation.${key}` }),
+        screen.getByRole("link", { name: `navigation.${key}` }),
       ).toBeInTheDocument();
     }
     // Summary, Support, Rights and Account are all behind the sign-in.

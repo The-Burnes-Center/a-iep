@@ -7,8 +7,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { PUBLIC_PAGE_META } from '../common/page-meta';
+import { SIGN_IN_ROUTE } from '../common/sign-in-location';
 import en from '../translations/en.json';
-import { NOT_FOUND_FILE, NO_SCRIPT_NOTICE, buildPageHtml, prerenderedFile } from './page-html';
+import { APP_SHELL_FILE, NOT_FOUND_FILE, NO_SCRIPT_NOTICE, buildPageHtml, prerenderedFile } from './page-html';
 import * as edge from '../../../edge-routing';
 import { buildPrerenderedFiles, renderPage } from './render-page';
 
@@ -35,6 +36,10 @@ const head = (html: string) => ({
 
 const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 
+/** Whether the markup has an <a> whose href is exactly this, so a crawler can follow it. */
+const linksTo = (markup: string, href: string) =>
+  new RegExp(`<a\\b[^>]*\\shref="${href.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}"`).test(markup);
+
 describe('renderPage', () => {
   test.each(Object.keys(PUBLIC_PAGE_META))('%s renders its real copy, with no raw keys', (p) => {
     const markup = renderPage(p);
@@ -49,6 +54,36 @@ describe('renderPage', () => {
     const h1s = [...renderPage('/').matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/g)];
     expect(h1s).toHaveLength(1);
     expect(h1s[0][1]).toBe(dictionary['hero.title'].replace(/'/g, '&#x27;'));
+  });
+
+  test.each(Object.keys(PUBLIC_PAGE_META))('%s has exactly one h1', (p) => {
+    // Two h1s was the hero's desktop and mobile copies; a page title is one.
+    expect(renderPage(p).match(/<h1[\s>]/g)).toHaveLength(1);
+  });
+
+  test.each(Object.keys(PUBLIC_PAGE_META))('%s links to the home page, the FAQs and About as plain anchors', (p) => {
+    // Crawlers follow <a href>, not onClick, so the nav has to be made of them.
+    const markup = renderPage(p);
+    for (const href of ['/', '/faqs', '/about-the-project']) {
+      expect(linksTo(markup, href), href).toBe(true);
+    }
+  });
+
+  test('the hub cards are all links, each to its own destination', () => {
+    // SSR drops onClick, so what this can pin is the element: a card that is
+    // not an <a href> is not in the tab order and is invisible to a crawler.
+    const cards = [...renderPage('/aiep-hub').matchAll(/<(\w+)\b([^>]*\bclass="aiep-tool-card"[^>]*)>/g)];
+    expect(cards.map((m) => m[1])).toEqual(['a', 'a', 'a']);
+    expect(cards.map((m) => m[2].match(/\shref="([^"]*)"/)?.[1])).toEqual([
+      SIGN_IN_ROUTE,
+      'https://rebootdemocracy.ai',
+      'https://bit.ly/civic-ai-course',
+    ]);
+    // Off-site cards open in a new tab, with the opener cut off.
+    expect(cards.slice(1).map((m) => m[2])).toEqual([
+      expect.stringContaining('target="_blank" rel="noopener noreferrer"'),
+      expect.stringContaining('target="_blank" rel="noopener noreferrer"'),
+    ]);
   });
 
   test('is a signed-out visitor: the sign-in form, not the signed-in card', () => {
@@ -118,11 +153,27 @@ test('names each file exactly as the CloudFront Function asks for it', () => {
 describe('buildPrerenderedFiles', () => {
   const files = buildPrerenderedFiles(TEMPLATE);
 
-  test('one file per public page, plus 404.html', () => {
+  test('one file per public page, plus 404.html and app.html', () => {
     expect(files.map((f) => f.file)).toEqual([
       ...Object.keys(PUBLIC_PAGE_META).map(prerenderedFile),
       '404.html',
+      APP_SHELL_FILE,
     ]);
+  });
+
+  test('app.html, served for /login, /profile and every app route, is not indexed', () => {
+    // Those routes used to get index.html, the home page's file, so each was
+    // an indexable copy of the home page with the home page's canonical.
+    const html = files.find((f) => f.file === APP_SHELL_FILE)!.html;
+    expect(html).toContain('<meta name="robots" content="noindex" />');
+    expect(head(html).canonical).toBeUndefined();
+    expect(head(html).ogUrl).toBeUndefined();
+    expect(html).toContain('<script type="module" src="/src/main.tsx"></script>');
+    expect(html).toContain('<div id="root"></div>');
+  });
+
+  test('the file names match the edge function, which routes to them', () => {
+    expect(APP_SHELL_FILE).toBe(edge.APP_SHELL_FILE);
   });
 
   test.each(Object.entries(PUBLIC_PAGE_META))('%s carries its own head', (p, keys) => {

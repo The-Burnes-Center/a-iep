@@ -3473,10 +3473,10 @@ describe('production synth: the unhashed entry points are revalidated', () => {
     // robots.txt, sitemap.xml and security.txt ride with the entry points:
     // they are unhashed, small, and built per environment at synth, so a long
     // cache would keep serving the previous environment's answer.
-    // So do the prerendered public pages and 404.html: each names the
-    // current hashed bundle exactly as index.html does.
+    // So do the prerendered public pages, 404.html and app.html: each names
+    // the current hashed bundle exactly as index.html does.
     expect(entrypoints[0].include.sort()).toEqual([
-      '.well-known/security.txt', '404.html', 'about-the-project.html', 'aiep-hub.html',
+      '.well-known/security.txt', '404.html', 'about-the-project.html', 'aiep-hub.html', 'app.html',
       'aws-exports.json', 'faqs.html', 'index.html', 'llms.txt', 'public-privacy-policy.html',
       'robots.txt', 'sitemap.xml',
     ]);

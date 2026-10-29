@@ -57,7 +57,7 @@
   font-weight: 600;
 }
 
-/* Main Title - h4 styling matching FAQs header */
+/* Main Title (an h1). Sized by this class, not by the element, to match the FAQs header. */
 .privacy-policy-title {
   font-size: 2.6rem;
   padding-left: 1rem;

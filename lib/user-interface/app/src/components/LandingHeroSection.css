@@ -22,12 +22,8 @@
   margin: 0;
 }
 
-.landing-hero-text-desktop {
+.landing-hero-break {
   display: none;
-}
-
-.landing-hero-text-mobile {
-  display: block;
 }
 
 .landing-hero-link {
@@ -112,12 +108,8 @@
     padding-top: 1rem;
   }
 
-  .landing-hero-text-desktop {
-    display: block;
-  }
-
-  .landing-hero-text-mobile {
-    display: none;
+  .landing-hero-break {
+    display: inline;
   }
 
   .landing-hero-project-by {

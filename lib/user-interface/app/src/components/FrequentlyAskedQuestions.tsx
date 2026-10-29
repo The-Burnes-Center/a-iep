@@ -413,7 +413,7 @@ const FrequentlyAskedQuestions: React.FC = () => {
               <Row className="g-0">
                 <Col md={12} className="no-padding-inherit-faq">
                   <>
-                    <h4 className="faqs-header mt-4 px-4">{getFaqHeaderText()}</h4>
+                    <h1 className="faqs-header mt-4 px-4">{getFaqHeaderText()}</h1>
                     <Accordion defaultActiveKey={null} className="mb-3 faqs-accordion">
                       {displayFaqs.map((faq) => (
                         <Accordion.Item key={faq.id} eventKey={faq.id}>

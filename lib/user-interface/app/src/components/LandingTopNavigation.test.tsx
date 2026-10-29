@@ -81,7 +81,7 @@ const renderHeader = () => {
 };
 
 const clickUploadItem = async (user: ReturnType<typeof userEvent.setup>) =>
-  user.click(screen.getByRole("button", { name: "Navigate to navigation.uploadIEP" }));
+  user.click(screen.getByRole("link", { name: "navigation.uploadIEP" }));
 
 const waitForAuthState = async (state: "signed-in" | "anonymous") =>
   waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent(state));

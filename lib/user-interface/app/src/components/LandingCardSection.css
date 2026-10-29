@@ -12,6 +12,12 @@
   .landing-card-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  /* Three cards in two columns leave the third alone in its row. At this
+     width it takes the full row instead. */
+  .landing-card-grid > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 768px) {

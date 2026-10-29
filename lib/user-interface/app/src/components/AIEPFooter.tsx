@@ -1,5 +1,5 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../common/auth-provider';
 import { useLanguage } from '../common/language-context';
 import { SIGN_IN_ROUTE } from '../common/sign-in-location';
@@ -72,24 +72,18 @@ export type FooterVariant = 'full' | 'compact';
 const AIEPFooter: React.FC<{ variant?: FooterVariant }> = ({ variant = 'full' }) => {
   const { t } = useLanguage();
   const { authenticated, loading } = useAuth();
-  const navigate = useNavigate();
 
   const links = authenticated ? SIGNED_IN_LINKS : PUBLIC_LINKS;
 
   const linkList = (
     <ul>
-      {/* Buttons, not bare <li onClick>: these four were not in the
-          tab order and could not be triggered from a keyboard, and
-          the footer is now on every screen in the app. */}
+      {/* Real links, not bare <li onClick>: they are in the tab order, answer
+          Enter, and a crawler without JavaScript can follow them. */}
       {links.map((link) => (
         <li key={link.route}>
-          <button
-            type="button"
-            className="footer-link"
-            onClick={() => navigate(link.route)}
-          >
+          <Link to={link.route} className="footer-link">
             {t(link.labelKey)}
-          </button>
+          </Link>
         </li>
       ))}
     </ul>

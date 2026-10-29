@@ -72,7 +72,7 @@ const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ isPublic = false }) => {
                 <Col  xs={12} md={8} lg={6} className='pb-4'>
   
                   {/* Main Heading */}
-                  <h4 className="privacy-policy-title">{t('privacyPolicy.title')}</h4>
+                  <h1 className="privacy-policy-title">{t('privacyPolicy.title')}</h1>
         
                   {/* Effective Date */}
                   <p className="effective-date"><strong>{t('privacyPolicy.effectiveDate')}</strong></p>

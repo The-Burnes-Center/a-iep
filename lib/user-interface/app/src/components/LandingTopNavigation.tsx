@@ -1,5 +1,5 @@
 import React from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useLanguage, SupportedLanguage } from '../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../common/languages';
 import { IconFileDescription, IconHelpCircle, IconInfoCircle, IconHome } from '@tabler/icons-react';
@@ -10,7 +10,6 @@ import { SIGN_IN_ROUTE } from '../common/sign-in-location';
 import './LandingTopNavigation.css';
 
 const LandingTopNavigation: React.FC = () => {
-  const navigate = useNavigate();
   const location = useLocation();
   const { t, language, setLanguage, enabledLanguages } = useLanguage();
   const { authenticated } = useAuth();
@@ -58,10 +57,6 @@ const LandingTopNavigation: React.FC = () => {
     },
   ];
 
-  const handleNavigation = (route: string) => {
-    navigate(route);
-  };
-
   return (
     <>
     <PartnerBanner />
@@ -70,24 +65,25 @@ const LandingTopNavigation: React.FC = () => {
     <nav className="landing-top-navigation" aria-label={t('a11y.mainNavigation')}>
       <div className="navigation-container">
         {/* Left logo - desktop only */}
-        <div className="nav-logo nav-logo-left" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
-          <img src="/images/logo-v-white.svg" alt="AI IEP Logo" />
-        </div>
+        <Link to="/" className="nav-logo nav-logo-left">
+          <img src="/images/logo-v-white.svg" alt="A-IEP home" />
+        </Link>
 
         {/* Center nav items */}
         <div className="nav-items-center">
           {navigationItems.map((item, index) => {
             const IconComponent = item.icon;
+            const isActive = location.pathname === item.route;
             return (
-              <button
+              <Link
                 key={index}
-                className={`nav-item ${location.pathname === item.route ? 'active' : ''}`}
-                onClick={() => handleNavigation(item.route)}
-                aria-label={`Navigate to ${item.label}`}
+                to={item.route}
+                className={`nav-item ${isActive ? 'active' : ''}`}
+                aria-current={isActive ? 'page' : undefined}
               >
                 <IconComponent size={24} stroke={1.5} />
                 <span className="nav-label">{item.label}</span>
-              </button>
+              </Link>
             );
           })}
         </div>

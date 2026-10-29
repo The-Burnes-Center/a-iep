@@ -22,6 +22,7 @@ import type { AppConfig } from '../common/types';
 import AppRoutes from '../components/AppRoutes';
 import en from '../translations/en.json';
 import {
+  APP_SHELL_FILE,
   NOT_FOUND_FILE,
   buildPageHtml,
   canonicalUrlFor,
@@ -69,12 +70,24 @@ const NOT_FOUND_MARKUP = renderToStaticMarkup(
   </main>,
 );
 
+// For readers without JavaScript on an app screen (sign-in, the account
+// pages): there is nothing to show without the app, so point at what there is.
+const APP_SHELL_MARKUP = renderToStaticMarkup(
+  <main>
+    <p>This part of A-IEP, the free tool that helps parents understand their child’s IEP, works only with JavaScript.</p>
+    <ul>
+      <li><a href="/">Home</a></li>
+      <li><a href="/faqs">Frequently asked questions</a></li>
+    </ul>
+  </main>,
+);
+
 export interface PrerenderedFile {
   file: string;
   html: string;
 }
 
-/** Every file the build adds: one per public page, plus 404.html. */
+/** Every file the build adds: one per public page, 404.html and app.html. */
 export function buildPrerenderedFiles(template: string): PrerenderedFile[] {
   const pages = Object.entries(PUBLIC_PAGE_META).map(([publicPath, keys]) => ({
     file: prerenderedFile(publicPath),
@@ -92,5 +105,13 @@ export function buildPrerenderedFiles(template: string): PrerenderedFile[] {
       NOT_FOUND_MARKUP,
     ),
   };
-  return [...pages, notFound];
+  const appShell = {
+    file: APP_SHELL_FILE,
+    html: buildPageHtml(
+      template,
+      { title: t('meta.home.title'), description: t('meta.home.description'), noindex: true },
+      APP_SHELL_MARKUP,
+    ),
+  };
+  return [...pages, notFound, appShell];
 }

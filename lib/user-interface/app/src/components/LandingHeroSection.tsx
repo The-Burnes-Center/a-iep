@@ -8,17 +8,14 @@ const LandingHeroSection = () => {
     <section className="landing-hero-section">
       <div className="landing-hero-text-container">
       <span className="landing-hero-project-about-text">{t('landingHero.aboutAIEP')}</span>
-        {/* Desktop h1 - with line breaks */}
-        <h1 className="landing-hero-text landing-hero-text-desktop">
-          {t('landingHero.title.aiep')} {t('landingHero.title.isAn')} <a href="https://ai4impact.ai/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-orange landing-hero-link">{t('landingHero.title.aiForImpact')}</a> {t('landingHero.title.project')}<br />
-          {t('landingHero.title.inPartnershipWith')} <a href="https://innovateschools.org/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-blue landing-hero-link">{t('landingHero.title.innovate')}</a><br />
-          <a href="https://innovateschools.org/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-blue landing-hero-link">{t('landingHero.title.publicSchools')}</a> {t('landingHero.title.builtOn')}<br />
-          <a href="https://communitycentered.ai/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-pink landing-hero-link">{t('landingHero.title.communityCenteredAI')}</a><br />
+        {/* One h1. The line breaks are only shown at desktop width (see
+            .landing-hero-break), so a phone reads it as one paragraph and a
+            wide screen gets the four-line layout, from the same markup. */}
+        <h1 className="landing-hero-text">
+          {t('landingHero.title.aiep')} {t('landingHero.title.isAn')} <a href="https://ai4impact.ai/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-orange landing-hero-link">{t('landingHero.title.aiForImpact')}</a> {t('landingHero.title.project')}{' '}<br className="landing-hero-break" />
+          {t('landingHero.title.inPartnershipWith')} <a href="https://innovateschools.org/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-blue landing-hero-link">{t('landingHero.title.innovate')}{' '}<br className="landing-hero-break" />{t('landingHero.title.publicSchools')}</a> {t('landingHero.title.builtOn')}{' '}<br className="landing-hero-break" />
+          <a href="https://communitycentered.ai/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-pink landing-hero-link">{t('landingHero.title.communityCenteredAI')}</a>{' '}<br className="landing-hero-break" />
           {t('landingHero.title.principles')}
-        </h1>
-        {/* Mobile h1 - without line breaks */}
-        <h1 className="landing-hero-text landing-hero-text-mobile">
-          {t('landingHero.title.aiep')} {t('landingHero.title.isAn')} <a href="https://ai4impact.ai/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-orange landing-hero-link">{t('landingHero.title.aiForImpact')}</a> {t('landingHero.title.project')} {t('landingHero.title.inPartnershipWith')} <a href="https://innovateschools.org/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-blue landing-hero-link">{t('landingHero.title.innovate')} {t('landingHero.title.publicSchools')}</a> {t('landingHero.title.builtOn')} <a href="https://communitycentered.ai/" target="_blank" rel="noopener noreferrer" className="landing-hero-text-pink landing-hero-link">{t('landingHero.title.communityCenteredAI')}</a> {t('landingHero.title.principles')}
         </h1>
         <div className="landing-hero-project-by">
           <span className="landing-hero-project-by-text">{t('landingHero.projectBy')}</span>

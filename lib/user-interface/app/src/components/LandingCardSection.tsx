@@ -1,12 +1,14 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
 import AIEPToolCard from "./AIEPToolCard";
 import { useLanguage } from "../common/language-context";
 import { SIGN_IN_ROUTE } from "../common/sign-in-location";
 import "./LandingCardSection.css";
 
+/** Where the Reboot blog and the Civic AI course live. Off-site, so the cards open them in a new tab. */
+const REBOOT_BLOG_URL = "https://rebootdemocracy.ai";
+const CIVIC_AI_COURSE_URL = "https://bit.ly/civic-ai-course";
+
 const LandingCardSection: React.FC = () => {
-  const navigate = useNavigate();
   const { t } = useLanguage();
 
   return (
@@ -17,42 +19,21 @@ const LandingCardSection: React.FC = () => {
           middleText={t("landingCards.aiepTool.middle")}
           bottomText={t("landingCards.aiepTool.bottom")}
           backgroundImage="/images/patterns-red-h.jpg"
-          onClick={() => navigate(SIGN_IN_ROUTE)}
-        />
-        <AIEPToolCard
-          topText={t("landingCards.canvassing.top")}
-          middleText={t("landingCards.canvassing.middle")}
-          bottomText={t("landingCards.canvassing.bottom")}
-          backgroundImage="/images/patterns-yellow-h.jpg"
-          onClick={() => {}}
+          href={SIGN_IN_ROUTE}
         />
         <AIEPToolCard
           topText={t("landingCards.blog.top")}
           middleText={t("landingCards.blog.middle")}
           bottomText={t("landingCards.blog.bottom")}
           backgroundImage="/images/patterns-orange-h.jpg"
-          onClick={() => {}}
+          href={REBOOT_BLOG_URL}
         />
         <AIEPToolCard
           topText={t("landingCards.course.top")}
           middleText={t("landingCards.course.middle")}
           bottomText={t("landingCards.course.bottom")}
           backgroundImage="/images/patterns-pink-h.jpg"
-          onClick={() => {}}
-        />
-        <AIEPToolCard
-          topText={t("landingCards.research.top")}
-          middleText={t("landingCards.research.middle")}
-          bottomText={t("landingCards.research.bottom")}
-          backgroundImage="/images/patterns-blue-h.jpg"
-          onClick={() => {}}
-        />
-        <AIEPToolCard
-          topText={t("landingCards.playbook.top")}
-          middleText={t("landingCards.playbook.middle")}
-          bottomText={t("landingCards.playbook.bottom")}
-          backgroundImage="/images/patterns-light-green-h.jpg"
-          onClick={() => {}}
+          href={CIVIC_AI_COURSE_URL}
         />
       </div>
     </div>
