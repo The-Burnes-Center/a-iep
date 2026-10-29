@@ -41,11 +41,15 @@
 
 /* Capped by width as well as height: at 370px tall the illustration is about
    348px wide, which pushed a 320px phone sideways (WCAG 1.4.10). */
+/* A definite width and the file's ratio reserve the box before the PNG
+   arrives (see HeroSection.tsx). Same size as the max-height cap it replaces:
+   370px tall, or narrower when the column is. Margin, not padding: with
+   border-box sizing, padding would come out of the ratio and squash it. */
 .hero-section-image {
-    max-height: 370px;
-    max-width: 100%;
+    width: min(100%, calc(370px * 1456 / 1549));
     height: auto;
-    padding-bottom: 1rem;
+    aspect-ratio: 1456 / 1549;
+    margin-bottom: 1rem;
 }
 
 .hero-section-login-container-content {
@@ -99,8 +103,8 @@
     }
 
     .hero-section-image {
-        max-height: 410px;
-        padding-bottom: 0;
+        width: min(100%, calc(410px * 1456 / 1549));
+        margin-bottom: 0;
     }
 
     .hero-section-login-container-content {

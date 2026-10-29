@@ -11,6 +11,15 @@ import LanguageDropdown from './LanguageDropdown';
 import './CustomLogin.css';
 import './HeroSection.css';
 
+// The file's own pixels. prerender.test.tsx reads them from the PNG, so a
+// replaced image with different proportions fails the build instead of
+// stretching.
+const HERO_IMAGE = { src: '/images/hero-section-image.png', width: 1456, height: 1549 };
+
+// Lowercase on purpose: React 18 warns on `fetchPriority` and passes the
+// lowercase attribute through unchanged.
+const HIGH_FETCH_PRIORITY = { fetchpriority: 'high' } as Record<string, string>;
+
 const HeroSection: React.FC = () => {
     const { t, language, setLanguage, enabledLanguages } = useLanguage();
     const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
@@ -58,7 +67,20 @@ const HeroSection: React.FC = () => {
                     />
                 </div>
                 <div className='hero-section-image-container'>
-                    <img src="/images/hero-section-image.png" alt="Hero Section Image" className='hero-section-image' />
+                    {/* The page's largest paint. Its size is declared (the
+                        file's own pixels; HeroSection.css turns them into a
+                        reserved box) because the box was 0px tall until the
+                        file arrived, and then pushed the heading, the
+                        sign-in card and everything below them down by about
+                        400px: a layout shift score of 0.28 on a phone. */}
+                    <img
+                        src={HERO_IMAGE.src}
+                        width={HERO_IMAGE.width}
+                        height={HERO_IMAGE.height}
+                        alt=""
+                        className='hero-section-image'
+                        {...HIGH_FETCH_PRIORITY}
+                    />
                     <div className='hero-illustration-text-container'>
                         {/* The page's one h1: the landing page had none, so a screen
                             reader's heading list and a crawler both started

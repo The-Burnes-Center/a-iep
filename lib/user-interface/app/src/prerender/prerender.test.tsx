@@ -144,3 +144,39 @@ describe('buildPrerenderedFiles', () => {
     expect(html).toContain('<script type="module" src="/src/main.tsx"></script>');
   });
 });
+
+// The server render is the same React tree the browser builds, so it shows
+// the attributes a browser gets before any image has loaded.
+const PUBLIC_DIR = path.join(__dirname, '../../public');
+
+/** A PNG's pixel size, from its IHDR chunk. */
+function pngSize(src: string): { width: number; height: number } {
+  const bytes = fs.readFileSync(path.join(PUBLIC_DIR, decodeURIComponent(src)));
+  return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+}
+
+const imgTags = (markup: string) => [...markup.matchAll(/<img\b[^>]*>/g)].map((m) => m[0]);
+const attr = (tag: string, name: string) => tag.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1];
+
+describe('images and layout shift', () => {
+  test('the home hero reserves its box and loads first', () => {
+    // Unsized, it was 0px tall until the file arrived and then pushed the
+    // page down by about 400px (layout shift 0.28 on a phone).
+    const hero = imgTags(renderPage('/')).find((tag) => tag.includes('hero-section-image'));
+    expect(hero).toBeDefined();
+    const src = attr(hero!, 'src')!;
+    expect({ width: Number(attr(hero!, 'width')), height: Number(attr(hero!, 'height')) }).toEqual(pngSize(src));
+    expect(attr(hero!, 'loading')).toBeUndefined();
+    expect(attr(hero!, 'fetchpriority')).toBe('high');
+  });
+
+  test.each(Object.keys(PUBLIC_PAGE_META))('%s: every sized PNG declares its own proportions', (p) => {
+    // A width/height pair that disagrees with the file stretches the image.
+    const sized = imgTags(renderPage(p)).filter((tag) => attr(tag, 'width') && attr(tag, 'src')?.endsWith('.png'));
+    for (const tag of sized) {
+      const file = pngSize(attr(tag, 'src')!);
+      const ratio = Number(attr(tag, 'width')) / Number(attr(tag, 'height'));
+      expect({ tag, ratio: ratio.toFixed(3) }).toEqual({ tag, ratio: (file.width / file.height).toFixed(3) });
+    }
+  });
+});
