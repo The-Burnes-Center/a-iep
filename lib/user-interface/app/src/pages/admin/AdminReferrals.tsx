@@ -1,4 +1,4 @@
-import React, { useContext, useRef, useState } from 'react';
+import React, { useContext, useState } from 'react';
 import {
   Container,
   Table,
@@ -14,7 +14,6 @@ import {
 import { Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { saveAs } from 'file-saver';
-import { QRCodeCanvas } from 'qrcode.react';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { AdminUser, ReferralLink } from '../../common/types';
@@ -22,6 +21,7 @@ import { useAdminIdentity } from '../../common/helpers/use-admin-identity';
 import AIEPSpinner from '../../components/AIEPSpinner';
 import PageLoading from '../../components/PageLoading';
 import Breadcrumbs from '../../components/Breadcrumbs';
+import AdminQrModal from './AdminQrModal';
 import './AdminReferrals.css';
 
 const CHANNELS = ['social', 'conference', 'event', 'print', 'partner', 'other'];
@@ -64,7 +64,6 @@ export default function AdminReferrals() {
   const [codeTouched, setCodeTouched] = useState(false);
   const [adminIdentifier, setAdminIdentifier] = useState('');
   const [adminError, setAdminError] = useState<string | null>(null);
-  const qrWrapRef = useRef<HTMLDivElement>(null);
 
   const { data: links, isLoading, error } = useQuery({
     queryKey: ['referral', 'admin', 'links'],
@@ -173,11 +172,6 @@ export default function AdminReferrals() {
     } catch {
       // ignore; the row shows the code, admins can copy manually
     }
-  };
-
-  const downloadQr = (code: string) => {
-    const canvas = qrWrapRef.current?.querySelector('canvas');
-    canvas?.toBlob((blob) => blob && saveAs(blob, `aiep-qr-${code}.png`));
   };
 
   const exportCsv = () => {
@@ -513,24 +507,15 @@ export default function AdminReferrals() {
         </Form>
       </Modal>
 
-      <Modal show={qrLink !== null} onHide={() => setQrLink(null)} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>{qrLink?.name || qrLink?.code}</Modal.Title>
-        </Modal.Header>
-        <Modal.Body className="text-center" ref={qrWrapRef}>
-          {qrLink && (
-            <>
-              <QRCodeCanvas value={linkUrl(qrLink.code)} size={240} marginSize={2} />
-              <div className="mt-3"><code>{linkUrl(qrLink.code)}</code></div>
-            </>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="outline-secondary" className="button-text" onClick={() => qrLink && downloadQr(qrLink.code)}>
-            <i className="bi bi-download me-1"></i>Download PNG
-          </Button>
-        </Modal.Footer>
-      </Modal>
+      {qrLink && (
+        <AdminQrModal
+          link={qrLink}
+          url={linkUrl(qrLink.code)}
+          isCopied={copiedCode === qrLink.code}
+          onCopy={() => handleCopy(qrLink.code)}
+          onClose={() => setQrLink(null)}
+        />
+      )}
     </>
   );
 }

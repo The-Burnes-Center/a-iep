@@ -149,3 +149,134 @@
 .admin-referrals-url-preview strong {
   font-weight: 600;
 }
+
+/* ---- QR modal --------------------------------------------------------------
+   Same look as the parent invite page (InvitePage.css): the branded code on a
+   white card, pinned to the dark-green grid paper. The code itself is
+   InviteQrCode, so it scans the same way its tests prove. */
+.admin-qr-modal .modal-content {
+  border: none;
+  border-radius: 20px;
+  background-color: var(--aiep-cream);
+}
+
+.admin-qr-modal .modal-header {
+  border-bottom: none;
+  padding-bottom: 0.25rem;
+}
+
+.admin-qr-title {
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-size: 1.5rem;
+  overflow-wrap: anywhere;
+}
+
+.admin-qr-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-top: 0.25rem;
+}
+
+.admin-qr-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-qr-frame {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  padding: 1.75rem 1rem 2rem;
+  border: 0;
+  border-radius: 16px;
+  background-color: var(--aiep-green-dark);
+  cursor: zoom-in;
+}
+
+.admin-qr-frame::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to bottom, var(--aiep-cream-veil) 1px, transparent 1px),
+    linear-gradient(to right, var(--aiep-cream-veil) 1px, transparent 1px);
+  background-size: 28px 28px;
+  opacity: 0.22;
+  pointer-events: none;
+}
+
+.admin-qr-frame:focus-visible {
+  outline: 3px solid var(--aiep-green-dark);
+  outline-offset: 3px;
+}
+
+.admin-qr-frame .invite-qr-code {
+  position: relative; /* above the grid */
+  width: min(16rem, 100%);
+  height: auto;
+  border-radius: 16px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  transition: transform 200ms ease;
+}
+
+.admin-qr-frame:hover .invite-qr-code,
+.admin-qr-frame:focus-visible .invite-qr-code {
+  transform: scale(1.03);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-qr-frame .invite-qr-code {
+    transition: none;
+  }
+}
+
+.admin-qr-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.75rem 0.75rem 1rem;
+  border-radius: 12px;
+  background-color: var(--aiep-surface-white);
+}
+
+.admin-qr-url {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: monospace;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.admin-qr-copy {
+  flex-shrink: 0;
+  min-height: 2.75rem;
+}
+
+.admin-qr-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  border-top: none;
+}
+
+.admin-qr-actions .btn {
+  margin: 0;
+  min-height: 2.75rem;
+}
+
+/* The PNG is what most admins want, so it gets the full row. */
+.admin-qr-actions .btn-primary {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 359.98px) {
+  .admin-qr-actions {
+    grid-template-columns: 1fr;
+  }
+}
