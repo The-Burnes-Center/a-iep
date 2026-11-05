@@ -196,6 +196,10 @@ const stepLine = () => {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // BrowserRouter keeps the browser URL on the current route; MemoryRouter
+  // does not. The page's redirects only fire while the browser is on the
+  // summary route (see the leave-early test), so put it there as in the app.
+  window.history.replaceState(null, "", "/summary-and-translations");
   // Start the frozen clock on a whole second.
   //
   // Not cosmetic: the progress bar eases from a milestone anchored on the
@@ -229,6 +233,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  window.history.replaceState(null, "", "/");
 });
 
 describe("while the document is processing", () => {

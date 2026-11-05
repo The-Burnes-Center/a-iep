@@ -51,6 +51,9 @@ import { TextHelper } from '../../common/helpers/text-helper';
 // this is a backstop against a request that vanished, not a real deadline.
 const TRANSLATION_TIMEOUT_MS = 10 * 60 * 1000;
 
+/** This page's route (AppRoutes.tsx); its redirects only fire while the browser is still here. */
+const SUMMARY_PATH = '/summary-and-translations';
+
 /**
  * Whether a content field really is text this page can render.
  *
@@ -661,6 +664,29 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     setTutorialPhase(isProcessing || isReplacementRunning ? 'parent-rights' : 'completed');
   }, [isProcessing, isReplacementRunning]);
 
+  // Where this page sends a parent it cannot show anything to. An unfinished
+  // profile belongs back in onboarding, NOT at '/': that route is the public
+  // LandingPage, whose only way back in is a link to /login, so a signed-in
+  // parent looked signed out. /preferred-language gates onward from there.
+  // No document at all means the upload page.
+  //
+  // This runs in an effect, once per answer, and only while the browser is
+  // still on this route. It used to be a navigate() in the render body, which
+  // re-ran on every render: a parent who tapped a tab while the first load was
+  // in flight was pulled back to /iep-documents by the renders that landed
+  // before the tap committed. A tap updates the URL at once, so the pathname
+  // check sees it even while React is still switching screens.
+  const redirectTarget = profile?.showOnboarding
+    ? '/preferred-language'
+    : document?.message === 'No document found for this child'
+      ? '/iep-documents'
+      : null;
+  useEffect(() => {
+    if (!redirectTarget) return;
+    if (window.location.pathname !== SUMMARY_PATH) return;
+    navigate(redirectTarget, { replace: true });
+  }, [redirectTarget, navigate]);
+
 
 
   // Set active tab based on selected language and content availability
@@ -981,19 +1007,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   }
 
 
-  // An unfinished profile belongs back in onboarding, NOT at '/'. That route
-  // is the public LandingPage, whose only way back into the app is an "Upload
-  // An IEP" link to /login — so tapping "Summary" in the bottom nav ejected an
-  // already-authenticated parent onto the marketing site staring at a sign-in
-  // form. Nothing signs them out; it only looks that way. /preferred-language
-  // is where the other onboarding redirects go, and it gates onward from there.
-  if(profile?.showOnboarding){
-    navigate('/preferred-language');
+  if (profile?.showOnboarding) {
     return null;
-  }
-
-  if(document && document.message === "No document found for this child") {
-      navigate('/iep-documents');
   }
 
   // The summary's language picker, in the bar's language spot on every state
