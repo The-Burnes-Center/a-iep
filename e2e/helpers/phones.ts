@@ -111,3 +111,13 @@ export const PASSWORDLESS_WRONG_CODE_USER = '+15555550124';
  * from ever being read together by mistake.
  */
 export const PASSWORDLESS_LOCKOUT_USER = '+15555550125';
+
+/**
+ * The burner for the multi-child journey (multi-child.spec.ts). Healed
+ * (delete + admin-create) at the start of every attempt and admin-deleted in
+ * an afterEach, like REFERRAL_SIGNUP_USER: the journey adds a child, and
+ * there is no "remove a child" yet, so a persistent account would gain one
+ * child per run until it hit the cap. 0128 is allowlisted in new-auth.ts's
+ * TEST_PHONE_NUMBERS and was unclaimed.
+ */
+export const MULTI_CHILD_USER = '+15555550128';

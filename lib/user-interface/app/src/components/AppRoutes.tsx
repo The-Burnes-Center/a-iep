@@ -46,6 +46,8 @@ const HowToAskForPdf = lazy(() => import('../pages/profile/HowToAskForPdf'));
 const HowWeProtectYourPrivacy = lazy(() => import('../pages/profile/HowWeProtectYourPrivacy'));
 const ParentRightsCarousel = lazy(() => import('../components/ParentRightsCarousel'));
 const AccountCenter = lazy(() => import('../pages/profile/AccountCenter'));
+const MyChildren = lazy(() => import('../pages/profile/MyChildren'));
+const AddChild = lazy(() => import('../pages/profile/AddChild'));
 const AboutAIEP = lazy(() => import('../components/AboutAIEP'));
 const DeleteAccount = lazy(() => import('../pages/profile/DeleteAccount'));
 const ViewResources = lazy(() => import('../pages/profile/ViewResources'));
@@ -131,6 +133,9 @@ export default function AppRoutes() {
         <Route element={<ConsentGate />}>
           <Route path="/iep-documents" element={<IEPDocumentView />} />
           <Route path="/summary-and-translations" element={<SummaryAndTranslationsPage />} />
+          {/* multiChild: each redirects to Account when the feature is off */}
+          <Route path="/account-center/children" element={<MyChildren />} />
+          <Route path="/account-center/children/add" element={<AddChild />} />
         </Route>
 
         {/* Profile & Settings */}

@@ -5,6 +5,7 @@ import { AppContext } from '../../common/app-context';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import './CurrentIEPDocument.css';
 import { useLanguage } from '../../common/language-context';
+import { useActiveChild } from '../../common/hooks/use-active-child';
 
 export interface CurrentIEPDocumentProps {
   onRefreshNeeded: () => void;
@@ -20,6 +21,7 @@ const CurrentIEPDocument: React.FC<CurrentIEPDocumentProps> = ({ onRefreshNeeded
   const [error, setError] = useState<string | null>(null);
 
   const { t } = useLanguage();
+  const { childId, isLoading: isChildLoading } = useActiveChild();
 
   const fetchDocument = async () => {
     setLoading(true);
@@ -27,7 +29,7 @@ const CurrentIEPDocument: React.FC<CurrentIEPDocumentProps> = ({ onRefreshNeeded
     
     try {
       // Get the most recent document
-      const recentDocument = await apiClient.getMostRecentDocumentWithSummary();
+      const recentDocument = await apiClient.getMostRecentDocumentWithSummary(childId);
 
       if (recentDocument && recentDocument.documentUrl) {
         // Extract the filename from the document URL
@@ -53,13 +55,16 @@ const CurrentIEPDocument: React.FC<CurrentIEPDocumentProps> = ({ onRefreshNeeded
   };
 
   useEffect(() => {
+    // Not before the profile says which child this is: a fetch without the
+    // child would read the first child's document under another's name.
+    if (isChildLoading) return;
     fetchDocument();
     // Call the onRefreshNeeded callback after fetching to signal that refresh is complete
     if (onRefreshNeeded) {
       onRefreshNeeded();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchDocument is recreated every render; refetch is keyed to onRefreshNeeded by design
-  }, [onRefreshNeeded]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchDocument is recreated every render; refetch is keyed to onRefreshNeeded and the child by design
+  }, [onRefreshNeeded, childId, isChildLoading]);
 
   return (
     <Card className="current-document-container">

@@ -1,5 +1,5 @@
 // UploadIEPDocument.tsx
-import React, { useState, useContext, useRef, useEffect } from 'react';
+import React, { useState, useContext, useRef } from 'react';
 import {
   Form,
   Button,
@@ -8,11 +8,12 @@ import {
   ProgressBar,
   ListGroup
 } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
-import { ApiClient } from '../../common/api-client/api-client';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { isPlaceholderChildName } from '../../common/features';
+import { useActiveChild } from '../../common/hooks/use-active-child';
+import { fillTemplate } from '../../common/active-child';
 import { FileUploader } from '../../common/file-uploader';
 import { Utils } from '../../common/utils';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -127,20 +128,23 @@ interface FileError {
 
 export interface UploadIEPDocumentProps {
   onUploadComplete: () => void;
+  /** Unused since both branches it chose between went to the same summary. */
   hasExistingDocument: boolean;
 }
 
-const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete, hasExistingDocument }) => {
+const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete }) => {
   const appContext = useContext(AppContext);
   const apiClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
 
-  // The name the design puts in a gold chip above the heading, so a parent
-  // uploading for one of several children can see which file they are about
-  // to attach to whom. Empty until the profile answers, and empty for good if
-  // it never does or if the child is still the auto-created placeholder: a
-  // chip with nothing in it would be worse than no chip.
-  const [childName, setChildName] = useState<string>('');
+  // The child this upload is for (common/active-child.ts), and the name the
+  // design puts in a gold chip above the heading so a parent can see which
+  // file they are about to attach to whom. Empty while the profile loads, and
+  // empty for good if the child is still the auto-created placeholder: a chip
+  // with nothing in it would be worse than no chip.
+  const activeChild = useActiveChild();
+  const activeName = activeChild.child?.name;
+  const childName = activeName && !isPlaceholderChildName(activeName) ? activeName : '';
 
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<FileError | null>(null);
@@ -165,21 +169,6 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
 
   const { t } = useLanguage();
 
-  useEffect(() => {
-    let cancelled = false;
-    new ApiClient(appContext).profile
-      .getProfile()
-      .then((profile) => {
-        const name = profile?.children?.[0]?.name;
-        if (!cancelled && !isPlaceholderChildName(name)) setChildName(name as string);
-      })
-      .catch(() => {
-        // The badge is a courtesy, not a precondition for uploading: a profile
-        // that will not load leaves the chip off and the screen working. The
-        // failure is already reported wherever the profile actually matters.
-      });
-    return () => { cancelled = true; };
-  }, [appContext]);
 
   /**
    * Passed to pdf-decrypt.ts's resolveEncryptedPdf as its requestPassword
@@ -298,7 +287,7 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
       const fileType = mimeTypes[fileExtension];
       
       // Get upload URL
-      const uploadUrl = await apiClient.getUploadURL(file.name, fileType);
+      const uploadUrl = await apiClient.getUploadURL(file.name, fileType, activeChild.childId);
       
       // Upload file to S3
       await uploader.upload(
@@ -323,14 +312,8 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
       // Call the callback function to notify parent component
       onUploadComplete();
       
-      // Navigate based on whether there was an existing document
-      if (hasExistingDocument) {
-        // If there was already a document, go to summary page
-        navigate('/summary-and-translations');
-      } else {
-        // If this is the first document, go to about-app page
-        navigate('/summary-and-translations');
-      }
+      // To this child's summary, whether or not they had one before.
+      navigate(activeChild.pathFor('/summary-and-translations'));
     }
   };
 
@@ -480,16 +463,32 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
               </Alert>
             )}
             
+            {/* With more than one child, the last thing a parent reads before
+                sending a file is whose it will be. A wrong-child upload puts
+                one child's IEP under another's name, so the check costs one
+                glance and the way out is right there. */}
+            {activeChild.isMultiChild && childName && file && (
+              <div className="upload-belongs-to" role="group" aria-labelledby="upload-belongs-to-text" data-testid="upload-belongs-to">
+                <p id="upload-belongs-to-text" className="mb-1">
+                  {fillTemplate(t('upload.belongsTo'), { name: childName })}
+                </p>
+                <Link to="/account-center/children" className="upload-belongs-to-change">{t('upload.belongsTo.change')}</Link>
+              </div>
+            )}
+
             <div className="d-grid gap-2 mt-3">
               <Button
                 variant="primary"
                 onClick={handleUpload}
-                disabled={!file || uploadStatus === 'uploading'}
+                // Not before the profile says which child this is for.
+                disabled={!file || uploadStatus === 'uploading' || activeChild.isLoading}
                 // Stable E2E hook: the label is localized
                 data-testid="upload-submit-button"
               >
                 <FontAwesomeIcon icon={faUpload} className="me-2" />
-                {t('upload.button')}
+                {activeChild.isMultiChild && childName
+                  ? fillTemplate(t('upload.buttonForChild'), { name: childName })
+                  : t('upload.button')}
               </Button>
             </div>
           </Form>

@@ -73,6 +73,15 @@ describe('enabled features per environment', () => {
     expect(CDK_ALL_FEATURES).toContain('pdfHelpScreens');
   });
 
+  it('holds multi-child support back from production', () => {
+    // Staging only until the survey decisions land and the flow has had a
+    // promotion's worth of use. Asserted as absent, like the help screens, so
+    // turning it on for every family has to be written here deliberately.
+    expect(CDK_PROD_FEATURES).not.toContain('multiChild');
+    expect(CDK_ALL_FEATURES).toContain('multiChild');
+    expect(CDK_DARK_EVERYWHERE).not.toContain('multiChild');
+  });
+
   it('keeps the student-name gate on wherever the redaction runs', () => {
     // The pipeline's redaction is not behind this flag: redact_ocr's
     // ALLOWED_PII_ENTITY_TYPES runs in every environment. So a build that

@@ -70,6 +70,9 @@ const AccountCenter: React.FC = () => {
       case '5':
         navigate('/admin/referrals');
         break;
+      case '7':
+        navigate('/account-center/children');
+        break;
       default:
         break;
     }
@@ -92,6 +95,11 @@ const AccountCenter: React.FC = () => {
       title: t("accountCenter.childName"),
       testId: "account-center-child-name",
     },
+    // Every child on the account, and the only way to add another. Gated like
+    // the invite row: this row is the feature's entry point.
+    ...(isFeatureEnabled('multiChild')
+      ? [{ id: "7", title: t("accountCenter.myChildren"), testId: "account-center-my-children" }]
+      : []),
     // The only in-app entry point to the referral flow, so this row is what
     // keeps referrals dark where the feature is off (prod). The /invite route
     // itself stays registered, and the ?ref= capture keeps running: neither is

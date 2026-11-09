@@ -21,6 +21,7 @@ import React from "react";
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import UploadIEPDocument, { MAX_FILE_SIZE_BYTES } from "./UploadIEPDocument";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
@@ -64,15 +65,19 @@ const languageValue = {
   enabledLanguages: ["en"] as SupportedLanguage[],
 };
 
+// The app's query client sits above every screen (AppConfigured); the upload
+// reads which child it is for from the shared ['profile'] cache through it.
 const renderUpload = () =>
   render(
-    <MemoryRouter>
-      <AppContext.Provider value={appConfig}>
-        <LanguageContext.Provider value={languageValue}>
-          <UploadIEPDocument onUploadComplete={vi.fn()} hasExistingDocument={false} />
-        </LanguageContext.Provider>
-      </AppContext.Provider>
-    </MemoryRouter>,
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <MemoryRouter>
+        <AppContext.Provider value={appConfig}>
+          <LanguageContext.Provider value={languageValue}>
+            <UploadIEPDocument onUploadComplete={vi.fn()} hasExistingDocument={false} />
+          </LanguageContext.Provider>
+        </AppContext.Provider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 
 const encryptedPdf = (name = "report-card.pdf") =>

@@ -158,3 +158,20 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
+
+/* "This IEP belongs to Leo", above the upload button for a family with more
+   than one child. Edged in the same gold as the name chip above the heading. */
+.upload-belongs-to {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--aiep-amber);
+  border-radius: 12px;
+  background-color: var(--aiep-surface-white);
+  color: var(--aiep-ink);
+}
+
+.upload-belongs-to-change {
+  color: var(--aiep-link);
+  display: inline-block;
+  min-height: 24px;
+}

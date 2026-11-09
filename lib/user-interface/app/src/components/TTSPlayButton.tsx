@@ -14,6 +14,8 @@ interface TTSPlayButtonProps {
   target: 'summary' | 'section';
   sectionName?: string;
   className?: string;
+  /** The child the document belongs to; undefined means the first child. */
+  childId?: string;
 }
 
 type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'error';
@@ -29,7 +31,8 @@ const TTSPlayButton: React.FC<TTSPlayButtonProps> = ({
   language,
   target,
   sectionName,
-  className
+  className,
+  childId
 }) => {
   const { t } = useLanguage();
   const appContext = useContext(AppContext);
@@ -107,7 +110,7 @@ const TTSPlayButton: React.FC<TTSPlayButtonProps> = ({
     setState('loading');
     try {
       const apiClient = new IEPDocumentClient(appContext);
-      const response = await apiClient.getDocumentAudio(iepId, language, target, sectionName);
+      const response = await apiClient.getDocumentAudio(iepId, language, target, sectionName, childId);
 
       const audio = new Audio(response.url);
       audio.onended = () => setState('idle');

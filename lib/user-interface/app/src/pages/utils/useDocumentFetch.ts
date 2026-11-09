@@ -60,6 +60,12 @@ interface UseDocumentFetchParams {
    * arrives. Flipping it back to false makes the next cycle stop the interval.
    */
   forcePolling?: boolean;
+  /**
+   * The child whose document this is (common/active-child.ts). Undefined
+   * means the profile's first child. The page is remounted per child, so this
+   * never changes under a running poller.
+   */
+  childId?: string;
 }
 
 export const useDocumentFetch = ({
@@ -70,7 +76,8 @@ export const useDocumentFetch = ({
   setInitialLoading,
   processDocumentSections,
   loadErrorMessage,
-  forcePolling = false
+  forcePolling = false,
+  childId
 }: UseDocumentFetchParams) => {
   const isFirstRender = useRef<boolean>(true);
 
@@ -112,7 +119,7 @@ export const useDocumentFetch = ({
       }
       
       try {
-        const retrievedDocument = await apiClient.getMostRecentDocumentWithSummary();
+        const retrievedDocument = await apiClient.getMostRecentDocumentWithSummary(childId);
         // console.log("Fetched document data:", retrievedDocument);
         
         if (retrievedDocument) {

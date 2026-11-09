@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useContext, useRef } from 'react';
 import { Container, Row, Col, Card, Alert, Button, Accordion, Tabs, Tab, Offcanvas, ProgressBar } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useNavigate } from 'react-router-dom';
+import { useActiveChild } from '../../common/hooks/use-active-child';
 import { faLanguage, faDownload, faArrowsRotate } from '@fortawesome/free-solid-svg-icons';
 import './IEPSummarizationAndTranslation.css';
 import { IEPDocument, IEPSection } from '../../common/types';
@@ -162,6 +163,9 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   // Track if user has manually selected a language (to prevent auto-reset)
   const [hasUserSelectedLanguage] = useState<boolean>(false);
   const navigate = useNavigate();
+  // Which child this summary is about. SummaryAndTranslationsPage waits for
+  // it and remounts this page per child, so it is settled before any fetch.
+  const { childId: activeChildId, pathFor: childPath } = useActiveChild();
   
   // Get preferred language from profile API, fallback to context language, then to 'en'
   const preferredLanguage = profile?.secondaryLanguage || language || 'en';
@@ -454,7 +458,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     loadErrorMessage: t('summary.error.loadFailed'),
     // Refetch the moment a translation request starts, and keep the existing
     // poller alive until it finishes, even if the status read lags behind.
-    forcePolling: isTranslatingOnDemand
+    forcePolling: isTranslatingOnDemand,
+    childId: activeChildId
   });
 
 
@@ -512,7 +517,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     });
 
     try {
-      const result = await iepDocumentClient.requestTranslation(iepId, preferredLanguage);
+      const result = await iepDocumentClient.requestTranslation(iepId, preferredLanguage, activeChildId);
       setTranslationRequest({
         ...mapTranslationResponse({ httpStatus: result.httpStatus }),
         language: preferredLanguage
@@ -679,7 +684,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   const redirectTarget = profile?.showOnboarding
     ? '/preferred-language'
     : document?.message === 'No document found for this child'
-      ? '/iep-documents'
+      ? childPath('/iep-documents')
       : null;
   useEffect(() => {
     if (!redirectTarget) return;
@@ -799,6 +804,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                   iepId={document.documentId}
                   language={lang}
                   target="summary"
+                  childId={activeChildId}
                 />
               )}
             </h4>
@@ -862,7 +868,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             <Button 
                   variant="primary" 
                   size="sm"
-                  onClick={() => navigate('/iep-documents')}
+                  onClick={() => navigate(childPath('/iep-documents'))}
                 >
                   {t('summary.reuploadButton')}
             </Button>
@@ -903,6 +909,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                         target="section"
                         sectionName={section.name}
                         className="mb-2"
+                        childId={activeChildId}
                       />
                     )}
                     {section.pageNumbers && section.pageNumbers.length > 0 && (
@@ -950,7 +957,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             <Button 
                   variant="primary" 
                   size="sm"
-                  onClick={() => navigate('/iep-documents')}
+                  onClick={() => navigate(childPath('/iep-documents'))}
                 >
                   {t('summary.reuploadButton')}
             </Button>
@@ -1165,7 +1172,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               pollingStopped={pollingStopped}
               t={t}
               onCheckAgain={checkAgain}
-              onUploadAgain={() => navigate('/iep-documents')}
+              onUploadAgain={() => navigate(childPath('/iep-documents'))}
               onWatchProgress={() => setViewingCurrentDuringReplacement(false)}
             />
 
@@ -1177,7 +1184,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                       <DocumentFailureState
                         canRetry={canRetryFailedDocument(document)}
                         t={t}
-                        onGoToDocuments={() => navigate('/iep-documents')}
+                        onGoToDocuments={() => navigate(childPath('/iep-documents'))}
                       />
                     ) :
                       <>
@@ -1299,7 +1306,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                             <Button 
                   variant="primary" 
                   size="sm"
-                  onClick={() => navigate('/iep-documents')}
+                  onClick={() => navigate(childPath('/iep-documents'))}
                 >
                   {t('summary.reuploadButton')}
                 </Button>
@@ -1314,7 +1321,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               {document.status === "PROCESSED" && (
                 <Card.Header
                   className="summary-card-header d-flex justify-content-center align-items-center"
-                  onClick={() => navigate('/iep-documents')}
+                  onClick={() => navigate(childPath('/iep-documents'))}
                   style={{ cursor: 'pointer' }}
                   // Stable E2E hook: the replace-document entry point, whose
                   // label is localized

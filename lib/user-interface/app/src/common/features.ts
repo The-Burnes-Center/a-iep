@@ -42,11 +42,19 @@ export type Feature =
   // place reads as the app ignoring the answer. Dark until the guide's video
   // is ready; onboarding then goes straight from how-the-tool-works to the
   // upload.
-  | 'pdfHelpScreens';
+  | 'pdfHelpScreens'
+  // More than one child per profile: the My children screen, the
+  // "Add a child" entry on Account, the child bar and switcher on screens
+  // about one child, and the "this IEP belongs to" check before an upload.
+  // The backend has always stored a children[] list; until this flag every
+  // screen read children[0]. With the flag on, a family with ONE child sees
+  // exactly what prod shows (the child bar and switcher appear only once a
+  // second child exists), so staging's E2E keeps covering prod's path.
+  | 'multiChild';
 
 // Master list, in a stable order. Add a feature here (plus the two build
 // configs) to make it gateable app-wide.
-export const ALL_FEATURES: Feature[] = ['tts', 'referrals', 'studentNameGate', 'passwordlessAuth', 'pdfHelpScreens'];
+export const ALL_FEATURES: Feature[] = ['tts', 'referrals', 'studentNameGate', 'passwordlessAuth', 'pdfHelpScreens', 'multiChild'];
 
 export const isFeature = (feature: unknown): feature is Feature =>
   typeof feature === 'string' && (ALL_FEATURES as string[]).includes(feature);

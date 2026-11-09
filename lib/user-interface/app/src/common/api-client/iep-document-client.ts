@@ -48,39 +48,45 @@ export class IEPDocumentClient {
     this.profileClient = new ProfileClient(_appConfig);
   }
   
-  // Get the childId from the first child in the profile
-  private async getDefaultChildId(): Promise<string> {
+  /**
+   * The child a call is about. `childId` is the screen's active child (see
+   * common/active-child.ts); without one, the profile's first child, which is
+   * every call's child for a family with one.
+   *
+   * A childId that is not on this profile is refused rather than swapped for
+   * the first child: uploading one child's IEP under another's name is the
+   * mistake this exists to prevent. The backend refuses it too.
+   */
+  private async resolveChildId(childId?: string): Promise<string> {
     const profile = await this.profileClient.getProfile();
-    
+
     // If no children exist, create a default child automatically
     if (!profile.children || profile.children.length === 0) {
-      // console.log('No children found in profile, creating default child for IEP document functionality');
-      
       try {
-        // Create a default child
         const childResponse = await this.profileClient.addChild(DEFAULT_CHILD_NAME, 'Not specified');
-        // console.log('Successfully created default child:', childResponse.childId);
         return childResponse.childId;
       } catch (error) {
-        // console.error('Failed to create default child:', error);
         throw new Error('No children found in profile and failed to create default child');
       }
     }
-    
-    return profile.children[0].childId;
+
+    if (childId === undefined) return profile.children[0].childId;
+    if (profile.children.some((child) => child.childId === childId)) return childId;
+    throw new Error('That child is not on this profile');
   }
-  
+
   // Get signed URL for upload/download
   async getSignedURL(
     fileName: string,
     operation: 'upload' | 'download',
-    fileType?: string
+    fileType?: string,
+    childIdForCall?: string
   ): Promise<{ signedUrl: string }> {
     if (operation === 'upload' && !fileType) {
       throw new Error('File type is required for upload');
     }
 
-    const childId = await this.getDefaultChildId();
+    const childId = await this.resolveChildId(childIdForCall);
     const auth = await Utils.authenticate();
 
     const response = await fetch(this.API + '/signed-url-knowledge', {
@@ -106,14 +112,14 @@ export class IEPDocumentClient {
   }
 
   // Get URL for uploading a file
-  async getUploadURL(fileName: string, fileType: string): Promise<string> {
-    const response = await this.getSignedURL(fileName, 'upload', fileType);
+  async getUploadURL(fileName: string, fileType: string, childId?: string): Promise<string> {
+    const response = await this.getSignedURL(fileName, 'upload', fileType, childId);
     return response.signedUrl;
   }
 
   // Get most recent processed document with its summary and sections
-  async getMostRecentDocumentWithSummary() {
-    const childId = await this.getDefaultChildId();
+  async getMostRecentDocumentWithSummary(childIdForCall?: string) {
+    const childId = await this.resolveChildId(childIdForCall);
     const auth = await Utils.authenticate();
 
     const response = await fetch(`${this.API}/profile/children/${childId}/documents`, {
@@ -144,9 +150,10 @@ export class IEPDocumentClient {
     iepId: string,
     language: string,
     target: 'summary' | 'section',
-    sectionName?: string
+    sectionName?: string,
+    childIdForCall?: string
   ): Promise<DocumentAudioResponse> {
-    const childId = await this.getDefaultChildId();
+    const childId = await this.resolveChildId(childIdForCall);
     const auth = await Utils.authenticate();
     const body = JSON.stringify({
       childId,
@@ -205,9 +212,10 @@ export class IEPDocumentClient {
   // poller (not this call) is what tells the UI when the content has landed.
   async requestTranslation(
     iepId: string,
-    language: string
+    language: string,
+    childIdForCall?: string
   ): Promise<TranslationRequestResponse> {
-    const childId = await this.getDefaultChildId();
+    const childId = await this.resolveChildId(childIdForCall);
     const auth = await Utils.authenticate();
 
     const response = await fetch(
@@ -244,8 +252,8 @@ export class IEPDocumentClient {
   }
 
   // Delete a document
-  async deleteFile(iepId: string) {
-    const childId = await this.getDefaultChildId();
+  async deleteFile(iepId: string, childIdForCall?: string) {
+    const childId = await this.resolveChildId(childIdForCall);
     const auth = await Utils.authenticate();
 
     const response = await fetch(`${this.API}/profile/children/${childId}/documents/${iepId}`, {

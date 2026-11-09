@@ -208,3 +208,59 @@ describe("requestTranslation failure answers", () => {
     expect(readBody).not.toHaveBeenCalled();
   });
 });
+
+describe("which child a call is about", () => {
+  const SECOND_CHILD = "child-def";
+
+  beforeEach(() => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/profile")) {
+        return jsonResponse(200, { profile: { children: [{ childId: CHILD_ID }, { childId: SECOND_CHILD }] } });
+      }
+      if (url.endsWith("/translations")) return translationsAnswer;
+      if (url.endsWith("/documents")) return jsonResponse(200, { status: "PROCESSED" });
+      if (url.endsWith("/signed-url-knowledge")) return jsonResponse(200, { signedUrl: "https://s3.example.test/put" });
+      throw new Error(`unexpected fetch to ${url}`);
+    });
+  });
+
+  test("uses the child the screen names, not the first one", async () => {
+    const client = new IEPDocumentClient(appConfig);
+
+    await client.getMostRecentDocumentWithSummary(SECOND_CHILD);
+    await client.requestTranslation(IEP_ID, "es", SECOND_CHILD);
+
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(urls).toContain(`${API_BASE}/profile/children/${SECOND_CHILD}/documents`);
+    expect(urls).toContain(`${API_BASE}/profile/children/${SECOND_CHILD}/documents/${IEP_ID}/translations`);
+    expect(urls.some((u) => u.includes(`/children/${CHILD_ID}/`))).toBe(false);
+  });
+
+  test("uploads under the named child", async () => {
+    const client = new IEPDocumentClient(appConfig);
+
+    await client.getUploadURL("iep.pdf", "application/pdf", SECOND_CHILD);
+
+    const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/signed-url-knowledge"));
+    expect(JSON.parse(call?.[1].body as string)).toMatchObject({ childId: SECOND_CHILD, operation: "upload" });
+  });
+
+  test("still means the first child when no child is named", async () => {
+    const client = new IEPDocumentClient(appConfig);
+
+    await client.getMostRecentDocumentWithSummary();
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain(
+      `${API_BASE}/profile/children/${CHILD_ID}/documents`,
+    );
+  });
+
+  test("refuses a child that is not on this profile, and sends nothing", async () => {
+    const client = new IEPDocumentClient(appConfig);
+
+    await expect(client.getUploadURL("iep.pdf", "application/pdf", "not-my-child")).rejects.toThrow();
+
+    // Only the profile read happened: no upload URL was asked for, for any child.
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([`${API_BASE}/profile`]);
+  });
+});
