@@ -72,7 +72,11 @@ test('a parent adds a second child and every screen about them says whose IEP it
   await expect(cards).toHaveCount(2);
   const second = cards.filter({ hasText: SECOND_CHILD });
   await expect(second).toContainText('No IEP yet');
-  await expect(second.getByRole('link')).toHaveAttribute('href', `/iep-documents?child=${secondChildId}`);
+  // The card's main action, by name: each card also carries an Edit link.
+  await expect(second.getByRole('link', { name: `Upload ${SECOND_CHILD}'s IEP` }))
+    .toHaveAttribute('href', `/iep-documents?child=${secondChildId}`);
+  await expect(second.getByTestId('my-children-edit'))
+    .toHaveAttribute('href', `/account-center/children/edit?child=${secondChildId}`);
 
   // The first child's card leads to the first child, not the second.
   const first = cards.filter({ hasNotText: SECOND_CHILD });
