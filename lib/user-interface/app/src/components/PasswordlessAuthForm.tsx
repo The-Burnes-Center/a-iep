@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Form, Alert, Button } from 'react-bootstrap';
+import { Form, Alert } from 'react-bootstrap';
+import { IconAlertCircle } from '@tabler/icons-react';
 import { AuthChannel } from '../common/auth/passwordless-auth';
 import { usePasswordlessAuth } from '../common/hooks/use-passwordless-auth';
 import { formatUsPhoneDisplay, readUsPhone } from '../common/us-phone';
@@ -14,6 +15,7 @@ import VerificationCodeInput from './VerificationCodeInput';
 import AlertMessages from './AlertMessages';
 import SubmitButton from './SubmitButton';
 import LinkButton from './LinkButton';
+import Button from './ui/Button';
 import LoginMethodToggle from './LoginMethodToggle';
 import SecurityCheck, { TurnstileProp } from './SecurityCheck';
 import { TURNSTILE_STATUS_KEYS } from '../common/hooks/use-turnstile';
@@ -70,6 +72,12 @@ type StartTarget = { destination: string } | { error: FieldError };
 /** Ids the offending input points `aria-describedby` at. */
 const PHONE_ERROR_ID = 'phone-error';
 const EMAIL_ERROR_ID = 'email-error';
+/** The code step's status (the send notice or the refusal), and the reason the
+    Verify button is off. */
+const CODE_STATUS_ID = 'code-status';
+const VERIFY_REASON_ID = 'verify-reason';
+/** Fewer digits than this and Verify stays off. */
+const MIN_CODE_LENGTH = 4;
 
 /**
  * Deliberately loose: one @, something either side of it, a dot in the domain,
@@ -95,7 +103,7 @@ const readEmail = (value: string): StartTarget => {
 };
 
 /**
- * A validation message, under the field it is about.
+ * A validation message, above the field it is about.
  *
  * One component for both fields on purpose: the defect this replaces was the
  * two tabs reporting the same mistake in two different places, one of them a
@@ -106,9 +114,10 @@ const readEmail = (value: string): StartTarget => {
  * so a live region would only say the same sentence twice.
  */
 const InlineFieldError: React.FC<{ id: string; message: string }> = ({ id, message }) => (
-  <div id={id} className="text-danger small mt-1">
-    {message}
-  </div>
+  <p id={id} className="ui-field-error mb-2">
+    <IconAlertCircle size={18} stroke={2} aria-hidden="true" />
+    <span>{message}</span>
+  </p>
 );
 
 /**
@@ -328,6 +337,8 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
   }
 
   if (auth.step === 'awaiting_code') {
+    const codeError = formError ?? auth.error;
+    const showVerifyReason = !auth.loading && code.length < MIN_CODE_LENGTH;
     return (
       <Form onSubmit={handleVerify}>
         <div className="mobile-form-container">
@@ -347,12 +358,17 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
               read one instruction twice and then a number. One green box now
               carries the whole answer to the tap they just made: a code went
               out, and here is where it went. */}
-          <AlertMessages
-            error={formError ?? auth.error}
-            successMessage={sendNotice ? SEND_NOTICE_KEYS[auth.channel][sendNotice] : null}
-            persistSuccess
-            successDestination={auth.destination}
-          />
+          {/* The wrapper gives the status an id, so the code field can say
+              what it is refused for (aria-describedby) and that it is refused
+              (aria-invalid). AlertMessages itself has no id to point at. */}
+          <div id={CODE_STATUS_ID}>
+            <AlertMessages
+              error={codeError}
+              successMessage={sendNotice ? SEND_NOTICE_KEYS[auth.channel][sendNotice] : null}
+              persistSuccess
+              successDestination={auth.destination}
+            />
+          </div>
 
           <VerificationCodeInput
             label={t('auth.verificationCodeSms')}
@@ -364,6 +380,8 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
             // Set in the same update as the step change, so the input mounts
             // with its first key and each send or resend re-arms it.
             webOtpKey={auth.lastCodeSentAt}
+            invalid={codeError !== null}
+            describedBy={codeError !== null ? CODE_STATUS_ID : undefined}
           />
 
           {/*
@@ -378,15 +396,23 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
           <SecurityCheck key="code" t={t} turnstile={turnstile} />
 
           <div className="d-grid gap-2">
+            {/* A disabled button with no explanation reads as a broken one, so
+                the reason is a line of text above it, and the button points at
+                it. */}
+            {showVerifyReason && (
+              <p id={VERIFY_REASON_ID} className="text-muted small mb-0 text-center">
+                {t('auth.verifyNeedsCode')}
+              </p>
+            )}
             <SubmitButton
               loading={auth.loading}
               buttonText={t('auth.verify')}
-              disabled={auth.loading || code.length < 4}
+              disabled={auth.loading || code.length < MIN_CODE_LENGTH}
+              describedBy={showVerifyReason ? VERIFY_REASON_ID : undefined}
             />
             <Button
-              type="button"
-              variant="outline-secondary"
-              className="submit-button-login"
+              variant="secondary"
+              fullWidth
               onClick={handleResend}
               disabled={auth.loading || secondsUntilResend > 0}
               aria-describedby={secondsUntilResend > 0 ? 'resend-cooldown' : undefined}
@@ -424,6 +450,7 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
           onEmailLoginClick={() => selectTab('email')}
           mobileLoginText={t('auth.mobileLogin')}
           emailLoginText={t('auth.emailLogin')}
+          groupLabel={t('auth.loginMethodGroup')}
         />
 
         {turnstile.isEnabled && (
@@ -452,8 +479,9 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
                 render a Form.Group here, so without distinct keys React would
                 reconcile the two fields into one reused <input> and swap its
                 type from tel to email underneath the parent. */}
-            <Form.Group className="mb-3" key="phone-field">
+            <Form.Group className="mb-3" key="phone-field" controlId="phone-number">
               <FormLabel label={t('auth.phoneNumber')} />
+              {phoneError && <InlineFieldError id={PHONE_ERROR_ID} message={t(phoneError.messageKey)} />}
               <Form.Control
                 ref={phoneInputRef}
                 type="tel"
@@ -475,14 +503,14 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
                 aria-describedby={phoneError ? PHONE_ERROR_ID : undefined}
                 className="mobile-input"
               />
-              {phoneError && <InlineFieldError id={PHONE_ERROR_ID} message={t(phoneError.messageKey)} />}
             </Form.Group>
             <SecurityCheck key="phone" t={t} turnstile={turnstile} />
           </>
         ) : (
           <>
-            <Form.Group className="mb-3" key="email-field">
+            <Form.Group className="mb-3" key="email-field" controlId="email-address">
               <FormLabel label={t('auth.email')} />
+              {emailError && <InlineFieldError id={EMAIL_ERROR_ID} message={t(emailError.messageKey)} />}
               <Form.Control
                 ref={emailInputRef}
                 type="email"
@@ -497,7 +525,6 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
                 aria-describedby={emailError ? EMAIL_ERROR_ID : undefined}
                 className="email-input-control"
               />
-              {emailError && <InlineFieldError id={EMAIL_ERROR_ID} message={t(emailError.messageKey)} />}
             </Form.Group>
             <SecurityCheck key="email" t={t} turnstile={turnstile} />
           </>

@@ -62,7 +62,7 @@ const MobileTopNavigation: React.FC = () => {
               key={index}
               className={`nav-item ${location.pathname === item.route ? 'active' : ''}`}
               onClick={() => handleNavigation(item.route)}
-              aria-label={`Navigate to ${item.label}`}
+              aria-label={t('a11y.navigateTo').replace('{label}', item.label)}
             >
               <IconComponent size={24} stroke={1.5} />
               <span className="nav-label">{item.label}</span>

@@ -1,15 +1,19 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Container, Form, Button, Row, Col, Alert } from 'react-bootstrap';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageLoading from '../../components/PageLoading';
+import PageShell from '../../components/page/PageShell';
+import PageHero from '../../components/page/PageHero';
+import Button from '../../components/ui/Button';
+import { TextField } from '../../components/ui/fields';
+import { Notice } from '../../components/ui/feedback';
 import { DEFAULT_CHILD_NAME } from '../../common/features';
 import { useQuery } from '@tanstack/react-query';
-import Breadcrumbs from '../../components/Breadcrumbs';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
-import { useLanguage } from '../../common/language-context'; 
-import './UpdateProfileName.css';
-import './ProfileForms.css';
+import { useLanguage } from '../../common/language-context';
+
+/** Ties the reason under the name field to the disabled Save button. */
+const NAME_REASON_ID = 'update-profile-name-reason';
 
 export default function UpdateProfileName() {
   const appContext = useContext(AppContext);
@@ -44,15 +48,15 @@ export default function UpdateProfileName() {
 
     try {
       setSaving(true);
-      
+
       // Prepare updated profile data
       const updatedProfileData = {
         parentName: parentName.trim()
       };
-      
+
       // Update the profile with parent name
       await apiClient.profile.updateProfile(updatedProfileData);
-      
+
       // Check if user has any children - if not, create a default child
       if (!profile?.children || profile.children.length === 0) {
         try {
@@ -65,7 +69,7 @@ export default function UpdateProfileName() {
           // Don't fail the flow if child creation fails - user can add manually later
         }
       }
-      
+
       // Mark onboarding as completed since user has finished all required steps
       try {
         await apiClient.profile.updateProfile({ showOnboarding: false });
@@ -74,7 +78,7 @@ export default function UpdateProfileName() {
         // console.error('Error updating onboarding status:', onboardingError);
         // Don't fail the flow if this update fails
       }
-      
+
       navigate(onboardingContinue ? '/iep-documents' : '/account-center');
 
     } catch (err) {
@@ -96,70 +100,67 @@ export default function UpdateProfileName() {
 
   if (error) {
     return (
-      <Container>
-        <Alert variant="danger">{t('updateProfile.error.serviceUnavailable')}</Alert>
-      </Container>
+      <PageShell>
+        <Notice tone="error">{t('updateProfile.error.serviceUnavailable')}</Notice>
+      </PageShell>
     );
   }
 
-  return (
-    <>
-    <div>
-      {/* Hidden mid-flow: the trail leads back to the Account Center, which
-          makes no sense while a parent is still finishing sign-in. */}
-      {!onboardingContinue && (
-        <Breadcrumbs
-          trail={[
-            { labelKey: 'updateProfile.breadcrumb.account', to: '/account-center' },
-            { labelKey: 'updateProfile.breadcrumb.updateProfile' },
-          ]}
-        />
-      )}
-      
-      <Container 
-        fluid 
-        className="update-profile-container"
-      >
-        <Row style={{ width: '100%', justifyContent: 'center' }}>
-          <Col xs={12} md={8} lg={6}>
-            <div className="profile-form">
-            {/*Add translations*/}
-            <h4 className="update-profile-header">{t('updateProfile.title')}</h4>
-            <p className='update-profile-description'>{t('updateProfile.description')}</p>
-              <Form>
-                <Row className="mb-4">
-                  <Col md={12}>
-                    <Form.Group controlId="formParentName">
-                      <Form.Label className="form-label">{t('parent.name.label')}</Form.Label>
-                      <Form.Control 
-                        type="text" 
-                        placeholder={t('parent.name.placeholder')}
-                        value={parentName} 
-                        onChange={(e) => setParentName(e.target.value)}
-                      />
-                    </Form.Group>
-                  </Col>
-                </Row>
+  const nameMissing = !isFormValid();
 
-                <div className="d-grid">
-                  <Button
-                    variant="primary"
-                    onClick={handleSaveAndContinue}
-                    disabled={!isFormValid() || saving}
-                    className="consent-button aiep-button"
-                    // Stable E2E hook: the label is localized, the state
-                    // (disabled while the name is empty) is what is asserted
-                    data-testid="update-profile-submit"
-                  >
-                    {saving ? t('updateProfile.button.saving') : t('updateProfile.button.update')}
-                  </Button>
-                </div>
-              </Form>
-            </div>
-          </Col>
-        </Row>
-      </Container>
-    </div>
-    </>
+  return (
+    <PageShell
+      // Hidden mid-flow: the trail leads back to the Account Center, which
+      // makes no sense while a parent is still finishing sign-in.
+      trail={onboardingContinue ? undefined : [
+        { labelKey: 'updateProfile.breadcrumb.account', to: '/account-center' },
+        { labelKey: 'updateProfile.breadcrumb.updateProfile' },
+      ]}
+    >
+      <PageHero
+        titleId="update-profile-title"
+        title={t('updateProfile.title')}
+        description={t('updateProfile.description')}
+        showFaces={false}
+      />
+
+      <form
+        className="page-card"
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSaveAndContinue();
+        }}
+      >
+        <TextField
+          id="formParentName"
+          label={t('parent.name.label')}
+          placeholder={t('parent.name.placeholder')}
+          value={parentName}
+          onChange={(e) => setParentName(e.target.value)}
+        />
+
+        {/* Saving stays disabled until there is a name, so the reason is on
+            screen and the button points at it. */}
+        {nameMissing && (
+          <p id={NAME_REASON_ID} className="page-card-text">
+            {t('updateProfile.reason.nameMissing')}
+          </p>
+        )}
+
+        <Button
+          type="submit"
+          fullWidth
+          disabled={nameMissing || saving}
+          busy={saving}
+          busyLabel={t('updateProfile.button.saving')}
+          aria-describedby={nameMissing ? NAME_REASON_ID : undefined}
+          // Stable E2E hook: the label is localized, the state
+          // (disabled while the name is empty) is what is asserted
+          data-testid="update-profile-submit"
+        >
+          {t('updateProfile.button.update')}
+        </Button>
+      </form>
+    </PageShell>
   );
 }

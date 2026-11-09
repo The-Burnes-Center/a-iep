@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button } from 'react-bootstrap';
+import Button from './ui/Button';
 import './HowToUseToolButton.css';
 
 interface HowToUseToolButtonProps {
@@ -11,7 +11,7 @@ interface HowToUseToolButtonProps {
 const HowToUseToolButton = ({ onClick, buttonText, disabled = false }: HowToUseToolButtonProps) => {
   return (
     <Button 
-      variant="secondary" 
+      variant="primary" 
       onClick={onClick}
       disabled={disabled}
       className="how-to-use-tool-button"

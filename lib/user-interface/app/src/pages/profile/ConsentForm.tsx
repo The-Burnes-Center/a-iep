@@ -1,10 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Container, Form, Button, Row, Col, OverlayTrigger, Tooltip } from 'react-bootstrap';
-import AIEPSpinner from '../../components/AIEPSpinner';
 import PageLoading from '../../components/PageLoading';
 import { useNavigate } from 'react-router-dom';
 import { DEFAULT_CHILD_NAME } from '../../common/features';
-import { IconCheck } from '@tabler/icons-react';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { UserProfile } from '../../common/types';
@@ -12,7 +9,11 @@ import { useLanguage } from '../../common/language-context';
 import { useFeatures } from '../../common/hooks/use-features';
 import { isStudentNameMissing } from '../../common/features';
 import { STEP } from '../../common/breadcrumb-steps';
-import OnboardingTopBar from '../../components/OnboardingChrome';
+import PageShell from '../../components/page/PageShell';
+import PageHero from '../../components/page/PageHero';
+import Button from '../../components/ui/Button';
+import { Checkbox } from '../../components/ui/fields';
+import { Notice } from '../../components/ui/feedback';
 import './ProfileForms.css';
 
 export default function ConsentForm() {
@@ -23,7 +24,10 @@ export default function ConsentForm() {
   const { isFeatureEnabled } = useFeatures();
 
   const [isChecked, setIsChecked] = useState(false);
-  const [showTooltip, setShowTooltip] = useState(false);
+  // Pressing Continue before ticking the box shows the reason, linked to the
+  // checkbox. The button itself stays enabled: a disabled one with nothing on
+  // screen was a dead end, and the reason was unreachable behind it.
+  const [showConsentError, setShowConsentError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +60,7 @@ export default function ConsentForm() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setIsChecked(e.target.checked);
-    if (showTooltip) setShowTooltip(false);
+    if (showConsentError) setShowConsentError(false);
   };
 
   /**
@@ -75,7 +79,7 @@ export default function ConsentForm() {
 
   const handleContinue = async () => {
     if (!isChecked) {
-      setShowTooltip(true);
+      setShowConsentError(true);
       return;
     }
 
@@ -121,12 +125,6 @@ export default function ConsentForm() {
     }
   };
 
-  const renderTooltip = (props) => (
-    <Tooltip id="consent-tooltip" className="consent-tooltip" {...props}>
-      {t('consent.tooltip')}
-    </Tooltip>
-  );
-
   if (loading) {
     return (
       <PageLoading message={t('common.loading')} />
@@ -135,75 +133,47 @@ export default function ConsentForm() {
 
   if (error) {
     return (
-      <Container className="profile-form-container">
-        <Row style={{ width: '100%', justifyContent: 'center' }}>
-          <Col xs={12} md={8} lg={6}>
-            <div className="alert alert-danger">{error}</div>
-            <Button onClick={loadProfile} variant="primary" className="aiep-button">{t('common.tryAgain')}</Button>
-          </Col>
-        </Row>
-      </Container>
+      <PageShell>
+        <PageHero titleId="consent-title" title={t('consent.title')} />
+        <section className="page-card">
+          <Notice tone="error">{error}</Notice>
+          <Button variant="primary" fullWidth onClick={loadProfile}>{t('common.tryAgain')}</Button>
+        </section>
+      </PageShell>
     );
   }
 
+  // The trail points at the previous onboarding step, NOT at '/'. The landing
+  // page is the logged-out marketing site: its only way into the app is the
+  // login form, so sending a signed-in parent there was indistinguishable from
+  // being logged out and left them re-authenticating to get back.
   return (
-    <>
-      <div className="onboarding-page">
-        {/* The trail points at the previous onboarding step, NOT at '/'. The
-            landing page is the logged-out marketing site: its only way into
-            the app is the login form, so sending a signed-in parent there was
-            indistinguishable from being logged out and left them
-            re-authenticating to get back. */}
-        <OnboardingTopBar trail={[STEP.language, STEP.consent]} />
+    <PageShell trail={[STEP.language, STEP.consent]}>
+      <PageHero titleId="consent-title" title={t('consent.title')} />
 
-        <h1 className="onboarding-heading">{t('consent.title')}</h1>
+      <div className="page-card">
+        <p className="page-card-text">{t('consent.text')}</p>
 
-        <p className="onboarding-body">{t('consent.text')}</p>
+        <Checkbox
+          id="consentCheckbox"
+          checked={isChecked}
+          onChange={handleChange}
+          label={t('consent.checkbox')}
+          error={showConsentError ? t('consent.tooltip') : null}
+        />
 
-        <Form.Group controlId="consentCheckbox" className="consent-agree-group">
-          <OverlayTrigger placement="top" overlay={renderTooltip} show={showTooltip}>
-            <div className={`consent-agree-row${isChecked ? ' is-agreed' : ''}`}>
-              <Form.Check
-                type="checkbox"
-                checked={isChecked}
-                onChange={handleChange}
-                label={<span className="checkbox-label">{t('consent.checkbox')}</span>}
-              />
-              {/* Second signal for the agreed state, so it does not rest on
-                  the border colour alone. */}
-              {isChecked && (
-                <IconCheck
-                  size={22}
-                  stroke={2.5}
-                  className="consent-agree-tick"
-                  aria-hidden="true"
-                  data-testid="consent-agreed-tick"
-                />
-              )}
-            </div>
-          </OverlayTrigger>
-        </Form.Group>
-
-        <div className="onboarding-actions">
-          <Button
-            variant="primary"
-            onClick={handleContinue}
-            disabled={!isChecked || saving}
-            className="aiep-button onboarding-action"
-            // Stable E2E hook: the label is localized
-            data-testid="consent-continue-button"
-          >
-            {saving ? (
-              <>
-                <AIEPSpinner size="sm" className="me-2" />
-                {t('common.saving')}
-              </>
-            ) : (
-              t('consent.button')
-            )}
-          </Button>
-        </div>
+        <Button
+          variant="primary"
+          fullWidth
+          onClick={handleContinue}
+          busy={saving}
+          busyLabel={t('common.saving')}
+          // Stable E2E hook: the label is localized
+          data-testid="consent-continue-button"
+        >
+          {t('consent.button')}
+        </Button>
       </div>
-    </>
+    </PageShell>
   );
 }

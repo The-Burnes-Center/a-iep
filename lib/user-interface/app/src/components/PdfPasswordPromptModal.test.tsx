@@ -57,7 +57,7 @@ describe("PdfPasswordPromptModal", () => {
 
   test("submit is disabled until something is typed", () => {
     renderModal();
-    expect(screen.getByText("upload.passwordProtected.submit")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "upload.passwordProtected.submit" })).toBeDisabled();
   });
 
   test("typing a password and submitting reports it, then clears the field", () => {
@@ -86,7 +86,7 @@ describe("PdfPasswordPromptModal", () => {
 
   test("while checking, the form is disabled and shows an unlocking state instead of submit/cancel labels", () => {
     renderModal({ checking: true });
-    expect(screen.getByText("common.cancel")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "common.cancel" })).toBeDisabled();
     expect(screen.getByText("upload.passwordProtected.unlocking")).toBeInTheDocument();
     expect(screen.queryByText("upload.passwordProtected.submit")).not.toBeInTheDocument();
   });
@@ -97,5 +97,36 @@ describe("PdfPasswordPromptModal", () => {
     expect(field.type).toBe("password");
     // Not an account credential: must not be offered to the browser's saved-password store.
     expect(field.autocomplete).toBe("off");
+  });
+
+  test("the password field has a programmatic label", () => {
+    renderModal();
+    expect(screen.getByLabelText("auth.password")).toBe(
+      screen.getByPlaceholderText("auth.enterPassword"),
+    );
+  });
+
+  test("the wrong-password message is linked to the field and marks it invalid", () => {
+    renderModal({ wrongPassword: true });
+    const field = screen.getByLabelText("auth.password");
+    const message = screen.getByText("upload.passwordProtected.wrongPassword");
+
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(field.getAttribute("aria-describedby")).toContain(message.id);
+  });
+
+  test("the field is not marked invalid on the first prompt", () => {
+    renderModal({ wrongPassword: false });
+    expect(screen.getByLabelText("auth.password")).not.toHaveAttribute("aria-invalid");
+  });
+
+  test("the show/hide control is named and switches the field between masked and shown", () => {
+    renderModal();
+    const field = screen.getByLabelText("auth.password") as HTMLInputElement;
+
+    fireEvent.click(screen.getByRole("button", { name: "upload.passwordProtected.show" }));
+    expect(field.type).toBe("text");
+    fireEvent.click(screen.getByRole("button", { name: "upload.passwordProtected.hide" }));
+    expect(field.type).toBe("password");
   });
 });

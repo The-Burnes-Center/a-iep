@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
-import { Form, Button, Alert, Container } from 'react-bootstrap';
+import React, { useState, useEffect, useContext } from 'react';
 import PageLoading from '../../components/PageLoading';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
@@ -10,8 +9,11 @@ import { useLanguage } from '../../common/language-context';
 import { isPlaceholderChildName } from '../../common/features';
 import { ChildNameError, normalizeChildName, validateChildName } from '../../common/child-name';
 import { STEP } from '../../common/breadcrumb-steps';
-import OnboardingTopBar from '../../components/OnboardingChrome';
-import './ViewAndAddChild.css';
+import PageShell from '../../components/page/PageShell';
+import PageHero from '../../components/page/PageHero';
+import Button from '../../components/ui/Button';
+import { TextField } from '../../components/ui/fields';
+import { Notice } from '../../components/ui/feedback';
 
 // The school district is no longer asked for: nothing reads schoolCity - not
 // the pipeline, not a summary, no logic - and the design has one field. The
@@ -20,9 +22,9 @@ import './ViewAndAddChild.css';
 // same default the other three addChild call sites send.
 const SCHOOL_CITY_DEFAULT = 'Not specified';
 
-// Named once: the message element carries it, the input points at it through
-// aria-describedby, so a screen reader reads the reason with the field.
-const CHILD_NAME_ERROR_ID = 'childNameError';
+// Named once: the e2e walker and the tests find the field by it, and focus
+// goes back to it after a refused name (TextField does not forward a ref).
+const CHILD_NAME_INPUT_ID = 'formChildName';
 
 export default function ViewAndAddChild() {
   const appContext = useContext(AppContext);
@@ -43,7 +45,6 @@ export default function ViewAndAddChild() {
   // Which rule the typed name breaks, or null. Set on blur and on submit,
   // cleared the moment the parent starts changing the value it was about.
   const [nameError, setNameError] = useState<ChildNameError | null>(null);
-  const nameInput = useRef<HTMLInputElement>(null);
   const [schoolCity, setSchoolCity] = useState<string>('');
   const [hasExistingChild, setHasExistingChild] = useState<boolean>(false);
   const [firstChildId, setFirstChildId] = useState<string | null>(null);
@@ -121,7 +122,7 @@ export default function ViewAndAddChild() {
     const nameProblem = validateChildName(childName);
     if (nameProblem) {
       setNameError(nameProblem);
-      nameInput.current?.focus();
+      document.getElementById(CHILD_NAME_INPUT_ID)?.focus();
       return;
     }
     // What gets saved is the tidied name, not the keystrokes: the API applies
@@ -224,69 +225,54 @@ export default function ViewAndAddChild() {
 
   if (loadError) {
     return (
-      <Container>
-        <Alert variant="danger">{loadError}</Alert>
-      </Container>
+      <PageShell>
+        <PageHero titleId="child-title" title={t('child.heading')} />
+        <section className="page-card">
+          <Notice tone="error">{loadError}</Notice>
+        </section>
+      </PageShell>
     );
   }
 
+  // The same fork Save takes below: onboarding arrived here from consent, and
+  // a parent correcting a name that is already there arrived from the Account
+  // Center. Read off `isOnboarding` rather than off the history stack, so the
+  // trail says where the parent actually came from.
   return (
-    <>
-      <div className="onboarding-page">
-        {/* The same fork Save takes below: onboarding arrived here from
-            consent, and a parent correcting a name that is already there
-            arrived from the Account Center. Read off `isOnboarding` rather
-            than off the history stack, so the trail says where the parent
-            actually came from instead of whatever they happened to visit. */}
-        <OnboardingTopBar
-          trail={[isOnboarding ? STEP.consent : STEP.account, STEP.child]}
+    <PageShell trail={[isOnboarding ? STEP.consent : STEP.account, STEP.child]}>
+      {/* One question and one field, per the design. What the name is used
+          for is explained on the privacy screen further into onboarding, not
+          here: `child.description` is still in the dictionaries for it. */}
+      <PageHero titleId="child-title" title={t('child.heading')} />
+
+      {saveError && <Notice tone="error">{saveError}</Notice>}
+
+      <form className="page-card" onSubmit={handleSubmit}>
+        <TextField
+          id={CHILD_NAME_INPUT_ID}
+          label={t('child.name.label')}
+          placeholder={t('child.name.placeholder')}
+          value={childName}
+          onChange={handleNameChange}
+          onBlur={() => setNameError(validateChildName(childName))}
+          error={nameError ? t(`child.name.error.${nameError}`) : null}
         />
 
-        {/* One question and one field, per the design. What the name is used
-            for is explained on the privacy screen further into onboarding, not
-            here: `child.description` is still in the dictionaries for it. */}
-        <h1 className="onboarding-heading">{t('child.heading')}</h1>
-
-        {saveError && <Alert variant="danger" className="onboarding-error">{saveError}</Alert>}
-
-        <Form onSubmit={handleSubmit}>
-          <Form.Group controlId="formChildName" className="child-name-field">
-            {/* The design shows no label; screen readers still need one. */}
-            <Form.Label className="visually-hidden">{t('child.name.label')}</Form.Label>
-            <Form.Control
-              type="text"
-              ref={nameInput}
-              placeholder={t('child.name.placeholder')}
-              value={childName}
-              onChange={handleNameChange}
-              onBlur={() => setNameError(validateChildName(childName))}
-              aria-invalid={Boolean(nameError)}
-              aria-describedby={nameError ? CHILD_NAME_ERROR_ID : undefined}
-            />
-            {nameError && (
-              <div id={CHILD_NAME_ERROR_ID} className="child-name-error" role="alert">
-                {t(`child.name.error.${nameError}`)}
-              </div>
-            )}
-          </Form.Group>
-
-          <div className="d-grid">
-            <Button
-              type="submit"
-              variant="primary"
-              // Only the in-flight save disables it. Whether the name is
-              // acceptable is answered by pressing it, not by a button that
-              // will not react.
-              disabled={saving}
-              className="onboarding-action"
-              // Stable E2E hook: the label is localized
-              data-testid="child-save-button"
-            >
-              {saving ? t('child.button.saving') : t('child.button.save')}
-            </Button>
-          </div>
-        </Form>
-      </div>
-    </>
+        <Button
+          type="submit"
+          variant="primary"
+          fullWidth
+          // Only the in-flight save disables it. Whether the name is
+          // acceptable is answered by pressing it, not by a button that will
+          // not react.
+          busy={saving}
+          busyLabel={t('child.button.saving')}
+          // Stable E2E hook: the label is localized
+          data-testid="child-save-button"
+        >
+          {t('child.button.save')}
+        </Button>
+      </form>
+    </PageShell>
   );
 }

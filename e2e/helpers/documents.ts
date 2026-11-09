@@ -321,13 +321,14 @@ export function appNavButton(page: Page, route: AppNavRoute): Locator {
  * on. That is the point wherever this is used.
  */
 export async function tapAppNav(page: Page, route: AppNavRoute): Promise<void> {
-  // 'Navigate to ' is hardcoded English in MobileTopNavigation and only the
-  // label after it is translated, so this prefix match holds in any language.
+  // Counted by structure, not by name: the buttons' accessible names are
+  // translated whole ("Ir a Resumen" in Spanish), since an English "Navigate
+  // to" prefix inside a Spanish screen was itself an accessibility defect.
   // Kept as a separate, whole-bar check: it is what catches the bar rendering
   // none of its buttons, or a screen going back to rendering one of its own on
   // top of the layout's (four buttons, not eight).
   await expect(
-    page.locator('.mobile-top-navigation button[aria-label^="Navigate to "]'),
+    page.locator('.mobile-top-navigation button.nav-item'),
     `the app nav did not render its ${APP_NAV_ROUTES.length} buttons ` +
     '(MobileTopNavigation changed, or this page does not render it)'
   ).toHaveCount(APP_NAV_ROUTES.length);

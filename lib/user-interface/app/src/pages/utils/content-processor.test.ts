@@ -28,7 +28,7 @@ const parse = (html: string): HTMLElement => {
 };
 
 const jargonSpans = (html: string): HTMLElement[] =>
-  Array.from(parse(html).querySelectorAll("span.jargon-term"));
+  Array.from(parse(html).querySelectorAll("button.jargon-term"));
 
 describe("the term the drawer is given", () => {
   test("is the dictionary's spelling, not the document's", () => {
@@ -57,7 +57,7 @@ describe("the term the drawer is given", () => {
     // default is ever configured away, before the drawer silently goes back to
     // reading the raw text.
     const span =
-      '<span class="jargon-term" data-term="Accommodations" data-tooltip="A definition.">accommodations</span>';
+      '<button type="button" class="jargon-term" data-term="Accommodations" data-tooltip="A definition.">accommodations</button>';
 
     expect(DOMPurify.sanitize(span)).toContain('data-term="Accommodations"');
   });
@@ -124,7 +124,25 @@ describe("a term nested inside a longer term", () => {
     expect(spans).toHaveLength(1);
     expect(spans[0].getAttribute("data-term")).toBe("Assessment Plan");
     expect(spans[0].textContent).toBe("assessment plan");
-    expect(spans[0].querySelector("span")).toBeNull();
+    expect(spans[0].querySelector("button")).toBeNull();
     expect(parse(html).textContent?.trim()).toBe("The assessment plan arrives next week.");
+  });
+});
+
+describe("the term as a control a keyboard user can reach", () => {
+  test("is a real button, not a click-only span", () => {
+    const spans = jargonSpans(processContentWithJargon("Held in abeyance.", "en"));
+
+    expect(spans[0].tagName).toBe("BUTTON");
+    expect(spans[0].getAttribute("type")).toBe("button");
+  });
+
+  test("is named by the word it highlights, and says it opens a dialog", () => {
+    const [term] = jargonSpans(
+      processContentWithJargon("The team agreed on accommodations for reading.", "en"),
+    );
+
+    expect(term.textContent).toBe("accommodations");
+    expect(term.getAttribute("aria-haspopup")).toBe("dialog");
   });
 });

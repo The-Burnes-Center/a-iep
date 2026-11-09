@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Form } from 'react-bootstrap';
 import FormLabel from './FormLabel';
 import { isAbortError, isWebOtpSupported, requestWebOtpCode } from '../common/auth/web-otp';
@@ -23,6 +23,10 @@ interface VerificationCodeInputProps {
    * text is read the same way the first one was.
    */
   webOtpKey?: string | number;
+  /** The id of the error shown for this field, so the input can name it. */
+  describedBy?: string;
+  /** True while the code on the field was refused. */
+  invalid?: boolean;
 }
 
 const VerificationCodeInput: React.FC<VerificationCodeInputProps> = ({
@@ -32,8 +36,13 @@ const VerificationCodeInput: React.FC<VerificationCodeInputProps> = ({
   onChange,
   required = true,
   autoFocus = true,
-  webOtpKey
+  webOtpKey,
+  describedBy,
+  invalid = false
 }) => {
+  // The label above is wired to the input through this id. The boxes are
+  // aria-hidden, so the label is the only name the field has.
+  const controlId = useId();
   // Drives the caret ring on the next empty box. Tracked here rather than
   // with :focus-within, because the ring belongs to one box out of six and
   // CSS cannot tell which one is next.
@@ -89,7 +98,7 @@ const VerificationCodeInput: React.FC<VerificationCodeInputProps> = ({
   const caretIndex = Math.min(value.length, CODE_LENGTH - 1);
 
   return (
-    <Form.Group className="mb-3">
+    <Form.Group className="mb-3" controlId={controlId}>
       <FormLabel label={label} />
       {/* One real input behind six drawn boxes, rather than six inputs.
           Six would each need their own focus/backspace/paste plumbing, and
@@ -125,6 +134,8 @@ const VerificationCodeInput: React.FC<VerificationCodeInputProps> = ({
           onBlur={() => setFocused(false)}
           maxLength={CODE_LENGTH}
           required={required}
+          aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
           className="sms-code-input"
           autoFocus={autoFocus}
           // The attribute iOS Safari and Android Chrome key off to read the code

@@ -1,11 +1,12 @@
 import React, { useContext, useState } from 'react';
-import { Alert, Button } from 'react-bootstrap';
 import { useQuery } from '@tanstack/react-query';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { useLanguage } from '../../common/language-context';
 import PageLoading from '../../components/PageLoading';
 import Breadcrumbs from '../../components/Breadcrumbs';
+import Button from '../../components/ui/Button';
+import { Notice } from '../../components/ui/feedback';
 import {
   ClipboardIcon,
   EnvelopeIcon,
@@ -18,12 +19,6 @@ import {
 import InviteQrCode from './InviteQrCode';
 import InviteQrOverlay from './InviteQrOverlay';
 import './InvitePage.css';
-
-/**
- * Renders `btn-invite`, a class Bootstrap and the app's global stylesheets
- * leave alone, so InvitePage.css alone decides how these buttons look.
- */
-const BUTTON_VARIANT = 'invite';
 
 export default function InvitePage() {
   const appContext = useContext(AppContext);
@@ -104,7 +99,7 @@ export default function InvitePage() {
               </section>
 
               {error ? (
-                <Alert variant="danger">{t('invite.error')}</Alert>
+                <Notice tone="error">{t('invite.error')}</Notice>
               ) : (
                 <>
                   <section className="invite-card invite-card--share" aria-labelledby="invite-share-title">
@@ -125,81 +120,79 @@ export default function InvitePage() {
                     </div>
 
                     <div className="invite-share-row">
-                      {/* Variant "invite", not "primary": styles/controls.css
-                          gives every .btn-primary a 5px side margin and
-                          !important colours. That margin pushed Copy into the
-                          link field and Share past the card edge on iOS. */}
+                      {/* Copy is the one primary: it is what most parents came here to
+                          do, and Share only exists where the phone has a share
+                          sheet. Both are the app's Button, not the cream tiles. */}
                       <div className="invite-actions">
                         <Button
-                          variant={BUTTON_VARIANT}
-                          className={copied ? 'invite-action is-copied' : 'invite-action'}
+                          variant="primary"
+                          icon={<ClipboardIcon />}
                           onClick={handleCopy}
+                          className={copied ? 'invite-action is-copied' : 'invite-action'}
                         >
-                          <ClipboardIcon className="me-2" />
                           {copied ? t('invite.copied') : t('invite.copy')}
                         </Button>
+                        <span className="visually-hidden" role="status">
+                          {copied ? t('invite.copied') : ''}
+                        </span>
                         {canNativeShare && (
                           <Button
-                            variant={BUTTON_VARIANT}
-                            className="invite-action"
+                            variant="secondary"
+                            icon={<ShareIcon />}
                             onClick={handleNativeShare}
+                            className="invite-action"
                           >
-                            <ShareIcon className="me-2" />
                             {t('invite.share')}
                           </Button>
                         )}
                       </div>
                       <div className="invite-share-grid">
-                        <Button
-                          as="a"
+                        <a
                           href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
                           target="_blank"
                           rel="noreferrer"
-                          variant={BUTTON_VARIANT}
                           className="invite-share-tile"
                           aria-label={t('invite.shareVia.whatsapp')}
                         >
                           <span className="invite-share-tile-icon">
                             <WhatsAppIcon />
                           </span>
-                          WhatsApp
-                        </Button>
-                        <Button
-                          as="a"
+                          {t('invite.channel.whatsapp')}
+                        </a>
+                        <a
                           href={`sms:?&body=${encodeURIComponent(shareText)}`}
                           target="_blank"
                           rel="noreferrer"
-                          variant={BUTTON_VARIANT}
                           className="invite-share-tile"
                           aria-label={t('invite.shareVia.sms')}
                         >
                           <span className="invite-share-tile-icon">
                             <SmsIcon />
                           </span>
-                          SMS
-                        </Button>
-                        <Button
-                          as="a"
+                          {t('invite.channel.sms')}
+                        </a>
+                        <a
                           href={`mailto:?subject=${encodeURIComponent(t('invite.emailSubject'))}&body=${encodeURIComponent(shareText)}`}
                           target="_blank"
                           rel="noreferrer"
-                          variant={BUTTON_VARIANT}
                           className="invite-share-tile"
                           aria-label={t('invite.shareVia.email')}
                         >
                           <span className="invite-share-tile-icon">
                             <EnvelopeIcon />
                           </span>
-                          Email
-                        </Button>
+                          {t('invite.channel.email')}
+                        </a>
                         <Button
-                          variant={BUTTON_VARIANT}
+                          variant="secondary"
                           className="invite-share-tile"
+                          icon={
+                            <span className="invite-share-tile-icon">
+                              <QrCodeIcon />
+                            </span>
+                          }
                           onClick={() => setQrOpen(true)}
                         >
-                          <span className="invite-share-tile-icon">
-                            <QrCodeIcon />
-                          </span>
                           {t('invite.qr.show')}
                         </Button>
                       </div>

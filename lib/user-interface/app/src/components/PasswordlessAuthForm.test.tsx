@@ -374,11 +374,12 @@ describe("a destination the form cannot use", () => {
 
     await sendCode(user);
 
+    // Checked as the screen reader hears it: the field's description is the
+    // message, whatever element the message is drawn in.
     const input = phoneField();
-    const message = screen.getByText("auth.errorPhoneRequired");
-    expect(message.id).not.toBe("");
+    expect(screen.getByText("auth.errorPhoneRequired")).toBeInTheDocument();
     expect(input).toHaveAttribute("aria-invalid", "true");
-    expect(input.getAttribute("aria-describedby")).toBe(message.id);
+    expect(input).toHaveAccessibleDescription("auth.errorPhoneRequired");
     // Focus is what makes that description read out, and what puts a sighted
     // parent's cursor where the fix is rather than at the bottom of the form.
     expect(input).toHaveFocus();
@@ -391,9 +392,9 @@ describe("a destination the form cannot use", () => {
     await sendCode(user);
 
     const input = emailField();
-    const message = screen.getByText("auth.errorEmailRequired");
+    expect(screen.getByText("auth.errorEmailRequired")).toBeInTheDocument();
     expect(input).toHaveAttribute("aria-invalid", "true");
-    expect(input.getAttribute("aria-describedby")).toBe(message.id);
+    expect(input).toHaveAccessibleDescription("auth.errorEmailRequired");
     expect(input).toHaveFocus();
   });
 
@@ -968,5 +969,80 @@ describe("WebOTP on the code step", () => {
 
     await waitFor(() => expect(authFetch.countOf("start")).toBe(2));
     expect(otpGet).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The accessible names and error wiring of the sign-in fields and buttons.
+ *
+ * Each of these was a defect in the 2026-11-09 audit: the labels named
+ * nothing (no `for`), the code field had no name at all, and Verify was
+ * disabled with nothing on screen to say why. They are asserted as a screen
+ * reader would hear them, not by the markup that happens to produce them.
+ */
+describe("the names and reasons a screen reader is given", () => {
+  test("the phone and email fields are named by their visible labels", async () => {
+    const { user } = renderLogin();
+    expect(phoneField()).toHaveAccessibleName("auth.phoneNumber");
+
+    await switchToTab(user, "auth.emailLogin");
+    expect(emailField()).toHaveAccessibleName("auth.email");
+  });
+
+  test("the code field is named by its visible label, not only by its placeholder", async () => {
+    const { user } = renderLogin();
+    await startPhoneFlow(user);
+
+    expect(screen.getByTestId("sms-code-input")).toHaveAccessibleName("auth.verificationCodeSms");
+  });
+
+  test("Verify says what it is waiting for while it is off, and says nothing once it is on", async () => {
+    const { user } = renderLogin();
+    await startPhoneFlow(user);
+    const verify = () => screen.getByRole("button", { name: "auth.verify" });
+
+    await user.type(screen.getByTestId("sms-code-input"), "12");
+    expect(verify()).toBeDisabled();
+    expect(verify()).toHaveAccessibleDescription("auth.verifyNeedsCode");
+
+    await user.type(screen.getByTestId("sms-code-input"), "3456");
+    expect(verify()).toBeEnabled();
+    expect(verify()).not.toHaveAttribute("aria-describedby");
+  });
+
+  test("a refused code marks the field invalid and reads the refusal as its description", async () => {
+    const { user } = renderLogin({ realTranslations: true });
+    await startPhoneFlow(user, { send: dictionary["auth.sendCode"] });
+
+    authFetch.queue("verify", { status: 401, body: { ok: false, code: "bad_code", message: "nope" } });
+    await user.type(screen.getByTestId("sms-code-input"), "123456");
+    await user.click(screen.getByRole("button", { name: dictionary["auth.verify"] }));
+
+    const field = screen.getByTestId("sms-code-input");
+    await screen.findByText(dictionary["auth.error.badCode"]);
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(field).toHaveAccessibleDescription(dictionary["auth.error.badCode"]);
+  });
+
+  test("with no refusal on screen the code field is not marked invalid", async () => {
+    const { user } = renderLogin();
+    await startPhoneFlow(user);
+
+    const field = screen.getByTestId("sms-code-input");
+    expect(field).not.toHaveAttribute("aria-invalid");
+    expect(field).not.toHaveAttribute("aria-describedby");
+    await user.type(field, "12");
+    expect(field).not.toHaveAttribute("aria-invalid");
+  });
+
+  test("the sign-in method tabs are one named group, and the selected tab is pressed", async () => {
+    const { user } = renderLogin();
+    const group = screen.getByRole("group", { name: "auth.loginMethodGroup" });
+    expect(group).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "auth.mobileLogin" })).toHaveAttribute("aria-pressed", "true");
+
+    await switchToTab(user, "auth.emailLogin");
+    expect(screen.getByRole("button", { name: "auth.emailLogin" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "auth.mobileLogin" })).toHaveAttribute("aria-pressed", "false");
   });
 });

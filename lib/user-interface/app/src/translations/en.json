@@ -819,5 +819,19 @@
     "supportCenter.tour.title": "New to your summary?",
     "supportCenter.tour.text": "Take a short tour that shows where everything is on your child's summary.",
     "upload.hero.titleReplace": "Upload a new IEP",
-    "current.howToAsk": "How to ask your school for it"
+    "current.howToAsk": "How to ask your school for it",
+    "a11y.navigateTo": "Navigate to {label}",
+    "auth.showPassword": "Show password",
+    "auth.loginMethodGroup": "How to sign in",
+    "auth.verifyNeedsCode": "Enter the code from your text message to continue.",
+    "upload.removeFile": "Remove file",
+    "upload.submitReason.noFile": "Choose a file to upload first.",
+    "upload.passwordProtected.show": "Show password",
+    "upload.passwordProtected.hide": "Hide password",
+    "updateProfile.reason.nameMissing": "Enter your name to save.",
+    "profile.reason.noChanges": "Change your name or preferred language to save.",
+    "revoke.breadcrumb.revoke": "REVOKE CONSENT",
+    "invite.channel.whatsapp": "WhatsApp",
+    "invite.channel.sms": "Text message",
+    "invite.channel.email": "Email"
 }

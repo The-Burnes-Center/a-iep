@@ -819,5 +819,19 @@
     "supportCenter.tour.title": "第一次看摘要？",
     "supportCenter.tour.text": "简短导览，告诉您孩子摘要中的各项内容在哪里。",
     "upload.hero.titleReplace": "上传新的IEP",
-    "current.howToAsk": "如何向学校索取"
+    "current.howToAsk": "如何向学校索取",
+    "a11y.navigateTo": "前往{label}",
+    "auth.showPassword": "显示密码",
+    "auth.loginMethodGroup": "登录方式",
+    "auth.verifyNeedsCode": "请输入短信中的验证码以继续。",
+    "upload.removeFile": "移除文件",
+    "upload.submitReason.noFile": "请先选择要上传的文件。",
+    "upload.passwordProtected.show": "显示密码",
+    "upload.passwordProtected.hide": "隐藏密码",
+    "updateProfile.reason.nameMissing": "请输入您的姓名以保存。",
+    "profile.reason.noChanges": "修改姓名或首选语言后即可保存。",
+    "revoke.breadcrumb.revoke": "撤回同意",
+    "invite.channel.whatsapp": "WhatsApp",
+    "invite.channel.sms": "短信",
+    "invite.channel.email": "电子邮件"
 }

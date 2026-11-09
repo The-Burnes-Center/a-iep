@@ -1,0 +1,34 @@
+/* The video frame on "How to ask for a PDF IEP". Inert until a source is
+   configured; see HOW_TO_ASK_VIDEO in HowToAskForPdf.tsx. It was the
+   onboarding video block in OnboardingChrome.css, moved here with the one
+   screen that uses it. */
+.how-to-ask-video {
+  margin: 0;
+}
+
+.how-to-ask-video-frame {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border: 1px solid var(--aiep-border);
+  border-radius: 12px;
+  background-color: var(--aiep-surface-sunk);
+  color: var(--aiep-green);
+  overflow: hidden;
+}
+
+.how-to-ask-video iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.how-to-ask-video-caption {
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 0.95rem;
+  color: var(--aiep-muted);
+  margin-top: 0.75rem;
+}

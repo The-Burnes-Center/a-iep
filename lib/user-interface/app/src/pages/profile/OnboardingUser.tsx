@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { Button } from 'react-bootstrap';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import type { Swiper as SwiperClass } from 'swiper';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../../common/language-context';
 import { STEP } from '../../common/breadcrumb-steps';
 import Breadcrumbs from '../../components/Breadcrumbs';
+import Button from '../../components/ui/Button';
 import 'swiper/css';
 import 'swiper/css/pagination';
 import { Pagination } from 'swiper/modules';
@@ -93,7 +93,7 @@ const OnboardingUser: React.FC = () => {
               logged-out marketing site whose only door back in is the login
               form. */}
           <Breadcrumbs trail={[STEP.language, STEP.whatAiepDoes]} />
-          <Button variant="outline-secondary" className="aiep-button" onClick={handleGetStarted}>
+          <Button variant="secondary" onClick={handleGetStarted}>
             {t('common.skip')}
           </Button>
         </div>
@@ -141,9 +141,8 @@ const OnboardingUser: React.FC = () => {
         <div className="swiper-custom-pagination"></div>
         
         <div className="carousel-navigation">
-          <Button 
-            variant="outline-primary" 
-            className="aiep-button prev-btn" 
+          <Button
+            variant="secondary"
             disabled={isFirstSlide}
             onClick={handlePrevClick}
           >
@@ -151,17 +150,15 @@ const OnboardingUser: React.FC = () => {
           </Button>
           
           {isLastSlide ? (
-            <Button 
-              variant="primary" 
-              className="aiep-button nav-btn next-btn" 
+            <Button
+              variant="primary"
               onClick={handleGetStarted}
             >
               {getStartedText}
             </Button>
           ) : (
-            <Button 
-              variant="primary" 
-              className="aiep-button nav-btn next-btn" 
+            <Button
+              variant="primary"
               onClick={handleNextClick}
             >
               {t('common.next')}

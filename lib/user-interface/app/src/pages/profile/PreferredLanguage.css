@@ -1,7 +1,6 @@
 /* The language picker: one white card of choices, each written in the
    language it offers. Selected is a green tint AND a tick AND aria-pressed,
-   never colour alone. Bootstrap's .btn loads after this file, so these are
-   compound selectors. */
+   never colour alone. */
 .language-options {
   display: flex;
   flex-direction: column;
@@ -12,7 +11,7 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
-.language-options .btn.language-option {
+.language-options .language-option {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -26,6 +25,7 @@
   background-color: transparent;
   color: var(--aiep-ink);
   font-family: 'akzidenz-grotesk-next-pro', 'Cairo', sans-serif;
+  cursor: pointer;
   font-size: 1.15rem;
   font-weight: 500;
   text-align: start;
@@ -34,21 +34,21 @@
   letter-spacing: normal;
 }
 
-.language-options .btn.language-option + .btn.language-option {
+.language-options .language-option + .btn.language-option {
   border-top: 1px solid var(--aiep-surface-field);
 }
 
-.language-options .btn.language-option:hover {
+.language-options .language-option:hover {
   background-color: var(--aiep-surface-tint);
 }
 
-.language-options .btn.language-option.is-selected {
+.language-options .language-option.is-selected {
   background-color: var(--aiep-alert-success-bg);
   color: var(--aiep-alert-success-fg);
   font-weight: 700;
 }
 
-.language-options .btn.language-option:focus-visible {
+.language-options .language-option:focus-visible {
   outline: 3px solid var(--aiep-accent-blue);
   outline-offset: -3px;
 }
@@ -60,4 +60,9 @@
 .language-option-check {
   flex: 0 0 auto;
   color: var(--aiep-green);
+}
+
+.language-options .language-option:disabled {
+  cursor: progress;
+  opacity: 0.7;
 }

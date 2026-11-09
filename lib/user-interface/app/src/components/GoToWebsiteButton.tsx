@@ -1,4 +1,4 @@
-import { Button } from 'react-bootstrap';
+import Button from './ui/Button';
 import './GoToWebsiteButton.css';
 
 interface GoToWebsiteButtonProps {
@@ -8,13 +8,7 @@ interface GoToWebsiteButtonProps {
 
 const GoToWebsiteButton = ({ url, buttonText }: GoToWebsiteButtonProps) => {
   return (
-    <Button 
-      variant="outline-secondary" 
-      className="go-to-website-button"
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-    >
+    <Button variant="secondary" className="go-to-website-button" href={url}>
       {buttonText}
     </Button>
   );

@@ -42,7 +42,7 @@ vi.mock("../common/auth-provider", () => ({
 const languageValue = (translationsLoaded: boolean) => ({
   language: "en" as SupportedLanguage,
   setLanguage: vi.fn(),
-  t: (key: string) => key,
+  t: (key: string) => (key === 'a11y.navigateTo' ? 'Navigate to {label}' : key),
   translationsLoaded,
   enabledLanguages: ["en"] as SupportedLanguage[],
 });

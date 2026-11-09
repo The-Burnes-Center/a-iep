@@ -1,19 +1,6 @@
-.create-account-button {
-  background-color: #014620 !important;
-  border-color: #014620 !important;
-  border-radius: 20px;
-  color: #F5F3EE !important;
-  font-family: akzidenz-grotesk-next-conden, sans-serif;
-  font-weight: 400;
-  font-style: normal;
-  font-size: 1rem !important;
-  letter-spacing: 0.05em;
+.ui-button.create-account-button,
+.ui-button.create-account-button:hover {
+  background-color: var(--aiep-green-dark);
+  border-color: var(--aiep-green-dark);
+  color: var(--aiep-cream);
 }
-
-.create-account-button:hover {
-  background-color: #014620 !important;
-  border-color: #014620 !important;
-  color: #F5F3EE !important;
-}
-
-

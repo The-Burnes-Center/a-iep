@@ -1,0 +1,46 @@
+/* The account-deletion confirmation. Its one irreversible action is the
+   danger button in the footer; Cancel is secondary. Palette tokens only. */
+.delete-profile-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-size: 1.5rem;
+  color: var(--aiep-error);
+}
+
+.delete-profile-icon {
+  flex: 0 0 auto;
+}
+
+.delete-profile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  line-height: 1.6;
+  color: var(--aiep-ink);
+}
+
+.delete-profile-warning {
+  margin: 0;
+  font-weight: 700;
+  color: var(--aiep-error);
+}
+
+.delete-profile-list {
+  margin: 0;
+  padding-inline-start: 0.75rem;
+  list-style: none; /* the items carry their own bullet */
+}
+
+.delete-profile-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.delete-profile-footer .ui-button {
+  flex: 1 1 10rem;
+}

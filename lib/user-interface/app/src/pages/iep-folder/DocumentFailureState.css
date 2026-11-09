@@ -50,7 +50,7 @@
     align-items: stretch;
   }
 
-  .document-failure-actions .btn {
+  .document-failure-actions .ui-button {
     width: 100%;
   }
 }

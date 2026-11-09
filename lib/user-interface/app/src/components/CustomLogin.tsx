@@ -14,9 +14,9 @@ const errCode = (e: unknown): string | undefined => {
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Form, 
-  Button, 
   Alert, 
 } from 'react-bootstrap';
+import Button from './ui/Button';
 // Bootstrap CSS is managed at runtime by common/direction.ts (LTR/RTL swap) —
 // do not import it statically anywhere or both builds load at once
 import './CustomLogin.css'; // Import the custom CSS file
@@ -28,7 +28,6 @@ import { cognitoErrorKey } from '../common/helpers/cognito-error-helper';
 import { useTurnstile, TURNSTILE_STATUS_KEYS } from '../common/hooks/use-turnstile';
 import { useFeatures } from '../common/hooks/use-features';
 import { AppContext } from '../common/app-context';
-import AIEPSpinner from './AIEPSpinner';
 import AuthHeader from './AuthHeader';
 import PasswordlessAuthForm from './PasswordlessAuthForm';
 import SecurityCheck from './SecurityCheck';
@@ -939,7 +938,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             <Form onSubmit={handleConfirmSignUp}>
               <Alert variant="info">{t('auth.checkEmailForCode')}</Alert>
               
-              <Form.Group className="mb-3">
+              <Form.Group className="mb-3" controlId="confirm-sign-up-code">
                 <FormLabel label={t('auth.verificationCode')} />
                 <Form.Control
                   type="text"
@@ -1010,6 +1009,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
         onEmailLoginClick={() => setShowMobileLogin(false)}
         mobileLoginText={t('auth.mobileLogin')}
         emailLoginText={t('auth.emailLogin')}
+        groupLabel={t('auth.loginMethodGroup')}
       />
 
         {/* Everything the security check has to say to a parent who cannot see
@@ -1066,13 +1066,14 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
                       buttonText={t('auth.verifySmsCode')}
                       disabled={loading || smsCode.length !== 6}
                     />
-                  <Button 
-                    variant="outline-secondary"
+                  <Button
+                    variant="secondary"
+                    fullWidth
                     onClick={handleResendSmsCode}
                     disabled={loading}
-                    className="button-text"
+                    busy={loading}
                   >
-                    {loading ? <AIEPSpinner size="sm" /> : t('auth.resendSmsCode')}
+                    {t('auth.resendSmsCode')}
                   </Button>
                   <LinkButton
                     onClick={() => {
@@ -1095,7 +1096,7 @@ const CustomLogin: React.FC<CustomLoginProps> = ({ showLogo = true, showLanguage
             // Phone Number Input Form
             <Form onSubmit={handleMobileLogin}>
               <div className="mobile-form-container">
-                <Form.Group className="mb-3">
+                <Form.Group className="mb-3" controlId="legacy-phone-number">
                   <FormLabel label={t('auth.phoneNumber')} />
                   <Form.Control
                     type="tel"

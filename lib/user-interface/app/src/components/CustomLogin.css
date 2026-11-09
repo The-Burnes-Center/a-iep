@@ -26,7 +26,7 @@
 
 /* Mobile consent text styling */
 .mobile-consent-text {
-  font-family: 'akzidenz-grotesk-next-pro' sans-serif;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
   font-weight: 400;
   font-size: 0.8rem;
   text-align: center !important;
@@ -84,7 +84,8 @@
 /*To be moved in individual styling pages */
 
 .mobile-input {
-  border-radius: 30px;
+  min-height: 48px;
+  border-radius: 8px;
 }
 
 /* Auth mobile language dropdown wrapper */

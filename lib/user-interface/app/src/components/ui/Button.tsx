@@ -19,9 +19,11 @@ interface CommonProps {
   children: React.ReactNode;
 }
 
-type AsButton = CommonProps & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'children'> & { to?: undefined };
-type AsLink = CommonProps & Omit<LinkProps, 'className' | 'children'> & { to: LinkProps['to'] };
-export type ButtonProps = AsButton | AsLink;
+type AsButton = CommonProps & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'children'> & { to?: undefined; href?: undefined };
+type AsLink = CommonProps & Omit<LinkProps, 'className' | 'children'> & { to: LinkProps['to']; href?: undefined };
+/** An address outside the app; opens in a new tab with rel=noopener. */
+type AsExternal = CommonProps & Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, 'className' | 'children'> & { href: string; to?: undefined };
+export type ButtonProps = AsButton | AsLink | AsExternal;
 
 /**
  * The app's one button. Everything a parent can press to do something looks
@@ -51,6 +53,15 @@ const Button = React.forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonPro
       <span>{children}</span>
     </>
   );
+
+  if ('href' in rest && rest.href !== undefined) {
+    const anchorProps = rest as Omit<AsExternal, keyof CommonProps>;
+    return (
+      <a ref={ref as React.Ref<HTMLAnchorElement>} className={classes} target="_blank" rel="noopener noreferrer" {...anchorProps}>
+        {content}
+      </a>
+    );
+  }
 
   if ('to' in rest && rest.to !== undefined) {
     const linkProps = rest as Omit<AsLink, keyof CommonProps>;

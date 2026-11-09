@@ -1,7 +1,8 @@
 import React, { useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Accordion, Button } from 'react-bootstrap';
+import { Accordion } from 'react-bootstrap';
+import Button from '../../components/ui/Button';
 import PageLoading from '../../components/PageLoading';
 import { useLanguage } from '../../common/language-context';
 import { AppContext } from '../../common/app-context';
@@ -108,8 +109,7 @@ const SupportCenter: React.FC<SupportCenterProps> = ({
           <h2 id="support-tour-title" className="page-card-title">{t('supportCenter.tour.title')}</h2>
           <p className="page-card-text">{t('supportCenter.tour.text')}</p>
           <Button
-            variant="primary"
-            className="aiep-button page-action"
+            fullWidth
             onClick={() => navigate('/summary-and-translations', { state: { [REPLAY_TOUR_STATE_KEY]: true } })}
             data-testid="show-me-around"
           >

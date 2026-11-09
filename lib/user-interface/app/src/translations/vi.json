@@ -819,5 +819,19 @@
     "supportCenter.tour.title": "Lần đầu xem bản tóm tắt?",
     "supportCenter.tour.text": "Xem hướng dẫn ngắn chỉ cho bạn mọi thứ nằm ở đâu trong bản tóm tắt của con.",
     "upload.hero.titleReplace": "Tải lên IEP mới",
-    "current.howToAsk": "Cách xin trường bản IEP"
+    "current.howToAsk": "Cách xin trường bản IEP",
+    "a11y.navigateTo": "Đi đến {label}",
+    "auth.showPassword": "Hiện mật khẩu",
+    "auth.loginMethodGroup": "Cách đăng nhập",
+    "auth.verifyNeedsCode": "Nhập mã trong tin nhắn để tiếp tục.",
+    "upload.removeFile": "Xóa tệp",
+    "upload.submitReason.noFile": "Hãy chọn tệp để tải lên trước.",
+    "upload.passwordProtected.show": "Hiện mật khẩu",
+    "upload.passwordProtected.hide": "Ẩn mật khẩu",
+    "updateProfile.reason.nameMissing": "Nhập tên của bạn để lưu.",
+    "profile.reason.noChanges": "Đổi tên hoặc ngôn ngữ ưa thích để lưu.",
+    "revoke.breadcrumb.revoke": "RÚT LẠI SỰ ĐỒNG Ý",
+    "invite.channel.whatsapp": "WhatsApp",
+    "invite.channel.sms": "Tin nhắn",
+    "invite.channel.email": "Email"
 }

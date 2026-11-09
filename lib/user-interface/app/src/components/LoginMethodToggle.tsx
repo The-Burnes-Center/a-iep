@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button } from 'react-bootstrap';
+import Button from './ui/Button';
 import './LoginMethodToggle.css';
 
 interface LoginMethodToggleProps {
@@ -8,6 +8,8 @@ interface LoginMethodToggleProps {
   onEmailLoginClick: () => void;
   mobileLoginText: string;
   emailLoginText: string;
+  /** Names the pair of tabs for a screen reader ("How to sign in"). */
+  groupLabel: string;
 }
 
 const LoginMethodToggle: React.FC<LoginMethodToggleProps> = ({
@@ -15,14 +17,14 @@ const LoginMethodToggle: React.FC<LoginMethodToggleProps> = ({
   onMobileLoginClick,
   onEmailLoginClick,
   mobileLoginText,
-  emailLoginText
+  emailLoginText,
+  groupLabel
 }) => {
   return (
     <div className="login-method-toggle-container mb-4">
-      <div className="login-method-tabs" role="group">
+      <div className="login-method-tabs" role="group" aria-label={groupLabel}>
         {/*
-          variant="link" for the flat base: it is the one variant that brings
-          no fill and no border of its own to override. These stay <button>s
+          The shared text Button, restyled as flat tabs. These stay buttons
           rather than becoming role="tab", because there are no tabpanels to
           point at — the form below is one region that rewrites itself.
 
@@ -30,7 +32,7 @@ const LoginMethodToggle: React.FC<LoginMethodToggleProps> = ({
           and an underline. A screen reader says "with phone, pressed".
         */}
         <Button
-          variant='link'
+          variant="text"
           onClick={onMobileLoginClick}
           className={`login-method-tab${showMobileLogin ? ' is-selected' : ''}`}
           aria-pressed={showMobileLogin}
@@ -38,7 +40,7 @@ const LoginMethodToggle: React.FC<LoginMethodToggleProps> = ({
           {mobileLoginText}
         </Button>
         <Button
-          variant='link'
+          variant="text"
           onClick={onEmailLoginClick}
           className={`login-method-tab${!showMobileLogin ? ' is-selected' : ''}`}
           aria-pressed={!showMobileLogin}

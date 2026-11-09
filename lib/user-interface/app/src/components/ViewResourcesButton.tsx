@@ -1,4 +1,4 @@
-import { Button } from 'react-bootstrap';
+import Button from './ui/Button';
 import './ViewResourcesButton.css';
 
 interface ViewResourcesButtonProps {
@@ -8,13 +8,7 @@ interface ViewResourcesButtonProps {
 
 const ViewResourcesButton = ({ url, buttonText }: ViewResourcesButtonProps) => {
   return (
-    <Button 
-      variant="outline-secondary" 
-      className="view-resources-button"
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-    >
+    <Button variant="secondary" className="view-resources-button" href={url}>
       {buttonText}
     </Button>
   );

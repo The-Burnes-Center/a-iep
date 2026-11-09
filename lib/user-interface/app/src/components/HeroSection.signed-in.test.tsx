@@ -78,7 +78,8 @@ describe("the hero card", () => {
   test("that way onward actually goes to their documents", async () => {
     const user = renderHero({ authenticated: true, loading: false });
 
-    await user.click(screen.getByRole("button", { name: "hero.signedIn.button" }));
+    // A link, not a button: it navigates (the shared Button renders one when given `to`).
+    await user.click(screen.getByRole("link", { name: "hero.signedIn.button" }));
 
     expect(screen.getByTestId("landed-on")).toHaveTextContent("/iep-documents");
   });

@@ -1,6 +1,8 @@
 import React from 'react';
-import { Card, Alert } from 'react-bootstrap';
+import { Card } from 'react-bootstrap';
 import AIEPSpinner from './AIEPSpinner';
+import Button from './ui/Button';
+import { Notice } from './ui/feedback';
 import ParentRightsCarousel, { SlideData } from './ParentRightsCarousel';
 import PollingStalledNotice from './PollingStalledNotice';
 import ProcessingStatusBar from './ProcessingStatusBar';
@@ -99,15 +101,15 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
    * and the summary behind this screen is still there to read.
    */
   const viewCurrentButton = onViewCurrent && viewCurrentLabel ? (
-    <button
-      type="button"
-      className="btn btn-outline-light processing-view-current"
+    <Button
+      variant="secondary"
+      className="processing-view-current"
       onClick={onViewCurrent}
       // Stable E2E hook: the label is localized
       data-testid="replacement-view-current"
     >
       {viewCurrentLabel}
-    </button>
+    </Button>
   ) : null;
 
   /**
@@ -136,7 +138,7 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
         <div aria-live="polite" aria-atomic="true" className="visually-hidden">
           {pollingStopped ? t('summary.processing.stalled') : ''}
         </div>
-        {error && <Alert variant="danger">{error}</Alert>}
+        {error && <Notice tone="error">{error}</Notice>}
         {tutorialPhase === 'parent-rights' ? (
           <Card className="processing-summary-parent-rights-card">
             <Card.Body className="processing-summary-card-body pt-0 pb-0">

@@ -137,6 +137,25 @@ beforeEach(() => {
 });
 
 describe("deleting an account", () => {
+  test("says what will be lost before the one delete button, and deletes nothing until it is pressed", async () => {
+    persistSessionHandle("sess-valid");
+    Auth.getCurrentUser.mockRejectedValue(new Error("no amplify session"));
+    const { calls } = stubEndpoints();
+
+    renderDeleteAccount();
+    const button = await screen.findByRole("button", { name: /deleteAccount\.button\.deleteMyAccount/ });
+
+    // This page is the confirmation: the losses are listed, and the danger
+    // button is the only one that deletes.
+    for (const item of ["delete.item1", "delete.item2", "delete.item3", "delete.item4"]) {
+      expect(screen.getByText(item)).toBeInTheDocument();
+    }
+    expect(button).toHaveClass("ui-button--danger");
+    expect(screen.getAllByRole("button", { name: /deleteAccount\.button\.deleteMyAccount/ })).toHaveLength(1);
+    expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
+    expect(readPersistedSessionHandle()).toBe("sess-valid");
+  });
+
   test("leaves nothing behind that a later page load could resume", async () => {
     const { unmount, find } = await deleteTheAccount();
 

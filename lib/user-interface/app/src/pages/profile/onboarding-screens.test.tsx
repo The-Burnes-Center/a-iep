@@ -187,6 +187,19 @@ describe("Do you have the IEP as a PDF?", () => {
     expect(screen.getByTestId("have-pdf-no")).toHaveTextContent("havePdf.no.detail");
   });
 
+  test("each choice is a real button named by its whole sentence", () => {
+    // Both were already buttons; what a screen reader hears is the lead and
+    // the detail as one name, with the icon left out.
+    renderChain("/do-you-have-pdf");
+
+    expect(
+      screen.getByRole("button", { name: "havePdf.yes.lead havePdf.yes.detail" }),
+    ).toBe(screen.getByTestId("have-pdf-yes"));
+    expect(
+      screen.getByRole("button", { name: "havePdf.no.lead havePdf.no.detail" }),
+    ).toBe(screen.getByTestId("have-pdf-no"));
+  });
+
   test("Yes goes to the upload", async () => {
     const user = renderChain("/do-you-have-pdf");
 

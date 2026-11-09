@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Container, Alert, Button } from 'react-bootstrap';
+import { Container, Alert } from 'react-bootstrap';
 import PageLoading from '../../components/PageLoading';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { IconCheck } from '@tabler/icons-react';
@@ -183,9 +183,12 @@ export default function PreferredLanguage() {
           {languageOptions.map(option => {
             const isSelected = profile?.secondaryLanguage === option.value;
             return (
-              <Button
+              // A choice in a list, not an action pill: a row the parent
+              // picks, marked with aria-pressed (a purpose-built control in
+              // common/ui-standards.test.ts).
+              <button
+                type="button"
                 key={option.value}
-                variant="link"
                 className={`language-option${isSelected ? ' is-selected' : ''}`}
                 // The tint is not the only difference between chosen and not:
                 // the state is announced and carries a tick.
@@ -209,7 +212,7 @@ export default function PreferredLanguage() {
                     data-testid={`language-selected-${option.value}`}
                   />
                 )}
-              </Button>
+              </button>
             );
           })}
         </div>

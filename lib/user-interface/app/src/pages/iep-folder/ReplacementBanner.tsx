@@ -1,7 +1,7 @@
 import React from 'react';
-import { Button } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCircleInfo, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
+import Button from '../../components/ui/Button';
 import type { IEPDocument } from '../../common/types';
 
 interface ReplacementBannerProps {
@@ -56,8 +56,7 @@ const ReplacementBanner: React.FC<ReplacementBannerProps> = ({
         <FontAwesomeIcon icon={faTriangleExclamation} aria-hidden="true" className="replacement-banner-icon" />
         <p className="replacement-banner-message">{t('summary.replacement.failed')}</p>
         <Button
-          variant="outline-dark"
-          className="replacement-banner-button"
+          variant="secondary"
           onClick={onUploadAgain}
           data-testid="replacement-upload-again"
         >
@@ -71,8 +70,7 @@ const ReplacementBanner: React.FC<ReplacementBannerProps> = ({
         <FontAwesomeIcon icon={faCircleInfo} aria-hidden="true" className="replacement-banner-icon" />
         <p className="replacement-banner-message">{t('summary.processing.stalled')}</p>
         <Button
-          variant="outline-dark"
-          className="replacement-banner-button"
+          variant="secondary"
           onClick={onCheckAgain}
           data-testid="replacement-check-again"
         >
@@ -87,9 +85,8 @@ const ReplacementBanner: React.FC<ReplacementBannerProps> = ({
         <p className="replacement-banner-message">{t('summary.replacement.processing')}</p>
         {onWatchProgress && (
           <Button
-            variant="outline-dark"
-            className="replacement-banner-button"
-            onClick={onWatchProgress}
+            variant="secondary"
+              onClick={onWatchProgress}
             data-testid="replacement-watch-progress"
           >
             {t('summary.replacement.watchProgress')}

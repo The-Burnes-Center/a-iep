@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Container, Form, Button, Row, Col, Alert } from 'react-bootstrap';
 import PageLoading from '../../components/PageLoading';
+import PageShell from '../../components/page/PageShell';
+import PageHero from '../../components/page/PageHero';
+import Button from '../../components/ui/Button';
+import { TextField } from '../../components/ui/fields';
+import { Notice } from '../../components/ui/feedback';
 import { AppContext } from '../../common/app-context';
 import { useAuth } from '../../common/auth-provider';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -9,9 +13,11 @@ import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useNavigate } from 'react-router-dom';
 import { STEP } from '../../common/breadcrumb-steps';
-import Breadcrumbs from '../../components/Breadcrumbs';
 import DeleteProfileModal from './DeleteProfileModal';
 import './ProfileForms.css';
+
+/** Ties the reason under the disabled Update button to that button. */
+const SAVE_REASON_ID = 'profile-save-reason';
 
 export default function UserProfileForm() {
   const appContext = useContext(AppContext);
@@ -23,7 +29,10 @@ export default function UserProfileForm() {
   const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
 
   const [loading, setLoading] = useState(true);
+  // A failed load replaces the form. A failed save does not: the parent keeps
+  // what they typed and the error sits above the button.
   const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [originalProfile, setOriginalProfile] = useState<UserProfile | null>(null);
   const [saving, setSaving] = useState(false);
@@ -64,18 +73,18 @@ export default function UserProfileForm() {
 
     try {
       setSaving(true);
+      setSaveError(null);
       await apiClient.profile.updateProfile(profile);
-      
+
       // Update language context if secondary language changed
       if (profile.secondaryLanguage && profile.secondaryLanguage !== originalProfile?.secondaryLanguage) {
         setLanguage(profile.secondaryLanguage as SupportedLanguage);
       }
-      
+
       setOriginalProfile(profile); // Update original profile after successful save
     } catch (err) {
-      // Inline, on the banner this page already renders: this failure used to
-      // be reported only by a toast.
-      setError(t('profile.error.update'));
+      // Inline, above the button: the form stays and keeps what was typed.
+      setSaveError(t('profile.error.update'));
     } finally {
       setSaving(false);
     }
@@ -111,81 +120,81 @@ export default function UserProfileForm() {
 
   if (error) {
     return (
-      <Container className="mt-4">
-        <Alert variant="danger">{error}</Alert>
-      </Container>
+      <PageShell>
+        <Notice tone="error">{error}</Notice>
+      </PageShell>
     );
   }
 
+  const changed = hasChanges();
+
   return (
     <>
-    <Breadcrumbs trail={[STEP.summary, STEP.profile]} />
-    <Container className="mt-4">
-      <Form onSubmit={handleSubmit} className="mt-4">
-        <h3 className="mb-3">{t('profile.title')}</h3>
-        
-        <Row className="mb-3">
-          <Col md={10}>
-            <Form.Group controlId="formParentName">
-              <Form.Label className="small">{t('profile.parentName')}</Form.Label>
-              <Form.Control 
-                type="text" 
-                value={profile?.parentName || ''}
-                onChange={e => {
-                  setProfile(prev => prev ? {...prev, parentName: e.target.value} : null);
-                }}
-              />
-            </Form.Group>
-          </Col>
-        </Row>
+    <PageShell trail={[STEP.summary, STEP.profile]}>
+      <PageHero titleId="profile-title" title={t('profile.title')} showFaces={false} />
 
-        {/* Preferred Language Section */}
-        <Row className="mb-4">
-          <Col md={10}>
-            <Form.Group controlId="formPreferredLanguage">
-              <Form.Label className="small">{t('profile.preferredLanguage')}</Form.Label>
-              <Form.Select 
-                value={profile?.secondaryLanguage || 'en'}
-                onChange={e => handlePreferredLanguageChange(e.target.value)}
-              >
-                {languageOptions.map(option => (
-                  <option key={option.value} value={option.value}>
-                    {option.englishLabel}
-                  </option>
-                ))}
-              </Form.Select>
-            </Form.Group>
-          </Col>
-        </Row>
+      <form className="page-card" onSubmit={handleSubmit}>
+        <TextField
+          id="formParentName"
+          label={t('profile.parentName')}
+          value={profile?.parentName || ''}
+          onChange={e => {
+            setProfile(prev => prev ? {...prev, parentName: e.target.value} : null);
+          }}
+        />
 
-        <div className="mt-4 profile-actions">
-          <Button 
-            variant="primary" 
-            type="submit" 
-            disabled={saving || !hasChanges()}
+        <div className="ui-field">
+          <label className="ui-field-label" htmlFor="formPreferredLanguage">
+            {t('profile.preferredLanguage')}
+          </label>
+          <select
+            id="formPreferredLanguage"
+            className="ui-input"
+            value={profile?.secondaryLanguage || 'en'}
+            onChange={e => handlePreferredLanguageChange(e.target.value)}
           >
-            {saving ? t('profile.button.updating') : t('profile.button.update')}
-          </Button>
-          <Button 
-            variant="outline-secondary" 
-            onClick={handleSignOut}
-            className="button-text"
-          >
-            {t('profile.button.logOut')}
-          </Button>
-          <Button 
-            variant="danger" 
-            onClick={handleDeleteProfile}
-            className="button-text"
-          >
-            {t('profile.button.deleteProfile')}
-          </Button>
+            {languageOptions.map(option => (
+              <option key={option.value} value={option.value}>
+                {option.englishLabel}
+              </option>
+            ))}
+          </select>
         </div>
-      </Form>
-    </Container>
-    <DeleteProfileModal 
-      show={showDeleteModal} 
-      onHide={() => setShowDeleteModal(false)} 
+
+        {saveError && <Notice tone="error">{saveError}</Notice>}
+
+        {!changed && (
+          <p id={SAVE_REASON_ID} className="page-card-text">
+            {t('profile.reason.noChanges')}
+          </p>
+        )}
+
+        <Button
+          type="submit"
+          fullWidth
+          disabled={saving || !changed}
+          busy={saving}
+          busyLabel={t('profile.button.updating')}
+          aria-describedby={!changed ? SAVE_REASON_ID : undefined}
+        >
+          {t('profile.button.update')}
+        </Button>
+      </form>
+
+      <div className="page-card">
+        <Button variant="secondary" fullWidth onClick={handleSignOut}>
+          {t('profile.button.logOut')}
+        </Button>
+        {/* Opens a confirmation that says what is lost. The irreversible
+            action is the danger button inside that modal, not this one. */}
+        <Button variant="text" fullWidth onClick={handleDeleteProfile}>
+          {t('profile.button.deleteProfile')}
+        </Button>
+      </div>
+    </PageShell>
+    <DeleteProfileModal
+      show={showDeleteModal}
+      onHide={() => setShowDeleteModal(false)}
     />
     </>
   );

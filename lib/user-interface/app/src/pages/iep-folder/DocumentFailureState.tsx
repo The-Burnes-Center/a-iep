@@ -1,7 +1,7 @@
 import React from 'react';
-import { Button } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';
+import Button from '../../components/ui/Button';
 import './DocumentFailureState.css';
 
 export interface DocumentFailureStateProps {
@@ -51,7 +51,6 @@ const DocumentFailureState: React.FC<DocumentFailureStateProps> = ({
         {canRetry ? (
           <Button
             variant="primary"
-            size="sm"
             onClick={onGoToDocuments}
             // Stable E2E hook: the label is localized
             data-testid="failure-try-different-file"
@@ -60,8 +59,7 @@ const DocumentFailureState: React.FC<DocumentFailureStateProps> = ({
           </Button>
         ) : (
           <Button
-            variant="outline-secondary"
-            size="sm"
+            variant="secondary"
             onClick={onGoToDocuments}
             // Stable E2E hook: the label is localized
             data-testid="failure-go-to-documents"

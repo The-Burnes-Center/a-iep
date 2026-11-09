@@ -229,8 +229,7 @@
 }
 
 /* "View your current IEP", during a replacement: in the band, under the bar.
-   White on the band's dark green, and a full-size target (WCAG 2.5.8). */
+   The shared secondary Button (cream on the band's dark green). */
 .processing-view-current {
-  min-height: 44px;
   margin-top: 0.25rem;
 }

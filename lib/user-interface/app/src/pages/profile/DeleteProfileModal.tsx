@@ -1,10 +1,13 @@
 import React, { useState, useContext } from 'react';
-import { Modal, Button, Alert } from 'react-bootstrap';
-import AIEPSpinner from '../../components/AIEPSpinner';
+import { Modal } from 'react-bootstrap';
+import { IconAlertTriangle } from '@tabler/icons-react';
+import Button from '../../components/ui/Button';
+import { Notice } from '../../components/ui/feedback';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { useAuth } from '../../common/auth-provider';
 import { useLanguage } from '../../common/language-context';
+import './DeleteProfileModal.css';
 
 interface DeleteProfileModalProps {
   show: boolean;
@@ -55,23 +58,19 @@ const DeleteProfileModal: React.FC<DeleteProfileModalProps> = ({ show, onHide })
 
   return (
     <Modal show={show} onHide={handleCancel} centered>
-      <Modal.Header closeButton={!processing}>
-        <Modal.Title className="text-danger">
-          <i className="bi bi-exclamation-triangle-fill me-2"></i>
+      <Modal.Header closeButton={!processing} closeLabel={t('common.close')}>
+        <Modal.Title className="delete-profile-title">
+          <IconAlertTriangle size={22} stroke={2} className="delete-profile-icon" aria-hidden="true" />
           {t('delete.title')}
         </Modal.Title>
       </Modal.Header>
       <Modal.Body>
-        {error && (
-          <Alert variant="danger" className="mb-3">
-            {error}
-          </Alert>
-        )}
+        {error && <Notice tone="error">{error}</Notice>}
         
-        <div className="mb-3">
-          <p className="fw-bold text-danger">{t('delete.description1')}</p>
-          <p className="mb-2">{t('delete.description2')}</p>
-          <ul className="list-unstyled ms-3">
+        <div className="delete-profile-body">
+          <p className="delete-profile-warning">{t('delete.description1')}</p>
+          <p>{t('delete.description2')}</p>
+          <ul className="delete-profile-list">
             <li>{t('delete.item1')}</li>
             <li>{t('delete.item2')}</li>
             <li>{t('delete.item3')}</li>
@@ -79,31 +78,21 @@ const DeleteProfileModal: React.FC<DeleteProfileModalProps> = ({ show, onHide })
           </ul>
         </div>
       </Modal.Body>
-      <Modal.Footer>
-        <Button 
-          variant="secondary" 
-          onClick={handleCancel}
-          disabled={processing}
-        >
+      <Modal.Footer className="delete-profile-footer">
+        <Button variant="secondary" onClick={handleCancel} disabled={processing}>
           {t('delete.button.back')}
         </Button>
-        <Button 
-          variant="danger" 
+        <Button
+          variant="danger"
           onClick={handleDeleteProfile}
-          disabled={processing}
+          busy={processing}
+          busyLabel={t('delete.button.processing')}
         >
-          {processing ? (
-            <>
-              <AIEPSpinner size="sm" className="me-2" />
-              {t('delete.button.processing')}
-            </>
-          ) : (
-            t('delete.button.delete')
-          )}
+          {t('delete.button.delete')}
         </Button>
       </Modal.Footer>
     </Modal>
   );
 };
 
-export default DeleteProfileModal; 
+export default DeleteProfileModal;

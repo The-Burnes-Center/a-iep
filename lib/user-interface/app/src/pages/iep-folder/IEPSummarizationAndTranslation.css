@@ -140,7 +140,8 @@
   background-color: #F5F3EE;
   border: 1px solid #1E1E1E;
   border-radius: 25px !important;
-  padding: 0.85rem;
+  padding: 0;
+  overflow: hidden;
   margin-bottom: 6.5rem;
   width: 90%;
   align-self: center;
@@ -352,7 +353,14 @@ background-color: #F5f3EE;
 }
 
 /* More prominent with animated underline */
+/* A glossary term is a real button (content-processor.ts), so it takes focus
+   and opens on Enter or Space. The reset keeps it looking like the word. */
 .jargon-term {
+font: inherit;
+line-height: inherit;
+background: none;
+border: 0;
+border-radius: 2px;
 color: var(--aiep-accent-blue);
 font-weight: 500;
 position: relative;
@@ -365,6 +373,23 @@ padding: 0 2px;
 .jargon-term:hover {
 color: var(--aiep-accent-blue-hover);
 text-decoration-thickness: 2px;
+}
+
+.jargon-term:focus-visible {
+outline: 3px solid var(--aiep-accent-blue);
+outline-offset: 2px;
+}
+
+/* "Read More" and "Show Less" under a long summary: the shared text Button,
+   underlined so it reads as the toggle it is. */
+.summary-read-more {
+text-decoration: underline;
+}
+
+/* Notices on the summary (the empty states, the translation offer, a page
+   error) keep the bottom gap the Bootstrap alerts they replaced had. */
+.summary-container .ui-notice {
+margin-bottom: 1rem;
 }
 
 /* Jargon drawer styling */
@@ -393,26 +418,6 @@ font-family: 'akzidenz-grotesk-next-pro', sans-serif;
 .jargon-drawer .jargon-drawer-header {
   justify-content: space-between;
   gap: 1rem;
-}
-
-.jargon-drawer .jargon-drawer-close {
-  min-height: 44px;
-  color: #F5F3EE;
-  border: 2px solid #F5F3EE;
-  background-color: transparent;
-  font-weight: 600;
-}
-
-.jargon-drawer .jargon-drawer-close:hover,
-.jargon-drawer .jargon-drawer-close:active {
-  color: var(--aiep-accent-blue);
-  background-color: #F5F3EE;
-  border-color: #F5F3EE;
-}
-
-.jargon-drawer .jargon-drawer-close:focus-visible {
-  outline: 3px solid #F5F3EE;
-  outline-offset: 2px;
 }
 
 .jargon-drawer .offcanvas-body {
@@ -488,11 +493,6 @@ line-height: 1.2;
 padding: 0 1rem;
 }
 
-.download-button {
-  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
-  border-radius: 15px;
-  letter-spacing: 0.1em;
-}
 /* Language dropdown styling in button-container */
 .button-container .dropdown .dropdown-toggle {
 background-color: #F5F3EE;
@@ -639,6 +639,12 @@ display: none !important;
   width: 70%;
 }
 
+.summary-card-header .summary-replace-button {
+  min-height: 48px;
+  border: 0;
+  border-radius: 0;
+}
+
 
 .summary-accordion .accordion-body {
   padding: 1.5rem 9rem;
@@ -756,8 +762,7 @@ display: none !important;
 /* The note above the old summary while a replacement is processed or failed.
    Both states use the palette's alert pairs (each measured in
    color-contrast.test.tsx); the state is named by an icon and words, so colour
-   is never the only signal. The button is at least
-   44px tall and keeps a two-ring focus outline. */
+   is never the only signal. Its button is the shared secondary Button. */
 .replacement-banner {
   display: flex;
   flex-wrap: wrap;
@@ -784,13 +789,3 @@ display: none !important;
   margin: 0;
 }
 
-.replacement-banner-button {
-  min-height: 44px;
-  min-width: 44px;
-  padding-inline: 1.25rem;
-}
-
-.replacement-banner-button:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--aiep-surface-white), 0 0 0 5px var(--aiep-ink);
-}

@@ -18,6 +18,10 @@ const jargonDictionaries = {
   zh: zhGlossary
 };
 
+// The opening tag of a highlighted term. Also the literal the nesting guard
+// below looks for, so the two cannot drift apart.
+const JARGON_TERM_OPEN = '<button type="button" class="jargon-term"';
+
 const escapeForAttribute = (value: string): string => value
   .replace(/&/g, '&amp;')
   .replace(/"/g, '&quot;')
@@ -68,12 +72,12 @@ export const processContentWithJargon = (content: string, languageCode: string):
           // Get the text before this match
           const beforeMatch = string.substring(0, offset);
           
-          // Check if we're already inside a jargon span
-          const lastSpanStart = beforeMatch.lastIndexOf('<span class="jargon-term"');
-          const lastSpanEnd = beforeMatch.lastIndexOf('</span>');
+          // Check if we're already inside a jargon button
+          const lastTermStart = beforeMatch.lastIndexOf(JARGON_TERM_OPEN);
+          const lastTermEnd = beforeMatch.lastIndexOf('</button>');
           
-          if (lastSpanStart > lastSpanEnd) {
-            return match; // We're inside a jargon span, don't replace
+          if (lastTermStart > lastTermEnd) {
+            return match; // We're inside a jargon term, don't replace
           }
           
           // Simple check for data-tooltip attributes
@@ -83,9 +87,11 @@ export const processContentWithJargon = (content: string, languageCode: string):
             return match; // We're inside an unclosed tooltip attribute
           }
           
-          // class stays first: the guard above recognises an existing span by
-          // the literal prefix `<span class="jargon-term"`.
-          return `<span class="jargon-term" data-term="${escapedCanonicalTerm}" data-tooltip="${escapedDefinition}">${match}</span>`;
+          // The term is a real button, so a keyboard user can reach it and open
+          // its definition with Enter or Space. class stays right after `type`:
+          // the guard above recognises an existing term by the literal prefix
+          // JARGON_TERM_OPEN.
+          return `${JARGON_TERM_OPEN} data-term="${escapedCanonicalTerm}" data-tooltip="${escapedDefinition}" aria-haspopup="dialog">${match}</button>`;
         });
       }
     });

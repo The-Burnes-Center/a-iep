@@ -1,8 +1,7 @@
-import { Container, Row, Col } from 'react-bootstrap';
 import PageLoading from '../../components/PageLoading';
+import PageShell from '../../components/page/PageShell';
+import PageHero from '../../components/page/PageHero';
 import { useLanguage } from '../../common/language-context';
-import Breadcrumbs from '../../components/Breadcrumbs';
-import ViewResourcesButton from '../../components/ViewResourcesButton';
 import './ChangeLanguage.css';
 import './ProfileForms.css';
 import './ViewResources.css';
@@ -45,39 +44,31 @@ export default function ViewResources() {
   ];
 
   return (
-  <>
-      <div>
-      {/* Breadcrumbs */}
-      <Breadcrumbs
-        trail={[
-          { labelKey: "resources.breadcrumb.supportCenter", to: "/support-center" },
-          { labelKey: "resources.breadcrumb.resources" },
-        ]}
-      />
-      
-      <Container 
-        fluid 
-        className="view-resources-container"
-      >
-        <Row style={{ width: '100%', justifyContent: 'center' }}>
-          <Col xs={12} md={8} lg={6}>
-            <div className="profile-form">
-            <h4 className="update-profile-header">{t("resources.title")}</h4>
-            <p className='resources-description'>{t("resources.description")}</p>
-            </div>
-          </Col>
-        </Row>
-      </Container>
-      <div className='resources-list-container'>
+    <PageShell trail={[
+      { labelKey: "resources.breadcrumb.supportCenter", to: "/support-center" },
+      { labelKey: "resources.breadcrumb.resources" },
+    ]}>
+      <PageHero titleId="resources-title" title={t("resources.title")} description={t("resources.description")} showFaces={false} />
+
+      <ul className="resource-list">
         {resources.map((resource, index) => (
-          <div key={index} className='resource-item'>
-            <h5>{resource.title}</h5>
-            <p>{resource.description}</p>
-            <ViewResourcesButton url={resource.url} buttonText={resource.buttonText} />
-          </div>
+          <li key={index} className="page-card resource-item">
+            <h2 className="page-card-title">{resource.title}</h2>
+            <p className="page-card-text">{resource.description}</p>
+            {/* Every link says which resource it opens: four identical
+                "VIEW RESOURCES" names is what a screen reader user hears. */}
+            <a
+              className="ui-button ui-button--secondary resource-link"
+              href={resource.url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {resource.buttonText}
+              <span className="visually-hidden">: {resource.title}</span>
+            </a>
+          </li>
         ))}
-      </div>
-    </div>
-  </>
+      </ul>
+    </PageShell>
   );
 }

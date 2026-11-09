@@ -713,10 +713,10 @@ describe("the stylesheet", () => {
     expect(rule(".slide-rights-content")).toMatch(/text-align:\s*start/);
   });
 
-  test("the arrows are 44px targets", () => {
+  test("the arrows are 48px targets", () => {
     const body = rule(".carousel-nav-button");
-    expect(body).toMatch(/min-width:\s*44px/);
-    expect(body).toMatch(/min-height:\s*44px/);
+    expect(body).toMatch(/min-width:\s*48px/);
+    expect(body).toMatch(/min-height:\s*48px/);
   });
 
   test("the slide transition is switched off for a parent who asked for less motion", () => {

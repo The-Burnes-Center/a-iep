@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button } from 'react-bootstrap';
+import Button from './ui/Button';
 import './PollingStalledNotice.css';
 
 interface PollingStalledNoticeProps {
@@ -23,7 +23,7 @@ const PollingStalledNotice: React.FC<PollingStalledNoticeProps> = ({
 }) => (
   <div className="polling-stalled-notice">
     <p className="polling-stalled-message">{message}</p>
-    <Button className="polling-stalled-button" variant="light" onClick={onCheckAgain}>
+    <Button variant="secondary" onClick={onCheckAgain}>
       {buttonLabel}
     </Button>
   </div>

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Box, CardPlacement, boxOf, placeCard, unionBox } from './guided-tour-layout';
+import Button from './ui/Button';
 import './GuidedTour.css';
 
 /**
@@ -369,23 +370,23 @@ const GuidedTour: React.FC<GuidedTourProps> = ({
         </p>
         <div className="guided-tour-actions">
           {!isFirst && (
-            <button type="button" className="guided-tour-button guided-tour-button-secondary" onClick={handleBack}>
+            <Button variant="secondary" onClick={handleBack}>
               {labels.back}
-            </button>
+            </Button>
           )}
-          <button type="button" className="guided-tour-button guided-tour-button-primary" onClick={handleNext}>
+          <Button variant="primary" onClick={handleNext}>
             {isLast ? labels.done : labels.next}
-          </button>
+          </Button>
           {!isLast && (
-            <button
-              type="button"
-              className="guided-tour-button guided-tour-skip"
+            <Button
+              variant="text"
+              className="guided-tour-skip"
               // Stable E2E hook: the label is localized
               data-testid="guided-tour-skip"
               onClick={() => finish('skip')}
             >
               {labels.skip}
-            </button>
+            </Button>
           )}
         </div>
       </div>

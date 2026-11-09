@@ -35,7 +35,7 @@ One `Button` component with four variants. Nothing else looks like a button.
 | `primary` | The one main action | Filled brand green, cream text |
 | `secondary` | Other actions | Cream fill, ink text, 1px border |
 | `danger` | Irreversible actions (remove, delete) | Error red, used only after a confirmation step |
-| `text` | Low-emphasis actions inside a card | Ink text, no fill; never blue-underlined |
+| `text` | Low-emphasis actions inside a card | Brand-green text, no fill; never blue-underlined |
 
 - **Size:** at least 48px tall, on every screen. Targets under 24px fail WCAG 2.2 (2.5.8); 44–48px is what thumbs need.
 - **Shape and type:** 24px pill radius, the condensed brand face, uppercase with 0.05em letter-spacing, as the existing primary buttons have.

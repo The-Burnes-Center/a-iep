@@ -2,14 +2,13 @@
 import React, { useState, useContext, useRef } from 'react';
 import {
   Form,
-  Button,
   Container,
-  Alert,
   ProgressBar,
   ListGroup
 } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import UIButton from '../../components/ui/Button';
+import { Notice } from '../../components/ui/feedback';
 import { AppContext } from '../../common/app-context';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { isPlaceholderChildName } from '../../common/features';
@@ -111,6 +110,8 @@ const FILE_ACCEPT = [
 const FILE_ERROR_ID = 'fileUploadError';
 const FILE_FORMATS_ID = 'fileUploadFormats';
 const FILE_CHECKING_ID = 'fileUploadChecking';
+// The line under a disabled Upload button saying what is missing.
+const SUBMIT_REASON_ID = 'upload-submit-reason';
 
 /**
  * Which refusal is on screen, carried next to its message.
@@ -370,7 +371,7 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
           )}
           
           {globalError && (
-            <Alert variant="danger">{globalError}</Alert>
+            <Notice tone="error">{globalError}</Notice>
           )}
           
           <Form>
@@ -384,19 +385,21 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
                   onChange={handleFileChange}
                   disabled={uploadStatus === 'uploading' || isCheckingFile || passwordPrompt.isOpen}
                 />
-                <div className={`seamless-file-container ${uploadStatus === 'uploading' ? 'disabled' : ''}`}>
+                {/* A label, so the input has a name: "Select File", then the file's
+                    name or "No File Selected". The input sits over it, invisible. */}
+                <label htmlFor="fileUpload" className={`seamless-file-container ${uploadStatus === 'uploading' ? 'disabled' : ''}`}>
                   <span className="seamless-file-button">
                     {t('upload.selectFile')}
                   </span>
                   <span className={`seamless-file-text ${file ? 'has-file' : ''}`}>
                     {file ? file.name : t('upload.noFileSelected')}
                   </span>
-                </div>
+                </label>
               </div>
               {isCheckingIndicatorShown && (
                 <Form.Text
                   id={FILE_CHECKING_ID}
-                  className="upload-file-hint text-muted"
+                  className="upload-file-hint upload-file-muted"
                   data-testid="checking-file-indicator"
                 >
                   {t('upload.checkingFile')}
@@ -412,7 +415,7 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
                 <Form.Text
                   id={FILE_ERROR_ID}
                   role="alert"
-                  className="upload-file-hint text-danger"
+                  className="upload-file-hint upload-file-error"
                   data-testid="file-error"
                 >
                   {fileError.message}
@@ -421,7 +424,7 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
               {isSupportedFormatsHintShown && (
                 <Form.Text
                   id={FILE_FORMATS_ID}
-                  className="upload-file-hint text-muted"
+                  className="upload-file-hint upload-file-muted"
                   data-testid="supported-formats-hint"
                 >
                   {t('upload.supportedFormats')} {Array.from(fileExtensions).join(', ')}
@@ -436,13 +439,14 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
                     <FontAwesomeIcon icon={faFileAlt} className="me-2" />
                     {file.name} ({Utils.bytesToSize(file.size)})
                   </div>
-                  <Button 
-                    variant="link" 
-                    className="text-danger" 
+                  <UIButton
+                    variant="text"
+                    className="upload-remove-file"
+                    aria-label={t('upload.removeFile')}
                     onClick={() => setFile(null)}
                   >
                     <FontAwesomeIcon icon={faTimesCircle} />
-                  </Button>
+                  </UIButton>
                 </ListGroup.Item>
               </ListGroup>
             )}
@@ -460,15 +464,15 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
             )}
             
             {uploadStatus === 'success' && (
-              <Alert variant="success" className="mt-3">
-                {t('upload.success')}
-              </Alert>
+              <div className="mt-3">
+                <Notice tone="success" announce>{t('upload.success')}</Notice>
+              </div>
             )}
             
             {uploadStatus === 'error' && (
-              <Alert variant="danger" className="mt-3">
-                {t('upload.error')}
-              </Alert>
+              <div className="mt-3">
+                <Notice tone="error">{t('upload.error')}</Notice>
+              </div>
             )}
             
             {/* With more than one child, the last thing a parent reads before
@@ -485,19 +489,28 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
             )}
 
             <div className="d-grid gap-2 mt-3">
-              <Button
+              {/* Disabled until a file is chosen: the reason is on screen and
+                  tied to the button, so a screen reader hears it too. */}
+              {!file && (
+                <p id={SUBMIT_REASON_ID} className="upload-submit-reason">
+                  {t('upload.submitReason.noFile')}
+                </p>
+              )}
+              <UIButton
                 variant="primary"
+                fullWidth
+                icon={<FontAwesomeIcon icon={faUpload} />}
                 onClick={handleUpload}
                 // Not before the profile says which child this is for.
                 disabled={!file || uploadStatus === 'uploading' || activeChild.isLoading}
+                aria-describedby={!file ? SUBMIT_REASON_ID : undefined}
                 // Stable E2E hook: the label is localized
                 data-testid="upload-submit-button"
               >
-                <FontAwesomeIcon icon={faUpload} className="me-2" />
                 {activeChild.isMultiChild && childName
                   ? fillTemplate(t('upload.buttonForChild'), { name: childName })
                   : t('upload.button')}
-              </Button>
+              </UIButton>
             </div>
           </Form>
 

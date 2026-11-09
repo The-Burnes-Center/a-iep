@@ -22,12 +22,12 @@
   justify-content: center;
   /* Never squeezed by the counter: these are what a parent aims at. */
   flex: 0 0 auto;
-  /* 44px each way (WCAG 2.5.5, above the 24px 2.5.8 asks for): they are the
-     whole control now, and a parent may be tapping with a thumb while
+  /* 48px each way, the app's control minimum (docs/UI_STANDARDS.md): they are
+     the whole control now, and a parent may be tapping with a thumb while
      anxious. Explicit, because the padding and the 15x18 glyph alone came to
      a few pixels under at 360px. */
-  min-width: 44px;
-  min-height: 44px;
+  min-width: 48px;
+  min-height: 48px;
 }
 
 .carousel-nav-button:hover:not(:disabled) {
@@ -279,7 +279,7 @@
     padding: 1rem;
   }
 
-  /* Tighter padding on a phone; the 44px minimum above still holds. */
+  /* Tighter padding on a phone; the 48px minimum above still holds. */
   .carousel-nav-button {
     padding: 0.625rem;
   }

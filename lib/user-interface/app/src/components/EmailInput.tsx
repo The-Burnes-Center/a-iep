@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { Form } from 'react-bootstrap';
 import './EmailInput.css';
 import FormLabel from './FormLabel';
@@ -18,8 +18,11 @@ const EmailInput = ({
   onChange, 
   required = true 
 }: EmailInputProps) => {
+  // controlId wires the label's `for` to the input. Without it the label named
+  // nothing and the field's only name was its placeholder.
+  const controlId = useId();
   return (
-    <Form.Group className="mb-3">
+    <Form.Group className="mb-3" controlId={controlId}>
       <FormLabel label={label} />
       <Form.Control
         type="email"

@@ -115,8 +115,17 @@ const SHARE_ARIA_KEY: Record<string, string> = {
   Email: 'invite.shareVia.email',
 };
 
-const shareControl = (name: string) =>
-  screen.getByRole('button', { name: SHARE_ARIA_KEY[name] ?? name });
+/**
+ * WhatsApp, SMS and Email are links out to another app (wa.me, sms:, mailto:),
+ * so they are links; Copy, Share and the QR tile are buttons.
+ */
+const shareControl = (name: string) => {
+  const accessibleName = SHARE_ARIA_KEY[name] ?? name;
+  return (
+    screen.queryByRole('link', { name: accessibleName }) ??
+    screen.getByRole('button', { name: accessibleName })
+  );
+};
 
 beforeEach(() => {
   // Shape matches what Utils.authenticate actually reads off the Amplify user
@@ -226,7 +235,7 @@ describe('InvitePage share controls', () => {
     // Without focusable="false" the SVG becomes a tab stop in older WebKit.
     expect(svg).toHaveAttribute('focusable', 'false');
     // The name comes from the text, so it survives the icon failing entirely.
-    expect(within(whatsapp).getByText('WhatsApp')).toBeInTheDocument();
+    expect(within(whatsapp).getByText('invite.channel.whatsapp')).toBeInTheDocument();
   });
 
   test('the error state still renders without any icon dependency', async () => {
@@ -425,8 +434,9 @@ describe('InvitePage hero QR code', () => {
     const { container } = await renderLoaded();
 
     expect(container.querySelectorAll('.btn-primary')).toHaveLength(0);
-    expect(shareControl('invite.copy')).toHaveClass('btn-invite');
-    expect(shareControl('WhatsApp')).toHaveClass('btn-invite');
+    // Copy is the app's primary Button; the share tiles are styled by InvitePage.css.
+    expect(shareControl('invite.copy')).toHaveClass('ui-button--primary');
+    expect(shareControl('WhatsApp')).toHaveClass('invite-share-tile');
   });
 
   test('dates each join with a machine-readable time', async () => {
@@ -459,5 +469,35 @@ describe('InvitePage hero QR code', () => {
     });
     expect(container.querySelector('svg.invite-qr-code')).toBeNull();
     expect(screen.queryByRole('button', { name: 'invite.qr.enlarge' })).toBeNull();
+  });
+});
+
+describe('InvitePage copy and share', () => {
+  test('Copy is the primary action and Share the secondary one', async () => {
+    await renderLoaded();
+
+    expect(shareControl('invite.copy')).toHaveClass('ui-button--primary');
+    expect(shareControl('invite.share')).toHaveClass('ui-button--secondary');
+  });
+
+  test('copying announces "Copied!" to assistive tech, not only as a changed label', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+    await renderLoaded();
+    await userEvent.setup().click(shareControl('invite.copy'));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('invite.copied');
+  });
+
+  test('the share tiles show translated names that contain their accessible names', async () => {
+    await renderLoaded();
+
+    const whatsapp = shareControl('WhatsApp');
+    expect(whatsapp).toHaveAccessibleName('invite.shareVia.whatsapp');
+    expect(within(whatsapp).getByText('invite.channel.whatsapp')).toBeInTheDocument();
+    expect(within(shareControl('SMS')).getByText('invite.channel.sms')).toBeInTheDocument();
+    expect(within(shareControl('Email')).getByText('invite.channel.email')).toBeInTheDocument();
   });
 });

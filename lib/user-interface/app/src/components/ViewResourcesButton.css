@@ -1,7 +1,2 @@
-.view-resources-button {
-    border-radius: 20px !important;
-    font-family: 'akzidenz-grotesk-next-conden', sans-serif;
-    font-weight: 500;
-    font-style: normal;
-    font-size: 1rem !important;
-}
+/* The look now comes from the shared Button (components/ui/Button.tsx); this
+   file only keeps any layout the banner around it needs. */

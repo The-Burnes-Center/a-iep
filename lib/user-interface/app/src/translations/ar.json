@@ -819,5 +819,19 @@
     "supportCenter.tour.title": "هل هذه أول مرة ترى فيها الملخص؟",
     "supportCenter.tour.text": "جولة قصيرة توضح لك مكان كل شيء في ملخص طفلك.",
     "upload.hero.titleReplace": "رفع خطة IEP جديدة",
-    "current.howToAsk": "كيف تطلبها من المدرسة"
+    "current.howToAsk": "كيف تطلبها من المدرسة",
+    "a11y.navigateTo": "الانتقال إلى {label}",
+    "auth.showPassword": "إظهار كلمة المرور",
+    "auth.loginMethodGroup": "طريقة تسجيل الدخول",
+    "auth.verifyNeedsCode": "أدخل الرمز الموجود في رسالتك النصية للمتابعة.",
+    "upload.removeFile": "إزالة الملف",
+    "upload.submitReason.noFile": "اختر ملفًا لرفعه أولًا.",
+    "upload.passwordProtected.show": "إظهار كلمة المرور",
+    "upload.passwordProtected.hide": "إخفاء كلمة المرور",
+    "updateProfile.reason.nameMissing": "أدخل اسمك للحفظ.",
+    "profile.reason.noChanges": "غيّر اسمك أو لغتك المفضلة للحفظ.",
+    "revoke.breadcrumb.revoke": "سحب الموافقة",
+    "invite.channel.whatsapp": "واتساب",
+    "invite.channel.sms": "رسالة نصية",
+    "invite.channel.email": "البريد الإلكتروني"
 }

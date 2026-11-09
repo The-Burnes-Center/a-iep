@@ -235,6 +235,17 @@ describe("the screen", () => {
 
     expect(await waitForForm()).toHaveAttribute("id", "formChildName");
   });
+
+  test("names the field with a visible label, not a placeholder or a hidden label", async () => {
+    // The old field had only a visually-hidden label, so a sighted parent saw
+    // a bare box. The label now sits above the field and is what it is named by.
+    stubFetch(profileWith({}));
+    renderPage();
+
+    const field = await screen.findByRole("textbox", { name: "child.name.label" });
+    expect(field).toHaveAttribute("id", "formChildName");
+    expect(screen.getByText("child.name.label")).not.toHaveClass("visually-hidden");
+  });
 });
 
 describe("the save button", () => {
@@ -368,15 +379,19 @@ describe("the name rule", () => {
     const user = renderPage();
     await waitForForm();
 
-    expect(nameField()).toHaveAttribute("aria-invalid", "false");
+    expect(nameField()).not.toHaveAttribute("aria-invalid", "true");
 
     await enter(user, "123");
     await user.click(saveButton());
 
     const message = await screen.findByText("child.name.error.invalid");
     expect(nameField()).toHaveAttribute("aria-invalid", "true");
-    expect(nameField()).toHaveAttribute("aria-describedby", message.id);
-    expect(message.id).toBeTruthy();
+    // TextField puts the message in a <p> with its own id, and the text sits
+    // inside that p, so the id to check is the element the text is in.
+    const describedBy = nameField().getAttribute("aria-describedby") ?? "";
+    expect(describedBy).not.toBe("");
+    expect(document.getElementById(describedBy)).toHaveTextContent("child.name.error.invalid");
+    expect(message.closest(`#${describedBy}`)).not.toBeNull();
   });
 
   test("drops the message as soon as the parent starts fixing it", async () => {
@@ -391,7 +406,7 @@ describe("the name rule", () => {
     await user.type(nameField(), "A");
 
     expect(screen.queryByText("child.name.error.invalid")).toBeNull();
-    expect(nameField()).toHaveAttribute("aria-invalid", "false");
+    expect(nameField()).not.toHaveAttribute("aria-invalid", "true");
   });
 
   test("a name it took the first time saves and carries the parent on", async () => {

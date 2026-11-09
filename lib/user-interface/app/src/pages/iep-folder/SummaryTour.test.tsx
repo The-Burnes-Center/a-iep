@@ -89,7 +89,7 @@ const SummaryPage: React.FC<PageProps> = ({ withGlossary = true, withPages = tru
       <div className="summary-content card">
         <div data-testid="summary-text-en">
           The team agreed on{" "}
-          {withGlossary ? <span className="jargon-term" data-term="Accommodations">accommodations</span> : "supports"}.
+          {withGlossary ? <button type="button" className="jargon-term" data-term="Accommodations">accommodations</button> : "supports"}.
         </div>
       </div>
       <h4 className="key-insights-header">Key Insights</h4>

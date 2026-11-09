@@ -1,0 +1,25 @@
+/* The two choices on "Do you have the IEP as a PDF?". They are the shared
+   secondary Button (components/ui/ui.css), so the shape, the 48px target and
+   the focus ring are the app's own. Only the content is the screen's: a
+   parent's own sentence, left aligned, in the body face and casing, wrapping
+   onto as many lines as it needs. The compound selector beats .ui-button. */
+.ui-button.have-pdf-choice {
+  justify-content: flex-start;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  text-align: start;
+  text-transform: none;
+  letter-spacing: normal;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.have-pdf-choice-text {
+  flex: 1 1 auto;
+}
+
+.have-pdf-choice-lead {
+  font-weight: 700;
+}

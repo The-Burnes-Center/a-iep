@@ -1,5 +1,6 @@
 import React from 'react';
-import { Alert, Button, Container } from 'react-bootstrap';
+import PageShell from './page/PageShell';
+import Button from './ui/Button';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useLanguage } from '../common/language-context';
 
@@ -80,22 +81,18 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
     const { t, onGoToDocuments } = this.props;
     return (
-      <Container className="mt-4 mb-5">
-        <Alert variant="danger" data-testid="app-error-boundary">
-          <Alert.Heading as="h1" style={{ fontSize: '1.5rem' }}>
-            {t('errorBoundary.title')}
-          </Alert.Heading>
-          <p>{t('errorBoundary.message')}</p>
-          <div className="d-flex flex-wrap gap-2">
-            <Button variant="primary" onClick={() => window.location.reload()}>
-              {t('common.tryAgain')}
-            </Button>
-            <Button variant="outline-secondary" onClick={onGoToDocuments}>
-              {t('summary.failed.goToDocuments')}
-            </Button>
-          </div>
-        </Alert>
-      </Container>
+      <PageShell>
+        <section className="page-card" role="alert" data-testid="app-error-boundary" aria-labelledby="error-boundary-title">
+          <h1 id="error-boundary-title" className="page-card-title">{t('errorBoundary.title')}</h1>
+          <p className="page-card-text">{t('errorBoundary.message')}</p>
+          <Button fullWidth onClick={() => window.location.reload()}>
+            {t('common.tryAgain')}
+          </Button>
+          <Button fullWidth variant="secondary" onClick={onGoToDocuments}>
+            {t('summary.failed.goToDocuments')}
+          </Button>
+        </section>
+      </PageShell>
     );
   }
 }

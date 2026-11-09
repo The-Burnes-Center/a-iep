@@ -4,7 +4,8 @@
 .email-input-control {
   padding: 12px 16px;
   font-size: 1rem;
-  border-radius: 30px;
+  min-height: 48px;
+  border-radius: 8px;
   border: 2px solid var(--aiep-border);
   transition: all 0.3s ease;
   background-color: var(--aiep-surface-field);

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { Button } from 'react-bootstrap';
+import { useLocation } from 'react-router-dom';
+import Button from './ui/Button';
 import { useAuth } from '../common/auth-provider';
 import { useLanguage, SupportedLanguage } from '../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../common/languages';
@@ -24,7 +24,6 @@ const HeroSection: React.FC = () => {
     const { t, language, setLanguage, enabledLanguages } = useLanguage();
     const languageOptions = filterEnabledOptions(LANGUAGES, enabledLanguages);
     const location = useLocation();
-    const navigate = useNavigate();
     const { authenticated } = useAuth();
     const signInCard = useRef<HTMLDivElement>(null);
 
@@ -123,9 +122,8 @@ const HeroSection: React.FC = () => {
                                 <h4 className='hero-signed-in-title'>{t('hero.signedIn.title')}</h4>
                                 <p className='hero-signed-in-description'>{t('hero.signedIn.description')}</p>
                                 <Button
-                                    variant='primary'
-                                    className='aiep-button hero-signed-in-action'
-                                    onClick={() => navigate('/iep-documents')}
+                                    className='hero-signed-in-action'
+                                    to='/iep-documents'
                                 >
                                     {t('hero.signedIn.button')}
                                 </Button>

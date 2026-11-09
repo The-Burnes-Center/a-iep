@@ -184,11 +184,19 @@ margin-bottom: 1rem;
   display: flex;
   flex-direction: row;
   width: 100%;
+  min-height: 48px; /* a whole-row link: at least a thumb-sized target */
   padding: 10px 10px 10px 20px;
   justify-content: flex-start;
   border-top: 1px solid #1E1E1E;
   border-bottom: 1px solid #1E1E1E;
   margin: 0 auto;
+  color: inherit;
+  text-decoration: none;
+}
+
+.privacy-policy-header:focus-visible {
+  outline: 3px solid var(--aiep-accent-blue);
+  outline-offset: -3px;
 }
 
 .section-header h5 {

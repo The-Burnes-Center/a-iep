@@ -1,0 +1,42 @@
+/* The delete-account confirmation inside the page card. Palette tokens only;
+   the one danger button is the confirmation's, never the opener's. */
+.delete-account-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.delete-account-warning {
+  margin: 0;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-weight: 700;
+  line-height: 1.6;
+  color: var(--aiep-error);
+}
+
+.delete-account-text {
+  margin: 0;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  line-height: 1.6;
+  color: var(--aiep-ink);
+}
+
+.delete-account-list {
+  margin: 0;
+  padding-inline-start: 0.75rem;
+  list-style: none; /* the items carry their own bullet */
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  line-height: 1.6;
+  color: var(--aiep-ink);
+}
+
+/* Confirm first, then Cancel: the decision is the thing the eye lands on. */
+.delete-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.delete-account-actions .ui-button {
+  flex: 1 1 10rem;
+}

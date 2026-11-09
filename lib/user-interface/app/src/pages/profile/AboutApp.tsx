@@ -1,7 +1,7 @@
 import { useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import PageLoading from '../../components/PageLoading';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { useLanguage } from '../../common/language-context';
@@ -13,7 +13,6 @@ import LandingContainer from '../../components/LandingContainer';
 import LandingContainerBottom from '../../components/LandingContainerBottom';
 import TransparentHeader from '../../components/TransparentHeader';
 import './ProfileForms.css';
-import './UpdateProfileName.css';
 import './ProfileForms.css';
 import './AboutApp.css';
 
@@ -30,7 +29,6 @@ interface AboutAppProps {
 export default function AboutApp({ 
   showBreadcrumbs = true 
 }: AboutAppProps = {}) {
-  const navigate = useNavigate();
   const appContext = useContext(AppContext);
   const { t, translationsLoaded } = useLanguage();
 
@@ -160,12 +158,15 @@ export default function AboutApp({
           </div>
         </div>
 
-        <div className='privacy-policy-header section-header--privacy' style={{ cursor: 'pointer' }} onClick={() => navigate(showBreadcrumbs ? '/privacy-policy' : '/public-privacy-policy')}>
+        <Link
+          to={showBreadcrumbs ? '/privacy-policy' : '/public-privacy-policy'}
+          className='privacy-policy-header section-header--privacy'
+        >
           <h5>{t("about.privacyPolicy")}</h5>
           <span className="arrow-icon">
             <img loading="lazy" decoding="async" src="/images/arrow.svg" alt="" />
           </span>
-        </div>
+        </Link>
 
         <div className='bottom-space-about-app'>
         </div>

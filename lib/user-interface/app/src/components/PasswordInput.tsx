@@ -1,6 +1,8 @@
-import React from 'react';
-import { Form, InputGroup, Button } from 'react-bootstrap';
+import React, { useId } from 'react';
+import { Form, InputGroup } from 'react-bootstrap';
+import Button from './ui/Button';
 import FormLabel from './FormLabel';
+import { useLanguage } from '../common/language-context';
 import './PasswordInput.css';
 
 interface PasswordInputProps {
@@ -28,8 +30,10 @@ const PasswordInput: React.FC<PasswordInputProps> = ({
   required = false,
   autoComplete
 }) => {
+  const { t } = useLanguage();
+  const controlId = useId();
   return (
-    <Form.Group className="password-input-container mb-3">
+    <Form.Group className="password-input-container mb-3" controlId={controlId}>
       <FormLabel label={label} />
       <InputGroup>
         <Form.Control
@@ -41,11 +45,17 @@ const PasswordInput: React.FC<PasswordInputProps> = ({
           autoComplete={autoComplete}
           className="password-input-control"
         />
-        <Button 
-          variant="outline-secondary"
+        {/* Icon only, so it needs a name. The name is fixed ("Show password")
+            and aria-pressed carries the state, the usual toggle-button pattern:
+            a name that changes with the state would be announced twice. */}
+        <Button
+          variant="text"
+          className="password-toggle"
           onClick={onToggleVisibility}
+          aria-label={t('auth.showPassword')}
+          aria-pressed={showPassword}
         >
-          <i className={`bi ${showPassword ? "bi-eye-slash" : "bi-eye"}`}></i>
+          <i className={`bi ${showPassword ? "bi-eye-slash" : "bi-eye"}`} aria-hidden="true"></i>
         </Button>
       </InputGroup>
     </Form.Group>

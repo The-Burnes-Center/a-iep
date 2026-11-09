@@ -156,7 +156,7 @@ const renderPage = (
     setLanguage: vi.fn(),
     // Identity t(): assertions read translation KEYS, which is what the page
     // chooses. The English wording is not the contract.
-    t: (key: string) => key,
+    t: (key: string) => (key === 'a11y.navigateTo' ? 'Navigate to {label}' : key),
     translationsLoaded: true,
     enabledLanguages: ["en", "es"] as SupportedLanguage[],
   };
@@ -678,7 +678,7 @@ describe("stepping away to another tab mid-translation", () => {
     const languageValue = {
       language: "zh" as SupportedLanguage,
       setLanguage: vi.fn(),
-      t: (key: string) => key,
+      t: (key: string) => (key === 'a11y.navigateTo' ? 'Navigate to {label}' : key),
       translationsLoaded: true,
       enabledLanguages: ["en", "es", "zh"] as SupportedLanguage[],
     };

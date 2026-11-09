@@ -3,10 +3,11 @@
  * paragraph, one outlined row holding the checkbox, and a Continue button that
  * is inert until the box is ticked.
  *
- * The disabled button is the whole point of the screen — it is the only thing
- * standing between a parent and a document being processed without their
- * permission — so it is asserted in both directions, and the "agreed" state is
- * asserted to carry more than a colour change.
+ * Continue is the only thing standing between a parent and a document being
+ * processed without their permission. It stays enabled (GOV.UK: a disabled
+ * button with nothing on screen is a dead end), so the gate is now asserted as
+ * "pressing it before agreeing explains why, linked to the box, and sends
+ * nothing and moves nowhere". The agreed state is the checked box itself.
  *
  * The real component is driven through the DOM with the real router, mocking
  * only the boundary (Amplify's `Auth` and `fetch`). t() is the identity, so
@@ -94,6 +95,11 @@ const renderPage = (profile: Record<string, unknown> = NOT_YET_CONSENTED) => {
 };
 
 const continueButton = () => screen.getByTestId("consent-continue-button");
+/** Every request the screen sent that was not a read. */
+const writes = () =>
+  (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+    ([, init]) => ((init as RequestInit | undefined)?.method ?? "GET") !== "GET",
+  );
 /** The form is on screen once the mount-time profile load has resolved. */
 const waitForForm = () => screen.findByRole("checkbox");
 
@@ -117,12 +123,37 @@ describe("the screen", () => {
 });
 
 describe("the Continue button", () => {
-  test("is disabled until the box is checked", async () => {
+  test("is left enabled until the box is checked, so pressing it can say why", async () => {
     renderPage();
     await waitForForm();
 
     expect(screen.getByRole("checkbox")).not.toBeChecked();
-    expect(continueButton()).toBeDisabled();
+    expect(continueButton()).toBeEnabled();
+  });
+
+  test("pressed before agreeing, explains the box, moves nowhere and sends nothing", async () => {
+    const user = renderPage();
+    await waitForForm();
+
+    await user.click(continueButton());
+
+    expect(await screen.findByText("consent.tooltip")).toBeInTheDocument();
+    expect(screen.getByTestId("landed-on")).toHaveTextContent(PAGE);
+    expect(writes()).toEqual([]);
+  });
+
+  test("the reason is linked to the checkbox and flags it as invalid, for a screen reader", async () => {
+    const user = renderPage();
+    await waitForForm();
+
+    await user.click(continueButton());
+
+    const checkbox = screen.getByRole("checkbox", { name: "consent.checkbox" });
+    expect(checkbox).toHaveAttribute("aria-invalid", "true");
+    const describedBy = checkbox.getAttribute("aria-describedby") ?? "";
+    expect(describedBy).not.toBe("");
+    expect(document.getElementById(describedBy)).toHaveTextContent("consent.tooltip");
+    expect(screen.getByRole("alert")).toHaveTextContent("consent.tooltip");
   });
 
   test("is enabled once the box is checked", async () => {
@@ -135,27 +166,77 @@ describe("the Continue button", () => {
     expect(continueButton()).toBeEnabled();
   });
 
-  test("goes back to being disabled if the box is unchecked again", async () => {
+  test("unticked again, pressing Continue still stops and explains", async () => {
     const user = renderPage();
     await waitForForm();
 
     await user.click(screen.getByRole("checkbox"));
     await user.click(screen.getByRole("checkbox"));
+    await user.click(continueButton());
 
-    expect(continueButton()).toBeDisabled();
+    expect(await screen.findByText("consent.tooltip")).toBeInTheDocument();
+    expect(screen.getByTestId("landed-on")).toHaveTextContent(PAGE);
+    expect(writes()).toEqual([]);
+  });
+
+  test("the reason clears as soon as the parent ticks the box", async () => {
+    const user = renderPage();
+    await waitForForm();
+
+    await user.click(continueButton());
+    await screen.findByText("consent.tooltip");
+    await user.click(screen.getByRole("checkbox"));
+
+    expect(screen.queryByText("consent.tooltip")).toBeNull();
+    expect(screen.getByRole("checkbox")).not.toHaveAttribute("aria-invalid", "true");
   });
 });
 
-describe("the agreement row", () => {
-  test("marks the agreed state with a tick, not only with a border colour", async () => {
+describe("the agreement box", () => {
+  test("is a native checkbox named by its label, so the agreed state is announced", async () => {
     const user = renderPage();
     await waitForForm();
 
-    expect(screen.queryByTestId("consent-agreed-tick")).toBeNull();
+    const checkbox = screen.getByRole("checkbox", { name: "consent.checkbox" });
+    expect(checkbox).not.toBeChecked();
 
-    await user.click(screen.getByRole("checkbox"));
+    await user.click(checkbox);
 
-    expect(screen.getByTestId("consent-agreed-tick")).toBeInTheDocument();
+    // The checked box carries its own tick mark, and a screen reader hears
+    // "checked": the state never rests on a colour change alone.
+    expect(checkbox).toBeChecked();
+  });
+});
+
+describe("the failed-load state", () => {
+  test("keeps the screen's one heading and puts the failure in an alert", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })),
+    );
+    render(
+      <MemoryRouter initialEntries={[PAGE]}>
+        <AppContext.Provider value={appConfig}>
+          <LanguageContext.Provider
+            value={{
+              language: "en" as SupportedLanguage,
+              setLanguage: vi.fn(),
+              t: (key: string) => key,
+              translationsLoaded: true,
+              enabledLanguages: ["en", "es"] as SupportedLanguage[],
+            }}
+          >
+            <Routes>
+              <Route path={PAGE} element={<ConsentForm />} />
+            </Routes>
+          </LanguageContext.Provider>
+        </AppContext.Provider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("profile.error.serviceUnavailable");
+    expect(screen.getByRole("heading", { level: 1, name: "consent.title" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "common.tryAgain" })).toBeInTheDocument();
   });
 });
 

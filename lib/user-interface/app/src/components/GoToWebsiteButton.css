@@ -1,10 +1,2 @@
-.go-to-website-button {
-    border-radius: 20px !important;
-    border-color: #1E1E1E;
-    font-family: 'akzidenz-grotesk-next-conden', sans-serif;
-    font-weight: 500;
-    font-style: normal;
-    font-size: 1rem !important;
-    padding-left: 20px;
-    padding-right: 20px;
-}
+/* The look now comes from the shared Button (components/ui/Button.tsx); this
+   file only keeps any layout the banner around it needs. */

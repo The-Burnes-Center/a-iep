@@ -1,5 +1,6 @@
 import React from 'react';
-import { Alert, Button } from 'react-bootstrap';
+import { Alert } from 'react-bootstrap';
+import Button from './ui/Button';
 import { TurnstileStatus } from '../common/hooks/use-turnstile';
 
 /** The slice of useTurnstile's return value the sign-in forms need. */
@@ -74,7 +75,7 @@ const SecurityCheck: React.FC<SecurityCheckProps> = ({ t, turnstile }) => {
         <Alert variant="warning" className="mb-3">
           {t('auth.securityCheckTimedOut')}{' '}
           {turnstile.canRetry && (
-            <Button variant="link" size="sm" className="p-0 align-baseline" onClick={turnstile.retry}>
+            <Button variant="secondary" className="security-check-retry" onClick={turnstile.retry}>
               {t('auth.securityCheckRetry')}
             </Button>
           )}

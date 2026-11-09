@@ -105,39 +105,10 @@
   gap: 8px;
 }
 
-.guided-tour-button {
-  min-width: 44px;
-  min-height: 44px;
-  padding: 8px 16px;
-  font: inherit;
-  font-weight: 600;
-  border-radius: 8px;
-  border: 2px solid var(--aiep-green);
-  cursor: pointer;
-}
-
-.guided-tour-button-primary {
-  background: var(--aiep-green);
-  color: var(--aiep-surface-white);
-}
-
-.guided-tour-button-secondary {
-  background: var(--aiep-surface-white);
-  color: var(--aiep-green);
-}
-
-/* Skip is the quiet way out, at the end of the row whichever way the page reads. */
+/* The buttons are the shared ui Button (components/ui): primary for Next/Done,
+   secondary for Back, and text for Skip, which sits at the end of the row. */
 .guided-tour-skip {
   margin-inline-start: auto;
-  background: transparent;
-  border-color: transparent;
-  color: var(--aiep-green);
-  text-decoration: underline;
-}
-
-.guided-tour-button:focus-visible {
-  outline: 3px solid var(--aiep-link);
-  outline-offset: 2px;
 }
 
 @media (forced-colors: active) {
@@ -145,9 +116,5 @@
   .guided-tour-highlight {
     border: 3px solid CanvasText;
     outline: 3px solid Canvas;
-  }
-
-  .guided-tour-button {
-    border-color: ButtonText;
   }
 }

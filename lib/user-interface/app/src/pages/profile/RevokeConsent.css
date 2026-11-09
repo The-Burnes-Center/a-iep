@@ -1,0 +1,11 @@
+/* Revoke consent: the danger action and its way out, side by side on a
+   phone they stack, each full width. Palette tokens only. */
+.revoke-consent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.revoke-consent-actions .ui-button {
+  flex: 1 1 10rem;
+}

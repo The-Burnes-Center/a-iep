@@ -5,14 +5,6 @@
   justify-content: center;
 }
 
-.profile-title {
-  font-family: "Fjalla One", sans-serif;
-  font-weight: 400;
-  font-style: normal;
-  font-size: 1.75rem;
-  padding-right: 1rem;
-}
-
 .parent-name-title {
   font-family: "Fjalla One", sans-serif;
   font-weight: 400;
@@ -40,12 +32,6 @@
   border-radius: 20px !important;
   transition: all 0.1s ease !important;
   min-width: 120px;
-}
-
-.consent-box {
-  border-radius: 10px;
-  padding: 1.5rem;
-  margin-bottom: 1.5rem;
 }
 
 .consent-text {
@@ -130,26 +116,6 @@
   border-color: var(--aiep-green);
 }
 
-/* Custom button group styles for profile actions */
-.profile-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-
-@media (max-width: 576px) {
-  .profile-actions {
-    flex-direction: column;
-    width: 100%;
-  }
-  
-  .profile-actions .btn {
-    width: 100%;
-    margin-bottom: 0.5rem;
-  }
-}
 /* The consent screen's "I Agree" row: a full-width outlined pill holding the
    checkbox and its label, per the designer's screen. Agreeing tints the edge
    green AND adds a tick, so the state never rests on colour alone. */

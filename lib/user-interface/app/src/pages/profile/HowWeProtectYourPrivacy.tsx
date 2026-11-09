@@ -1,11 +1,13 @@
 import React from 'react';
-import { Button } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faLock, faTrashCan, faArrowDownLong } from '@fortawesome/free-solid-svg-icons';
 import { useLanguage } from '../../common/language-context';
-import OnboardingTopBar from '../../components/OnboardingChrome';
 import { STEP } from '../../common/breadcrumb-steps';
+import PageShell from '../../components/page/PageShell';
+import PageHero from '../../components/page/PageHero';
+import Button from '../../components/ui/Button';
+import '../../components/OnboardingChrome.css';
 import './HowWeProtectYourPrivacy.css';
 
 /**
@@ -191,10 +193,8 @@ export default function HowWeProtectYourPrivacy() {
 
   return (
     <>
-      <div className="onboarding-page privacy-page">
-        <OnboardingTopBar trail={[STEP.howItWorks, STEP.privacy]} />
-
-        <h1 className="onboarding-heading">{t('privacy.heading')}</h1>
+      <PageShell trail={[STEP.howItWorks, STEP.privacy]} className="privacy-page">
+        <PageHero titleId="privacy-title" title={t('privacy.heading')} />
 
         <section className="privacy-section" aria-labelledby="privacy-provider-comprehend">
           <h2 className="privacy-provider" id="privacy-provider-comprehend">
@@ -316,10 +316,10 @@ export default function HowWeProtectYourPrivacy() {
           <span>{emphasise(t('privacy.closing'))}</span>
         </p>
 
-        <div className="onboarding-actions">
+        <div className="page-card">
           <Button
             variant="primary"
-            className="aiep-button onboarding-action"
+            fullWidth
             onClick={() => navigate('/iep-documents')}
             // Stable E2E hook: the label is localized
             data-testid="privacy-upload"
@@ -327,15 +327,15 @@ export default function HowWeProtectYourPrivacy() {
             {t('privacy.button.upload')}
           </Button>
           <Button
-            variant="outline-secondary"
-            className="aiep-button onboarding-action"
+            variant="secondary"
+            fullWidth
             onClick={() => navigate('/view-resources')}
             data-testid="privacy-resources"
           >
             {t('privacy.button.resources')}
           </Button>
         </div>
-      </div>
+      </PageShell>
     </>
   );
 }

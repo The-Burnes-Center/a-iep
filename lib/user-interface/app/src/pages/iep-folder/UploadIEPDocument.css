@@ -29,6 +29,12 @@
     margin-bottom: 0.5rem;
   }
 
+/* The input is invisible, so keyboard focus is shown on the label beside it. */
+.seamless-file-upload input[type="file"]:focus-visible + .seamless-file-container {
+  outline: 3px solid var(--aiep-accent-blue);
+  outline-offset: 2px;
+}
+
 /* Custom seamless file input styling */
 .seamless-file-upload {
   position: relative;
@@ -119,6 +125,20 @@
   color: var(--aiep-muted);
 }
 
+/* The disabled Upload button's reason, above it. */
+.upload-submit-reason {
+  margin: 0;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  color: var(--aiep-muted);
+}
+
+/* The remove-file X: a 48px target, in the palette's error red. */
+.ui-button.upload-remove-file {
+  min-width: 48px;
+  padding: 0 0.75rem;
+  color: var(--aiep-error);
+}
+
 /* The messages under the file input: the "checking" notice, a refusal, and the
    supported-formats hint. Bootstrap's .form-text sets a top margin but no
    display, and react-bootstrap renders Form.Text as a <small>, which is
@@ -128,6 +148,14 @@
 .upload-file-hint {
   display: block;
   margin-top: 0.5rem;
+}
+
+.upload-file-muted {
+  color: var(--aiep-muted);
+}
+
+.upload-file-error {
+  color: var(--aiep-error);
 }
 
 .form-control[type="file"] {

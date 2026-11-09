@@ -99,7 +99,7 @@ const renderPage = () => {
 
 const highlightedWord = async (): Promise<HTMLElement> => {
   const summary = await screen.findByTestId("summary-text-en");
-  const span = summary.querySelector<HTMLElement>("span.jargon-term");
+  const span = summary.querySelector<HTMLElement>("button.jargon-term");
   if (!span) throw new Error("no jargon term was highlighted in the summary");
   return span;
 };

@@ -104,8 +104,8 @@ const fileOfSize = (bytes: number, name = "iep-scan.pdf") => {
 };
 
 const selectFile = (file: File) => {
-  // No <label> or data-testid on this input (pre-existing), so it is found
-  // by id rather than through a testing-library query.
+  // No data-testid on this input, so it is found by id. It is named by its
+  // label now (see the accessibility block below).
   const fileInput = document.getElementById("fileUpload") as HTMLInputElement;
   fireEvent.change(fileInput, { target: { files: [file] } });
 };
@@ -663,5 +663,45 @@ describe("the child's name badge", () => {
       ),
     ) as Record<string, string>;
     expect(en["upload.maxSize"]).not.toMatch(/100\s*MB/i);
+  });
+});
+
+describe("UploadIEPDocument: controls a screen reader user reaches", () => {
+  test("the file input is named by its label, the way a sighted parent reads it", () => {
+    renderUpload();
+
+    expect(document.getElementById("fileUpload")).toHaveAccessibleName(/upload\.selectFile/);
+  });
+
+  test("the disabled Upload button says why it is disabled, and only while no file is chosen", async () => {
+    pdfDecrypt.resolveEncryptedPdf.mockResolvedValue({ status: "resolved", file: plainPdf("iep.pdf") });
+    renderUpload();
+
+    const upload = screen.getByTestId("upload-submit-button");
+    expect(upload).toBeDisabled();
+    expect(upload).toHaveAccessibleDescription("upload.submitReason.noFile");
+
+    selectFile(plainPdf("iep.pdf"));
+
+    await waitFor(() => {
+      expect(screen.getByText("iep.pdf")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("upload-submit-button")).not.toBeDisabled();
+    expect(screen.getByTestId("upload-submit-button")).not.toHaveAccessibleDescription();
+  });
+
+  test("the remove-file control is a named button, not an unnamed icon", async () => {
+    renderUpload();
+    selectFile(plainPdf("iep.pdf"));
+
+    await waitFor(() => {
+      expect(screen.getByText("iep.pdf")).toBeInTheDocument();
+    });
+    const remove = screen.getByRole("button", { name: "upload.removeFile" });
+    fireEvent.click(remove);
+
+    await waitFor(() => {
+      expect(screen.queryByText("iep.pdf")).not.toBeInTheDocument();
+    });
   });
 });

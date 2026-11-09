@@ -1,10 +1,12 @@
 import React from 'react';
-import { Button } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { IconPlayerPlay } from '@tabler/icons-react';
 import { useLanguage } from '../../common/language-context';
-import OnboardingTopBar from '../../components/OnboardingChrome';
 import { STEP } from '../../common/breadcrumb-steps';
+import PageShell from '../../components/page/PageShell';
+import PageHero from '../../components/page/PageHero';
+import Button from '../../components/ui/Button';
+import './HowToAskForPdf.css';
 
 /**
  * TODO(content): the embed URL for the "how to ask for a PDF IEP" video.
@@ -23,14 +25,12 @@ export default function HowToAskForPdf() {
   const { t } = useLanguage();
 
   return (
-    <>
-      <div className="onboarding-page">
-        <OnboardingTopBar trail={[STEP.yourIep, STEP.askForPdf]} />
+    <PageShell trail={[STEP.yourIep, STEP.askForPdf]}>
+      <PageHero titleId="how-to-ask-title" title={t('howToAsk.heading')} />
 
-        <h1 className="onboarding-heading">{t('howToAsk.heading')}</h1>
-
-        <figure className="onboarding-video">
-          <div className="onboarding-video-frame" data-testid="how-to-ask-video">
+      <section className="page-card">
+        <figure className="how-to-ask-video">
+          <div className="how-to-ask-video-frame" data-testid="how-to-ask-video">
             {HOW_TO_ASK_VIDEO ? (
               <iframe
                 src={HOW_TO_ASK_VIDEO}
@@ -41,32 +41,30 @@ export default function HowToAskForPdf() {
               <IconPlayerPlay size={56} stroke={1.5} aria-hidden="true" />
             )}
           </div>
-          <figcaption className="onboarding-video-caption">
+          <figcaption className="how-to-ask-video-caption">
             {t('howToAsk.video.label')}
             {!HOW_TO_ASK_VIDEO && <> {t('howToAsk.video.comingSoon')}</>}
           </figcaption>
         </figure>
 
-        <div className="onboarding-actions">
-          <Button
-            variant="primary"
-            className="aiep-button onboarding-action"
-            onClick={() => navigate('/iep-documents')}
-            // Stable E2E hook: the label is localized
-            data-testid="how-to-ask-upload"
-          >
-            {t('howToAsk.button.upload')}
-          </Button>
-          <Button
-            variant="outline-secondary"
-            className="aiep-button onboarding-action"
-            onClick={() => navigate('/view-resources')}
-            data-testid="how-to-ask-resources"
-          >
-            {t('howToAsk.button.resources')}
-          </Button>
-        </div>
-      </div>
-    </>
+        <Button
+          variant="primary"
+          fullWidth
+          onClick={() => navigate('/iep-documents')}
+          // Stable E2E hook: the label is localized
+          data-testid="how-to-ask-upload"
+        >
+          {t('howToAsk.button.upload')}
+        </Button>
+        <Button
+          variant="secondary"
+          fullWidth
+          onClick={() => navigate('/view-resources')}
+          data-testid="how-to-ask-resources"
+        >
+          {t('howToAsk.button.resources')}
+        </Button>
+      </section>
+    </PageShell>
   );
 }

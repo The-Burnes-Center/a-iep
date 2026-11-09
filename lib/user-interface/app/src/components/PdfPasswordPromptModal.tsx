@@ -8,9 +8,9 @@
 // submit AND whenever the modal is hidden (see the effect below), so no
 // mounted-but-hidden copy of a previous attempt lingers between files.
 import React, { useEffect, useState } from 'react';
-import { Modal, Button, Alert, Form } from 'react-bootstrap';
-import AIEPSpinner from './AIEPSpinner';
-import PasswordInput from './PasswordInput';
+import { Modal, Form } from 'react-bootstrap';
+import Button from './ui/Button';
+import { TextField } from './ui/fields';
 import { useLanguage } from '../common/language-context';
 
 interface PdfPasswordPromptModalProps {
@@ -61,41 +61,40 @@ const PdfPasswordPromptModal: React.FC<PdfPasswordPromptModalProps> = ({
   return (
     <Modal show={show} onHide={handleCancel} centered>
       <Form onSubmit={handleSubmit}>
-        <Modal.Header closeButton={!checking}>
+        <Modal.Header closeButton={!checking} closeLabel={t('common.close')}>
           <Modal.Title>{t('upload.passwordProtected.title')}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <p>{t('upload.passwordProtected.explanation')}</p>
-          {wrongPassword && (
-            <Alert variant="danger" className="mb-3">
-              {t('upload.passwordProtected.wrongPassword')}
-            </Alert>
-          )}
-          <PasswordInput
+          {/* The wrong-password message is the field's own error: it is linked
+              to the field (aria-describedby, aria-invalid) and announced. */}
+          <TextField
             label={t('auth.password')}
             placeholder={t('auth.enterPassword')}
             value={password}
-            onChange={setPassword}
-            showPassword={showPassword}
-            onToggleVisibility={() => setShowPassword((v) => !v)}
+            onChange={(event) => setPassword(event.target.value)}
+            type={showPassword ? 'text' : 'password'}
+            error={wrongPassword ? t('upload.passwordProtected.wrongPassword') : null}
             // This is a one-off file password, not an account credential: it
             // should never be offered to the browser's saved-password store.
             autoComplete="off"
           />
+          <Button variant="text" onClick={() => setShowPassword((v) => !v)}>
+            {showPassword ? t('upload.passwordProtected.hide') : t('upload.passwordProtected.show')}
+          </Button>
         </Modal.Body>
         <Modal.Footer>
           <Button variant="secondary" onClick={handleCancel} disabled={checking}>
             {t('common.cancel')}
           </Button>
-          <Button variant="primary" type="submit" disabled={!password || checking}>
-            {checking ? (
-              <>
-                <AIEPSpinner size="sm" className="me-2" />
-                {t('upload.passwordProtected.unlocking')}
-              </>
-            ) : (
-              t('upload.passwordProtected.submit')
-            )}
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={!password || checking}
+            busy={checking}
+            busyLabel={t('upload.passwordProtected.unlocking')}
+          >
+            {t('upload.passwordProtected.submit')}
           </Button>
         </Modal.Footer>
       </Form>

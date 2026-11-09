@@ -1,11 +1,15 @@
 import React, { useState, useContext } from 'react';
-import { Container, Button, Row, Col, Alert } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { useAuth } from '../../common/auth-provider';
 import { useLanguage } from '../../common/language-context';
-import '../profile/ProfileForms.css';
+import PageShell from '../../components/page/PageShell';
+import PageHero from '../../components/page/PageHero';
+import Button from '../../components/ui/Button';
+import { Notice } from '../../components/ui/feedback';
+import { STEP } from '../../common/breadcrumb-steps';
+import './RevokeConsent.css';
 
 const RevokeConsent: React.FC = () => {
   const [processing, setProcessing] = useState(false);
@@ -47,46 +51,33 @@ const RevokeConsent: React.FC = () => {
     navigate('/profile');
   };
 
+  // This page is the confirmation: it says what is lost before the one
+  // irreversible button, and "Take me back" is the way out.
   return (
-    <Container fluid className="profile-form-container">
-      <Row style={{ width: '100%', justifyContent: 'center' }}>
-        <Col xs={12} md={8} lg={6}>
-          <div className="profile-form">
-            <h2 className="text-center profile-title mb-4">{t('revoke.title')}</h2>
-            
-            <div className="consent-box mb-4">
-              <p className="consent-text">
-                {t('revoke.description1')}
-              </p>
-              <p className="consent-text">
-                {t('revoke.description2')}
-              </p>
-            </div>
-            
-            {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
-            
-            <div className="d-flex justify-content-between">
-              <Button 
-                variant="outline-secondary" 
-                onClick={handleCancel}
-                disabled={processing}
-                className="button-text"
-              >
-                {t('revoke.button.back')}
-              </Button>
-              <Button 
-                variant="danger" 
-                onClick={handleRevokeConsent}
-                disabled={processing}
-                className="button-text"
-              >
-                {processing ? t('revoke.button.processing') : t('revoke.button.revoke')}
-              </Button>
-            </div>
-          </div>
-        </Col>
-      </Row>
-    </Container>
+    <PageShell trail={[STEP.account, { labelKey: 'revoke.breadcrumb.revoke' }]}>
+      <PageHero titleId="revoke-consent-title" title={t('revoke.title')} showFaces={false} />
+
+      <div className="page-card">
+        <p className="page-card-text">{t('revoke.description1')}</p>
+        <p className="page-card-text">{t('revoke.description2')}</p>
+
+        {error && <Notice tone="error">{error}</Notice>}
+
+        <div className="revoke-consent-actions">
+          <Button
+            variant="danger"
+            onClick={handleRevokeConsent}
+            busy={processing}
+            busyLabel={t('revoke.button.processing')}
+          >
+            {t('revoke.button.revoke')}
+          </Button>
+          <Button variant="secondary" onClick={handleCancel} disabled={processing}>
+            {t('revoke.button.back')}
+          </Button>
+        </div>
+      </div>
+    </PageShell>
   );
 };
 

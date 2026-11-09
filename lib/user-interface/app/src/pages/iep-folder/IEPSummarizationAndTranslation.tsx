@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useContext, useRef } from 'react';
-import { Container, Row, Col, Card, Alert, Button, Accordion, Tabs, Tab, Offcanvas, ProgressBar } from 'react-bootstrap';
+import { Container, Row, Col, Card, Alert, Accordion, Tabs, Tab, Offcanvas, ProgressBar } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useNavigate } from 'react-router-dom';
 import { useActiveChild } from '../../common/hooks/use-active-child';
@@ -28,10 +28,11 @@ import {
 import type { TranslationRequestState } from '../utils/translation-flow.mjs';
 import { processingStepKey } from '../utils/processing-progress.mjs';
 import { canRetryFailedDocument } from './document-failure';
-import AIEPSpinner from '../../components/AIEPSpinner';
 import PollingStalledNotice from '../../components/PollingStalledNotice';
 import PageLoading from '../../components/PageLoading';
 import TTSPlayButton from '../../components/TTSPlayButton';
+import UIButton from '../../components/ui/Button';
+import { Notice } from '../../components/ui/feedback';
 import { SlideData } from '../../components/ParentRightsCarousel';
 import ProcessingModal from '../../components/ProcessingModal';
 import DocumentFailureState from './DocumentFailureState';
@@ -286,6 +287,12 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     ] as SlideData[];
   }, [t, translationsLoaded]);
 
+
+  // One primary per screen: Download when the summary can be downloaded, and
+  // every other action on the page is secondary. With no Download there is
+  // nothing else to be primary, so the content's own action takes the role.
+  const contentActionVariant = (): 'primary' | 'secondary' =>
+    apiClient.pdf.canGeneratePDF(document) ? 'secondary' : 'primary';
 
   // Handle jargon click
   const handleContentClick = (e: React.MouseEvent) => {
@@ -835,20 +842,16 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                       />
                       {needsTruncation && (
                         <>
-                          <span
+                          <UIButton
+                            variant="text"
+                            className="summary-read-more"
                             onClick={(e) => {
                               e.stopPropagation();
                               toggleSummaryExpansion(lang);
                             }}
-                            style={{
-                              textDecoration: 'underline',
-                              cursor: 'pointer',
-                              color: '#1E1E1E',
-                              fontWeight: '500'
-                            }}
                           >
                             {isExpanded ? t('summary.showLess') : t('summary.readMore')}
-                          </span>
+                          </UIButton>
                         </>
                       )}
                     </div>
@@ -858,7 +861,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             </Card>
           </>
         ) : emptinessIsTrustworthy && (
-          <Alert variant="info" data-testid="summary-empty">
+          <Notice tone="info" data-testid="summary-empty">
             <h5>
               {isEnglishTab
                 ? t('summary.noSummary.title')
@@ -869,17 +872,16 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                 ? t('summary.noSummary.message')
                 : t('summary.noTranslatedSummary.message')}
             </p>
-            <Button 
-                  variant="primary" 
-                  size="sm"
-                  onClick={() => navigate(childPath('/iep-documents'))}
-                >
-                  {t('summary.reuploadButton')}
-            </Button>
+            <UIButton
+              variant={contentActionVariant()}
+              onClick={() => navigate(childPath('/iep-documents'))}
+            >
+              {t('summary.reuploadButton')}
+            </UIButton>
             {/* No second "re-upload to get a translation" prompt here: a missing
                 translation is now handled by the generate-translation banner at
                 the top of the page, not by throwing the document away. */}
-          </Alert>
+          </Notice>
         )}
 
         {/* Sections Accordion */}
@@ -947,7 +949,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             </Accordion>
           </>
         ) : emptinessIsTrustworthy && (
-          <Alert variant="info" data-testid="sections-empty">
+          <Notice tone="info" data-testid="sections-empty">
             <h5>
               {isEnglishTab
                 ? t('summary.noSections.title')
@@ -958,16 +960,15 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                 ? t('summary.noSections.message')
                 : t('summary.noTranslatedSections.message')}
             </p>
-            <Button 
-                  variant="primary" 
-                  size="sm"
-                  onClick={() => navigate(childPath('/iep-documents'))}
-                >
-                  {t('summary.reuploadButton')}
-            </Button>
+            <UIButton
+              variant={contentActionVariant()}
+              onClick={() => navigate(childPath('/iep-documents'))}
+            >
+              {t('summary.reuploadButton')}
+            </UIButton>
             {/* Same as above: missing translations are offered for generation in
                 the banner at the top, not fixed by re-uploading. */}
-          </Alert>
+          </Notice>
         )}
       </div>
     );
@@ -1007,9 +1008,9 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         <Container className="summary-container mt-3 mb-3">
           <Row className="mt-2">
             <Col>
-              <Alert variant="info">
+              <Notice tone="info">
                 {t('summary.noDocuments')}
-              </Alert>
+              </Notice>
             </Col>
           </Row>
         </Container>
@@ -1135,26 +1136,20 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         <div className="mt-2 text-start button-container d-flex justify-content-between align-items-center">
           <div className="d-flex gap-2 align-items-center">
             {apiClient.pdf.canGeneratePDF(document) && (
-              <Button
+              // The everyday action, so the screen's one primary. Busy while
+              // the PDF is built: the spinner and words replace the icon.
+              <UIButton
                 variant="primary"
                 onClick={handleDownloadPDF}
-                disabled={isGeneratingPDF || isProcessing}
-                className="download-button"
+                disabled={isProcessing}
+                busy={isGeneratingPDF}
+                busyLabel={t('common.generatingPdf')}
+                icon={<FontAwesomeIcon icon={faDownload} />}
                 // Stable E2E hook: the label is localized
                 data-testid="download-pdf-button"
               >
-                {isGeneratingPDF ? (
-                  <>
-                    <AIEPSpinner size="sm" className="me-2" />
-                    {t('common.generatingPdf')}
-                  </>
-                ) : (
-                  <>
-                    <FontAwesomeIcon icon={faDownload} className="me-2" />
-                    {t('common.download')}
-                  </>
-                )}
-              </Button>
+                {t('common.download')}
+              </UIButton>
             )}
           </div>
           
@@ -1169,7 +1164,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         
         <Row className="mt-2">
           <Col>
-            {error && <Alert variant="danger">{error}</Alert>}
+            {error && <Notice tone="error">{error}</Notice>}
 
             {/* What is happening to the IEP the parent just replaced: the old
                 one stays on screen until the new one is ready. */}
@@ -1203,12 +1198,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                             English summary below is readable, and the
                             full-screen ProcessingModal would hide it. */}
                         {canOfferTranslation && (
-                          <Alert
-                            variant="warning"
-                            className="mb-3"
-                          >
+                          <Notice tone="warning">
                             <div className="d-flex align-items-start">
-                              <FontAwesomeIcon icon={faLanguage} className="me-2 mt-1" />
                               <div className="flex-grow-1">
                                 {/* data-testid sits on the heading, not on <Alert>:
                                     Alert forwards unknown props to its Fade
@@ -1255,20 +1246,19 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                                         {t(translationRequest.messageKey)}
                                       </p>
                                     )}
-                                    <Button
-                                      variant="primary"
-                                      size="sm"
+                                    <UIButton
+                                      variant={contentActionVariant()}
                                       onClick={handleGenerateTranslation}
                                       // Stable E2E hook: the label is localized
                                       data-testid="translate-now-button"
                                     >
                                       {t('summary.translate.button')}
-                                    </Button>
+                                    </UIButton>
                                   </>
                                 )}
                               </div>
                             </div>
-                          </Alert>
+                          </Notice>
                         )}
 
                         {/* Only show content when document is fully processed */}
@@ -1306,17 +1296,16 @@ const IEPSummarizationAndTranslation: React.FC = () => {
                             a failed read makes the document look empty, and a
                             parent must not be told to re-upload on that basis. */}
                         {!error && !hasContent('en') && !hasContent(preferredLanguage) && (
-                          <Alert variant="info" data-testid="no-content-available">
+                          <Notice tone="info" data-testid="no-content-available">
                             <h5>{t('summary.noContentAvailable.title')}</h5>
                             <p>{t('summary.noContentAvailable.message')}</p>
-                            <Button 
-                  variant="primary" 
-                  size="sm"
-                  onClick={() => navigate(childPath('/iep-documents'))}
-                >
-                  {t('summary.reuploadButton')}
-                </Button>
-                          </Alert>
+                            <UIButton
+                              variant={contentActionVariant()}
+                              onClick={() => navigate(childPath('/iep-documents'))}
+                            >
+                              {t('summary.reuploadButton')}
+                            </UIButton>
+                          </Notice>
                         )}
                       </>
                   }
@@ -1325,18 +1314,20 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               </Card.Body>
             
               {document.status === "PROCESSED" && (
-                <Card.Header
-                  className="summary-card-header d-flex justify-content-center align-items-center"
-                  onClick={() => navigate(childPath('/iep-documents'))}
-                  style={{ cursor: 'pointer' }}
-                  // Stable E2E hook: the replace-document entry point, whose
-                  // label is localized
-                  data-testid="replace-document-link"
-                >
-                  <div>
-                    <FontAwesomeIcon icon={faArrowsRotate} className="me-2" />
+                <Card.Header className="summary-card-header d-flex justify-content-center align-items-center">
+                  {/* The whole bar is the target: the button fills it. */}
+                  <UIButton
+                    variant="text"
+                    fullWidth
+                    className="summary-replace-button"
+                    icon={<FontAwesomeIcon icon={faArrowsRotate} />}
+                    onClick={() => navigate(childPath('/iep-documents'))}
+                    // Stable E2E hook: the replace-document entry point, whose
+                    // label is localized
+                    data-testid="replace-document-link"
+                  >
                     {t('upload.replaceDocument')}
-                  </div>
+                  </UIButton>
                 </Card.Header>
               )}
             </Card>
@@ -1354,14 +1345,14 @@ const IEPSummarizationAndTranslation: React.FC = () => {
               not recognise as a way back. The tour's glossary step names it. */}
           <Offcanvas.Header className="jargon-drawer-header">
             <Offcanvas.Title>{t('glossary.header')}</Offcanvas.Title>
-            <Button
-              variant="outline-dark"
+            <UIButton
+              variant="secondary"
               className="jargon-drawer-close"
               onClick={() => setShowJargonDrawer(false)}
               data-testid="glossary-close"
             >
               {t('common.close')}
-            </Button>
+            </UIButton>
           </Offcanvas.Header>
           <Offcanvas.Body>
             <h3>{selectedJargon?.term}</h3>

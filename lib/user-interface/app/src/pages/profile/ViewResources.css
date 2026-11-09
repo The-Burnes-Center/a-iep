@@ -1,81 +1,20 @@
-.view-resources-container {
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-}
-
-.resources-description {
-  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
-  font-weight: 400;
-  font-size: 1.125rem;
-}
-
-.resources-list-container {
+/* The resources list: one white card per resource, in the page column. The
+   card and its title and text come from components/page/page.css. */
+.resource-list {
   display: flex;
   flex-direction: column;
-  min-height: 100px;
-  width: 100%;
-  padding: 10px 10px 100px 10px;
-  align-items: center;
-  position: relative;
-}
-
-.resources-list-container::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: url('/images/patterns-blue.jpg') center/cover;
-  transform: rotate(180deg);
-  z-index: -1;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .resource-item {
-    display: flex;
-    flex-direction: column;
-    background-color: #F5F3EE;
-    min-height: 100px;
-    width: 95%;
-    border-radius: 20px;
-    padding: 15px;
-    margin: 10px;
-
+  margin: 0;
 }
 
-.resource-item h5 {
-  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
-  font-weight: 500;
-  font-size: 1.25rem;
-  margin-bottom: 1rem;
-}
-
-.resource-item p {
-  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
-  font-weight: 400;
-  font-size: 1.125rem;
-  margin-bottom: 1rem;
-}
-
-/* Sits at the foot of the card rather than directly under a description whose
-   length differs per card, so the buttons line up across a row */
-.resource-item .view-resources-button {
+/* Sits at the foot of the card, so the links line up whatever the length of
+   each description above it. */
+.resource-link {
   margin-top: auto;
-}
-
-@media (min-width: 992px) and (min-height: 700px) {
-  .resources-list-container {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1.5rem;
-    padding: 5rem 10rem;
-    margin: 0 auto;
-    /* Overrides the single-column rule above, where centering is what keeps a
-       95%-wide card in the middle. Centered grid items size to their own text
-       instead of filling the row, which leaves a row of cards ragged. */
-    align-items: stretch;
-  }
-
-  .resource-item {
-    width: 100%;
-    margin: 0;
-  }
 }

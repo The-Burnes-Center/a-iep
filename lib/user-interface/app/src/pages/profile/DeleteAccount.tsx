@@ -1,14 +1,14 @@
 import React, { useState, useContext } from 'react';
-import { Container, Form, Row, Col, Alert } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { useAuth } from '../../common/auth-provider';
-import { useLanguage } from '../../common/language-context'; 
-import './UpdateProfileName.css';
-import './ProfileForms.css';
-import DeleteButton from '../../components/DeleteButton';
-import Breadcrumbs from '../../components/Breadcrumbs';
+import { useLanguage } from '../../common/language-context';
+import PageShell from '../../components/page/PageShell';
+import PageHero from '../../components/page/PageHero';
+import Button from '../../components/ui/Button';
+import { Notice } from '../../components/ui/feedback';
+import './DeleteAccount.css';
 
 export default function DeleteAccount() {
   const [processing, setProcessing] = useState(false);
@@ -55,41 +55,50 @@ export default function DeleteAccount() {
   };
 
   return (
-    <>
-    <div>
-      {/* Breadcrumbs */}
-      <Breadcrumbs
-        trail={[
-          { labelKey: 'deleteAccount.breadcrumb.account', to: '/account-center' },
-          { labelKey: 'deleteAccount.breadcrumb.deleteAccount' },
-        ]}
+    <PageShell
+      trail={[
+        { labelKey: 'deleteAccount.breadcrumb.account', to: '/account-center' },
+        { labelKey: 'deleteAccount.breadcrumb.deleteAccount' },
+      ]}
+    >
+      <PageHero
+        titleId="delete-account-title"
+        title={t('deleteAccount.title')}
+        description={t('deleteAccount.description')}
+        showFaces={false}
       />
-      
-      <Container 
-        fluid 
-        className="update-profile-container"
-      >
-        <Row style={{ width: '100%', justifyContent: 'center' }}>
-          <Col xs={12} md={8} lg={6}>
-            <div className="profile-form">
-            <h4 className="update-profile-header">{t('deleteAccount.title')}</h4>
-            <p className='update-profile-description'>{t('deleteAccount.description')}</p>
-              {error && <Alert variant="danger">{error}</Alert>}
-              <Form onSubmit={(e) => { e.preventDefault(); handleDeleteProfile(); }}>
 
-                <div className="d-grid">
-                  <DeleteButton
-                    loading={processing}
-                    buttonText={processing ? t('delete.button.processing') : t('deleteAccount.button.deleteMyAccount')}
-                    disabled={processing}
-                  />
-                </div>
-              </Form>
-            </div>
-          </Col>
-        </Row>
-      </Container>
-    </div>
-    </>
+      <div className="page-card">
+        {error && <Notice tone="error">{error}</Notice>}
+
+        {/* This page IS the confirmation: Account's "Delete your account" row
+            brings the parent here, and what will be lost is listed before the
+            one danger button. A second "are you sure" step on top of it added
+            a press without adding safety (GOV.UK's confirmation-page pattern). */}
+        <div className="delete-account-confirm" role="group" aria-labelledby="delete-account-warning">
+          <p id="delete-account-warning" className="delete-account-warning">{t('delete.description1')}</p>
+          <p className="delete-account-text">{t('delete.description2')}</p>
+          <ul className="delete-account-list">
+            <li>{t('delete.item1')}</li>
+            <li>{t('delete.item2')}</li>
+            <li>{t('delete.item3')}</li>
+            <li>{t('delete.item4')}</li>
+          </ul>
+          <div className="delete-account-actions">
+            <Button
+              variant="danger"
+              onClick={handleDeleteProfile}
+              busy={processing}
+              busyLabel={t('delete.button.processing')}
+            >
+              {t('deleteAccount.button.deleteMyAccount')}
+            </Button>
+            <Button variant="secondary" onClick={() => navigate('/account-center')} disabled={processing}>
+              {t('delete.button.back')}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </PageShell>
   );
 }
