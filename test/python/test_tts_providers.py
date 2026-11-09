@@ -161,6 +161,47 @@ def test_elevenlabs_sends_language_code_only_for_flash_turbo(providers, monkeypa
     assert 'language_code' not in fake.requests[-1].body
 
 
+def test_elevenlabs_v4_models_pin_the_language(providers, monkeypatch):
+    # v4 and v4 Turbo accept language_code (docs.elevenlabs.io/models); a
+    # summary that mixes English terms into Vietnamese must not be read in a
+    # guessed language.
+    arm_api_key(providers, monkeypatch, 'ELEVENLABS_API_KEY_PARAMETER_NAME')
+    fake = FakeHTTP()
+    monkeypatch.setattr(providers.module, 'http', fake)
+
+    for model in ('eleven_v4', 'eleven_v4_turbo'):
+        provider = providers.module.ElevenLabsProvider({'model': model, 'default': 'v-1'})
+        provider.synthesize('Xin chào.', 'vi')
+        assert fake.requests[-1].body == {'text': 'Xin chào.', 'model_id': model, 'language_code': 'vi'}
+
+
+def test_elevenlabs_request_size_follows_the_model(providers, monkeypatch):
+    module = providers.module
+    # Under each model's own per-request ceiling, never Flash's 40k for v4.
+    assert module.ElevenLabsProvider({}).MAX_CHARS == 38000
+    assert module.ElevenLabsProvider({'model': 'eleven_v4'}).MAX_CHARS <= 10000
+    assert module.ElevenLabsProvider({'model': 'eleven_v4_turbo'}).MAX_CHARS <= 10000
+    # A model nobody has measured gets the smallest known limit.
+    assert module.ElevenLabsProvider({'model': 'eleven_v9_future'}).MAX_CHARS == module.ELEVENLABS_FALLBACK_MAX_CHARS
+
+
+def test_elevenlabs_v4_splits_a_long_summary_into_requests_it_accepts(providers, monkeypatch):
+    arm_api_key(providers, monkeypatch, 'ELEVENLABS_API_KEY_PARAMETER_NAME')
+    fake = FakeHTTP()
+    monkeypatch.setattr(providers.module, 'http', fake)
+    paragraph = ('This sentence is part of a long section. ' * 40).strip()  # ~1.6k chars
+    text = '\n\n'.join([paragraph] * 15)                                   # ~24k chars
+
+    provider = providers.module.ElevenLabsProvider({'model': 'eleven_v4', 'default': 'v-1'})
+    provider.synthesize(text, 'en')
+
+    sent = [r.body['text'] for r in fake.requests]
+    assert len(sent) >= 3
+    assert all(len(chunk) <= 10000 for chunk in sent)
+    # Nothing dropped or duplicated across the split.
+    assert sum(len(chunk) for chunk in sent) + 2 * (len(sent) - 1) == len(text)
+
+
 def test_synthesize_failures_raise_provider_error(providers, monkeypatch):
     module = providers.module
     monkeypatch.setattr(module, 'http', FakeHTTP())

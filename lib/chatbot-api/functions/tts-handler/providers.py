@@ -117,17 +117,44 @@ class TTSProvider:
         raise NotImplementedError
 
 
+# Characters ElevenLabs accepts in one request, per model, with ~5% headroom
+# (docs.elevenlabs.io/models). A model not listed here gets the smallest
+# limit, so a new model_id in the voice config can never send a request the
+# API refuses for length.
+ELEVENLABS_MAX_CHARS = {
+    'eleven_flash_v2_5': 38000,
+    'eleven_v4': 9500,
+    'eleven_v4_turbo': 9500,
+    'eleven_multilingual_v2': 9500,
+    'eleven_v3': 4750,
+}
+ELEVENLABS_FALLBACK_MAX_CHARS = 4750
+
+# Models that accept `language_code`, which pins the language instead of
+# letting the model guess it from the text: our summaries mix languages
+# (English terms of art inside a Vietnamese summary), so guessing reads
+# words in the wrong accent. Classic multilingual models reject the field.
+ELEVENLABS_LANGUAGE_CODE_MODELS = {
+    'eleven_flash_v2_5', 'eleven_flash_v2',
+    'eleven_v4', 'eleven_v4_turbo',
+    'eleven_v3', 'eleven_v3_conversational',
+}
+
+
 class ElevenLabsProvider(TTSProvider):
     name = 'elevenlabs'
     DEFAULT_MODEL = 'eleven_flash_v2_5'
     # "Rachel", a multilingual premade voice; override via voice config
     DEFAULT_VOICE = '21m00Tcm4TlvDq8ikWAM'
-    # Flash v2.5 accepts ~40k chars per request; stay under it
-    MAX_CHARS = 38000
 
     def __init__(self, voice_config: dict):
         self.model = voice_config.get('model', self.DEFAULT_MODEL)
         self.voice_config = voice_config
+        self.MAX_CHARS = ELEVENLABS_MAX_CHARS.get(self.model, ELEVENLABS_FALLBACK_MAX_CHARS)
+
+    def _accepts_language_code(self) -> bool:
+        # Deprecated turbo ids (eleven_turbo_v2_5) still accept it too.
+        return self.model in ELEVENLABS_LANGUAGE_CODE_MODELS or 'turbo' in self.model or 'flash' in self.model
 
     def _voice_for(self, language: str) -> str:
         by_language = self.voice_config.get('byLanguage') or {}
@@ -152,8 +179,7 @@ class ElevenLabsProvider(TTSProvider):
         audio = b''
         for chunk in chunk_text(text, self.MAX_CHARS):
             body = {'text': chunk, 'model_id': self.model}
-            # language_code enforcement is only supported by flash/turbo models
-            if 'flash' in self.model or 'turbo' in self.model:
+            if self._accepts_language_code():
                 body['language_code'] = language
             resp = _post(
                 self.name, url,
