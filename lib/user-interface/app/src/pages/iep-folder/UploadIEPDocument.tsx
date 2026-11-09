@@ -472,7 +472,7 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete 
                 <p id="upload-belongs-to-text" className="mb-1">
                   {fillTemplate(t('upload.belongsTo'), { name: childName })}
                 </p>
-                <Link to="/account-center/children" className="upload-belongs-to-change">{t('upload.belongsTo.change')}</Link>
+                <Link to="/account-center/children" className="btn btn-outline-secondary aiep-button upload-belongs-to-change">{t('upload.belongsTo.change')}</Link>
               </div>
             )}
 
