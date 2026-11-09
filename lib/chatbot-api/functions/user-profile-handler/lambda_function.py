@@ -365,6 +365,14 @@ CHILD_FIELDS = ('childId', 'name', 'schoolCity',
 _CHILD_INT_FIELDS = ('createdAt', 'updatedAt')
 _CHILD_STRING_FIELDS = ('schoolCity', 'createdAtISO', 'updatedAtISO')
 CHILD_ID_MAX_LENGTH = 128
+# Above any family's real number of children; every child is re-encrypted and
+# re-sent on each save, so an unbounded list is a cost and abuse surface.
+MAX_CHILDREN = 10
+# District and city names are short; this bounds a free-text field nothing else limits.
+MAX_SCHOOL_CITY_LENGTH = 100
+# (log reason, response message) shared by add_child and the children branch of PUT /profile.
+_SCHOOL_CITY_TOO_LONG_LOG = f'schoolCity longer than {MAX_SCHOOL_CITY_LENGTH} characters'
+_SCHOOL_CITY_TOO_LONG_MESSAGE = f'School city must be {MAX_SCHOOL_CITY_LENGTH} characters or fewer'
 
 
 def clean_children(children) -> Tuple[Optional[List[Dict]], Optional[Tuple[str, str]]]:
@@ -376,6 +384,8 @@ def clean_children(children) -> Tuple[Optional[List[Dict]], Optional[Tuple[str, 
     """
     if not isinstance(children, list):
         return None, ('children is not a list', 'children must be a list of child objects')
+    if len(children) > MAX_CHILDREN:
+        return None, (f'more than {MAX_CHILDREN} children', 'Too many children on this profile')
 
     cleaned = []
     seen_ids = set()
@@ -393,6 +403,8 @@ def clean_children(children) -> Tuple[Optional[List[Dict]], Optional[Tuple[str, 
         for field in _CHILD_STRING_FIELDS:
             if field in child and not isinstance(child[field], str):
                 return None, (f'child {field} is not a string', f'Child {field} must be text')
+        if 'schoolCity' in child and len(child['schoolCity'].strip()) > MAX_SCHOOL_CITY_LENGTH:
+            return None, (_SCHOOL_CITY_TOO_LONG_LOG, _SCHOOL_CITY_TOO_LONG_MESSAGE)
         for field in _CHILD_INT_FIELDS:
             value = child.get(field)
             if field in child and (isinstance(value, bool) or not isinstance(value, int)):
@@ -843,6 +855,9 @@ def add_child(event: Dict) -> Dict:
         if not isinstance(body['schoolCity'], str):
             return bad_request(event, 'add_child', user_id, 'schoolCity is not a string',
                                'schoolCity must be text')
+        if len(body['schoolCity'].strip()) > MAX_SCHOOL_CITY_LENGTH:
+            return bad_request(event, 'add_child', user_id, _SCHOOL_CITY_TOO_LONG_LOG,
+                               _SCHOOL_CITY_TOO_LONG_MESSAGE)
 
         # Blank, over-long, or not a name at all: same rule, same reason and
         # the same reason codes as the children branch of update_user_profile.
@@ -863,19 +878,30 @@ def add_child(event: Dict) -> Dict:
             'updatedAtISO': times['datetime']
         }
         
-        # Add child to user's profile and update timestamps
-        user_profiles_table.update_item(
-            Key={'userId': user_id},
-            UpdateExpression='SET #children = list_append(if_not_exists(#children, :empty_list), :new_child), updatedAt = :updatedAt, updatedAtISO = :updatedAtISO',
-            ExpressionAttributeNames={'#children': 'children'},
-            ExpressionAttributeValues={
-                ':empty_list': [],
-                ':new_child': [new_child],
-                ':updatedAt': times['timestamp'],
-                ':updatedAtISO': times['datetime']
-            }
-        )
-        
+        # Add child to user's profile and update timestamps. The cap is checked
+        # in the same write as the append, so two concurrent adds cannot both
+        # land on the last free slot.
+        try:
+            user_profiles_table.update_item(
+                Key={'userId': user_id},
+                UpdateExpression='SET #children = list_append(if_not_exists(#children, :empty_list), :new_child), updatedAt = :updatedAt, updatedAtISO = :updatedAtISO',
+                ConditionExpression='attribute_not_exists(#children) OR size(#children) < :max_children',
+                ExpressionAttributeNames={'#children': 'children'},
+                ExpressionAttributeValues={
+                    ':empty_list': [],
+                    ':new_child': [new_child],
+                    ':max_children': MAX_CHILDREN,
+                    ':updatedAt': times['timestamp'],
+                    ':updatedAtISO': times['datetime']
+                }
+            )
+        except ClientError as e:
+            if e.response.get('Error', {}).get('Code') != 'ConditionalCheckFailedException':
+                raise
+            return bad_request(event, 'add_child', user_id,
+                               f'profile already has {MAX_CHILDREN} children',
+                               'Too many children on this profile')
+
         return create_response(event, 200, {
             'message': 'Child added successfully',
             'childId': child_id,

@@ -538,6 +538,133 @@ def test_add_child_malformed_body_is_a_client_error(api):
 
 
 # ---------------------------------------------------------------------------
+# Child limits: MAX_CHILDREN on both write paths, MAX_SCHOOL_CITY_LENGTH on both
+
+def profile_with_children(api, count, user=USER):
+    api.profiles.put_item(Item={
+        'userId': user,
+        'children': [{'childId': f'child-{i}', 'name': f'Kid {i}', 'schoolCity': 'Boston'}
+                     for i in range(count)],
+    })
+
+
+def test_add_child_to_a_profile_with_no_children_list_succeeds(api):
+    api.profiles.put_item(Item={'userId': USER})
+    status, _ = call(api, '/profile/children', 'POST',
+                     body={'name': 'First Kid', 'schoolCity': 'Boston'})
+    assert status == 200
+    assert len(stored_profile(api)['children']) == 1
+
+
+def test_add_child_fills_up_to_the_cap_then_refuses_the_next(api):
+    profile_with_children(api, api.module.MAX_CHILDREN - 1)
+    status, _ = call(api, '/profile/children', 'POST',
+                     body={'name': 'Last Kid', 'schoolCity': 'Boston'})
+    assert status == 200
+    assert len(stored_profile(api)['children']) == api.module.MAX_CHILDREN
+
+
+def test_add_child_at_the_cap_is_refused_and_the_profile_is_unchanged(api, capsys):
+    profile_with_children(api, api.module.MAX_CHILDREN)
+    before = stored_profile(api)
+
+    status, body = call(api, '/profile/children', 'POST',
+                        body={'name': 'Eleventh Kid', 'schoolCity': 'Boston'})
+
+    assert status == 400
+    assert body['message'] == 'Too many children on this profile'
+    assert stored_profile(api) == before  # the condition held the write back
+    assert 'add_child' in capsys.readouterr().out
+
+
+def test_put_profile_with_more_than_the_cap_is_refused_and_writes_nothing(api, capsys):
+    profile_with_children(api, 1)
+    before = stored_profile(api)
+    children = [{'name': f'Kid {i}', 'schoolCity': 'Boston'}
+                for i in range(api.module.MAX_CHILDREN + 1)]
+
+    status, body = call(api, '/profile', 'PUT', body={'children': children})
+
+    assert status == 400
+    assert body['message'] == 'Too many children on this profile'
+    assert stored_profile(api) == before
+    assert 'more than 10 children' in capsys.readouterr().out
+
+
+def test_put_profile_at_the_cap_is_accepted(api):
+    children = [{'name': f'Kid {i}', 'schoolCity': 'Boston'}
+                for i in range(api.module.MAX_CHILDREN)]
+
+    status, _ = call(api, '/profile', 'PUT', body={'children': children})
+
+    assert status == 200
+    assert len(stored_profile(api)['children']) == api.module.MAX_CHILDREN
+
+
+def test_the_child_limit_constants_are_the_agreed_values(api):
+    assert api.module.MAX_CHILDREN == 10
+    assert api.module.MAX_SCHOOL_CITY_LENGTH == 100
+
+
+@pytest.mark.parametrize('city,status', [
+    ('a' * 100, 200),            # boundary: accepted
+    ('a' * 101, 400),            # one over: refused
+    ('   ' + 'a' * 100 + '   ', 200),  # measured after strip, so padding does not count
+])
+def test_add_child_school_city_boundary(api, city, status):
+    api.profiles.put_item(Item={'userId': USER})
+    code, _ = call(api, '/profile/children', 'POST',
+                   body={'name': 'Kid', 'schoolCity': city})
+    assert code == status
+    children = (stored_profile(api) or {}).get('children', [])
+    assert len(children) == (1 if status == 200 else 0)
+
+
+def test_add_child_over_long_school_city_is_refused_and_logged_without_the_value(api, capsys):
+    profile_with_child(api)
+    before = stored_profile(api)
+    typed = 'Springfield-' + 'x' * 100
+
+    status, body = call(api, '/profile/children', 'POST',
+                        body={'name': 'Second Kid', 'schoolCity': typed})
+
+    assert status == 400
+    assert body['message'] == 'School city must be 100 characters or fewer'
+    assert stored_profile(api) == before  # nothing written
+    logged = capsys.readouterr().out
+    assert 'schoolCity longer than 100 characters' in logged
+    assert 'Springfield' not in logged
+
+
+@pytest.mark.parametrize('city,status', [
+    ('a' * 100, 200),
+    ('a' * 101, 400),
+])
+def test_put_profile_school_city_boundary(api, city, status):
+    api.profiles.put_item(Item={'userId': USER})
+    code, _ = call(api, '/profile', 'PUT',
+                   body={'children': [{'name': 'Kid', 'schoolCity': city}]})
+    assert code == status
+    children = (stored_profile(api) or {}).get('children', [])
+    assert len(children) == (1 if status == 200 else 0)
+
+
+def test_put_profile_over_long_school_city_leaves_the_profile_unchanged(api, capsys):
+    profile_with_child(api)
+    before = stored_profile(api)
+
+    status, body = call(api, '/profile', 'PUT', body={'children': [
+        {'name': 'Kid', 'schoolCity': 'Boston'},
+        {'name': 'Second Kid', 'schoolCity': 'x' * 101},
+    ]})
+
+    assert status == 400
+    assert body['message'] == 'School city must be 100 characters or fewer'
+    assert stored_profile(api) == before
+    assert 'schoolCity longer than 100 characters' in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
 # GET /profile/children/{childId}/documents
 
 def test_get_documents_denies_unowned_child(api):

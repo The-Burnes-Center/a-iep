@@ -1550,10 +1550,11 @@ describe('S3 data protection', () => {
   });
 
   // The same narrowing on the DynamoDB side. upload-s3 writes the
-  // PENDING_UPLOAD row and nothing more: no Query (the first half of a
-  // delete-the-previous-document), no DeleteItem, and no access at all to the
-  // user profiles table, which only the old replace flow touched.
-  test('upload-s3 can only put the new document row', () => {
+  // PENDING_UPLOAD row and reads the caller's own profile to confirm the
+  // childId. Nothing else: no Query (the first half of a
+  // delete-the-previous-document), no DeleteItem, and no write to the user
+  // profiles table.
+  test('upload-s3 can only put the new document row and read the caller profile', () => {
     const statements = Object.values(template.findResources('AWS::IAM::Policy'))
       .filter((policy: any) =>
         JSON.stringify(policy.Properties?.Roles ?? []).includes('UploadS3KnowledgeFilesHandlerFunctionServiceRole'))
@@ -1563,7 +1564,7 @@ describe('S3 data protection', () => {
     const dynamoActions = statements
       .flatMap((statement: any) => [statement.Action ?? []].flat())
       .filter((action: unknown) => typeof action === 'string' && action.startsWith('dynamodb:'));
-    expect(dynamoActions).toEqual(['dynamodb:PutItem']);
+    expect(dynamoActions.sort()).toEqual(['dynamodb:GetItem', 'dynamodb:PutItem']);
 
     const tables = statements
       .filter((statement: any) => [statement.Action ?? []].flat().includes('dynamodb:PutItem'))
@@ -1572,6 +1573,23 @@ describe('S3 data protection', () => {
     expect(tables[0]).toContain('IepDocumentsTable');
     expect(tables[0]).not.toContain('UserProfilesTable');
     expect(tables[0]).not.toContain('/index/');
+
+    // The childId ownership check: GetItem on the profiles table, and only that.
+    const profileReads = statements
+      .filter((statement: any) => [statement.Action ?? []].flat().includes('dynamodb:GetItem'))
+      .map((statement: any) => JSON.stringify(statement.Resource));
+    expect(profileReads).toHaveLength(1);
+    expect(profileReads[0]).toContain('UserProfilesTable');
+    expect(profileReads[0]).not.toContain('/index/');
+    expect(profileReads[0]).not.toContain('IepDocumentsTable');
+
+    // Nothing may write or delete the profile table from this role.
+    const profileWrites = statements
+      .filter((statement: any) => JSON.stringify(statement.Resource ?? '').includes('UserProfilesTable'))
+      .flatMap((statement: any) => [statement.Action ?? []].flat())
+      .filter((action: unknown) => ['dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DeleteItem']
+        .includes(action as string));
+    expect(profileWrites).toEqual([]);
   });
 
   // The bucket is versioned, so DeleteObject alone writes a delete marker and

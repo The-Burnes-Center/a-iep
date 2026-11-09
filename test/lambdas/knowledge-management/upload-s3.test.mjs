@@ -14,14 +14,16 @@
 import { jest } from '@jest/globals';
 import { mockClient } from 'aws-sdk-client-mock';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
-import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 
 const BUCKET = 'kb-bucket-test';
 const DOCUMENTS_TABLE = 'documents-test';
+const PROFILES_TABLE = 'profiles-test';
 const USER = 'user-sub-1';
 
 process.env.BUCKET = BUCKET;
 process.env.IEP_DOCUMENTS_TABLE = DOCUMENTS_TABLE;
+process.env.USER_PROFILES_TABLE = PROFILES_TABLE;
 process.env.AWS_REGION = 'us-east-1';
 process.env.AWS_ACCESS_KEY_ID = 'testing';
 process.env.AWS_SECRET_ACCESS_KEY = 'testing';
@@ -47,6 +49,15 @@ const GOOD_UPLOAD = {
     childId: '3f2b8a1e-6c4d-4e8f-9a1b-2c3d4e5f6a7b',
 };
 
+// The caller's own profile: one child, and a second child the caller also owns.
+const OWNED_CHILD_ID = GOOD_UPLOAD.childId;
+const SECOND_CHILD_ID = '9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a';
+const FOREIGN_CHILD_ID = 'aaaaaaaa-1111-4222-8333-444444444444';
+const OWNED_PROFILE = {
+    userId: USER,
+    children: [{ childId: OWNED_CHILD_ID }, { childId: SECOND_CHILD_ID }],
+};
+
 const call = async (body) => {
     const response = await handler(uploadEvent(body));
     return { status: response.statusCode, body: JSON.parse(response.body) };
@@ -56,6 +67,7 @@ beforeEach(() => {
     s3Mock.reset();
     ddbMock.reset();
     ddbMock.on(PutCommand).resolves({});
+    ddbMock.on(GetCommand).resolves({ Item: OWNED_PROFILE });
 });
 
 describe('request validation', () => {
@@ -215,16 +227,17 @@ describe('upload', () => {
         ];
 
         test('requesting an upload URL deletes nothing, even when the child already has an IEP', async () => {
-            // Whatever the table holds for this child, the handler must not even
-            // look: any read of the child's documents is the first half of a delete.
-            ddbMock.onAnyCommand().resolves({
+            // Whatever the documents table holds for this child, the handler must
+            // not even look: any read of the child's documents is the first half of
+            // a delete. The only reads allowed are the profile GetItem and the put.
+            ddbMock.on(QueryCommand).resolves({
                 Items: [{ iepId: 'iep-old', childId: GOOD_UPLOAD.childId, userId: USER, status: 'PROCESSED' }],
             });
 
             const { status } = await call(GOOD_UPLOAD);
 
             expect(status).toBe(200);
-            expect(touchedStorage()).toEqual(['PutCommand']);
+            expect(touchedStorage()).toEqual(['GetCommand', 'PutCommand']);
         });
 
         test('the only write is the new PENDING_UPLOAD row', async () => {
@@ -243,7 +256,7 @@ describe('upload', () => {
             const { status } = await call(GOOD_UPLOAD);
 
             expect(status).toBe(503);
-            expect(touchedStorage()).toEqual(['PutCommand']);
+            expect(touchedStorage()).toEqual(['GetCommand', 'PutCommand']);
             expect(s3Mock.calls()).toHaveLength(0);
         });
 
@@ -255,7 +268,7 @@ describe('upload', () => {
 
             expect(s3Mock.calls()).toHaveLength(0);
             expect(ddbMock.commandCalls(PutCommand)).toHaveLength(2);
-            expect(touchedStorage().every((name) => name === 'PutCommand')).toBe(true);
+            expect(touchedStorage().filter((name) => name !== 'GetCommand' && name !== 'PutCommand')).toEqual([]);
         });
     });
 
@@ -264,6 +277,108 @@ describe('upload', () => {
         const { status, body } = await call(GOOD_UPLOAD);
         expect(status).toBe(503);
         expect(body.error).toContain('Failed');
+    });
+});
+
+// The childId in the body is client-supplied, so it is only trusted when the
+// caller's own profile lists it. Every refusal here writes nothing and signs
+// nothing, and none of them echoes the childId into the log.
+describe('child ownership', () => {
+    test('an owned child -> 200, presigned, and the record is written', async () => {
+        const { status, body } = await call({ ...GOOD_UPLOAD, childId: SECOND_CHILD_ID });
+        expect(status).toBe(200);
+        expect(body.signedUrl).toBeTruthy();
+
+        const puts = ddbMock.commandCalls(PutCommand);
+        expect(puts).toHaveLength(1);
+        expect(puts[0].args[0].input.Item.childId).toBe(SECOND_CHILD_ID);
+        expect(puts[0].args[0].input.Item.userId).toBe(USER);
+    });
+
+    test('reads only the caller\'s own profile, keyed by the JWT subject', async () => {
+        await call(GOOD_UPLOAD);
+
+        const gets = ddbMock.commandCalls(GetCommand);
+        expect(gets).toHaveLength(1);
+        // Strongly consistent: a child added seconds ago must already count.
+        expect(gets[0].args[0].input).toEqual({ TableName: PROFILES_TABLE, Key: { userId: USER }, ConsistentRead: true });
+    });
+
+    test('a child the caller does not list -> 404, nothing written or signed', async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            const { status, body } = await call({ ...GOOD_UPLOAD, childId: FOREIGN_CHILD_ID });
+            expect(status).toBe(404);
+            expect(body.message).toBe('Child not found');
+            expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+            expect(s3Mock.calls()).toHaveLength(0);
+
+            const line = warn.mock.calls.flat().join(' ');
+            expect(line).toMatch(/not one of the caller/);
+            expect(line).not.toContain(FOREIGN_CHILD_ID);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    test('a caller with no profile item -> 404, nothing written or signed', async () => {
+        ddbMock.on(GetCommand).resolves({});
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            const { status } = await call(GOOD_UPLOAD);
+            expect(status).toBe(404);
+            expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+            expect(s3Mock.calls()).toHaveLength(0);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    test.each([
+        ['no children attribute', { userId: USER }],
+        ['children is not a list', { userId: USER, children: 'Ejemplo' }],
+        ['children is an empty list', { userId: USER, children: [] }],
+        ['a child entry with no childId', { userId: USER, children: [{ name: 'x' }, null] }],
+    ])('profile with %s -> 404', async (_label, Item) => {
+        ddbMock.on(GetCommand).resolves({ Item });
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            const { status } = await call(GOOD_UPLOAD);
+            expect(status).toBe(404);
+            expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    // A profile fault is the service's failure. It must not read as "not your
+    // child" (a 404), and must not fall through to a signed URL.
+    test('a profile read that throws -> 503, nothing written or signed', async () => {
+        ddbMock.on(GetCommand).rejects(Object.assign(
+            new Error(`ProvisionedThroughputExceededException on ${PROFILES_TABLE}`),
+            { name: 'ProvisionedThroughputExceededException' },
+        ));
+        const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+            const { status, body } = await call(GOOD_UPLOAD);
+            expect(status).toBe(503);
+            expect(body).toEqual({ error: 'Service unavailable' });
+            expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+            expect(s3Mock.calls()).toHaveLength(0);
+
+            const line = error.mock.calls.flat().join(' ');
+            expect(line).toContain('ProvisionedThroughputExceededException');
+            expect(line).not.toContain(PROFILES_TABLE);
+        } finally {
+            error.mockRestore();
+        }
+    });
+
+    test('download never reads the profile table', async () => {
+        const key = `${USER}/${OWNED_CHILD_ID}/iep-1/report.pdf`;
+        const { status } = await call({ fileName: key, operation: 'download', childId: FOREIGN_CHILD_ID });
+        expect(status).toBe(200);
+        expect(ddbMock.calls()).toHaveLength(0);
     });
 });
 

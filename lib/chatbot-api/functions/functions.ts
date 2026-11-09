@@ -145,7 +145,8 @@ export class LambdaFunctionStack extends cdk.Stack {
       handler: 'index.handler',
       environment: {
         "BUCKET": props.knowledgeBucket.bucketName,
-        "IEP_DOCUMENTS_TABLE": props.iepDocumentsTable.tableName
+        "IEP_DOCUMENTS_TABLE": props.iepDocumentsTable.tableName,
+        "USER_PROFILES_TABLE": props.userProfilesTable.tableName
       },
       timeout: cdk.Duration.seconds(300),
       logRetention: logs.RetentionDays.ONE_YEAR,
@@ -157,12 +158,16 @@ export class LambdaFunctionStack extends cdk.Stack {
     // role at request time, so the object grants must cover what the URLs do.
     //
     // It holds NO delete, list or version permission, and no read of the
-    // documents table or the user profiles table. It used to clear the child's
-    // previous document when the upload URL was requested, which needed all of
-    // those, and which left a family with no IEP if the upload then failed.
-    // Replacing a document is now the pipeline's job, once the new one has
-    // finished (the DDB service's purge_replaced_documents). test/infra pins
-    // the absence.
+    // documents table. It used to clear the child's previous document when the
+    // upload URL was requested, which needed all of those, and which left a
+    // family with no IEP if the upload then failed. Replacing a document is
+    // now the pipeline's job, once the new one has finished (the DDB service's
+    // purge_replaced_documents). test/infra pins the absence.
+    //
+    // The one read of the profiles table is GetItem on the caller's own
+    // profile, to confirm the childId in the request is one of their children.
+    // Nothing here writes to it. The table's CMK decrypt comes from the
+    // kmsPolicy below, which covers this function when a key is supplied.
     uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
@@ -177,6 +182,14 @@ export class LambdaFunctionStack extends cdk.Stack {
       effect: iam.Effect.ALLOW,
       actions: ['dynamodb:PutItem'],
       resources: [props.iepDocumentsTable.tableArn]
+    }));
+
+    // Ownership check for childId: one GetItem on the profiles table. No
+    // write, query or scan.
+    uploadS3KnowledgeAPIHandlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:GetItem'],
+      resources: [props.userProfilesTable.tableArn]
     }));
 
     this.uploadS3KnowledgeFunction = uploadS3KnowledgeAPIHandlerFunction;
