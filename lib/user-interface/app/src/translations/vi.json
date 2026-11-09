@@ -795,5 +795,21 @@
     "addChild.button": "Thêm con",
     "addChild.saving": "Đang lưu...",
     "addChild.error.saveFailed": "Chúng tôi không thể thêm con. Hãy kiểm tra kết nối và thử lại.",
-    "childBar.switchLabel": "Đổi sang IEP của con khác"
+    "childBar.switchLabel": "Đổi sang IEP của con khác",
+    "breadcrumb.editChild": "CHỈNH SỬA",
+    "myChildren.edit": "Sửa",
+    "myChildren.editLabel": "Sửa thông tin của {name}",
+    "myChildren.remove": "Xóa",
+    "myChildren.removeLabel": "Xóa {name}",
+    "myChildren.remove.confirmTitle": "Xóa {name}?",
+    "myChildren.remove.confirmBody": "Việc này sẽ xóa vĩnh viễn IEP và bản tóm tắt của {name} khỏi A-IEP. Bạn không thể hoàn tác.",
+    "myChildren.remove.confirm": "Xóa {name}",
+    "myChildren.remove.keep": "Giữ {name}",
+    "myChildren.remove.removing": "Đang xóa...",
+    "myChildren.remove.failed": "Không thể xóa {name}. Hãy kiểm tra kết nối và thử lại.",
+    "myChildren.removed": "Đã xóa {name}.",
+    "editChild.title": "Sửa thông tin của {name}",
+    "editChild.titleUnnamed": "Sửa thông tin của con",
+    "editChild.button": "Lưu thay đổi",
+    "editChild.error.saveFailed": "Không thể lưu thay đổi. Hãy kiểm tra kết nối và thử lại."
 }

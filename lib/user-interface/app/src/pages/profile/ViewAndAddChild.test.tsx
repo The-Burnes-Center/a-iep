@@ -413,6 +413,27 @@ describe("the name rule", () => {
     );
   });
 
+  test("editing the first child's name keeps every other child on the profile", async () => {
+    // PUT /profile replaces the whole children list with what it is sent, so
+    // sending only the first child deleted the rest: a parent with two
+    // children who fixed one name lost the other, documents and all.
+    const second = { childId: "child-2", name: "Sam Rivera", schoolCity: "Lakeview" };
+    stubFetch(profileWith({
+      children: [{ childId: "child-1", name: "", schoolCity: "Boston" }, second],
+    }));
+    const user = renderPage();
+    await waitForForm();
+
+    await enter(user, "Alex Rivera");
+    await user.click(saveButton());
+
+    await waitFor(() => expect(childWrite()).toBeDefined());
+    const sent = childWrite()?.body?.children as Record<string, unknown>[];
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toMatchObject({ childId: "child-1", name: "Alex Rivera" });
+    expect(sent[1]).toEqual(second);
+  });
+
   test("sends the tidied name, not the keystrokes", async () => {
     // The stored value reaches the heading of every summary and every
     // translation, and is read aloud by TTS: "Alex   Rivera" would be read

@@ -23,6 +23,8 @@ export interface ActiveChildState {
   /** More than one child and the feature on: show the child bar and switcher. */
   isMultiChild: boolean;
   isLoading: boolean;
+  /** The URL named a child that is not on this profile (and none was used). */
+  requestedMissing: boolean;
   /** `path` for this child (the bare path for a single-child family). */
   pathFor: (path: string) => string;
 }
@@ -54,6 +56,7 @@ export function useActiveChild(): ActiveChildState {
     index: active?.index ?? 0,
     isMultiChild,
     isLoading: profileQuery.isLoading,
+    requestedMissing: active?.requestedMissing ?? false,
     pathFor: (path: string) => pathForChild(path, childId, isMultiChild),
   };
 }

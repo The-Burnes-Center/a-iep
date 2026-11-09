@@ -20,7 +20,7 @@ import type { AppConfig } from "../../common/types";
 import type { SupportedLanguage } from "../../common/languages";
 import ChildBar from "../../components/ChildBar";
 import MyChildren from "./MyChildren";
-import AddChild from "./AddChild";
+import ChildForm from "./ChildForm";
 import UploadIEPDocument from "../iep-folder/UploadIEPDocument";
 import SummaryAndTranslationsPage from "../iep-folder/SummaryAndTranslationsPage";
 import ProcessingModal from "../../components/ProcessingModal";
@@ -111,6 +111,8 @@ beforeEach(() => {
       const body = JSON.parse(String(init.body));
       return json(200, { childId: "c-new", name: body.name });
     }
+    const one = /\/profile\/children\/([^/]+)$/.exec(url);
+    if (one && (init?.method === "PUT" || init?.method === "DELETE")) return json(200, { childId: one[1] });
     if (url === `${API}/signed-url-knowledge`) return json(200, { signedUrl: "https://s3.example.test/put" });
     throw new Error(`unexpected fetch ${init?.method ?? "GET"} ${url}`);
   });
@@ -210,14 +212,14 @@ describe("My children", () => {
     renderAt("/account-center/children", <MyChildren />, { multiChild: false });
     await settle();
 
-    expect(screen.getByTestId("where")).toHaveTextContent("/account-center");
+    expect(screen.getByTestId("where")).toHaveTextContent(/^\/account-center$/);
     expect(screen.queryByTestId("my-children-card")).not.toBeInTheDocument();
   });
 });
 
 describe("adding a child", () => {
   test("refuses a name with no letter in it, and asks the server nothing", async () => {
-    renderAt("/account-center/children/add", <AddChild />);
+    renderAt("/account-center/children/add", <ChildForm mode="add" />);
     await settle();
 
     fireEvent.change(screen.getByTestId("add-child-name"), { target: { value: "123" } });
@@ -229,7 +231,7 @@ describe("adding a child", () => {
   });
 
   test("adds the child, then goes straight to uploading THEIR IEP", async () => {
-    renderAt("/account-center/children/add", <AddChild />);
+    renderAt("/account-center/children/add", <ChildForm mode="add" />);
     await settle();
 
     fireEvent.change(screen.getByTestId("add-child-name"), { target: { value: "  Sam   Lopez " } });
@@ -246,7 +248,7 @@ describe("adding a child", () => {
     const base = fetchMock.getMockImplementation() as FetchImpl;
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
       url.endsWith("/profile/children") && init?.method === "POST" ? json(400, {}) : base(url, init));
-    renderAt("/account-center/children/add", <AddChild />);
+    renderAt("/account-center/children/add", <ChildForm mode="add" />);
     await settle();
 
     fireEvent.change(screen.getByTestId("add-child-name"), { target: { value: "Sam Lopez" } });
@@ -331,5 +333,92 @@ describe("the processing screen for one of several children", () => {
   test("says nothing extra for a family with one child", () => {
     renderModal(undefined);
     expect(screen.queryByTestId("processing-child")).not.toBeInTheDocument();
+  });
+});
+
+const calls = (method: string) =>
+  fetchMock.mock.calls.filter(([, init]) => (init?.method ?? "GET") === method).map(([u]) => String(u));
+
+describe("editing a child", () => {
+  test("opens with that child's details, and saves only that child", async () => {
+    vi.useRealTimers();
+    renderAt("/account-center/children/edit?child=c-leo", <ChildForm mode="edit" />);
+    await waitFor(() => expect(screen.getByTestId("add-child-name")).toHaveValue("Leo Lopez"));
+    expect(screen.getByTestId("add-child-school")).toHaveValue("Lakeview");
+
+    fireEvent.change(screen.getByTestId("add-child-name"), { target: { value: "Leo  Lopez-Diaz" } });
+    fireEvent.click(screen.getByTestId("add-child-save"));
+
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent(/^\/account-center\/children$/));
+    const put = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT");
+    expect(String(put?.[0])).toBe(`${API}/profile/children/${LEO.childId}`);
+    expect(JSON.parse(String(put?.[1].body))).toEqual({ name: "Leo Lopez-Diaz", schoolCity: "Lakeview" });
+    // Never the whole-list write that would drop the other child.
+    expect(calls("PUT")).not.toContain(`${API}/profile`);
+  });
+
+  test("goes back to the list, rather than opening the first child, for a child not on this profile", async () => {
+    vi.useRealTimers();
+    renderAt("/account-center/children/edit?child=someone-else", <ChildForm mode="edit" />);
+
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent(/^\/account-center\/children$/));
+    expect(screen.queryByTestId("add-child-name")).not.toBeInTheDocument();
+  });
+});
+
+describe("removing a child", () => {
+  const openList = async () => {
+    vi.useRealTimers();
+    renderAt("/account-center/children", <MyChildren />);
+    await waitFor(() => expect(screen.getAllByTestId("my-children-status")).toHaveLength(2));
+  };
+
+  test("asks first, says it is permanent, and deletes nothing until the parent confirms", async () => {
+    await openList();
+    fireEvent.click(screen.getAllByTestId("my-children-remove")[1]);
+
+    expect(screen.getByTestId("my-children-confirm")).toHaveTextContent("myChildren.remove.confirmBody");
+    expect(calls("DELETE")).toEqual([]);
+    // Focus lands on the decision.
+    expect(screen.getByTestId("my-children-confirm-remove")).toHaveFocus();
+  });
+
+  test("removes exactly the child confirmed, and no one else", async () => {
+    await openList();
+    fireEvent.click(screen.getAllByTestId("my-children-remove")[1]);
+    fireEvent.click(screen.getByTestId("my-children-confirm-remove"));
+
+    await waitFor(() => expect(calls("DELETE")).toEqual([`${API}/profile/children/${LEO.childId}`]));
+  });
+
+  test("keeping the child closes the question and deletes nothing", async () => {
+    await openList();
+    fireEvent.click(screen.getAllByTestId("my-children-remove")[1]);
+    fireEvent.click(screen.getByText("myChildren.remove.keep"));
+
+    expect(screen.queryByTestId("my-children-confirm")).not.toBeInTheDocument();
+    expect(calls("DELETE")).toEqual([]);
+  });
+
+  test("says so, and keeps the question open, when the server will not remove the child", async () => {
+    const base = fetchMock.getMockImplementation() as FetchImpl;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      init?.method === "DELETE" ? json(500, {}) : base(url, init));
+    await openList();
+    fireEvent.click(screen.getAllByTestId("my-children-remove")[1]);
+    fireEvent.click(screen.getByTestId("my-children-confirm-remove"));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("myChildren.remove.failed"));
+    expect(screen.getByTestId("my-children-confirm")).toBeInTheDocument();
+  });
+
+  test("is not offered for the only child: an account always has one", async () => {
+    children = [MAYA];
+    vi.useRealTimers();
+    renderAt("/account-center/children", <MyChildren />);
+    await waitFor(() => expect(screen.getAllByTestId("my-children-status")).toHaveLength(1));
+
+    expect(screen.queryByTestId("my-children-remove")).not.toBeInTheDocument();
+    expect(screen.getByTestId("my-children-edit")).toBeInTheDocument();
   });
 });

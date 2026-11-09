@@ -19,6 +19,9 @@ import { deleteTestUserIfExists, ensureTestUser } from '../helpers/aws';
 import { MULTI_CHILD_USER } from '../helpers/phones';
 
 const SECOND_CHILD = 'Sam Rivera';
+const RENAMED = 'Sam Rivera Lee';
+/** The name e2e/helpers/app.ts's onboarding walker gives the first child. */
+const ONBOARDING_CHILD = 'E2E Test Child';
 const FIXTURE = path.join(__dirname, '../fixtures/synthetic-iep.pdf');
 
 test.afterEach(async () => {
@@ -73,5 +76,25 @@ test('a parent adds a second child and every screen about them says whose IEP it
 
   // The first child's card leads to the first child, not the second.
   const first = cards.filter({ hasNotText: SECOND_CHILD });
-  await expect(first.getByRole('link')).not.toHaveAttribute('href', new RegExp(secondChildId as string));
+  await expect(first.getByRole('link').first()).not.toHaveAttribute('href', new RegExp(secondChildId as string));
+
+  // ---- Edit the second child: only they change ---------------------------
+  await second.getByTestId('my-children-edit').click();
+  await page.waitForURL((url) => url.pathname === '/account-center/children/edit');
+  await expect(page.getByTestId('add-child-name')).toHaveValue(SECOND_CHILD);
+  await page.getByTestId('add-child-name').fill(RENAMED);
+  await page.getByTestId('add-child-save').click();
+  await page.waitForURL((url) => url.pathname === '/account-center/children');
+  await expect(cards).toHaveCount(2);
+  await expect(cards.filter({ hasText: RENAMED })).toHaveCount(1);
+  await expect(cards.filter({ hasText: ONBOARDING_CHILD })).toHaveCount(1);
+
+  // ---- Remove them: asked first, then gone, and the first child stays ----
+  await cards.filter({ hasText: RENAMED }).getByTestId('my-children-remove').click();
+  await expect(page.getByTestId('my-children-confirm')).toContainText(RENAMED);
+  await page.getByTestId('my-children-confirm-remove').click();
+  await expect(cards).toHaveCount(1, { timeout: 30_000 });
+  await expect(cards.first()).toContainText(ONBOARDING_CHILD);
+  // The only child cannot be removed.
+  await expect(page.getByTestId('my-children-remove')).toHaveCount(0);
 });

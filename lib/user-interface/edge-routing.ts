@@ -56,6 +56,7 @@ export const APP_ROUTES = [
   "/account-center/delete-account",
   "/account-center/children",
   "/account-center/children/add",
+  "/account-center/children/edit",
   "/support-center",
   "/view-update-add-child",
   "/rights-and-onboarding",

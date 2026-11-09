@@ -141,14 +141,20 @@ export default function ViewAndAddChild() {
         // read again on the way out of this handler.
         const existingChild = profile?.children?.[0];
         if (existingChild) {
+          // PUT /profile REPLACES the children list with what it is sent, so
+          // every other child goes back unchanged. Sending the first alone
+          // deleted the rest for a parent with more than one child.
           await apiClient.profile.updateProfile({
-            children: [{
-              ...existingChild,
-              name,
-              schoolCity: childSchoolCity,
-              // Keep the existing childId
-              childId: firstChildId
-            }]
+            children: [
+              {
+                ...existingChild,
+                name,
+                schoolCity: childSchoolCity,
+                // Keep the existing childId
+                childId: firstChildId
+              },
+              ...(profile?.children?.slice(1) ?? []),
+            ]
           });
         }
       } else {

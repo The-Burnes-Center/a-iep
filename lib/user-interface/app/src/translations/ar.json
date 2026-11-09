@@ -795,5 +795,21 @@
     "addChild.button": "إضافة",
     "addChild.saving": "جارٍ الحفظ...",
     "addChild.error.saveFailed": "لم نتمكن من إضافة هذا الطفل. تحقّق من اتصالك وحاول مرة أخرى.",
-    "childBar.switchLabel": "التبديل إلى خطة IEP لطفل آخر"
+    "childBar.switchLabel": "التبديل إلى خطة IEP لطفل آخر",
+    "breadcrumb.editChild": "تعديل",
+    "myChildren.edit": "تعديل",
+    "myChildren.editLabel": "تعديل بيانات {name}",
+    "myChildren.remove": "إزالة",
+    "myChildren.removeLabel": "إزالة {name}",
+    "myChildren.remove.confirmTitle": "هل تريد إزالة {name}؟",
+    "myChildren.remove.confirmBody": "سيؤدي هذا إلى حذف خطة IEP والملخص الخاصين بـ {name} من A-IEP نهائيًا. لا يمكن التراجع عن ذلك.",
+    "myChildren.remove.confirm": "إزالة {name}",
+    "myChildren.remove.keep": "الإبقاء على {name}",
+    "myChildren.remove.removing": "جارٍ الإزالة...",
+    "myChildren.remove.failed": "تعذّرت إزالة {name}. تحقّق من اتصالك وحاول مرة أخرى.",
+    "myChildren.removed": "تمت إزالة {name}.",
+    "editChild.title": "تعديل بيانات {name}",
+    "editChild.titleUnnamed": "تعديل بيانات طفلك",
+    "editChild.button": "حفظ التغييرات",
+    "editChild.error.saveFailed": "تعذّر حفظ التغييرات. تحقّق من اتصالك وحاول مرة أخرى."
 }

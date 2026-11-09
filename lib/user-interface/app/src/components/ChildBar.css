@@ -61,3 +61,26 @@
   text-decoration: none;
   white-space: nowrap;
 }
+
+/* The brand stripe along the card's lower edge, as on the invite and
+   My children heroes, so the bar reads as part of the same family of
+   screens rather than a stray widget. */
+.child-bar {
+  position: relative;
+  overflow: hidden;
+}
+
+.child-bar::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 4px;
+  background-image: linear-gradient(
+    to right,
+    var(--aiep-accent-rose) 0 25%,
+    var(--aiep-accent-orange) 25% 50%,
+    var(--aiep-amber) 50% 75%,
+    var(--aiep-accent-blue) 75% 100%
+  );
+}

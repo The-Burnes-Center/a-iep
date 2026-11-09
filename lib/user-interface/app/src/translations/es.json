@@ -795,5 +795,21 @@
     "addChild.button": "Agregar",
     "addChild.saving": "Guardando...",
     "addChild.error.saveFailed": "No pudimos agregar a este hijo/a. Revise su conexión e intente de nuevo.",
-    "childBar.switchLabel": "Cambiar al IEP de otro hijo/a"
+    "childBar.switchLabel": "Cambiar al IEP de otro hijo/a",
+    "breadcrumb.editChild": "EDITAR",
+    "myChildren.edit": "Editar",
+    "myChildren.editLabel": "Editar los datos de {name}",
+    "myChildren.remove": "Quitar",
+    "myChildren.removeLabel": "Quitar a {name}",
+    "myChildren.remove.confirmTitle": "¿Quitar a {name}?",
+    "myChildren.remove.confirmBody": "Esto borra para siempre el IEP y el resumen de {name} de A-IEP. No se puede deshacer.",
+    "myChildren.remove.confirm": "Quitar a {name}",
+    "myChildren.remove.keep": "Conservar a {name}",
+    "myChildren.remove.removing": "Quitando...",
+    "myChildren.remove.failed": "No pudimos quitar a {name}. Revise su conexión e intente de nuevo.",
+    "myChildren.removed": "Se quitó a {name}.",
+    "editChild.title": "Editar los datos de {name}",
+    "editChild.titleUnnamed": "Editar los datos de su hijo/a",
+    "editChild.button": "Guardar cambios",
+    "editChild.error.saveFailed": "No pudimos guardar los cambios. Revise su conexión e intente de nuevo."
 }

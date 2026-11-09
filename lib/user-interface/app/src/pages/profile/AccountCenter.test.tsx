@@ -44,10 +44,10 @@ const HTTP_ENDPOINT = "https://api.example.test/";
 const ACCOUNT_PATH = "/account-center";
 const SIGN_OUT_ROW = "account-center-log-out";
 
-const renderAccountCenter = () => {
+const renderAccountCenter = (enabledFeatures: string[] = ["passwordlessAuth"]) => {
   const appConfig = {
     httpEndpoint: HTTP_ENDPOINT,
-    enabledFeatures: ["passwordlessAuth"],
+    enabledFeatures,
   } as unknown as AppConfig;
   // t() is the identity, so the assertions below never depend on the English
   // wording of a row a parent reads in their own language.
@@ -211,5 +211,31 @@ describe("the Sign Out row in Account Center", () => {
     renderAccountCenter();
     expect(await screen.findByText("sign in form")).toBeInTheDocument();
     expect(exchanged).toBe(false);
+  });
+});
+
+describe("where a parent manages their children", () => {
+  // Signed in the way signInThenTapSignOut does: the rows sit behind ProtectedRoute.
+  beforeEach(() => {
+    persistSessionHandle("sess-valid");
+    Auth.getCurrentUser.mockRejectedValue(new Error("no amplify session"));
+    Auth.fetchAuthSession.mockRejectedValue(new Error("no amplify session"));
+    stubAuthEndpoints();
+  });
+
+  // Two rows that edit the same child read as two different things, so the
+  // list has exactly one, whichever environment this is.
+  test("with multiChild on, My children is the one row, and the single-name row is gone", async () => {
+    renderAccountCenter(["passwordlessAuth", "multiChild"]);
+
+    expect(await screen.findByTestId("account-center-my-children")).toBeInTheDocument();
+    expect(screen.queryByTestId("account-center-child-name")).not.toBeInTheDocument();
+  });
+
+  test("with it off, production's single child-name row is unchanged", async () => {
+    renderAccountCenter();
+
+    expect(await screen.findByTestId("account-center-child-name")).toBeInTheDocument();
+    expect(screen.queryByTestId("account-center-my-children")).not.toBeInTheDocument();
   });
 });

@@ -32,6 +32,7 @@ export const STEP = {
   account: { labelKey: 'breadcrumb.account', to: '/account-center' },
   myChildren: { labelKey: 'breadcrumb.myChildren', to: '/account-center/children' },
   addChild: { labelKey: 'breadcrumb.addChild', to: '/account-center/children/add' },
+  editChild: { labelKey: 'breadcrumb.editChild', to: '/account-center/children/edit' },
   summary: { labelKey: 'breadcrumb.summary', to: '/summary-and-translations' },
   uploadIep: { labelKey: 'breadcrumb.uploadIep', to: '/iep-documents' },
   profile: { labelKey: 'breadcrumb.profile', to: '/profile' },

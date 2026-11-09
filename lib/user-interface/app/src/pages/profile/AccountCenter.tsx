@@ -90,16 +90,13 @@ const AccountCenter: React.FC = () => {
     // The only way back to the child's name once onboarding has asked for it.
     // Without this a parent who mistyped it was stuck with it: the name heads
     // every summary and every translation, and is read aloud.
-    {
-      id: "6",
-      title: t("accountCenter.childName"),
-      testId: "account-center-child-name",
-    },
-    // Every child on the account, and the only way to add another. Gated like
-    // the invite row: this row is the feature's entry point.
+    // One place to manage children. With multiChild on that is My children,
+    // where each child can be edited or removed and another added; without
+    // it, the single child's name, as production has always had it. Never
+    // both: two rows that edit the same child read as two different things.
     ...(isFeatureEnabled('multiChild')
       ? [{ id: "7", title: t("accountCenter.myChildren"), testId: "account-center-my-children" }]
-      : []),
+      : [{ id: "6", title: t("accountCenter.childName"), testId: "account-center-child-name" }]),
     // The only in-app entry point to the referral flow, so this row is what
     // keeps referrals dark where the feature is off (prod). The /invite route
     // itself stays registered, and the ?ref= capture keeps running: neither is

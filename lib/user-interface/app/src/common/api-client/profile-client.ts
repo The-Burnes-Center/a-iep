@@ -66,6 +66,50 @@ export class ProfileClient {
     return response.json();
   }
 
+  /**
+   * Change one child's name or school, touching no other child. PUT /profile
+   * replaces the whole list, so it is the wrong tool once there is more than
+   * one child.
+   */
+  async updateChild(childId: string, changes: { name?: string; schoolCity?: string }): Promise<void> {
+    const auth = await Utils.authenticate();
+    const response = await fetch(`${this.API}/profile/children/${encodeURIComponent(childId)}`, {
+      method: 'PUT',
+      mode: 'cors',
+      headers: {
+        'Authorization': 'Bearer ' + auth,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(changes)
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update child');
+    }
+  }
+
+  /**
+   * Remove one child and permanently delete their IEPs and summaries. The
+   * server refuses to remove the only child, and keeps the child if their
+   * documents could not be deleted, so a failure can always be retried.
+   */
+  async removeChild(childId: string): Promise<void> {
+    const auth = await Utils.authenticate();
+    const response = await fetch(`${this.API}/profile/children/${encodeURIComponent(childId)}`, {
+      method: 'DELETE',
+      mode: 'cors',
+      headers: {
+        'Authorization': 'Bearer ' + auth,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to remove child');
+    }
+  }
+
   async deleteProfile(): Promise<void> {
     const auth = await Utils.authenticate();
     const response = await fetch(`${this.API}/profile`, {

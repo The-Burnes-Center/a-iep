@@ -795,5 +795,21 @@
     "addChild.button": "Add child",
     "addChild.saving": "Saving...",
     "addChild.error.saveFailed": "We couldn't add this child. Check your connection and try again.",
-    "childBar.switchLabel": "Switch to another child's IEP"
+    "childBar.switchLabel": "Switch to another child's IEP",
+    "breadcrumb.editChild": "EDIT",
+    "myChildren.edit": "Edit",
+    "myChildren.editLabel": "Edit {name}'s details",
+    "myChildren.remove": "Remove",
+    "myChildren.removeLabel": "Remove {name}",
+    "myChildren.remove.confirmTitle": "Remove {name}?",
+    "myChildren.remove.confirmBody": "This permanently deletes {name}'s IEP and summary from A-IEP. You can't undo this.",
+    "myChildren.remove.confirm": "Remove {name}",
+    "myChildren.remove.keep": "Keep {name}",
+    "myChildren.remove.removing": "Removing...",
+    "myChildren.remove.failed": "We couldn't remove {name}. Check your connection and try again.",
+    "myChildren.removed": "{name} was removed.",
+    "editChild.title": "Edit {name}'s details",
+    "editChild.titleUnnamed": "Edit your child's details",
+    "editChild.button": "Save changes",
+    "editChild.error.saveFailed": "We couldn't save these changes. Check your connection and try again."
 }

@@ -795,5 +795,21 @@
     "addChild.button": "添加",
     "addChild.saving": "正在保存...",
     "addChild.error.saveFailed": "无法添加此孩子。请检查网络连接后重试。",
-    "childBar.switchLabel": "切换到另一个孩子的IEP"
+    "childBar.switchLabel": "切换到另一个孩子的IEP",
+    "breadcrumb.editChild": "编辑",
+    "myChildren.edit": "编辑",
+    "myChildren.editLabel": "编辑{name}的信息",
+    "myChildren.remove": "移除",
+    "myChildren.removeLabel": "移除{name}",
+    "myChildren.remove.confirmTitle": "要移除{name}吗？",
+    "myChildren.remove.confirmBody": "这将从A-IEP中永久删除{name}的IEP和摘要，且无法撤销。",
+    "myChildren.remove.confirm": "移除{name}",
+    "myChildren.remove.keep": "保留{name}",
+    "myChildren.remove.removing": "正在移除...",
+    "myChildren.remove.failed": "无法移除{name}。请检查网络连接后重试。",
+    "myChildren.removed": "已移除{name}。",
+    "editChild.title": "编辑{name}的信息",
+    "editChild.titleUnnamed": "编辑孩子的信息",
+    "editChild.button": "保存更改",
+    "editChild.error.saveFailed": "无法保存更改。请检查网络连接后重试。"
 }
