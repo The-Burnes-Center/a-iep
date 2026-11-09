@@ -8,33 +8,35 @@ import './ChildBar.css';
 /**
  * Whose IEP this screen is about, for a family with more than one child.
  *
- * A parent switching between children must never have to guess which one a
+ * A parent moving between children must never have to guess which one a
  * summary, a translation or an upload belongs to, so every screen about one
- * child carries this bar: the child's initial and name, where they sit in the
- * family, and a way to switch. Children are told apart by name and initial,
- * not colour.
+ * child carries this: the child's initial and "Maya's IEP", and a way to
+ * switch. The name is the whole message. A count like "Child 2 of 3" was
+ * dropped on purpose: it is the app numbering records, not how a parent
+ * thinks about their own children.
  *
  * Renders nothing for a family with one child or with the multiChild feature
- * off, so those screens are exactly what production shows.
+ * off, so those screens are exactly what production shows. Hidden on the
+ * processing takeover, which carries the name in its own status band.
  */
 const ChildBar: React.FC = () => {
   const { t } = useLanguage();
-  const { child, index, children, isMultiChild } = useActiveChild();
+  const { child, isMultiChild } = useActiveChild();
   if (!isMultiChild || !child) return null;
 
   const name = child.name ?? '';
   return (
     <section className="child-bar" aria-label={t('childBar.region')} data-testid="child-bar">
       <span className="child-bar-initial" aria-hidden="true">{name.trim().charAt(0).toUpperCase()}</span>
-      <span className="child-bar-who">
-        <strong className="child-bar-name" data-testid="child-bar-name">
-          {fillTemplate(t('childBar.whoseIep'), { name })}
-        </strong>
-        <span className="child-bar-position">
-          {fillTemplate(t('childBar.position'), { n: String(index + 1), total: String(children.length) })}
-        </span>
-      </span>
-      <Link className="child-bar-switch" to="/account-center/children" data-testid="child-bar-switch">
+      <strong className="child-bar-name" data-testid="child-bar-name">
+        {fillTemplate(t('childBar.whoseIep'), { name })}
+      </strong>
+      <Link
+        className="btn btn-outline-secondary aiep-button child-bar-switch"
+        to="/account-center/children"
+        aria-label={t('childBar.switchLabel')}
+        data-testid="child-bar-switch"
+      >
         {t('childBar.switch')}
       </Link>
     </section>

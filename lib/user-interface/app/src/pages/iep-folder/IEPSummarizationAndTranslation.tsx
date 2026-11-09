@@ -3,6 +3,7 @@ import { Container, Row, Col, Card, Alert, Button, Accordion, Tabs, Tab, Offcanv
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useNavigate } from 'react-router-dom';
 import { useActiveChild } from '../../common/hooks/use-active-child';
+import { fillTemplate } from '../../common/active-child';
 import { faLanguage, faDownload, faArrowsRotate } from '@fortawesome/free-solid-svg-icons';
 import './IEPSummarizationAndTranslation.css';
 import { IEPDocument, IEPSection } from '../../common/types';
@@ -165,7 +166,10 @@ const IEPSummarizationAndTranslation: React.FC = () => {
   const navigate = useNavigate();
   // Which child this summary is about. SummaryAndTranslationsPage waits for
   // it and remounts this page per child, so it is settled before any fetch.
-  const { childId: activeChildId, pathFor: childPath } = useActiveChild();
+  const { childId: activeChildId, child: activeChild, isMultiChild, pathFor: childPath } = useActiveChild();
+  const processingChildLabel = isMultiChild && activeChild?.name
+    ? fillTemplate(t('childBar.whoseIep'), { name: activeChild.name })
+    : undefined;
   
   // Get preferred language from profile API, fallback to context language, then to 'en'
   const preferredLanguage = profile?.secondaryLanguage || language || 'en';
@@ -1078,6 +1082,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
       {summaryLanguagePicker}
       <ProcessingModal
         error={error}
+        childLabel={processingChildLabel}
         tutorialPhase={tutorialPhase}
         t={t}
         parentRightsSlideData={parentRightsSlideData}
@@ -1105,6 +1110,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
       {summaryLanguagePicker}
       <ProcessingModal
         error={error}
+        childLabel={processingChildLabel}
         tutorialPhase={tutorialPhase}
         t={t}
         parentRightsSlideData={parentRightsSlideData}

@@ -54,7 +54,7 @@ test('a parent adds a second child and every screen about them says whose IEP it
   expect(secondChildId).toBeTruthy();
 
   await expect(page.getByTestId('child-bar-name')).toContainText(SECOND_CHILD);
-  await expect(page.getByTestId('child-bar')).toContainText('Child 2 of 2');
+  await expect(page.getByTestId('child-bar-switch')).toHaveText('Switch');
   await expect(page.getByTestId('upload-child-badge')).toContainText(SECOND_CHILD);
 
   // The last thing read before sending: whose IEP this will be.

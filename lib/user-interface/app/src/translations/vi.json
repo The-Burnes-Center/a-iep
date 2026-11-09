@@ -767,8 +767,7 @@
     "accountCenter.myChildren": "Các con của tôi",
     "childBar.region": "IEP này của ai",
     "childBar.whoseIep": "IEP của {name}",
-    "childBar.position": "Con thứ {n} trong {total}",
-    "childBar.switch": "Đổi con",
+    "childBar.switch": "Đổi",
     "upload.belongsTo": "IEP này là của {name}.",
     "upload.belongsTo.change": "Chọn con khác",
     "upload.buttonForChild": "Tải lên cho {name}",
@@ -795,5 +794,6 @@
     "addChild.school.label": "Học khu (không bắt buộc)",
     "addChild.button": "Thêm con",
     "addChild.saving": "Đang lưu...",
-    "addChild.error.saveFailed": "Chúng tôi không thể thêm con. Hãy kiểm tra kết nối và thử lại."
+    "addChild.error.saveFailed": "Chúng tôi không thể thêm con. Hãy kiểm tra kết nối và thử lại.",
+    "childBar.switchLabel": "Đổi sang IEP của con khác"
 }

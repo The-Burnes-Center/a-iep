@@ -23,6 +23,7 @@ import MyChildren from "./MyChildren";
 import AddChild from "./AddChild";
 import UploadIEPDocument from "../iep-folder/UploadIEPDocument";
 import SummaryAndTranslationsPage from "../iep-folder/SummaryAndTranslationsPage";
+import ProcessingModal from "../../components/ProcessingModal";
 import { childDocumentState } from "./my-children-status";
 
 const Auth = vi.hoisted(() => ({ getCurrentUser: vi.fn(), fetchAuthSession: vi.fn() }));
@@ -138,13 +139,17 @@ describe("what My children says about each IEP", () => {
 });
 
 describe("the child bar", () => {
-  test("names the child the URL is about, and where they sit in the family", async () => {
+  test("names the child the URL is about, and offers the app's own switch button", async () => {
     renderAt("/x?child=c-leo", <ChildBar />);
     await settle();
 
     expect(screen.getByTestId("child-bar-name")).toHaveTextContent("childBar.whoseIep");
-    expect(screen.getByTestId("child-bar")).toHaveTextContent("childBar.position");
-    expect(screen.getByTestId("child-bar-switch")).toHaveAttribute("href", "/account-center/children");
+    const switchLink = screen.getByTestId("child-bar-switch");
+    expect(switchLink).toHaveAttribute("href", "/account-center/children");
+    // The shared outline pill, not a bare text link.
+    expect(switchLink).toHaveClass("btn", "btn-outline-secondary", "aiep-button");
+    // Its accessible name says where it goes, and still contains the visible word.
+    expect(switchLink).toHaveAccessibleName("childBar.switchLabel");
   });
 
   test("is not there for a family with one child, so their screens are prod's", async () => {
@@ -296,5 +301,35 @@ describe("the summary for one of several children", () => {
 
     expect(urls()).toContain(docsUrl(LEO.childId));
     expect(urls()).not.toContain(docsUrl(MAYA.childId));
+  });
+});
+
+describe("the processing screen for one of several children", () => {
+  const renderModal = (childLabel?: string) =>
+    render(
+      <ProcessingModal
+        error={null}
+        childLabel={childLabel}
+        tutorialPhase="completed"
+        t={(key: string) => key}
+        parentRightsSlideData={[]}
+        headerPinkTitle=""
+        headerGreenTitle=""
+        rightsIndicatorTemplate=""
+        progressDocument={{ status: "PROCESSING" } as never}
+        progressStepLabel="step"
+        pollingStopped={false}
+        onCheckAgain={vi.fn()}
+      />,
+    );
+
+  test("says whose IEP is being read, above the headline", () => {
+    renderModal("Leo Lopez's IEP");
+    expect(screen.getByTestId("processing-child")).toHaveTextContent("Leo Lopez's IEP");
+  });
+
+  test("says nothing extra for a family with one child", () => {
+    renderModal(undefined);
+    expect(screen.queryByTestId("processing-child")).not.toBeInTheDocument();
   });
 });

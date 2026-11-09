@@ -767,8 +767,7 @@
     "accountCenter.myChildren": "أطفالي",
     "childBar.region": "لمن هذه الخطة IEP",
     "childBar.whoseIep": "خطة IEP الخاصة بـ {name}",
-    "childBar.position": "الطفل {n} من {total}",
-    "childBar.switch": "تبديل الطفل",
+    "childBar.switch": "تبديل",
     "upload.belongsTo": "هذه الخطة IEP خاصة بـ {name}.",
     "upload.belongsTo.change": "اختر طفلًا آخر",
     "upload.buttonForChild": "رفع لـ {name}",
@@ -795,5 +794,6 @@
     "addChild.school.label": "المنطقة التعليمية (اختياري)",
     "addChild.button": "إضافة",
     "addChild.saving": "جارٍ الحفظ...",
-    "addChild.error.saveFailed": "لم نتمكن من إضافة هذا الطفل. تحقّق من اتصالك وحاول مرة أخرى."
+    "addChild.error.saveFailed": "لم نتمكن من إضافة هذا الطفل. تحقّق من اتصالك وحاول مرة أخرى.",
+    "childBar.switchLabel": "التبديل إلى خطة IEP لطفل آخر"
 }

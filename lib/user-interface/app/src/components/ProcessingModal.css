@@ -38,6 +38,21 @@
 /* The screen's one h1. It was a <p> beside the carousel and an <h3> on the
    final screen; sized here rather than left to Bootstrap's 2.5rem, which
    would shout over a band this small. */
+/* Whose IEP this is, above the headline, for a family with more than one
+   child. The same cream-on-dark-green as the headline; the pill outline is
+   what sets it apart, not a colour. */
+.processing-status-child {
+  align-self: center;
+  margin: 0 0 0.75rem;
+  padding: 0.25rem 0.9rem;
+  border: 1px solid var(--aiep-on-green-muted);
+  border-radius: 20px;
+  color: var(--aiep-cream);
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-align: center;
+}
+
 .processing-status-headline {
   margin: 0;
   text-align: center;

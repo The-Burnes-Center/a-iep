@@ -8,6 +8,13 @@ import './ProcessingModal.css';
 
 interface ProcessingModalProps {
   error: string | null;
+  /**
+   * Whose IEP is being read, already worded ("Maya's IEP"), for a family
+   * with more than one child. This screen takes over the page, so the child
+   * bar the other screens wear is hidden here and the name sits in the
+   * status band instead. Absent for a family with one child.
+   */
+  childLabel?: string;
   tutorialPhase: 'parent-rights' | 'completed';
   t: (key: string) => string;
   parentRightsSlideData: SlideData[];
@@ -43,6 +50,7 @@ interface ProcessingModalProps {
 
 const ProcessingModal: React.FC<ProcessingModalProps> = ({
   error,
+  childLabel,
   tutorialPhase,
   t,
   parentRightsSlideData,
@@ -136,6 +144,9 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
                 {pollingStopped ? stalledNotice : (
                   <>
                     {/* The screen's one h1: the slides below are h2. */}
+                    {childLabel && (
+                      <p className="processing-status-child" data-testid="processing-child">{childLabel}</p>
+                    )}
                     <h1 className="processing-status-headline">
                       {t('summary.processing.hangTight')}
                     </h1>
@@ -169,6 +180,9 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
                           green. */}
                       <AIEPSpinner size="lg" className="aiep-spinner-inverse" />
                     </div>
+                    {childLabel && (
+                      <p className="processing-status-child" data-testid="processing-child">{childLabel}</p>
+                    )}
                     <h1 className="processing-status-headline">
                       {t('summary.processing.hangTight')}
                     </h1>

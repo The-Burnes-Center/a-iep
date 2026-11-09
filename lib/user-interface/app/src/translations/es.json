@@ -767,8 +767,7 @@
     "accountCenter.myChildren": "Mis hijos",
     "childBar.region": "De quién es este IEP",
     "childBar.whoseIep": "IEP de {name}",
-    "childBar.position": "Hijo/a {n} de {total}",
-    "childBar.switch": "Cambiar de hijo/a",
+    "childBar.switch": "Cambiar",
     "upload.belongsTo": "Este IEP es de {name}.",
     "upload.belongsTo.change": "Elegir otro hijo/a",
     "upload.buttonForChild": "Subir para {name}",
@@ -795,5 +794,6 @@
     "addChild.school.label": "Distrito escolar (opcional)",
     "addChild.button": "Agregar",
     "addChild.saving": "Guardando...",
-    "addChild.error.saveFailed": "No pudimos agregar a este hijo/a. Revise su conexión e intente de nuevo."
+    "addChild.error.saveFailed": "No pudimos agregar a este hijo/a. Revise su conexión e intente de nuevo.",
+    "childBar.switchLabel": "Cambiar al IEP de otro hijo/a"
 }

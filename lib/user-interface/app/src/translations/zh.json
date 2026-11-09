@@ -767,8 +767,7 @@
     "accountCenter.myChildren": "我的孩子",
     "childBar.region": "这是谁的IEP",
     "childBar.whoseIep": "{name}的IEP",
-    "childBar.position": "第{n}个孩子，共{total}个",
-    "childBar.switch": "切换孩子",
+    "childBar.switch": "切换",
     "upload.belongsTo": "此IEP属于{name}。",
     "upload.belongsTo.change": "选择其他孩子",
     "upload.buttonForChild": "为{name}上传",
@@ -795,5 +794,6 @@
     "addChild.school.label": "学区（选填）",
     "addChild.button": "添加",
     "addChild.saving": "正在保存...",
-    "addChild.error.saveFailed": "无法添加此孩子。请检查网络连接后重试。"
+    "addChild.error.saveFailed": "无法添加此孩子。请检查网络连接后重试。",
+    "childBar.switchLabel": "切换到另一个孩子的IEP"
 }

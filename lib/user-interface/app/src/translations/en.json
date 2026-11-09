@@ -767,8 +767,7 @@
     "accountCenter.myChildren": "My children",
     "childBar.region": "Whose IEP this is",
     "childBar.whoseIep": "{name}'s IEP",
-    "childBar.position": "Child {n} of {total}",
-    "childBar.switch": "Switch child",
+    "childBar.switch": "Switch",
     "upload.belongsTo": "This IEP belongs to {name}.",
     "upload.belongsTo.change": "Choose a different child",
     "upload.buttonForChild": "Upload for {name}",
@@ -795,5 +794,6 @@
     "addChild.school.label": "School district (optional)",
     "addChild.button": "Add child",
     "addChild.saving": "Saving...",
-    "addChild.error.saveFailed": "We couldn't add this child. Check your connection and try again."
+    "addChild.error.saveFailed": "We couldn't add this child. Check your connection and try again.",
+    "childBar.switchLabel": "Switch to another child's IEP"
 }
