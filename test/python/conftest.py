@@ -157,6 +157,10 @@ def install_agents_sdk_stubs(monkeypatch):
     agents_stub.default_clients = []
     agents_stub.set_default_openai_client = (
         lambda client, use_for_tracing=True: agents_stub.default_clients.append((client, use_for_tracing)))
+    # Every set_tracing_disabled(...) call, in order, so a test can assert
+    # the module turned tracing off at import.
+    agents_stub.tracing_disabled_calls = []
+    agents_stub.set_tracing_disabled = agents_stub.tracing_disabled_calls.append
 
     exceptions_stub = ModuleType('agents.exceptions')
 

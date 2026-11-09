@@ -46,6 +46,7 @@ def _install_import_stubs(monkeypatch):
     agents_stub.ModelSettings = object
     agents_stub.function_tool = lambda *args, **kwargs: (lambda fn: fn)
     agents_stub.set_default_openai_client = lambda client, use_for_tracing=True: None
+    agents_stub.set_tracing_disabled = lambda disabled: None
 
     exceptions_stub = ModuleType('agents.exceptions')
 

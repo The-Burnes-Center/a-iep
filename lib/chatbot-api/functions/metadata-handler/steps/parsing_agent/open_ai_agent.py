@@ -5,7 +5,7 @@ import traceback
 from pydantic import ValidationError
 from data_model import SingleLanguageIEP
 from openai import AsyncOpenAI, OpenAI, Timeout
-from agents import Agent, Runner, function_tool, ModelSettings, set_default_openai_client
+from agents import Agent, Runner, function_tool, ModelSettings, set_default_openai_client, set_tracing_disabled
 from config import get_english_only_prompt, IEP_SECTIONS, SECTION_KEY_POINTS
 from untrusted_text import prepare_page_for_model
 from agents.exceptions import MaxTurnsExceeded
@@ -18,6 +18,15 @@ except ImportError:
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Document text must not stay at OpenAI after a call returns. The Agents SDK
+# defaults work against that twice: tracing is on and exports every prompt and
+# output to the OpenAI Traces dashboard using OPENAI_API_KEY (which the handler
+# puts in the environment), and the Responses API stores each response for 30
+# days unless `store` is False. Both are turned off here, at import, before any
+# Runner call; MODEL_SETTINGS_STORE goes into every Agent's ModelSettings.
+set_tracing_disabled(True)
+MODEL_SETTINGS_STORE = False
 
 
 def _validation_error_summary(e):
@@ -66,7 +75,8 @@ def _use_bounded_openai_client(api_key):
 
     Cached per key: the lambda container is reused, and the SDK keeps whatever
     default client it was last given. Tracing keeps using OPENAI_API_KEY from
-    the environment exactly as before (use_for_tracing=False).
+    the environment (use_for_tracing=False), but tracing is disabled outright
+    above, so nothing is exported with either key.
     """
     global _configured_client_key
     if not api_key or api_key == _configured_client_key:
@@ -229,7 +239,7 @@ class OpenAIAgent:
             name="IEP Document Analyzer",
             model=model,
             instructions=prompt,
-            model_settings=ModelSettings(parallel_tool_calls=True),
+            model_settings=ModelSettings(parallel_tool_calls=True, store=MODEL_SETTINGS_STORE),
             tools=[
                 self.ocr_text_tool, 
                 self.ocr_page_tool,
