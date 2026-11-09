@@ -8,7 +8,8 @@ import {
   ProgressBar,
   ListGroup
 } from 'react-bootstrap';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import UIButton from '../../components/ui/Button';
 import { AppContext } from '../../common/app-context';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { isPlaceholderChildName } from '../../common/features';
@@ -479,7 +480,7 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
                 <p id="upload-belongs-to-text" className="mb-1">
                   {fillTemplate(t('upload.belongsTo'), { name: childName })}
                 </p>
-                <Link to="/account-center/children" className="btn btn-outline-secondary aiep-button upload-belongs-to-change">{t('upload.belongsTo.change')}</Link>
+                <UIButton to="/account-center/children" variant="secondary" className="upload-belongs-to-change">{t('upload.belongsTo.change')}</UIButton>
               </div>
             )}
 

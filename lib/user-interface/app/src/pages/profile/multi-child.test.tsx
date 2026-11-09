@@ -149,7 +149,7 @@ describe("the child bar", () => {
     const switchLink = screen.getByTestId("child-bar-switch");
     expect(switchLink).toHaveAttribute("href", "/account-center/children");
     // The shared outline pill, not a bare text link.
-    expect(switchLink).toHaveClass("btn", "btn-outline-secondary", "aiep-button");
+    expect(switchLink).toHaveClass("ui-button", "ui-button--secondary");
     // Its accessible name says where it goes, and still contains the visible word.
     expect(switchLink).toHaveAccessibleName("childBar.switchLabel");
   });

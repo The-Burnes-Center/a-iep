@@ -1,6 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import { Alert, Button, Form } from 'react-bootstrap';
 import { useQueryClient } from '@tanstack/react-query';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -13,12 +12,13 @@ import { CHILD_QUERY_PARAM, fillTemplate, pathForChild } from '../../common/acti
 import { isPlaceholderChildName } from '../../common/features';
 import { STEP } from '../../common/breadcrumb-steps';
 import Breadcrumbs from '../../components/Breadcrumbs';
-import AIEPSpinner from '../../components/AIEPSpinner';
+import Button from '../../components/ui/Button';
+import { TextField } from '../../components/ui/fields';
+import { Notice } from '../../components/ui/feedback';
 import PageLoading from '../../components/PageLoading';
 import ChildrenHero from './ChildrenHero';
 import './MyChildren.css';
 
-const NAME_ERROR_ID = 'child-form-name-error';
 /** The same limit the API enforces (MAX_SCHOOL_CITY_LENGTH). */
 const SCHOOL_MAX_LENGTH = 100;
 /** What the API stores for a school nobody gave; shown as an empty field. */
@@ -119,51 +119,38 @@ const ChildForm: React.FC<ChildFormProps> = ({ mode }) => {
 
         <div className="my-children-form-card">
           {saveFailed && (
-            <Alert variant="danger">{t(isEdit ? 'editChild.error.saveFailed' : 'addChild.error.saveFailed')}</Alert>
+            <Notice tone="error" title={t(isEdit ? 'editChild.error.saveFailed' : 'addChild.error.saveFailed')} />
           )}
 
-          <Form onSubmit={handleSubmit} noValidate>
-            <Form.Group controlId="childFormName" className="mb-3">
-              <Form.Label>{t('addChild.name.label')}</Form.Label>
-              <Form.Control
-                type="text"
-                value={name}
-                autoComplete="off"
-                maxLength={CHILD_NAME_MAX_LENGTH + 10}
-                aria-required="true"
-                aria-invalid={nameError ? true : undefined}
-                aria-describedby={nameError ? NAME_ERROR_ID : undefined}
-                onChange={(e) => { setName(e.target.value); if (nameError) setNameError(null); }}
-                data-testid="add-child-name"
-              />
-              {nameError && (
-                <div id={NAME_ERROR_ID} className="child-name-error" role="alert">{t(NAME_ERROR_KEY[nameError])}</div>
-              )}
-            </Form.Group>
-
-            <Form.Group controlId="childFormSchool" className="mb-4">
-              <Form.Label>{t('addChild.school.label')}</Form.Label>
-              <Form.Control
-                type="text"
-                value={school}
-                maxLength={SCHOOL_MAX_LENGTH}
-                onChange={(e) => setSchool(e.target.value)}
-                data-testid="add-child-school"
-              />
-            </Form.Group>
-
+          <form className="my-children-form" onSubmit={handleSubmit} noValidate>
+            <TextField
+              id="childFormName"
+              label={t('addChild.name.label')}
+              error={nameError ? t(NAME_ERROR_KEY[nameError]) : null}
+              value={name}
+              autoComplete="off"
+              maxLength={CHILD_NAME_MAX_LENGTH + 10}
+              onChange={(e) => { setName(e.target.value); if (nameError) setNameError(null); }}
+              data-testid="add-child-name"
+            />
+            <TextField
+              id="childFormSchool"
+              label={t('addChild.school.label')}
+              value={school}
+              maxLength={SCHOOL_MAX_LENGTH}
+              onChange={(e) => setSchool(e.target.value)}
+              data-testid="add-child-school"
+            />
             <Button
               type="submit"
-              variant="primary"
-              className="aiep-button my-children-action"
-              disabled={saving}
+              fullWidth
+              busy={saving}
+              busyLabel={t('addChild.saving')}
               data-testid="add-child-save"
             >
-              {saving
-                ? (<><AIEPSpinner size="sm" className="me-2" />{t('addChild.saving')}</>)
-                : t(isEdit ? 'editChild.button' : 'addChild.button')}
+              {t(isEdit ? 'editChild.button' : 'addChild.button')}
             </Button>
-          </Form>
+          </form>
         </div>
       </div>
     </>

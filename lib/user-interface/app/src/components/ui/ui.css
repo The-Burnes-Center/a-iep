@@ -1,0 +1,283 @@
+/* The app's controls (docs/UI_STANDARDS.md). Palette tokens only. These use
+   their own ui-* classes, not Bootstrap's .btn / .form-control, so the global
+   overrides in styles/buttons.css and controls.css cannot reach them. */
+
+/* ---- Button ----------------------------------------------------------------- */
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 48px;
+  min-width: 0;
+  margin: 0;
+  padding: 0.7rem 1.4rem;
+  border: 1px solid transparent;
+  border-radius: 24px;
+  font-family: akzidenz-grotesk-next-conden, sans-serif;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-button {
+    transition: none;
+  }
+}
+
+.ui-button--full {
+  display: flex;
+  width: 100%;
+}
+
+.ui-button:focus-visible {
+  outline: 3px solid var(--aiep-accent-blue);
+  outline-offset: 2px;
+}
+
+.ui-button--primary {
+  background-color: var(--aiep-green);
+  border-color: var(--aiep-green);
+  color: var(--aiep-cream);
+}
+
+.ui-button--primary:hover {
+  background-color: var(--aiep-green-dark);
+  border-color: var(--aiep-green-dark);
+  color: var(--aiep-cream);
+}
+
+.ui-button--secondary {
+  background-color: var(--aiep-cream);
+  border-color: var(--aiep-border);
+  color: var(--aiep-ink);
+}
+
+.ui-button--secondary:hover {
+  background-color: var(--aiep-surface-field);
+  color: var(--aiep-ink);
+}
+
+.ui-button--danger {
+  background-color: var(--aiep-error);
+  border-color: var(--aiep-error);
+  color: var(--aiep-cream);
+}
+
+.ui-button--danger:hover {
+  background-color: var(--aiep-alert-danger-fg);
+  border-color: var(--aiep-alert-danger-fg);
+  color: var(--aiep-cream);
+}
+
+.ui-button--text {
+  background-color: transparent;
+  color: var(--aiep-green);
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+.ui-button--text:hover {
+  background-color: var(--aiep-surface-field);
+  color: var(--aiep-green-dark);
+}
+
+/* Disabled looks inactive on purpose (WCAG exempts it); the reason is stated
+   in text beside it, per the standard. */
+.ui-button:disabled,
+.ui-button[aria-disabled="true"] {
+  cursor: not-allowed;
+  background-color: var(--aiep-cream);
+  border-color: var(--aiep-disabled-border);
+  color: var(--aiep-disabled-text);
+}
+
+.ui-button[aria-busy="true"] {
+  cursor: progress;
+}
+
+.ui-button-icon {
+  display: inline-flex;
+}
+
+/* ---- Fields ----------------------------------------------------------------- */
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.ui-field-label {
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--aiep-ink);
+}
+
+.ui-field-optional {
+  font-weight: 400;
+  color: var(--aiep-muted);
+}
+
+.ui-field-hint {
+  margin: 0;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--aiep-muted);
+}
+
+.ui-field-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  margin: 0;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--aiep-error);
+}
+
+.ui-input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0.65rem 0.875rem;
+  border: 1px solid var(--aiep-border);
+  border-radius: 8px;
+  background-color: var(--aiep-surface-white);
+  color: var(--aiep-ink);
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 1rem;
+}
+
+.ui-input::placeholder {
+  color: var(--aiep-muted);
+  opacity: 1;
+}
+
+.ui-input:focus-visible {
+  outline: 3px solid var(--aiep-accent-blue);
+  outline-offset: 1px;
+}
+
+.ui-field--error .ui-input {
+  border: 2px solid var(--aiep-error);
+}
+
+/* The error edge GOV.UK uses: a bar down the field group's start side. */
+.ui-field--error {
+  padding-inline-start: 0.875rem;
+  border-inline-start: 4px solid var(--aiep-error);
+}
+
+/* ---- Checkbox ---------------------------------------------------------------- */
+.ui-check {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.ui-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-height: 44px;
+  padding: 0.6rem 0.875rem;
+  border: 1px solid var(--aiep-border);
+  border-radius: 12px;
+  background-color: var(--aiep-surface-white);
+  cursor: pointer;
+}
+
+.ui-check-input {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  accent-color: var(--aiep-green);
+  cursor: pointer;
+}
+
+.ui-check-input:focus-visible {
+  outline: 3px solid var(--aiep-accent-blue);
+  outline-offset: 2px;
+}
+
+.ui-check-label {
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 1.05rem;
+  line-height: 1.4;
+  color: var(--aiep-ink);
+}
+
+.ui-check-hint {
+  padding-inline-start: 0.875rem;
+}
+
+/* ---- Status tag --------------------------------------------------------------- */
+.ui-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 14px;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 0.875rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ui-tag--ready { background-color: var(--aiep-alert-success-bg); color: var(--aiep-alert-success-fg); }
+.ui-tag--working { background-color: var(--aiep-alert-info-bg); color: var(--aiep-alert-info-fg); }
+.ui-tag--problem { background-color: var(--aiep-alert-danger-bg); color: var(--aiep-alert-danger-fg); }
+.ui-tag--neutral { background-color: var(--aiep-surface-sunk); color: var(--aiep-ink); }
+
+/* ---- Notice --------------------------------------------------------------------- */
+.ui-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem 1.125rem;
+  border-radius: 12px;
+  border-inline-start: 4px solid currentColor;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+}
+
+.ui-notice--info { background-color: var(--aiep-alert-info-bg); color: var(--aiep-alert-info-fg); }
+.ui-notice--success { background-color: var(--aiep-alert-success-bg); color: var(--aiep-alert-success-fg); }
+.ui-notice--warning { background-color: var(--aiep-surface-sunk); color: var(--aiep-ink); }
+.ui-notice--error { background-color: var(--aiep-alert-danger-bg); color: var(--aiep-alert-danger-fg); }
+
+.ui-notice-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  margin-top: 0.1rem;
+}
+
+.ui-notice-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.ui-notice-title {
+  margin: 0;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.ui-notice-text {
+  line-height: 1.5;
+}
+
+.ui-notice-text p {
+  margin: 0;
+}

@@ -242,3 +242,9 @@
   font-size: 0.95rem;
   margin-top: 0.5rem;
 }
+
+.my-children-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import Button from './ui/Button';
 import { useLanguage } from '../common/language-context';
 import { useActiveChild } from '../common/hooks/use-active-child';
 import { fillTemplate } from '../common/active-child';
@@ -31,14 +31,15 @@ const ChildBar: React.FC = () => {
       <strong className="child-bar-name" data-testid="child-bar-name">
         {fillTemplate(t('childBar.whoseIep'), { name })}
       </strong>
-      <Link
-        className="btn btn-outline-secondary aiep-button child-bar-switch"
+      <Button
+        variant="secondary"
+        className="child-bar-switch"
         to="/account-center/children"
         aria-label={t('childBar.switchLabel')}
         data-testid="child-bar-switch"
       >
         {t('childBar.switch')}
-      </Link>
+      </Button>
     </section>
   );
 };

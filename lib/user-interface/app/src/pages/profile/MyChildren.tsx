@@ -1,8 +1,10 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
-import { Link, Navigate } from 'react-router-dom';
-import { Alert, Button } from 'react-bootstrap';
+import { Navigate } from 'react-router-dom';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
-import { IconAlertTriangle, IconCircleCheck, IconCircleDashed, IconClock, IconPlus } from '@tabler/icons-react';
+import { IconPlus } from '@tabler/icons-react';
+import { Link } from 'react-router-dom';
+import Button from '../../components/ui/Button';
+import { Notice, StatusTag, StatusTone } from '../../components/ui/feedback';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
@@ -15,19 +17,18 @@ import { isPlaceholderChildName } from '../../common/features';
 import { STEP } from '../../common/breadcrumb-steps';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import PageLoading from '../../components/PageLoading';
-import AIEPSpinner from '../../components/AIEPSpinner';
 import { Child } from '../../common/types';
 import ChildrenHero from './ChildrenHero';
 import { ChildDocumentState, MAX_CHILDREN, childDocumentState } from './my-children-status';
 import './MyChildren.css';
 
-/** Status in words and an icon, never colour alone. */
-const STATUS_ICON: Record<ChildDocumentState, React.ReactNode> = {
-  ready: <IconCircleCheck size={18} stroke={2} aria-hidden="true" />,
-  reading: <IconClock size={18} stroke={2} aria-hidden="true" />,
-  failed: <IconAlertTriangle size={18} stroke={2} aria-hidden="true" />,
-  none: <IconCircleDashed size={18} stroke={2} aria-hidden="true" />,
-  unknown: <IconAlertTriangle size={18} stroke={2} aria-hidden="true" />,
+/** Each document state as one of the shared status tones (words + icon). */
+const STATUS_TONE: Record<ChildDocumentState, StatusTone> = {
+  ready: 'ready',
+  reading: 'working',
+  failed: 'problem',
+  none: 'neutral',
+  unknown: 'problem',
 };
 
 /**
@@ -102,7 +103,7 @@ const MyChildren: React.FC = () => {
 
         <div className="visually-hidden" role="status" aria-live="polite">{announcement}</div>
         {failedName && (
-          <Alert variant="danger" className="mb-0">{fillTemplate(t('myChildren.remove.failed'), { name: failedName })}</Alert>
+          <Notice tone="error" title={fillTemplate(t('myChildren.remove.failed'), { name: failedName })} />
         )}
 
         <ul className="my-children-list">
@@ -124,12 +125,11 @@ const MyChildren: React.FC = () => {
                     )}
                   </span>
                   {query?.isLoading ? (
-                    <span className="my-children-status is-checking">{t('common.loading')}</span>
+                    <StatusTag tone="working">{t('common.loading')}</StatusTag>
                   ) : (
-                    <span className={`my-children-status is-${state}`} data-testid="my-children-status">
-                      {STATUS_ICON[state]}
+                    <StatusTag tone={STATUS_TONE[state]} data-testid="my-children-status">
                       {t(`myChildren.status.${state}`)}
-                    </span>
+                    </StatusTag>
                   )}
                 </div>
 
@@ -145,17 +145,17 @@ const MyChildren: React.FC = () => {
                     <p className="my-children-confirm-body">{fillTemplate(t('myChildren.remove.confirmBody'), { name })}</p>
                     <div className="my-children-confirm-actions">
                       <Button
-                        ref={confirmButtonRef}
-                        className="aiep-button my-children-confirm-remove"
+                        ref={confirmButtonRef as React.Ref<HTMLButtonElement>}
+                        variant="danger"
                         onClick={() => removeChild(child)}
-                        disabled={isRemoving}
+                        busy={isRemoving}
+                        busyLabel={t('myChildren.remove.removing')}
                         data-testid="my-children-confirm-remove"
                       >
-                        {isRemoving ? (<><AIEPSpinner size="sm" className="me-2" />{t('myChildren.remove.removing')}</>) : fillTemplate(t('myChildren.remove.confirm'), { name })}
+                        {fillTemplate(t('myChildren.remove.confirm'), { name })}
                       </Button>
                       <Button
-                        variant="outline-secondary"
-                        className="aiep-button my-children-confirm-keep"
+                        variant="secondary"
                         onClick={() => setConfirmingId(null)}
                         disabled={isRemoving}
                       >
@@ -165,18 +165,18 @@ const MyChildren: React.FC = () => {
                   </div>
                 ) : (
                   <div className="my-children-manage">
-                    <Link
+                    <Button
+                      variant="secondary"
                       to={`/account-center/children/edit?child=${encodeURIComponent(child.childId ?? '')}`}
-                      className="btn btn-outline-secondary aiep-button my-children-manage-button"
                       aria-label={fillTemplate(t('myChildren.editLabel'), { name })}
                       data-testid="my-children-edit"
                     >
                       {t('myChildren.edit')}
-                    </Link>
+                    </Button>
                     {canRemove && (
                       <Button
-                        variant="outline-secondary"
-                        className="aiep-button my-children-manage-button my-children-remove"
+                        variant="secondary"
+                        className="my-children-remove"
                         aria-label={fillTemplate(t('myChildren.removeLabel'), { name })}
                         onClick={() => { setFailedName(null); setConfirmingId(child.childId ?? null); }}
                         data-testid="my-children-remove"
@@ -197,7 +197,7 @@ const MyChildren: React.FC = () => {
             {t('myChildren.add')}
           </Link>
         ) : (
-          <Alert variant="info" className="mb-0">{t('myChildren.limit')}</Alert>
+          <Notice tone="info" title={t('myChildren.limit')} />
         )}
       </div>
     </>
@@ -215,31 +215,29 @@ interface CardActionProps {
 const CardAction: React.FC<CardActionProps> = ({ state, name, childPath, onRetry }) => {
   const { t } = useLanguage();
   const action = (key: string) => fillTemplate(t(key), { name });
-  const primary = 'btn btn-primary aiep-button my-children-action';
-  const secondary = 'btn btn-outline-secondary aiep-button my-children-action';
 
   switch (state) {
     case 'ready':
-      return <Link className={primary} to={childPath('/summary-and-translations')}>{action('myChildren.action.view')}</Link>;
+      return <Button fullWidth to={childPath('/summary-and-translations')}>{action('myChildren.action.view')}</Button>;
     case 'reading':
       return (
         <>
           <p className="my-children-hint">{t('myChildren.reading.hint')}</p>
-          <Link className={secondary} to={childPath('/summary-and-translations')}>{action('myChildren.action.progress')}</Link>
+          <Button fullWidth variant="secondary" to={childPath('/summary-and-translations')}>{action('myChildren.action.progress')}</Button>
         </>
       );
     case 'failed':
       return (
         <>
           <p className="my-children-hint">{t('myChildren.failed.hint')}</p>
-          <Link className={primary} to={childPath('/iep-documents')}>{action('myChildren.action.uploadAgain')}</Link>
+          <Button fullWidth to={childPath('/iep-documents')}>{action('myChildren.action.uploadAgain')}</Button>
         </>
       );
     case 'none':
-      return <Link className={primary} to={childPath('/iep-documents')}>{action('myChildren.action.upload')}</Link>;
+      return <Button fullWidth to={childPath('/iep-documents')}>{action('myChildren.action.upload')}</Button>;
     default:
       return (
-        <Button variant="outline-secondary" className="aiep-button my-children-action" onClick={onRetry}>
+        <Button fullWidth variant="secondary" onClick={onRetry}>
           {t('myChildren.action.retry')}
         </Button>
       );
