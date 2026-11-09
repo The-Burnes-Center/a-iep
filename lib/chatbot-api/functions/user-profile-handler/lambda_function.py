@@ -1625,6 +1625,147 @@ def _report_deletion_incomplete(scope: str, survived: List[str],
           f"{detail} survived={','.join(sorted(set(survived)))}")
 
 
+def _purge_child_documents(user_id: str, child_id: str) -> List[str]:
+    """Remove a child's S3 files, document rows and profile reference.
+
+    The core of DELETE /profile/children/{childId}/documents, shared with
+    DELETE /profile/children/{childId}, which must not remove the child while
+    any of its documents are still stored. The caller has already checked that
+    the child belongs to user_id.
+
+    Returns the kinds of thing that survived, empty on success. A fault in S3,
+    DynamoDB or the profile is caught into that list, not raised, so the caller
+    decides what to tell the parent.
+    """
+    # Delete all IEP-related data
+    # Initialize clients
+    s3 = _aws_client('s3')
+    bucket_name = os.environ.get('BUCKET', '')
+    survived: List[str] = []
+
+    # Order: S3 objects first, then the rows that point at them, then
+    # the profile reference. Every pointer outlives what it points at,
+    # so a retry can still find whatever survived. Each step is
+    # idempotent (a deleted object is simply not listed the second
+    # time, DeleteItem succeeds on a row already gone, and the profile
+    # update is a rewrite of the same list), so a retry after a
+    # partial failure converges instead of compounding.
+
+    # 1. First delete files from S3
+    try:
+        # Create the S3 key prefix for this child (all objects under userId/childId/)
+        prefix = f"{user_id}/{child_id}/"
+
+        print(f"Listing S3 objects with prefix: {prefix} in bucket: {bucket_name}")
+
+        objects_deleted = _delete_prefix(s3, bucket_name, prefix)
+
+        print(f"Deleted {objects_deleted} S3 objects for childId: {child_id}")
+
+    except Exception as s3_error:
+        print(f"Error deleting S3 objects: {str(s3_error)}")
+        # Continue with the other steps: one stuck object must not
+        # leave the rows and the profile reference behind too.
+        survived.append('raw-uploads')
+
+    # 2. Delete records from IEP documents table
+    try:
+        # Query documents by childId
+        documents = _query_all_documents(
+            'byChildId', 'childId = :childId', {':childId': child_id})
+
+        documents_deleted = 0
+
+        # Delete each document record that belongs to this user.
+        # Strict ownership: require an explicit userId match.
+        for doc in documents:
+            if doc.get('userId') == user_id:
+                # Summary content and cached TTS audio, before the row
+                # that points at them.
+                try:
+                    _delete_document_artifacts(s3, bucket_name, doc)
+                except Exception as artifact_error:
+                    print(f"Error deleting S3 artifacts for {doc.get('iepId')}: {str(artifact_error)}")
+                    # Keep the row. contentS3Reference is the only
+                    # pointer to what survived, so dropping it here
+                    # would strand the summary and the audio where
+                    # only an ops sweep could reach them, and a retry
+                    # would report a clean deletion over the top.
+                    survived.extend(['derived-artifacts', 'document-rows'])
+                    continue
+
+                # Check for document_index field before deletion
+                if 'document_index' in doc:
+                    print(f"Deleting document with document_index field: {doc['iepId']}")
+
+                try:
+                    iep_documents_table.delete_item(
+                        Key={
+                            'iepId': doc['iepId'],
+                            'childId': doc['childId']
+                        }
+                    )
+                except Exception as row_error:
+                    print(f"Error deleting IEP document record {doc.get('iepId')}: {str(row_error)}")
+                    survived.append('document-rows')
+                    continue
+
+                print(f"Deleted IEP document record with iepId: {doc['iepId']} for childId: {child_id}")
+                documents_deleted += 1
+
+        print(f"Deleted {documents_deleted} IEP document records for childId: {child_id}")
+
+    except Exception as ddb_error:
+        print(f"Error deleting document records: {str(ddb_error)}")
+        survived.append('document-rows')
+
+    # 3. Update the user profile to remove any IEP document references for this child
+    try:
+        # First get the current user profile
+        user_profile_response = user_profiles_table.get_item(
+            Key={'userId': user_id}
+        )
+
+        if 'Item' in user_profile_response:
+            user_profile = user_profile_response['Item']
+            updated_profile = False
+
+            # Check if there are children in the profile
+            if 'children' in user_profile and isinstance(user_profile['children'], list):
+                children = user_profile['children']
+
+                # Find the child and remove any IEP document references
+                for i, child in enumerate(children):
+                    if child.get('childId') == child_id:
+                        # Remove any IEP document data if present
+                        if 'iepDocument' in child:
+                            del children[i]['iepDocument']
+                            updated_profile = True
+                            print(f"Removed IEP document reference from child {child_id} in user profile")
+
+                # Update the profile if changes were made
+                if updated_profile:
+                    times = get_timestamps()
+                    user_profiles_table.update_item(
+                        Key={'userId': user_id},
+                        UpdateExpression='SET #children = :children, updatedAt = :updatedAt, updatedAtISO = :updatedAtISO',
+                        ExpressionAttributeNames={'#children': 'children'},
+                        ExpressionAttributeValues={
+                            ':children': children,
+                            ':updatedAt': times['timestamp'],
+                            ':updatedAtISO': times['datetime']
+                        }
+                    )
+                    print(f"Updated user profile to remove IEP document references")
+
+    except Exception as profile_error:
+        print(f"Error updating user profile: {str(profile_error)}")
+        # Left behind: a child still pointing at documents that are gone.
+        survived.append('profile-reference')
+
+    return survived
+
+
 def delete_child_documents(event: Dict) -> Dict:
     """
     Delete all IEP-related data for a specific child.
@@ -1661,131 +1802,8 @@ def delete_child_documents(event: Dict) -> Dict:
             print(f"Access denied: user {user_id} does not own child {child_id}")
             return not_found(event)
 
-        # Delete all IEP-related data
-        # Initialize clients
-        s3 = _aws_client('s3')
-        bucket_name = os.environ.get('BUCKET', '')
-        survived: List[str] = []
-
-        # Order: S3 objects first, then the rows that point at them, then
-        # the profile reference. Every pointer outlives what it points at,
-        # so a retry can still find whatever survived. Each step is
-        # idempotent (a deleted object is simply not listed the second
-        # time, DeleteItem succeeds on a row already gone, and the profile
-        # update is a rewrite of the same list), so a retry after a
-        # partial failure converges instead of compounding.
-
-        # 1. First delete files from S3
-        try:
-            # Create the S3 key prefix for this child (all objects under userId/childId/)
-            prefix = f"{user_id}/{child_id}/"
-
-            print(f"Listing S3 objects with prefix: {prefix} in bucket: {bucket_name}")
-
-            objects_deleted = _delete_prefix(s3, bucket_name, prefix)
-
-            print(f"Deleted {objects_deleted} S3 objects for childId: {child_id}")
-
-        except Exception as s3_error:
-            print(f"Error deleting S3 objects: {str(s3_error)}")
-            # Continue with the other steps: one stuck object must not
-            # leave the rows and the profile reference behind too.
-            survived.append('raw-uploads')
-
-        # 2. Delete records from IEP documents table
-        try:
-            # Query documents by childId
-            documents = _query_all_documents(
-                'byChildId', 'childId = :childId', {':childId': child_id})
-
-            documents_deleted = 0
-
-            # Delete each document record that belongs to this user.
-            # Strict ownership: require an explicit userId match.
-            for doc in documents:
-                if doc.get('userId') == user_id:
-                    # Summary content and cached TTS audio, before the row
-                    # that points at them.
-                    try:
-                        _delete_document_artifacts(s3, bucket_name, doc)
-                    except Exception as artifact_error:
-                        print(f"Error deleting S3 artifacts for {doc.get('iepId')}: {str(artifact_error)}")
-                        # Keep the row. contentS3Reference is the only
-                        # pointer to what survived, so dropping it here
-                        # would strand the summary and the audio where
-                        # only an ops sweep could reach them, and a retry
-                        # would report a clean deletion over the top.
-                        survived.extend(['derived-artifacts', 'document-rows'])
-                        continue
-
-                    # Check for document_index field before deletion
-                    if 'document_index' in doc:
-                        print(f"Deleting document with document_index field: {doc['iepId']}")
-
-                    try:
-                        iep_documents_table.delete_item(
-                            Key={
-                                'iepId': doc['iepId'],
-                                'childId': doc['childId']
-                            }
-                        )
-                    except Exception as row_error:
-                        print(f"Error deleting IEP document record {doc.get('iepId')}: {str(row_error)}")
-                        survived.append('document-rows')
-                        continue
-
-                    print(f"Deleted IEP document record with iepId: {doc['iepId']} for childId: {child_id}")
-                    documents_deleted += 1
-
-            print(f"Deleted {documents_deleted} IEP document records for childId: {child_id}")
-
-        except Exception as ddb_error:
-            print(f"Error deleting document records: {str(ddb_error)}")
-            survived.append('document-rows')
-
-        # 3. Update the user profile to remove any IEP document references for this child
-        try:
-            # First get the current user profile
-            user_profile_response = user_profiles_table.get_item(
-                Key={'userId': user_id}
-            )
-                
-            if 'Item' in user_profile_response:
-                user_profile = user_profile_response['Item']
-                updated_profile = False
-                    
-                # Check if there are children in the profile
-                if 'children' in user_profile and isinstance(user_profile['children'], list):
-                    children = user_profile['children']
-                        
-                    # Find the child and remove any IEP document references
-                    for i, child in enumerate(children):
-                        if child.get('childId') == child_id:
-                            # Remove any IEP document data if present
-                            if 'iepDocument' in child:
-                                del children[i]['iepDocument']
-                                updated_profile = True
-                                print(f"Removed IEP document reference from child {child_id} in user profile")
-                        
-                    # Update the profile if changes were made
-                    if updated_profile:
-                        times = get_timestamps()
-                        user_profiles_table.update_item(
-                            Key={'userId': user_id},
-                            UpdateExpression='SET #children = :children, updatedAt = :updatedAt, updatedAtISO = :updatedAtISO',
-                            ExpressionAttributeNames={'#children': 'children'},
-                            ExpressionAttributeValues={
-                                ':children': children,
-                                ':updatedAt': times['timestamp'],
-                                ':updatedAtISO': times['datetime']
-                            }
-                        )
-                        print(f"Updated user profile to remove IEP document references")
-                
-        except Exception as profile_error:
-            print(f"Error updating user profile: {str(profile_error)}")
-            # Left behind: a child still pointing at documents that are gone.
-            survived.append('profile-reference')
+        # Delete all IEP-related data: files, rows, then the profile reference.
+        survived = _purge_child_documents(user_id, child_id)
 
         if survived:
             _report_deletion_incomplete('child-documents', survived, True,
@@ -1804,6 +1822,212 @@ def delete_child_documents(event: Dict) -> Dict:
     except Exception as e:
         print(f"Error in delete_child_documents: {str(e)}")
         return create_response(event, 500, {'message': 'Could not delete the documents. Please try again later.'})
+
+def _child_index(profile: Optional[Dict], child_id: str) -> Optional[int]:
+    """Position of the child with this childId in the profile's list, or None.
+
+    An index reaches one list element for an UpdateItem. It is only safe with
+    a ConditionExpression on that element's childId: a removal or reorder that
+    lands between the read and the write shifts every index after it.
+    """
+    children = (profile or {}).get('children')
+    if not child_id or not isinstance(children, list):
+        return None
+    for index, child in enumerate(children):
+        if isinstance(child, dict) and child.get('childId') == child_id:
+            return index
+    return None
+
+
+def update_child(event: Dict) -> Dict:
+    """
+    Rename one child, or change their school city. Touches only that child.
+
+    The whole children list is never sent back: the write names the one list
+    element by index and is conditioned on that element still holding the
+    childId it was read with, so a concurrent change returns 409 rather than
+    editing a different child.
+
+    Body: {name?, schoolCity?}, at least one. Validated with add_child's rules.
+    Unknown fields are ignored, as add_child ignores them.
+
+    Args:
+        event (Dict): API Gateway event object containing user context, childId and body
+
+    Returns:
+        Dict: 200 with the updated child (name decrypted, as GET /profile shows it),
+        or a logged 400, 404, 409 or 503
+    """
+    try:
+        user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
+        child_id = event['pathParameters']['childId']
+        try:
+            body = json.loads(event['body']) if event.get('body') else {}
+        except (TypeError, ValueError):
+            return bad_request(event, 'update_child', user_id,
+                               'body is not valid JSON', 'Invalid JSON body')
+        if not isinstance(body, dict):
+            return bad_request(event, 'update_child', user_id, 'body is not a JSON object',
+                               'Invalid JSON body: expected a JSON object')
+        if 'name' not in body and 'schoolCity' not in body:
+            return bad_request(event, 'update_child', user_id, 'no updatable fields in the body',
+                               'No fields to update provided')
+        if 'schoolCity' in body:
+            if not isinstance(body['schoolCity'], str):
+                return bad_request(event, 'update_child', user_id, 'schoolCity is not a string',
+                                   'schoolCity must be text')
+            if len(body['schoolCity'].strip()) > MAX_SCHOOL_CITY_LENGTH:
+                return bad_request(event, 'update_child', user_id, _SCHOOL_CITY_TOO_LONG_LOG,
+                                   _SCHOOL_CITY_TOO_LONG_MESSAGE)
+        if 'name' in body:
+            reason = validate_child_name(body['name'])
+            if reason:
+                return reject_child_name(event, 'update_child', user_id, reason)
+
+        times = get_timestamps()
+        try:
+            profile = user_profiles_table.get_item(
+                Key={'userId': user_id}, ConsistentRead=True).get('Item')
+        except AWS_FAULTS as e:
+            return service_unavailable(event, 'update_child ownership check', e)
+        index = _child_index(profile, child_id)
+        if index is None:
+            print(f"Access denied: user {user_id} does not own child {child_id}")
+            return not_found(event)
+
+        # The child as the parent will see it: the name in plaintext, whether
+        # it is being changed now or was stored earlier.
+        shown = {**profile['children'][index],
+                 'updatedAt': times['timestamp'], 'updatedAtISO': times['datetime']}
+        names = {'#children': 'children'}
+        values = {':updatedAt': times['timestamp'], ':updatedAtISO': times['datetime']}
+        assignments = [f'#children[{index}].updatedAt = :updatedAt',
+                       f'#children[{index}].updatedAtISO = :updatedAtISO',
+                       'updatedAt = :updatedAt', 'updatedAtISO = :updatedAtISO']
+        if 'name' in body:
+            # Encrypted exactly as add_child stores it. A failed encrypt raises
+            # FieldEncryptionError and becomes a 503 below, never a plaintext write.
+            name = normalize_child_name(body['name'])
+            names['#name'] = 'name'
+            values[':name'] = kms_encrypt_string(name)
+            assignments.append(f'#children[{index}].#name = :name')
+            shown['name'] = name
+        else:
+            try:
+                _decrypt_profile_fields({'children': [shown]})
+            except KmsUnavailable as e:
+                return service_unavailable(event, 'update_child decrypt', e)
+        if 'schoolCity' in body:
+            values[':schoolCity'] = body['schoolCity']
+            assignments.append(f'#children[{index}].schoolCity = :schoolCity')
+            shown['schoolCity'] = body['schoolCity']
+
+        try:
+            user_profiles_table.update_item(
+                Key={'userId': user_id},
+                UpdateExpression='SET ' + ', '.join(assignments),
+                ConditionExpression=f'#children[{index}].childId = :childId',
+                ExpressionAttributeNames=names,
+                ExpressionAttributeValues={**values, ':childId': child_id},
+            )
+        except ClientError as e:
+            if e.response.get('Error', {}).get('Code') != 'ConditionalCheckFailedException':
+                return service_unavailable(event, 'update_child write', e)
+            print(f"Rejecting update_child for userId {user_id}: the child moved or changed after it was read")
+            return create_response(event, 409, {
+                'message': 'This child was changed by another update. Please reload and try again.'
+            })
+
+        return create_response(event, 200, {'child': shown})
+
+    except FieldEncryptionError as e:
+        print(f"Refusing to update child due to field encryption failure: {str(e)}")
+        return create_response(event, 503, {
+            'message': 'Could not update the child right now: encryption service error. Please try again later.'
+        })
+    except Exception as e:
+        print(f"Error in update_child: {str(e)}")
+        return create_response(event, 500, {'message': 'Could not update the child. Please try again later.'})
+
+
+def delete_child(event: Dict) -> Dict:
+    """
+    Remove one child from the profile, together with everything stored for it.
+
+    Order matters. The child's documents are purged first, through the same
+    path as DELETE /profile/children/{childId}/documents. If anything survives,
+    the child is kept and the parent gets a 500 to retry, so a child is never
+    removed while its documents are still stored. Only then is the list element
+    removed, conditioned on its childId.
+
+    The profile keeps at least one child: the app attaches documents to a child,
+    so the last one cannot be removed (400, nothing deleted).
+
+    Args:
+        event (Dict): API Gateway event object containing user context and childId
+
+    Returns:
+        Dict: 200 {message, childId}, or a logged 400, 404, 409, 500 or 503
+    """
+    try:
+        user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
+        child_id = event['pathParameters']['childId']
+
+        print(f"Processing request to delete child {child_id} by userId: {user_id}")
+
+        try:
+            profile = user_profiles_table.get_item(
+                Key={'userId': user_id}, ConsistentRead=True).get('Item')
+        except AWS_FAULTS as e:
+            return service_unavailable(event, 'delete_child ownership check', e)
+        index = _child_index(profile, child_id)
+        if index is None:
+            print(f"Access denied: user {user_id} does not own child {child_id}")
+            return not_found(event)
+        if len(profile['children']) <= 1:
+            return bad_request(event, 'delete_child', user_id,
+                               'the only child on the profile cannot be removed',
+                               'Cannot remove the only child')
+
+        survived = _purge_child_documents(user_id, child_id)
+        if survived:
+            _report_deletion_incomplete('child-documents', survived, True,
+                                        user=user_id, child=child_id)
+            return create_response(event, 500, {
+                'message': 'Could not delete the child. Please try again later.',
+                'childId': child_id
+            })
+
+        times = get_timestamps()
+        try:
+            # The size guard keeps the last child: if a concurrent removal left
+            # one child, this write refuses rather than emptying the list.
+            user_profiles_table.update_item(
+                Key={'userId': user_id},
+                UpdateExpression=f'REMOVE #children[{index}] SET updatedAt = :updatedAt, updatedAtISO = :updatedAtISO',
+                ConditionExpression=f'#children[{index}].childId = :childId AND size(#children) > :one',
+                ExpressionAttributeNames={'#children': 'children'},
+                ExpressionAttributeValues={
+                    ':childId': child_id,
+                    ':one': 1,
+                    ':updatedAt': times['timestamp'],
+                    ':updatedAtISO': times['datetime'],
+                },
+            )
+        except ClientError as e:
+            if e.response.get('Error', {}).get('Code') != 'ConditionalCheckFailedException':
+                return service_unavailable(event, 'delete_child remove', e)
+            print(f"Rejecting delete_child for userId {user_id}: the child moved or the profile changed after it was read")
+            return create_response(event, 409, {
+                'message': 'The profile changed while the child was being removed. Please reload and try again.'
+            })
+
+        return create_response(event, 200, {'message': 'Child removed', 'childId': child_id})
+
+    except Exception as e:
+        print(f"Error in delete_child: {str(e)}")
+        return create_response(event, 500, {'message': 'Could not remove the child. Please try again later.'})
+
 
 def delete_user_profile(event: Dict) -> Dict:
     """

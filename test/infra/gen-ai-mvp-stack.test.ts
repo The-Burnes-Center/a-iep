@@ -2693,6 +2693,27 @@ describe('pending-upload sweep', () => {
   });
 });
 
+describe('per-child profile routes', () => {
+  // WHY: these two routes change and delete one child on a parent's profile.
+  // A route wired without the JWT authorizer would let anyone rename or remove
+  // a child by id, so each is pinned by name together with its authorizer, the
+  // same way the translations route is below.
+  const CHILD_ROUTES = [
+    'PUT /profile/children/{childId}',
+    'DELETE /profile/children/{childId}',
+  ];
+
+  test.each(CHILD_ROUTES)('%s exists and carries the JWT authorizer', (routeKey) => {
+    const routes = Object.values(template.findResources('AWS::ApiGatewayV2::Route'))
+      .map((route: any) => route.Properties)
+      .filter((p: any) => p.RouteKey === routeKey);
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0].AuthorizationType).toBe('JWT');
+    expect(routes[0].AuthorizerId).toBeDefined();
+  });
+});
+
 describe('on-demand single-language translation', () => {
   const TRANSLATIONS_ROUTE =
     'POST /profile/children/{childId}/documents/{iepId}/translations';

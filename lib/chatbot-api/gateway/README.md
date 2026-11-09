@@ -26,6 +26,7 @@ The following endpoints are configured in the main ChatBotApi stack:
 - `/signed-url-knowledge` (POST): Generate presigned URLs for S3 uploads
 - `/profile` (GET, PUT, DELETE): User profile management and deletion
 - `/profile/children` (POST): Add children to user profiles
+- `/profile/children/{childId}` (PUT, DELETE): Rename or re-city one child; remove a child with its documents
 - `/profile/children/{childId}/documents` (GET, DELETE): Manage child documents
 
 `/documents/{iepId}/status` (GET), `/summary` (POST), `/s3-knowledge-bucket-data`

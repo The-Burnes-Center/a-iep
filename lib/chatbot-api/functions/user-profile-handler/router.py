@@ -71,6 +71,16 @@ class UserProfileRouter:
         from lambda_function import add_child
         return add_child(event)
     
+    @route('/profile/children/{childId}', 'PUT')
+    def update_child(self, event: Dict) -> Dict:
+        from lambda_function import update_child
+        return update_child(event)
+
+    @route('/profile/children/{childId}', 'DELETE')
+    def delete_child(self, event: Dict) -> Dict:
+        from lambda_function import delete_child
+        return delete_child(event)
+    
     @route('/profile/children/{childId}/documents', 'GET')
     def get_child_documents(self, event: Dict) -> Dict:
         from lambda_function import get_child_documents

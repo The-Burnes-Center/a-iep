@@ -1961,6 +1961,8 @@ def test_every_route_is_still_registered(api):
     assert routes == {
         ('/profile', 'GET'), ('/profile', 'PUT'), ('/profile', 'DELETE'),
         ('/profile/children', 'POST'),
+        ('/profile/children/{childId}', 'PUT'),
+        ('/profile/children/{childId}', 'DELETE'),
         ('/profile/children/{childId}/documents', 'GET'),
         ('/profile/children/{childId}/documents', 'DELETE'),
     }
@@ -2659,3 +2661,331 @@ def test_the_fallback_is_the_newest_readable_document_older_than_the_in_flight_o
 
     assert body['iepId'] == 'iep-b'
     assert body['replacement']['iepId'] == 'iep-c'
+
+
+# ---------------------------------------------------------------------------
+# PUT /profile/children/{childId}: one child, and only that child
+#
+# The write names one list element by index and is conditioned on its childId,
+# so these pin three things: the other children come back byte-identical, the
+# same validation as add_child applies, and a list that moved under the request
+# answers 409 rather than editing a different child.
+
+THREE_CHILDREN = [('child-a', 'Anna', 'Boston'),
+                  ('child-b', 'Ben', 'Cambridge'),
+                  ('child-c', 'Cara', 'Somerville')]
+
+
+def seed_children(api, children=THREE_CHILDREN, user=USER):
+    """Write children the way add_child stores them: names encrypted at rest."""
+    api.profiles.put_item(Item={'userId': user, 'children': [
+        {'childId': child_id, 'name': encrypt(api, name), 'schoolCity': city,
+         'createdAt': 1000 + i, 'createdAtISO': '2026-01-01T00:00:00Z',
+         'updatedAt': 1000 + i, 'updatedAtISO': '2026-01-01T00:00:00Z'}
+        for i, (child_id, name, city) in enumerate(children)
+    ]})
+
+
+def decrypt(api, blob):
+    return api.kms.decrypt(CiphertextBlob=base64.b64decode(blob))['Plaintext'].decode()
+
+
+def test_rename_changes_only_that_child(api):
+    seed_children(api)
+    before = stored_profile(api)['children']
+
+    status, body = call(api, '/profile/children/child-b', 'PUT', body={'name': 'benjamin'})
+
+    assert status == 200
+    after = stored_profile(api)['children']
+    assert after[0] == before[0], 'a child that was not named changed'
+    assert after[2] == before[2], 'a child that was not named changed'
+    assert after[1]['childId'] == 'child-b'
+    assert after[1]['schoolCity'] == 'Cambridge'
+    assert after[1]['createdAt'] == before[1]['createdAt']
+    assert after[1]['createdAtISO'] == before[1]['createdAtISO']
+    assert after[1]['updatedAt'] != before[1]['updatedAt']
+    assert decrypt(api, after[1]['name']) == 'Benjamin'  # normalised as add_child does
+    assert body['child']['name'] == 'Benjamin'
+
+
+def test_rename_stores_the_name_encrypted(api):
+    seed_children(api)
+    status, _ = call(api, '/profile/children/child-b', 'PUT', body={'name': 'Benjamin'})
+    assert status == 200
+    stored = stored_profile(api)['children'][1]['name']
+    assert stored != 'Benjamin'  # ciphertext at rest
+    assert decrypt(api, stored) == 'Benjamin'
+
+
+def test_school_city_only_leaves_the_name_as_it_was(api):
+    seed_children(api)
+    before = stored_profile(api)['children'][1]
+
+    status, body = call(api, '/profile/children/child-b', 'PUT', body={'schoolCity': 'Newton'})
+
+    assert status == 200
+    after = stored_profile(api)['children'][1]
+    assert after['name'] == before['name']  # same ciphertext, not re-encrypted
+    assert after['schoolCity'] == 'Newton'
+    assert body['child']['name'] == 'Ben'
+
+
+@pytest.mark.parametrize('city, status', [('x' * 100, 200), ('x' * 101, 400)])
+def test_school_city_boundary(api, city, status):
+    seed_children(api)
+    before = stored_profile(api)['children']
+
+    code, _ = call(api, '/profile/children/child-b', 'PUT', body={'schoolCity': city})
+
+    assert code == status
+    if status == 400:
+        assert stored_profile(api)['children'] == before
+
+
+def test_school_city_over_the_limit_is_logged_without_the_value(api, capsys):
+    seed_children(api)
+    capsys.readouterr()
+    call(api, '/profile/children/child-b', 'PUT', body={'schoolCity': 'Q' * 101})
+    out = capsys.readouterr().out
+    assert f'schoolCity longer than {api.module.MAX_SCHOOL_CITY_LENGTH} characters' in out
+    assert 'QQQQ' not in out
+
+
+def test_school_city_that_is_not_text_is_refused(api):
+    seed_children(api)
+    before = stored_profile(api)['children']
+    assert call(api, '/profile/children/child-b', 'PUT', body={'schoolCity': 42})[0] == 400
+    assert stored_profile(api)['children'] == before
+
+
+@pytest.mark.parametrize('name', ['', '   ', '123', '!!!', '.', 'x' * 65])
+def test_rename_with_an_invalid_name_is_refused_and_logged(api, name, capsys):
+    seed_children(api)
+    before = stored_profile(api)['children']
+    capsys.readouterr()
+
+    status, body = call(api, '/profile/children/child-b', 'PUT', body={'name': name})
+
+    assert status == 400
+    assert stored_profile(api)['children'] == before
+    assert 'Rejecting update_child' in capsys.readouterr().out
+    assert not name.strip() or name.strip() not in json.dumps(body), 'the value was echoed back'
+
+
+@pytest.mark.parametrize('child_id', ['child-z', 'their-child'])
+def test_rename_of_a_child_not_on_the_callers_profile_is_a_logged_404(api, child_id, capsys):
+    seed_children(api)
+    profile_with_child(api, child_id='their-child', user=OTHER_USER)
+    mine = stored_profile(api)
+    theirs = stored_profile(api, user=OTHER_USER)
+    capsys.readouterr()
+
+    status, body = call(api, f'/profile/children/{child_id}', 'PUT', body={'name': 'Mallory'})
+
+    assert status == 404
+    assert body == {'message': 'Not found'}
+    assert stored_profile(api) == mine
+    assert stored_profile(api, user=OTHER_USER) == theirs
+    assert 'does not own child' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('body', [{}, {'childId': 'child-b'}, []])
+def test_rename_needs_a_name_or_a_school_city(api, body):
+    seed_children(api)
+    before = stored_profile(api)['children']
+    status, _ = call(api, '/profile/children/child-b', 'PUT', body=body)
+    assert status == 400
+    assert stored_profile(api)['children'] == before
+
+
+def test_rename_with_no_body_at_all_is_a_400(api):
+    seed_children(api)
+    before = stored_profile(api)['children']
+    assert call(api, '/profile/children/child-b', 'PUT')[0] == 400
+    assert stored_profile(api)['children'] == before
+
+
+def test_rename_with_malformed_json_is_a_client_error(api):
+    seed_children(api)
+    before = stored_profile(api)['children']
+    status, body = call_raw_body(api, '/profile/children/child-b', 'PUT', '{"name": ')
+    assert status == 400
+    assert 'Invalid JSON' in body['message']
+    assert stored_profile(api)['children'] == before
+
+
+def test_rename_of_a_list_that_moved_is_a_409_and_edits_nobody(api, monkeypatch, capsys):
+    """The index read is stale: child-a now sits where child-b was read.
+
+    Without the childId condition, the write would rename child-a. With it,
+    nothing changes and the parent is told to reload.
+    """
+    seed_children(api)
+    before = stored_profile(api)['children']
+    monkeypatch.setattr(api.module, '_child_index', lambda profile, child_id: 0)
+    capsys.readouterr()
+
+    status, body = call(api, '/profile/children/child-b', 'PUT', body={'name': 'Benjamin'})
+
+    assert status == 409
+    assert 'reload' in body['message']
+    assert stored_profile(api)['children'] == before
+    assert 'Rejecting update_child' in capsys.readouterr().out
+
+
+def test_rename_kms_outage_returns_503_not_plaintext(api, monkeypatch):
+    seed_children(api)
+    before = stored_profile(api)['children']
+    monkeypatch.setattr(api.module, 'kms_key_alias', 'alias/does-not-exist')
+
+    status, _ = call(api, '/profile/children/child-b', 'PUT', body={'name': 'Benjamin'})
+
+    assert status == 503
+    assert stored_profile(api)['children'] == before
+
+
+# ---------------------------------------------------------------------------
+# DELETE /profile/children/{childId}
+#
+# Documents first, through the same purge as the documents route. A child whose
+# purge did not finish stays on the profile, so the parent can retry. The last
+# child cannot go.
+
+def seed_two_children_with_documents(api):
+    seed_children(api, [('child-1', 'Kid One', 'Boston'), ('child-2', 'Kid Two', 'Cambridge')])
+    put_document(api, iep_id='iep-1', child_id='child-1', content={'summaries': {'en': 'One'}})
+    put_document(api, iep_id='iep-2', child_id='child-2', content={'summaries': {'en': 'Two'}})
+    put_audio(api, iep_id='iep-2', child_id='child-2')
+    api.s3.put_object(Bucket=BUCKET, Key=f'{USER}/child-1/iep-1/one.pdf', Body=b'pdf')
+    api.s3.put_object(Bucket=BUCKET, Key=f'{USER}/child-2/iep-2/two.pdf', Body=b'pdf')
+
+
+def document_exists(api, iep_id, child_id):
+    return api.documents.get_item(
+        Key={'iepId': iep_id, 'childId': child_id}).get('Item') is not None
+
+
+def test_remove_child_removes_that_child_and_its_documents_only(api):
+    seed_two_children_with_documents(api)
+    kept = stored_profile(api)['children'][0]
+
+    status, body = call(api, '/profile/children/child-2', 'DELETE')
+
+    assert status == 200
+    assert body == {'message': 'Child removed', 'childId': 'child-2'}
+    assert stored_profile(api)['children'] == [kept]
+    assert not document_exists(api, 'iep-2', 'child-2')
+    assert document_exists(api, 'iep-1', 'child-1')
+    for key in (f'{USER}/child-2/iep-2/two.pdf',
+                'iep-data/iep-2/child-2/content.json',
+                'iep-audio/iep-2/child-2/en/summary-deadbeef.mp3'):
+        assert key_exists(api, key) is False, key
+    assert key_exists(api, f'{USER}/child-1/iep-1/one.pdf') is True
+    assert key_exists(api, 'iep-data/iep-1/child-1/content.json') is True
+
+
+def test_remove_child_leaves_no_retrievable_version_of_its_files(api):
+    seed_two_children_with_documents(api)
+    assert call(api, '/profile/children/child-2', 'DELETE')[0] == 200
+    leftover = {key for key in retrievable_versions(api.s3, BUCKET)
+                if '/child-2/' in key}
+    assert leftover == set()
+
+
+def test_the_only_child_cannot_be_removed_and_nothing_is_deleted(api, capsys):
+    seed_children(api, [('child-1', 'Kid One', 'Boston')])
+    put_document(api, iep_id='iep-1', child_id='child-1', content={'summaries': {'en': 'One'}})
+    api.s3.put_object(Bucket=BUCKET, Key=f'{USER}/child-1/iep-1/one.pdf', Body=b'pdf')
+    before = stored_profile(api)
+    capsys.readouterr()
+
+    status, body = call(api, '/profile/children/child-1', 'DELETE')
+
+    assert status == 400
+    assert body['message'] == 'Cannot remove the only child'
+    assert stored_profile(api) == before
+    assert document_exists(api, 'iep-1', 'child-1')
+    assert key_exists(api, f'{USER}/child-1/iep-1/one.pdf') is True
+    assert 'cannot be removed' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('child_id', ['child-z', 'their-child'])
+def test_remove_of_a_child_not_on_the_callers_profile_is_a_logged_404(api, child_id, capsys):
+    seed_two_children_with_documents(api)
+    profile_with_child(api, child_id='their-child', user=OTHER_USER)
+    mine = stored_profile(api)
+    theirs = stored_profile(api, user=OTHER_USER)
+    capsys.readouterr()
+
+    assert call(api, f'/profile/children/{child_id}', 'DELETE')[0] == 404
+
+    assert stored_profile(api) == mine
+    assert stored_profile(api, user=OTHER_USER) == theirs
+    assert document_exists(api, 'iep-2', 'child-2')
+    assert 'does not own child' in capsys.readouterr().out
+
+
+def test_a_child_whose_documents_survive_is_kept_for_a_retry(api, monkeypatch, capsys):
+    seed_two_children_with_documents(api)
+    before = stored_profile(api)['children']
+    failing_prefix_sweep(api, monkeypatch, f'{USER}/')
+    capsys.readouterr()
+
+    status, body = call(api, '/profile/children/child-2', 'DELETE')
+
+    assert status == 500
+    assert 'InternalError' not in json.dumps(body), 'internals leaked to the caller'
+    assert stored_profile(api)['children'] == before, 'child removed with documents stored'
+    assert key_exists(api, f'{USER}/child-2/iep-2/two.pdf') is True, 'test proves nothing'
+    marker = [line for line in capsys.readouterr().out.splitlines()
+              if line.startswith('DELETION_INCOMPLETE')]
+    assert marker and 'scope=child-documents' in marker[0] and 'child=child-2' in marker[0]
+
+
+def test_a_child_is_kept_when_the_purge_itself_raises(api, monkeypatch):
+    seed_two_children_with_documents(api)
+    before = stored_profile(api)['children']
+
+    def boom(user_id, child_id):
+        raise RuntimeError('bucket name and key detail')
+    monkeypatch.setattr(api.module, '_purge_child_documents', boom)
+
+    status, body = call(api, '/profile/children/child-2', 'DELETE')
+
+    assert status == 500
+    assert 'bucket' not in json.dumps(body)
+    assert stored_profile(api)['children'] == before
+
+
+def test_remove_after_a_retry_converges(api, monkeypatch):
+    seed_two_children_with_documents(api)
+    real = failing_prefix_sweep(api, monkeypatch, f'{USER}/')
+    assert call(api, '/profile/children/child-2', 'DELETE')[0] == 500
+
+    monkeypatch.setattr(api.module, '_delete_prefix', real)
+    assert call(api, '/profile/children/child-2', 'DELETE')[0] == 200
+
+    assert [c['childId'] for c in stored_profile(api)['children']] == ['child-1']
+    assert key_exists(api, f'{USER}/child-2/iep-2/two.pdf') is False
+
+
+def test_remove_of_a_list_that_moved_is_a_409_and_removes_nobody(api, monkeypatch, capsys):
+    seed_two_children_with_documents(api)
+    before = stored_profile(api)['children']
+    monkeypatch.setattr(api.module, '_child_index', lambda profile, child_id: 0)
+    capsys.readouterr()
+
+    status, _ = call(api, '/profile/children/child-2', 'DELETE')
+
+    assert status == 409
+    assert stored_profile(api)['children'] == before
+    assert 'Rejecting delete_child' in capsys.readouterr().out
+
+
+def test_delete_child_and_delete_documents_do_not_collide_in_routing(api):
+    router = api.module._router
+    assert router.resolve('/profile/children/child-2', 'DELETE')[0] == '/profile/children/{childId}'
+    assert router.resolve('/profile/children/child-2', 'PUT')[0] == '/profile/children/{childId}'
+    assert router.resolve('/profile/children/child-2/documents', 'DELETE')[0] == \
+        '/profile/children/{childId}/documents'
