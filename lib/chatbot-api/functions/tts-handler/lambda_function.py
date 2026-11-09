@@ -25,7 +25,7 @@ from providers import (
     TTSProviderNotConfigured,
     TTSProviderUnavailable,
 )
-from student_name_substitution import replacement_for, substitute_text, usable_student_name
+from student_name_substitution import NEUTRAL_CHILD_PHRASES, DEFAULT_LANGUAGE, substitute_text
 from text_utils import markdown_to_text
 
 dynamodb = boto3.resource('dynamodb')
@@ -36,12 +36,6 @@ BUCKET = os.environ.get('BUCKET', '')
 # instead of a cold-start crash that the API answers with a bare 502.
 user_profiles_table = dynamodb.Table(USER_PROFILES_TABLE_NAME)
 iep_documents_table = dynamodb.Table(IEP_DOCUMENTS_TABLE_NAME)
-
-# Child names are CMK-encrypted in the profile; this reads one per request so
-# the voice says the name rather than the placeholder stored in its place.
-kms_client = boto3.client(
-    'kms', region_name=os.environ.get('AWS_REGION',
-                                      os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')))
 
 # SigV4 is required for presigned URLs on KMS-encrypted objects
 s3_client = boto3.client('s3', config=Config(signature_version='s3v4'))
@@ -104,46 +98,17 @@ def _user_owns_child(user_id, child_id):
     )
 
 
-def _decrypt_profile_field(value):
-    """Decrypt a KMS-encrypted profile field, or hand back what was stored.
+def _spoken_child_phrase(language):
+    """What the child is called in audio: "your child", in the language spoken.
 
-    Same contract as kms_decrypt_string in user-profile-handler, which is what
-    wrote the value: child names became CMK-encrypted when the name was made
-    mandatory, and rows written before that are still plaintext. Falling
-    through on a decrypt failure is what keeps those legacy rows readable, and
-    usable_student_name's length guard is what stops a ciphertext that fell
-    through from being spelled out loud as the child's name.
+    Never the child's name. The text read aloud goes to a third-party speech
+    provider, which keeps what it is sent on any plan short of an enterprise
+    zero-retention agreement, and a child's name beside their IEP is exactly
+    what must not sit in a vendor's logs. The summary on screen still shows
+    the name; only the audio says "your child". So this lambda no longer reads
+    or decrypts the name at all.
     """
-    if not isinstance(value, str) or not value:
-        return value
-    try:
-        blob = base64.b64decode(value)
-    except Exception:
-        return value  # not base64, so it was never encrypted
-    try:
-        return kms_client.decrypt(CiphertextBlob=blob)['Plaintext'].decode('utf-8')
-    except Exception as e:
-        # Class name only, and no value: this argument is a child's name.
-        print(f"Profile field decrypt failed: {type(e).__name__}")
-        return value
-
-
-def _child_name(user_id, child_id):
-    """The child's name from the profile, decrypted, or None.
-
-    None is a complete answer rather than a failure: replacement_for falls
-    back to the neutral phrase for the language being spoken. Nothing here
-    raises. A parent who hears "your child" instead of a name still gets their
-    summary read aloud, which is worth more than a failed request.
-    """
-    try:
-        profile = user_profiles_table.get_item(Key={'userId': user_id}).get('Item') or {}
-        for child in profile.get('children') or []:
-            if isinstance(child, dict) and child.get('childId') == child_id:
-                return usable_student_name(_decrypt_profile_field(child.get('name')))
-    except Exception as e:
-        print(f"Could not read the child's name for speech: {type(e).__name__}")
-    return None
+    return NEUTRAL_CHILD_PHRASES.get(language, NEUTRAL_CHILD_PHRASES[DEFAULT_LANGUAGE])
 
 
 def _slugify(name):
@@ -294,14 +259,13 @@ def _spoken_text(doc, iep_id, child_id, user_id, fields):
     markdown = _resolve_text(content, fields['language'], fields['target'], fields['section_name'])
 
     # Stored content calls the child {{S}} and keeps doing so. Substituting
-    # here, before markdown_to_text and before the cache key is derived from
-    # the text, is what keeps the provider from reading a placeholder aloud
-    # and what makes a corrected name miss the cache instead of replaying the
-    # old one. Never raises: a placeholder spoken is better than a 500.
+    # here, before markdown_to_text, is what keeps the provider from reading a
+    # placeholder aloud. The replacement is "your child", never the name (see
+    # _spoken_child_phrase). Never raises: a placeholder spoken is better than
+    # a 500.
     if markdown:
         try:
-            markdown, substituted = substitute_text(
-                markdown, replacement_for(_child_name(user_id, child_id), fields['language']))
+            markdown, substituted = substitute_text(markdown, _spoken_child_phrase(fields['language']))
             print(f"Substituted the student token in {substituted} place(s) before synthesis")
         except Exception as e:
             print(f"Student name substitution failed: {type(e).__name__}")

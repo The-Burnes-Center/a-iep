@@ -312,23 +312,31 @@ def spoken(tts):
     return tts.provider.synth_calls[-1][0]
 
 
-def test_the_provider_is_given_the_childs_name_never_the_placeholder(tts):
+# The child's name never goes to the speech provider: the audio says "your
+# child" in the language spoken, and the summary on screen keeps the name.
+# These used to pin the opposite (the name substituted into the spoken text);
+# that was reversed on purpose, because a non-enterprise ElevenLabs plan keeps
+# what it is sent and offers no zero-retention switch.
+
+def test_the_provider_is_never_given_the_childs_name(tts):
     seed_named_document(tts, encrypted(CHILD_NAME))
 
     assert call(tts)[0] == 200
 
-    assert spoken(tts) == 'Jordan Smith progresa.'
+    assert spoken(tts) == 'su hijo o hija progresa.'
+    assert CHILD_NAME not in spoken(tts)
+    assert 'Jordan' not in spoken(tts)
     assert '{{S}}' not in spoken(tts)
 
 
-def test_a_section_read_aloud_is_substituted_too(tts):
+def test_a_section_read_aloud_says_your_child_too(tts):
     seed_named_document(tts, encrypted(CHILD_NAME))
 
     status, _ = call(tts, body={'childId': 'child-1', 'language': 'en',
                                 'target': 'section', 'sectionName': 'Goals'})
 
     assert status == 200
-    assert spoken(tts) == 'Reading goals for Jordan Smith.'
+    assert spoken(tts) == 'Reading goals for your child.'
 
 
 def test_the_stored_content_object_is_left_exactly_as_it_was(tts):
@@ -343,51 +351,29 @@ def test_the_stored_content_object_is_left_exactly_as_it_was(tts):
 
 
 @pytest.mark.parametrize('stored_name', ['', 'My Child'])
-def test_no_usable_name_is_spoken_as_the_neutral_phrase(tts, stored_name):
+def test_a_profile_with_no_name_is_spoken_the_same_way(tts, stored_name):
     seed_named_document(tts, stored_name)
 
     assert call(tts)[0] == 200
 
     assert spoken(tts) == 'su hijo o hija progresa.'
-    assert '{{S}}' not in spoken(tts)
 
 
-def test_a_kms_failure_is_spoken_as_the_neutral_phrase_not_a_blob(tts, monkeypatch):
-    """_decrypt_profile_field hands back the ciphertext when a decrypt fails.
-    Reading base64 aloud for a minute and a half is worse than saying "su hijo
-    o hija", and failing the request is worse than both."""
-    ciphertext = encrypted(CHILD_NAME)
-    seed_named_document(tts, ciphertext)
-
-    def denied(**kwargs):
-        raise RuntimeError('AccessDeniedException')
-    monkeypatch.setattr(tts.module.kms_client, 'decrypt', denied)
-
-    status, _ = call(tts)
-
-    assert status == 200
-    assert spoken(tts) == 'su hijo o hija progresa.'
-    assert ciphertext[:24] not in spoken(tts)
-
-
-def test_a_profile_read_failure_is_spoken_as_the_neutral_phrase(tts, monkeypatch):
-    """The ownership check reads the profile first and must still succeed; it
-    is the second read, the one for the name, that fails here."""
+def test_the_name_is_never_even_read(tts, monkeypatch):
+    """The ownership check is the only profile read. A second one would be
+    this lambda fetching the name again, which is the thing it must not do."""
     seed_named_document(tts, encrypted(CHILD_NAME))
     real_get_item = tts.module.user_profiles_table.get_item
-    calls = []
+    reads = []
 
-    def flaky(**kwargs):
-        calls.append(kwargs)
-        if len(calls) > 1:
-            raise RuntimeError('ProvisionedThroughputExceededException')
+    def counting(**kwargs):
+        reads.append(kwargs)
         return real_get_item(**kwargs)
-    monkeypatch.setattr(tts.module.user_profiles_table, 'get_item', flaky)
+    monkeypatch.setattr(tts.module.user_profiles_table, 'get_item', counting)
 
-    status, _ = call(tts)
-
-    assert status == 200
-    assert spoken(tts) == 'su hijo o hija progresa.'
+    assert call(tts)[0] == 200
+    assert len(reads) == 1
+    assert not hasattr(tts.module, 'kms_client')
 
 
 @pytest.mark.parametrize('mangled', ['{{ S }}', '{ {S} }', '{S}', '{{s}}', '｛｛S｝｝'])
@@ -397,17 +383,14 @@ def test_a_token_a_translation_reformatted_is_never_read_aloud(tts, mangled):
 
     assert call(tts)[0] == 200
 
-    assert spoken(tts) == 'Jordan Smith progresa.'
+    assert spoken(tts) == 'su hijo o hija progresa.'
 
 
-def test_a_corrected_name_does_not_replay_the_old_audio(tts):
-    """The cache key is a hash of the text handed to the provider, and the
-    name is in that text by then, so a corrected name misses the cache instead
-    of playing the misspelling back. This is what the substitution ordering
-    buys: put it after the hash and the parent hears the old name forever."""
+def test_renaming_a_child_costs_no_new_synthesis(tts):
+    """The audio no longer depends on the name, so correcting it replays the
+    clip already made instead of paying for the same words again."""
     seed_named_document(tts, encrypted('Jorden Smith'))
-    assert call(tts)[0] == 200
-    assert spoken(tts) == 'Jorden Smith progresa.'
+    assert call(tts)[1]['cached'] is False
 
     tts.profiles.put_item(Item={
         'userId': USER,
@@ -416,14 +399,11 @@ def test_a_corrected_name_does_not_replay_the_old_audio(tts):
     status, body = call(tts)
 
     assert status == 200
-    assert body['cached'] is False
-    assert len(tts.provider.synth_calls) == 2
-    assert spoken(tts) == 'Jordan Smith progresa.'
+    assert body['cached'] is True
+    assert len(tts.provider.synth_calls) == 1
 
 
-def test_the_same_name_twice_still_hits_the_cache(tts):
-    """The corrected-name miss above must not have cost every repeat play a
-    paid synthesis."""
+def test_the_same_request_twice_hits_the_cache(tts):
     seed_named_document(tts, encrypted(CHILD_NAME))
 
     assert call(tts)[1]['cached'] is False
