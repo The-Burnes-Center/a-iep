@@ -130,9 +130,14 @@ export interface UploadIEPDocumentProps {
   onUploadComplete: () => void;
   /** Unused since both branches it chose between went to the same summary. */
   hasExistingDocument: boolean;
+  /**
+   * The heading and size limit. Off on the upload page, whose hero carries
+   * both: two titles saying the same thing is one too many.
+   */
+  showTitle?: boolean;
 }
 
-const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete }) => {
+const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete, showTitle = true }) => {
   const appContext = useContext(AppContext);
   const apiClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
@@ -356,10 +361,12 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete 
               <span>{childName}</span>
             </p>
           )}
-          <h2 className="upload-iep-title">{t('upload.title')}</h2>
-          <p>
-          {t('upload.maxSize')}
-          </p>
+          {showTitle && (
+            <>
+              <h2 className="upload-iep-title">{t('upload.title')}</h2>
+              <p>{t('upload.maxSize')}</p>
+            </>
+          )}
           
           {globalError && (
             <Alert variant="danger">{globalError}</Alert>

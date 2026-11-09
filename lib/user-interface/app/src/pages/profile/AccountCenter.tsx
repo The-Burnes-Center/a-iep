@@ -1,12 +1,14 @@
 import React from 'react';
 import { useAuth } from '../../common/auth-provider';
 import { useNavigate } from 'react-router-dom';
-import { Container, Row, Col, Card, Accordion } from 'react-bootstrap';
+import { Accordion } from 'react-bootstrap';
 import PageLoading from '../../components/PageLoading';
 import { useLanguage } from '../../common/language-context';
 import { useAdminIdentity } from '../../common/helpers/use-admin-identity';
 import { useFeatures } from '../../common/hooks/use-features';
 import { IconArrowRight, IconLogout } from '@tabler/icons-react';
+import PageShell from '../../components/page/PageShell';
+import PageHero from '../../components/page/PageHero';
 import './AccountCenter.css';
 
 const AccountCenter: React.FC = () => {
@@ -129,45 +131,40 @@ const AccountCenter: React.FC = () => {
     }
   ];
 
+  // Delete and Log out sit in their own quiet card under the everyday rows:
+  // deleting is irreversible, and a mistap from the row above it cost a
+  // parent their documents once.
+  const QUIET_ROWS = new Set(['2', '4']);
+  const renderRows = (rows: typeof headers) =>
+    rows.map((header) => (
+      <Accordion.Item key={header.id} eventKey={header.id}>
+        <Accordion.Header
+          data-testid={header.testId}
+          onClick={() => handleAccordionClick(header.id)}
+          style={{ cursor: 'pointer' }}
+        >
+          <span className="accordion-title-content">
+            {header.title}
+            {header.id === '4' ? (
+              <IconLogout size={18} stroke={2} className="accordion-icon logout-icon" />
+            ) : (
+              <IconArrowRight size={18} stroke={2} className="accordion-icon arrow-icon" />
+            )}
+          </span>
+        </Accordion.Header>
+      </Accordion.Item>
+    ));
+
   return (
-    <>
-      <Container className="account-center-container mt-3 mb-3">
-        <Row className="mt-2">
-          <Col>
-            <Card className="account-center-card">
-              <Row className="g-0">
-                <Col md={12} className="no-padding-inherit-faq">
-                  <>
-                    <h4 className="account-center-header mt-4 px-4">{t("accountCenter.title")}</h4>
-                    {/* Add some text to this page about what the account center does */}
-                    <Accordion className="account-center-accordion">
-                      {headers.map((header) => (
-                        <Accordion.Item key={header.id} eventKey={header.id}>
-                          <Accordion.Header
-                            data-testid={header.testId}
-                            onClick={() => handleAccordionClick(header.id)}
-                            style={{ cursor: 'pointer' }}
-                          >
-                            <span className="accordion-title-content">
-                              {header.title}
-                              {header.id === '4' ? (
-                                <IconLogout size={18} stroke={2} className="accordion-icon logout-icon" />
-                              ) : (
-                                <IconArrowRight size={18} stroke={2} className="accordion-icon arrow-icon" />
-                              )}
-                            </span>
-                          </Accordion.Header>
-                        </Accordion.Item>
-                      ))}
-                    </Accordion>
-                  </>
-                </Col>
-              </Row>
-            </Card>
-          </Col>
-        </Row>
-      </Container>
-    </>
+    <PageShell>
+      <PageHero titleId="account-center-title" title={t("accountCenter.title")} description={t("accountCenter.lede")} />
+      <Accordion className="account-center-accordion page-list">
+        {renderRows(headers.filter((header) => !QUIET_ROWS.has(header.id)))}
+      </Accordion>
+      <Accordion className="account-center-accordion page-list page-list--quiet">
+        {renderRows(headers.filter((header) => QUIET_ROWS.has(header.id)))}
+      </Accordion>
+    </PageShell>
   );
 };
 

@@ -811,5 +811,13 @@
     "editChild.title": "Sửa thông tin của {name}",
     "editChild.titleUnnamed": "Sửa thông tin của con",
     "editChild.button": "Lưu thay đổi",
-    "editChild.error.saveFailed": "Không thể lưu thay đổi. Hãy kiểm tra kết nối và thử lại."
+    "editChild.error.saveFailed": "Không thể lưu thay đổi. Hãy kiểm tra kết nối và thử lại.",
+    "preferredLanguage.title": "Chọn ngôn ngữ của bạn",
+    "preferredLanguage.hint": "Chúng tôi sẽ hiển thị A-IEP và bản tóm tắt IEP của con bạn bằng ngôn ngữ này. Bạn có thể đổi bất cứ lúc nào.",
+    "accountCenter.lede": "Thông tin của bạn, các con và tài khoản của bạn.",
+    "supportCenter.lede": "Câu trả lời, tài nguyên và cách A-IEP hoạt động.",
+    "supportCenter.tour.title": "Lần đầu xem bản tóm tắt?",
+    "supportCenter.tour.text": "Xem hướng dẫn ngắn chỉ cho bạn mọi thứ nằm ở đâu trong bản tóm tắt của con.",
+    "upload.hero.titleReplace": "Tải lên IEP mới",
+    "current.howToAsk": "Cách xin trường bản IEP"
 }

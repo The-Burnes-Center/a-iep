@@ -10,10 +10,12 @@ import { useLanguage, SupportedLanguage } from '../../common/language-context';
 import { LANGUAGES, filterEnabledOptions } from '../../common/languages';
 import { useFeatures } from '../../common/hooks/use-features';
 import { isStudentNameMissing } from '../../common/features';
-import OnboardingTopBar from '../../components/OnboardingChrome';
+import PageShell from '../../components/page/PageShell';
+import PageHero from '../../components/page/PageHero';
 import { NavLanguageSlot } from '../../components/NavLanguageSlot';
 import { STEP } from '../../common/breadcrumb-steps';
 import './ProfileForms.css';
+import './PreferredLanguage.css';
 
 export default function PreferredLanguage() {
   const appContext = useContext(AppContext);
@@ -161,61 +163,57 @@ export default function PreferredLanguage() {
   // Show language preference UI
   return (
     <>
-      <div className="onboarding-page">
-        {/* No language dropdown: this screen IS the language picker, and the
-            bar would put a second copy of the same choice in the corner of it.
-
-            A way back only when a parent got here from their profile, where
-            there is a real screen to return to. In onboarding this is the
-            FIRST step: the entry behind it is the sign-in card, so the trail
-            is the one crumb saying where they are, with nothing to follow
-            out of the app. */}
-        {/* Empties the top bar's language spot (NavLanguageSlot.tsx). */}
-        <NavLanguageSlot />
-        <OnboardingTopBar
-          trail={isUpdatingFromProfile ? [STEP.account, STEP.language] : [STEP.language]}
+      {/* Empties the top bar's language spot (NavLanguageSlot.tsx): this
+          screen IS the language picker, and the bar would put a second copy
+          of the same choice in the corner of it. */}
+      <NavLanguageSlot />
+      {/* A way back only when a parent got here from their profile. In
+          onboarding this is the FIRST step: the entry behind it is the
+          sign-in card, so the trail is the one crumb saying where they are. */}
+      <PageShell trail={isUpdatingFromProfile ? [STEP.account, STEP.language] : [STEP.language]}>
+        <PageHero
+          titleId="language-title"
+          title={isUpdatingFromProfile ? t('preferredLanguage.update.title') : t('preferredLanguage.title')}
+          description={isUpdatingFromProfile ? t('preferredLanguage.update.description') : t('preferredLanguage.hint')}
         />
 
-        {isUpdatingFromProfile && (
-          <>
-            <h1 className="onboarding-heading">{t('preferredLanguage.update.title')}</h1>
-            <p className="onboarding-body">{t('preferredLanguage.update.description')}</p>
-          </>
-        )}
-
-        {/* No heading in the design: one line, then the choices, each written
-            in the language it offers. */}
-        <p className="onboarding-lede">{t('preferredLanguage.lede')}</p>
-
-        <div className="onboarding-actions">
+        {/* Each choice is written in the language it offers, so a parent who
+            reads none of the others can still find theirs. */}
+        <div className="language-options" role="group" aria-labelledby="language-title">
           {languageOptions.map(option => {
             const isSelected = profile?.secondaryLanguage === option.value;
             return (
               <Button
                 key={option.value}
-                variant={isSelected ? 'primary' : 'outline-secondary'}
-                className="onboarding-choice"
-                // The fill is the only colour difference between chosen and
-                // not, so the state is also announced and also carries a tick.
+                variant="link"
+                className={`language-option${isSelected ? ' is-selected' : ''}`}
+                // The tint is not the only difference between chosen and not:
+                // the state is announced and carries a tick.
                 aria-pressed={isSelected}
                 onClick={() => handleLanguageSelect(option.value)}
                 disabled={saving}
               >
+                <span
+                  className="language-option-text"
+                  lang={option.value}
+                  dir={option.value === 'ar' ? 'rtl' : 'ltr'}
+                >
+                  {option.translatedPreference}
+                </span>
                 {isSelected && (
                   <IconCheck
-                    size={20}
+                    size={22}
                     stroke={2.5}
-                    className="onboarding-choice-icon"
+                    className="language-option-check"
                     aria-hidden="true"
                     data-testid={`language-selected-${option.value}`}
                   />
                 )}
-                <span className="onboarding-choice-text">{option.translatedPreference}</span>
               </Button>
             );
           })}
         </div>
-      </div>
+      </PageShell>
     </>
   );
 }

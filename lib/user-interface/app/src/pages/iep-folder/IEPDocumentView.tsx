@@ -1,17 +1,29 @@
 import React, { useState } from 'react';
-import { Container, Row, Col, Alert } from 'react-bootstrap';
+import { Alert } from 'react-bootstrap';
 import UploadIEPDocument from './UploadIEPDocument';
 import CurrentIEPDocument from './CurrentIEPDocument';
 import './IEPDocumentView.css';
 import { useLanguage } from '../../common/language-context';
 import { STEP } from '../../common/breadcrumb-steps';
-import Breadcrumbs from '../../components/Breadcrumbs';
 import ChildBar from '../../components/ChildBar';
+import PageShell from '../../components/page/PageShell';
+import PageHero from '../../components/page/PageHero';
+import { useActiveChild } from '../../common/hooks/use-active-child';
 
+/**
+ * The upload screen, in the shared page system (components/page).
+ *
+ * The trail says where the parent is, not where a summary would be: a parent
+ * uploading their first IEP has no summary, so "Summary > Upload IEP" pointed
+ * them at a screen that does not exist yet (UI audit, 2026-11-09). Until a
+ * document is on file the trail is this screen alone; once one is, it leads
+ * back to that child's summary.
+ */
 const IEPDocumentView: React.FC = () => {
-  
   const [refreshNeeded, setRefreshNeeded] = useState(false);
   const [documentExists, setDocumentExists] = useState(false);
+  const { t } = useLanguage();
+  const { pathFor } = useActiveChild();
 
   const handleUploadComplete = () => {
     setRefreshNeeded(true);
@@ -25,41 +37,35 @@ const IEPDocumentView: React.FC = () => {
     setDocumentExists(exists);
   };
 
-  const { t } = useLanguage();
+  const trail = documentExists
+    ? [{ ...STEP.summary, to: pathFor(STEP.summary.to) }, STEP.uploadIep]
+    : [STEP.uploadIep];
 
   return (
-    <>
-    <Breadcrumbs trail={[STEP.summary, STEP.uploadIep]} />
-    <ChildBar />
-    <Container className="document-container mt-4 mb-5">
-      <Row>
-        <Col>
-          <h1 className="document-title"></h1>          
-          {refreshNeeded && (
-            <Alert variant="info" dismissible onClose={() => setRefreshNeeded(false)}>
-              {t('document.updateAlert')}
-            </Alert>
-          )}
-          
-          <div className="document-sections-container">
-            <div className="document-section">
-              <UploadIEPDocument 
-                onUploadComplete={handleUploadComplete} 
-                hasExistingDocument={documentExists}
-              />
-            </div>
-            
-            <div className="document-section">
-              <CurrentIEPDocument 
-                onRefreshNeeded={handleRefreshNeeded}
-                onDocumentStateChange={handleDocumentStateChange}
-              />
-            </div>
-          </div>
-        </Col>
-      </Row>
-    </Container>
-    </>
+    <PageShell trail={trail}>
+      <ChildBar />
+      <PageHero
+        titleId="upload-title"
+        title={t(documentExists ? 'upload.hero.titleReplace' : 'upload.title')}
+        description={t('upload.maxSize')}
+      />
+      {refreshNeeded && (
+        <Alert variant="info" dismissible onClose={() => setRefreshNeeded(false)} className="mb-0">
+          {t('document.updateAlert')}
+        </Alert>
+      )}
+      <section className="page-card" aria-labelledby="upload-title">
+        <UploadIEPDocument
+          onUploadComplete={handleUploadComplete}
+          hasExistingDocument={documentExists}
+          showTitle={false}
+        />
+      </section>
+      <CurrentIEPDocument
+        onRefreshNeeded={handleRefreshNeeded}
+        onDocumentStateChange={handleDocumentStateChange}
+      />
+    </PageShell>
   );
 };
 

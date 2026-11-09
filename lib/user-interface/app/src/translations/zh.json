@@ -811,5 +811,13 @@
     "editChild.title": "编辑{name}的信息",
     "editChild.titleUnnamed": "编辑孩子的信息",
     "editChild.button": "保存更改",
-    "editChild.error.saveFailed": "无法保存更改。请检查网络连接后重试。"
+    "editChild.error.saveFailed": "无法保存更改。请检查网络连接后重试。",
+    "preferredLanguage.title": "选择您的语言",
+    "preferredLanguage.hint": "我们会用这种语言显示A-IEP和您孩子的IEP摘要。您可以随时更改。",
+    "accountCenter.lede": "您的信息、您的孩子和您的账号。",
+    "supportCenter.lede": "常见问题、资源以及A-IEP的使用方式。",
+    "supportCenter.tour.title": "第一次看摘要？",
+    "supportCenter.tour.text": "简短导览，告诉您孩子摘要中的各项内容在哪里。",
+    "upload.hero.titleReplace": "上传新的IEP",
+    "current.howToAsk": "如何向学校索取"
 }

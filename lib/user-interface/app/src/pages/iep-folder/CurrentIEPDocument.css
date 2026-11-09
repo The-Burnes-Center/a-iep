@@ -1,15 +1,18 @@
-.current-document-container {
-    background-color: transparent;
-    border: none;
-    box-shadow: none;
-    padding: 0;
-  }
-  
-  .current-document-container .card-body {
-    padding-left: 0;
-    padding-right: 0;
-    padding-top: 0;
-  }
+/* The card itself is the shared .page-card (components/page/page.css); this
+   only clears Bootstrap's own Card chrome so the two do not stack. */
+.current-document-container.card {
+  --bs-card-border-width: 0;
+  --bs-card-bg: transparent;
+}
+
+.current-document-container.page-card {
+  background-color: var(--aiep-surface-white);
+  border: 1px solid var(--aiep-surface-field);
+}
+
+.current-document-container .card-body {
+  padding: 0;
+}
   
   .document-info-alert {
     margin-top: 1rem;
@@ -21,16 +24,17 @@
   }
 
 .upload-info {
-  border: 1px solid #1E1E1E;
-  border-radius: 25px !important;
-  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .upload-info h3 {
-  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
-  font-weight: 500;
-  font-size: 1.5rem;
-  line-height: 2;
+  margin: 0;
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-size: 1.35rem;
+  line-height: 1.2;
   text-align: start;
   color: #1E1E1E;
 }

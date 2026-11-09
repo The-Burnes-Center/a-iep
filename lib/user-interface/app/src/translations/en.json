@@ -811,5 +811,13 @@
     "editChild.title": "Edit {name}'s details",
     "editChild.titleUnnamed": "Edit your child's details",
     "editChild.button": "Save changes",
-    "editChild.error.saveFailed": "We couldn't save these changes. Check your connection and try again."
+    "editChild.error.saveFailed": "We couldn't save these changes. Check your connection and try again.",
+    "preferredLanguage.title": "Choose your language",
+    "preferredLanguage.hint": "We'll show A-IEP and your child's IEP summary in this language. You can change it any time.",
+    "accountCenter.lede": "Your details, your children, and your account.",
+    "supportCenter.lede": "Answers, resources, and how A-IEP works.",
+    "supportCenter.tour.title": "New to your summary?",
+    "supportCenter.tour.text": "Take a short tour that shows where everything is on your child's summary.",
+    "upload.hero.titleReplace": "Upload a new IEP",
+    "current.howToAsk": "How to ask your school for it"
 }

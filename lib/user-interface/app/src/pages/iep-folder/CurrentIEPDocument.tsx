@@ -6,6 +6,8 @@ import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import './CurrentIEPDocument.css';
 import { useLanguage } from '../../common/language-context';
 import { useActiveChild } from '../../common/hooks/use-active-child';
+import { useFeatures } from '../../common/hooks/use-features';
+import { Link } from 'react-router-dom';
 
 export interface CurrentIEPDocumentProps {
   onRefreshNeeded: () => void;
@@ -22,6 +24,7 @@ const CurrentIEPDocument: React.FC<CurrentIEPDocumentProps> = ({ onRefreshNeeded
 
   const { t } = useLanguage();
   const { childId, isLoading: isChildLoading } = useActiveChild();
+  const { isFeatureEnabled } = useFeatures();
 
   const fetchDocument = async () => {
     setLoading(true);
@@ -67,7 +70,7 @@ const CurrentIEPDocument: React.FC<CurrentIEPDocumentProps> = ({ onRefreshNeeded
   }, [onRefreshNeeded, childId, isChildLoading]);
 
   return (
-    <Card className="current-document-container">
+    <Card className="current-document-container page-card">
       <Card.Body>        
         {error && (
           <Alert variant="danger">{error}</Alert>
@@ -92,6 +95,13 @@ const CurrentIEPDocument: React.FC<CurrentIEPDocumentProps> = ({ onRefreshNeeded
           <p>
             {t('current.paragraph2')}
           </p>
+          {/* The guide to asking the school for a PDF ships with the PDF
+              help screens; until then the sentence above stands alone. */}
+          {isFeatureEnabled('pdfHelpScreens') && (
+            <Link to="/how-to-ask-for-pdf" className="btn btn-outline-secondary aiep-button page-action">
+              {t('current.howToAsk')}
+            </Link>
+          )}
         </div>
         )}
       </Card.Body>

@@ -1,13 +1,15 @@
 import React, { useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Container, Row, Col, Card, Accordion, Button } from 'react-bootstrap';
+import { Accordion, Button } from 'react-bootstrap';
 import PageLoading from '../../components/PageLoading';
 import { useLanguage } from '../../common/language-context';
 import { AppContext } from '../../common/app-context';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { REPLAY_TOUR_STATE_KEY } from '../iep-folder/summary-tour';
 import { IconArrowRight } from '@tabler/icons-react';
+import PageShell from '../../components/page/PageShell';
+import PageHero from '../../components/page/PageHero';
 import './AccountCenter.css';
 
 interface SupportCenterProps {
@@ -83,49 +85,39 @@ const SupportCenter: React.FC<SupportCenterProps> = ({
   ];
 
   return (
-    <>
-      <Container className="account-center-container mt-3 mb-3">
-        <Row className="mt-2">
-          <Col>
-            <Card className="account-center-card">
-              <Row className="g-0">
-                <Col md={12} className="no-padding-inherit-faq">
-                  <>
-                    <h4 className="account-center-header mt-4 px-4">{t("supportCenter.title")}</h4>
-                    <Accordion className="support-center-accordion">
-                      {headers.map((header) => (
-                        <Accordion.Item key={header.id} eventKey={header.id}>
-                          <Accordion.Header 
-                            onClick={() => handleAccordionClick(header.id)}
-                            style={{ cursor: 'pointer' }}
-                          >
-                            <span className="accordion-title-content">
-                              {header.title}
-                              <IconArrowRight size={18} stroke={2} className="accordion-icon arrow-icon" />
-                            </span>
-                          </Accordion.Header>
-                        </Accordion.Item>
-                      ))}
-                    </Accordion>
-                    {hasSummary && (
-                      <div className="px-4 pb-4 pt-3">
-                        <Button
-                          variant="primary"
-                          onClick={() => navigate('/summary-and-translations', { state: { [REPLAY_TOUR_STATE_KEY]: true } })}
-                          data-testid="show-me-around"
-                        >
-                          {t('supportCenter.showMeAround')}
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                </Col>
-              </Row>
-            </Card>
-          </Col>
-        </Row>
-      </Container>
-    </>
+    <PageShell>
+      <PageHero titleId="support-center-title" title={t("supportCenter.title")} description={t("supportCenter.lede")} />
+      <Accordion className="support-center-accordion page-list">
+        {headers.map((header) => (
+          <Accordion.Item key={header.id} eventKey={header.id}>
+            <Accordion.Header
+              onClick={() => handleAccordionClick(header.id)}
+              style={{ cursor: 'pointer' }}
+            >
+              <span className="accordion-title-content">
+                {header.title}
+                <IconArrowRight size={18} stroke={2} className="accordion-icon arrow-icon" />
+              </span>
+            </Accordion.Header>
+          </Accordion.Item>
+        ))}
+      </Accordion>
+      {/* The tour replays on the summary, so it is offered only once there is one. */}
+      {hasSummary && (
+        <section className="page-card" aria-labelledby="support-tour-title">
+          <h2 id="support-tour-title" className="page-card-title">{t('supportCenter.tour.title')}</h2>
+          <p className="page-card-text">{t('supportCenter.tour.text')}</p>
+          <Button
+            variant="primary"
+            className="aiep-button page-action"
+            onClick={() => navigate('/summary-and-translations', { state: { [REPLAY_TOUR_STATE_KEY]: true } })}
+            data-testid="show-me-around"
+          >
+            {t('supportCenter.showMeAround')}
+          </Button>
+        </section>
+      )}
+    </PageShell>
   );
 };
 

@@ -142,12 +142,17 @@ beforeEach(() => {
 });
 
 describe("the screen", () => {
-  test("asks one question, with no heading above it", async () => {
+  // This used to pin "no heading at all". The 2026-11-09 UI audit found ten
+  // screens with no h1, this one included, which leaves a screen reader user
+  // nothing to land on; the screen now asks its one question AS its h1.
+  test("asks one question, as the screen's only heading", async () => {
     renderPage();
     await waitForChoices();
 
-    expect(screen.getByText("preferredLanguage.lede")).toBeInTheDocument();
-    expect(screen.queryByRole("heading")).toBeNull();
+    const headings = screen.getAllByRole("heading");
+    expect(headings).toHaveLength(1);
+    expect(headings[0].tagName).toBe("H1");
+    expect(headings[0]).toHaveTextContent("preferredLanguage.title");
   });
 
   test("renders one button per language, written in that language", async () => {

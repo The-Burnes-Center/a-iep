@@ -811,5 +811,13 @@
     "editChild.title": "Editar los datos de {name}",
     "editChild.titleUnnamed": "Editar los datos de su hijo/a",
     "editChild.button": "Guardar cambios",
-    "editChild.error.saveFailed": "No pudimos guardar los cambios. Revise su conexión e intente de nuevo."
+    "editChild.error.saveFailed": "No pudimos guardar los cambios. Revise su conexión e intente de nuevo.",
+    "preferredLanguage.title": "Elija su idioma",
+    "preferredLanguage.hint": "Le mostraremos A-IEP y el resumen del IEP de su hijo/a en este idioma. Puede cambiarlo cuando quiera.",
+    "accountCenter.lede": "Sus datos, sus hijos y su cuenta.",
+    "supportCenter.lede": "Respuestas, recursos y cómo funciona A-IEP.",
+    "supportCenter.tour.title": "¿Es nuevo en su resumen?",
+    "supportCenter.tour.text": "Haga un recorrido corto que le muestra dónde está cada cosa en el resumen de su hijo/a.",
+    "upload.hero.titleReplace": "Subir un IEP nuevo",
+    "current.howToAsk": "Cómo pedírselo a la escuela"
 }

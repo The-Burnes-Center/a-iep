@@ -1,0 +1,252 @@
+/* The shared page system: one column, one hero, one card, one list.
+   The invite page's brand kit (InvitePage.css) generalised: a dark-green
+   grid-paper hero with the accent stripe, then white cards on the cream page.
+   Palette tokens only (styles/palette.css; color-contrast.test.tsx enforces
+   it). Bootstrap's buttons load after this file, so anything adjusting one is
+   a compound selector. */
+
+/* ---- Column ---------------------------------------------------------------- */
+.page-shell {
+  width: 100%;
+  margin: 0 auto;
+  padding: 0.75rem 1rem 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: start;
+}
+
+.page-shell--task {
+  max-width: 40rem;
+}
+
+.page-shell--reading {
+  max-width: 48rem;
+}
+
+@media (min-width: 600px) {
+  .page-shell {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+/* The trail joins the column: Breadcrumbs.css gives it its own gutter and,
+   elsewhere, a centred half-width box, which is what put it 262px left of
+   the content on the upload screen. */
+.page-shell .breadcrumb-container {
+  margin: 0;
+  padding: 0;
+  width: auto;
+}
+
+.page-shell .breadcrumb {
+  margin-bottom: 0;
+  flex-wrap: wrap;
+}
+
+.page-shell .breadcrumb-item {
+  padding-bottom: 0;
+}
+
+/* WCAG 2.2 target size: the crumb links measured 21px tall. */
+.page-shell .breadcrumb-item a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+
+/* ---- Hero ------------------------------------------------------------------ */
+.page-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.75rem 1.5rem 2rem;
+  border-radius: 20px;
+  background-color: var(--aiep-green-dark);
+  color: var(--aiep-cream);
+}
+
+.page-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to bottom, var(--aiep-cream-veil) 1px, transparent 1px),
+    linear-gradient(to right, var(--aiep-cream-veil) 1px, transparent 1px);
+  background-size: 28px 28px;
+  opacity: 0.22;
+  pointer-events: none;
+}
+
+.page-hero::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 6px;
+  background-image: linear-gradient(
+    to right,
+    var(--aiep-accent-rose) 0 25%,
+    var(--aiep-accent-orange) 25% 50%,
+    var(--aiep-amber) 50% 75%,
+    var(--aiep-accent-blue) 75% 100%
+  );
+}
+
+.page-hero-text,
+.page-hero-faces {
+  position: relative; /* above the grid */
+}
+
+.page-hero-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.page-hero-title {
+  margin: 0;
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-size: clamp(1.75rem, 6vw, 2.25rem);
+  line-height: 1.15;
+  color: var(--aiep-cream);
+  text-wrap: balance;
+}
+
+.page-hero-description {
+  margin: 0;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--aiep-cream);
+}
+
+.page-hero-faces {
+  flex: 0 0 auto;
+  width: 7.5rem;
+  height: auto;
+  border-radius: 12px;
+}
+
+@media (max-width: 420px) {
+  .page-hero-faces {
+    display: none;
+  }
+}
+
+/* ---- Card ------------------------------------------------------------------ */
+.page-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  background-color: var(--aiep-surface-white);
+  border: 1px solid var(--aiep-surface-field);
+  border-radius: 16px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.page-card-title {
+  margin: 0;
+  font-family: "Fjalla One", sans-serif;
+  font-weight: 400;
+  font-size: 1.35rem;
+  line-height: 1.2;
+  color: var(--aiep-ink);
+}
+
+.page-card-text {
+  margin: 0;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  line-height: 1.6;
+  color: var(--aiep-ink);
+}
+
+/* A card's main action, full width like every onboarding action. */
+.page-card .btn.page-action,
+.page-shell .btn.page-action {
+  width: 100%;
+  margin: 0;
+  min-height: 48px;
+  padding-top: 0.8rem;
+  padding-bottom: 0.8rem;
+  text-decoration: none;
+}
+
+/* ---- List card -------------------------------------------------------------
+   A white card of rows, each a whole-row link or button with a chevron. Used
+   for Account, Support and Rights, which were full-bleed black-ruled rows.
+   Written against Bootstrap's accordion markup, which those screens use as a
+   list (each header is the button; nothing expands), so the E2E hooks on the
+   headers stay where they are. */
+.page-list.accordion {
+  --bs-accordion-border-width: 0;
+  --bs-accordion-bg: transparent;
+  overflow: hidden;
+  background-color: var(--aiep-surface-white);
+  border: 1px solid var(--aiep-surface-field);
+  border-radius: 16px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.page-list .accordion-item {
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+}
+
+.page-list .accordion-item + .accordion-item {
+  border-top: 1px solid var(--aiep-surface-field);
+}
+
+.page-list .accordion-header {
+  border: 0;
+}
+
+.page-list .accordion-header .accordion-button {
+  min-height: 3.5rem;
+  padding: 0.875rem 1.25rem;
+  background-color: transparent;
+  box-shadow: none;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-weight: 700;
+  font-size: 1.05rem;
+  line-height: 1.4;
+  color: var(--aiep-ink);
+  text-align: start;
+}
+
+.page-list .accordion-header .accordion-button:hover {
+  background-color: var(--aiep-surface-tint);
+}
+
+.page-list .accordion-header .accordion-button:focus-visible {
+  outline: 3px solid var(--aiep-accent-blue);
+  outline-offset: -3px;
+}
+
+.page-list .accordion-button::after {
+  display: none;
+}
+
+.page-list .accordion-icon {
+  color: var(--aiep-green);
+}
+
+/* The quiet group at the bottom of Account: sign out and delete, set apart
+   from the everyday rows so a mistap does not cost a parent their account. */
+.page-list.page-list--quiet .accordion-header .accordion-button {
+  font-weight: 500;
+}
+
+/* The child bar fills the column here; on its own it centres at 560px. */
+.page-shell .child-bar {
+  max-width: none;
+  margin: 0;
+}

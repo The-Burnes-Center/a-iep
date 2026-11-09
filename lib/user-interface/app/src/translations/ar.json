@@ -811,5 +811,13 @@
     "editChild.title": "تعديل بيانات {name}",
     "editChild.titleUnnamed": "تعديل بيانات طفلك",
     "editChild.button": "حفظ التغييرات",
-    "editChild.error.saveFailed": "تعذّر حفظ التغييرات. تحقّق من اتصالك وحاول مرة أخرى."
+    "editChild.error.saveFailed": "تعذّر حفظ التغييرات. تحقّق من اتصالك وحاول مرة أخرى.",
+    "preferredLanguage.title": "اختر لغتك",
+    "preferredLanguage.hint": "سنعرض A-IEP وملخص خطة IEP لطفلك بهذه اللغة. يمكنك تغييرها في أي وقت.",
+    "accountCenter.lede": "بياناتك وأطفالك وحسابك.",
+    "supportCenter.lede": "إجابات وموارد وطريقة عمل A-IEP.",
+    "supportCenter.tour.title": "هل هذه أول مرة ترى فيها الملخص؟",
+    "supportCenter.tour.text": "جولة قصيرة توضح لك مكان كل شيء في ملخص طفلك.",
+    "upload.hero.titleReplace": "رفع خطة IEP جديدة",
+    "current.howToAsk": "كيف تطلبها من المدرسة"
 }
