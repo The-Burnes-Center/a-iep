@@ -421,11 +421,15 @@
     max-width: 64rem;
     display: grid;
     grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    /* The trail is a named row of its own. Left to auto-placement it had no
+       cell above the hero, so the grid opened a new row for it under the
+       cards and the "you are here" line sat at the foot of the page. */
     grid-template-areas:
+      "trail trail"
       "hero hero"
       "share stats"
       "share joins";
-    grid-template-rows: auto auto 1fr;
+    grid-template-rows: auto auto auto 1fr;
     align-items: start;
     gap: 1.25rem;
   }
@@ -446,13 +450,15 @@
     grid-area: joins;
   }
 
-  .invite-page .invite-shell > .alert {
-    grid-column: 1 / -1;
+  .invite-page .invite-shell > .breadcrumb-container {
+    grid-area: trail;
   }
 
-  /* The trail spans the whole grid, above both columns. */
-  .invite-page .invite-shell > .breadcrumb-container {
+  /* A failed load replaces all three cards with one notice: it takes their
+     rows at full width rather than the share column's half. */
+  .invite-page .invite-shell > .ui-notice {
     grid-column: 1 / -1;
+    grid-row: 3;
   }
 
   .invite-page .invite-card {

@@ -58,6 +58,27 @@ async function openInvitePage(page: Page): Promise<void> {
   await expect(page.locator('.invite-stat-value')).toHaveCount(2, { timeout: 30_000 });
 }
 
+/**
+ * At laptop width the invite page is a two-column grid (InvitePage.css). Its
+ * named areas once left the trail without a cell, so the grid opened a row
+ * for it under the cards and "Account > Invite" sat at the foot of the page.
+ * The suite runs at phone width, where the page is one column and that could
+ * never show, so this widens the window, measures, and puts it back.
+ */
+async function expectTrailAboveHeroOnALaptop(page: Page): Promise<void> {
+  const phone = page.viewportSize();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  try {
+    const trail = await page.locator('.breadcrumb-container').boundingBox();
+    const hero = await page.getByRole('heading', { level: 1 }).boundingBox();
+    expect(trail, 'the invite trail is on the page').not.toBeNull();
+    expect(hero, 'the invite heading is on the page').not.toBeNull();
+    expect(trail!.y, 'the trail sits above the hero, not under the cards').toBeLessThan(hero!.y);
+  } finally {
+    if (phone) await page.setViewportSize(phone);
+  }
+}
+
 async function readInviteStats(page: Page): Promise<InviteStats> {
   const values = await page.locator('.invite-stat-value').allInnerTexts();
   const [clicks, signups] = values.map((v) => Number.parseInt(v.trim(), 10));
@@ -132,6 +153,7 @@ test('a new parent joining through an invite link is counted, anonymously', asyn
   await loginWithOtp(page, REFERRER_USER);
   await openInvitePage(page);
   await expect(page.getByRole('heading', { name: EN_INVITE.title })).toBeVisible();
+  await expectTrailAboveHeroOnALaptop(page);
 
   const code = await readInviteCode(page);
   const baseline = await readInviteStats(page);
