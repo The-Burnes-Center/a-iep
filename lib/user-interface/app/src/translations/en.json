@@ -927,7 +927,6 @@
     "survey.error.email": "Enter an email address like name@example.com, or leave it blank.",
     "survey.error.save": "We couldn't save your answers. Check your connection and try again.",
     "survey.error.load": "We couldn't load the questions. Please try again.",
-    "survey.banner.reading": "Reading {name}'s IEP. This usually takes a few minutes.",
     "survey.banner.ready": "{name}'s summary is ready. It will be here when you finish.",
     "survey.banner.failed": "We couldn't read {name}'s IEP. You can finish these questions, then try again.",
     "survey.thanks.title": "Thank you",
@@ -955,5 +954,8 @@
     "survey.research.explain": "Research means people at the Burnes Center, which makes A-IEP, studying many families' answers together to learn whether A-IEP helps. They would not see your name, phone number or email.",
     "survey.research.yes": "Yes, you can use my answers for research",
     "survey.research.no": "No, only use them to improve A-IEP",
-    "survey.research.skip": "You can answer the questions either way. If you don't choose, we'll take it as no."
+    "survey.research.skip": "You can answer the questions either way. If you don't choose, we'll take it as no.",
+    "survey.banner.readingTitle": "Reading {name}'s IEP",
+    "survey.banner.readingNote": "Keep answering. The summary will be waiting when you finish.",
+    "survey.error.nothingAnswered": "Answer at least one question, or choose No thanks."
 }

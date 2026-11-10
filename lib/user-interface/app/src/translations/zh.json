@@ -927,7 +927,6 @@
     "survey.error.email": "请输入类似 name@example.com 的邮箱地址，或留空。",
     "survey.error.save": "我们无法保存您的回答。请检查网络连接后重试。",
     "survey.error.load": "我们无法加载问题。请重试。",
-    "survey.banner.reading": "正在阅读{name}的IEP，通常需要几分钟。",
     "survey.banner.ready": "{name}的摘要已准备好。您答完后就能看到。",
     "survey.banner.failed": "我们无法读取{name}的IEP。您可以先答完这些问题，然后再试一次。",
     "survey.thanks.title": "谢谢您",
@@ -955,5 +954,8 @@
     "survey.research.explain": "研究是指开发A-IEP的Burnes Center的人员把许多家庭的回答放在一起分析，了解A-IEP是否有帮助。他们不会看到您的姓名、电话号码或电子邮件。",
     "survey.research.yes": "可以，我的回答可以用于研究",
     "survey.research.no": "不可以，只用于改进A-IEP",
-    "survey.research.skip": "无论选择哪项，您都可以回答问题。如果您不选择，我们会视为不同意。"
+    "survey.research.skip": "无论选择哪项，您都可以回答问题。如果您不选择，我们会视为不同意。",
+    "survey.banner.readingTitle": "正在阅读{name}的IEP",
+    "survey.banner.readingNote": "请继续回答。您答完时，摘要就在这里等您。",
+    "survey.error.nothingAnswered": "请至少回答一个问题，或选择“不用了，谢谢”。"
 }

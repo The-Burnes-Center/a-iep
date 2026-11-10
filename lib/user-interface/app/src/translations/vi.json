@@ -927,7 +927,6 @@
     "survey.error.email": "Nhập email dạng ten@vidu.com, hoặc để trống.",
     "survey.error.save": "Chúng tôi không lưu được câu trả lời của bạn. Hãy kiểm tra kết nối và thử lại.",
     "survey.error.load": "Chúng tôi không tải được câu hỏi. Vui lòng thử lại.",
-    "survey.banner.reading": "Đang đọc IEP của {name}. Thường mất vài phút.",
     "survey.banner.ready": "Bản tóm tắt của {name} đã sẵn sàng. Bạn sẽ thấy nó khi trả lời xong.",
     "survey.banner.failed": "Chúng tôi không đọc được IEP của {name}. Bạn có thể trả lời xong các câu hỏi rồi thử lại.",
     "survey.thanks.title": "Cảm ơn bạn",
@@ -955,5 +954,8 @@
     "survey.research.explain": "Nghiên cứu nghĩa là những người ở Burnes Center, nơi làm ra A-IEP, xem xét chung câu trả lời của nhiều gia đình để biết A-IEP có giúp ích không. Họ sẽ không thấy tên, số điện thoại hay email của bạn.",
     "survey.research.yes": "Có, bạn có thể dùng câu trả lời của tôi cho nghiên cứu",
     "survey.research.no": "Không, chỉ dùng để cải thiện A-IEP",
-    "survey.research.skip": "Bạn vẫn có thể trả lời các câu hỏi dù chọn thế nào. Nếu bạn không chọn, chúng tôi sẽ hiểu là không."
+    "survey.research.skip": "Bạn vẫn có thể trả lời các câu hỏi dù chọn thế nào. Nếu bạn không chọn, chúng tôi sẽ hiểu là không.",
+    "survey.banner.readingTitle": "Đang đọc IEP của {name}",
+    "survey.banner.readingNote": "Bạn cứ tiếp tục trả lời. Bản tóm tắt sẽ chờ bạn khi bạn xong.",
+    "survey.error.nothingAnswered": "Hãy trả lời ít nhất một câu hỏi, hoặc chọn Không, cảm ơn."
 }

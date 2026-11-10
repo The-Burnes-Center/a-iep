@@ -927,7 +927,6 @@
     "survey.error.email": "Escriba un correo como nombre@ejemplo.com, o déjelo en blanco.",
     "survey.error.save": "No pudimos guardar sus respuestas. Revise su conexión e inténtelo de nuevo.",
     "survey.error.load": "No pudimos cargar las preguntas. Inténtelo de nuevo.",
-    "survey.banner.reading": "Estamos leyendo el IEP de {name}. Suele tardar unos minutos.",
     "survey.banner.ready": "El resumen de {name} está listo. Lo encontrará aquí cuando termine.",
     "survey.banner.failed": "No pudimos leer el IEP de {name}. Puede terminar estas preguntas y luego volver a intentarlo.",
     "survey.thanks.title": "Gracias",
@@ -955,5 +954,8 @@
     "survey.research.explain": "Investigación significa que personas del Burnes Center, que creó A-IEP, estudian juntas las respuestas de muchas familias para saber si A-IEP ayuda. No verían su nombre, su teléfono ni su correo electrónico.",
     "survey.research.yes": "Sí, pueden usar mis respuestas para investigación",
     "survey.research.no": "No, úsenlas solo para mejorar A-IEP",
-    "survey.research.skip": "Puede responder las preguntas de cualquier manera. Si no elige, lo tomaremos como un no."
+    "survey.research.skip": "Puede responder las preguntas de cualquier manera. Si no elige, lo tomaremos como un no.",
+    "survey.banner.readingTitle": "Leyendo el IEP de {name}",
+    "survey.banner.readingNote": "Siga respondiendo. El resumen le estará esperando cuando termine.",
+    "survey.error.nothingAnswered": "Responda al menos una pregunta, o elija No, gracias."
 }

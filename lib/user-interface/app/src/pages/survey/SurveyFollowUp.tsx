@@ -40,6 +40,7 @@ const SurveyFollowUp: React.FC = () => {
   const [consent, setConsent] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [nothingAnswered, setNothingAnswered] = useState(false);
 
   useEffect(() => { headingRef.current?.focus(); }, [surveyQuery.isSuccess]);
 
@@ -63,6 +64,12 @@ const SurveyFollowUp: React.FC = () => {
   const name = isPlaceholderChildName(child?.name) ? t('survey.yourChild') : (child?.name as string);
 
   const finish = async (status: 'done' | 'declined') => {
+    // Any one statement can be skipped; sending none is a "No thanks".
+    if (status === 'done' && Object.keys(withoutBlanks(shown)).length === 0) {
+      setNothingAnswered(true);
+      return;
+    }
+    setNothingAnswered(false);
     const save: SurveySave = status === 'done'
       ? { phase: 'after', status, part: 'followUp', answers: withoutBlanks(shown), researchConsent: agreed }
       : { phase: 'after', status };
@@ -96,6 +103,7 @@ const SurveyFollowUp: React.FC = () => {
             onChange={(e) => setAnswer('anythingElse', e.target.value)}
           />
           <ResearchChoice name="research-after" value={agreed} onChange={setConsent} />
+          {nothingAnswered && <Notice tone="error" title={t('survey.error.nothingAnswered')} data-testid="survey-nothing-answered" />}
           {saveFailed && <Notice tone="error" title={t('survey.error.save')} />}
           <div className="survey-actions">
             <Button fullWidth busy={saving} busyLabel={t('common.saving')} onClick={() => finish('done')} data-testid="follow-up-send">

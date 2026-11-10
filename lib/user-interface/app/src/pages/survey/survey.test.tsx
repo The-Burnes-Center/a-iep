@@ -205,13 +205,26 @@ describe("the baseline survey", () => {
     expect((screen.getAllByLabelText("survey.scale.somewhat_agree")[1] as HTMLInputElement).checked).toBe(true);
   });
 
-  test("a parent who already answered the household questions is not asked again", async () => {
+  test("finishing with nothing answered is refused; one answer is enough", async () => {
     server.household = record("done", "you");
     server.before = record("started", "reflect");
     renderAt("/survey", <SurveyPage />);
     await settle();
+    await click("survey-next");
+    expect(screen.getByTestId("survey-nothing-answered")).toBeTruthy();
+    expect(server.before?.status).toBe("started");
+    choose("survey.scale.agree", 0);
+    await click("survey-next");
+    expect(server.before?.status).toBe("done");
+  });
+
+  test("a parent who already answered the household questions is not asked again", async () => {
+    server.household = record("done", "you");
+    server.before = record("started", "reflect", { u1: "agree" });
+    renderAt("/survey", <SurveyPage />);
+    await settle();
     expect(screen.getByText("survey.progress")).toBeTruthy();
-    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "4");
+    expect(screen.getByRole("progressbar", { name: "survey.progress.label" })).toHaveAttribute("aria-valuemax", "4");
     await click("survey-next");
     expect(title()).toBe("survey.thanks.title");
     expect(saves.some((save) => save.phase === "household")).toBe(false);
@@ -320,7 +333,7 @@ describe("the baseline survey", () => {
   });
 
   test("the household email has to look like one before the parent moves on", async () => {
-    server.before = record("started", "you");
+    server.before = record("started", "you", { u1: "agree" });
     renderAt("/survey", <SurveyPage />);
     await settle();
     fireEvent.click(screen.getAllByLabelText("survey.answer.yes")[0]);
@@ -373,6 +386,18 @@ describe("after an upload", () => {
   });
 });
 
+describe("the IEP's progress above the questions", () => {
+  test("while it is read, shows the processing screen's step and bar, not a link", async () => {
+    documentAnswer = { documentId: "d-1", status: "PROCESSING", progress: 40, current_step: "summarizing", updatedAt: 1 };
+    server.before = record("started", "understand");
+    renderAt("/survey", <SurveyPage />);
+    await settle();
+    expect(screen.getByTestId("survey-banner")).toBeTruthy();
+    expect(screen.getByTestId("processing-progress-bar")).toBeTruthy();
+    expect(summaryLinks()).toBe(0);
+  });
+});
+
 describe("on the summary", () => {
   test("opening a readable summary closes the baseline and offers the follow-up", async () => {
     server.before = record("started", "speak");
@@ -415,6 +440,9 @@ describe("on the summary", () => {
     server.summaryFirstViewedAt = 5;
     renderAt("/survey/follow-up", <SurveyFollowUp />);
     await settle();
+    await click("follow-up-send");
+    expect(screen.getByTestId("survey-nothing-answered")).toBeTruthy();
+    expect(server.after).toBeNull();
     choose("survey.scale.agree", 0);
     await click("follow-up-send");
     expect(server.after).toMatchObject({ status: "done", answers: { u3: "agree" } });

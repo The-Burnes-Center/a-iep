@@ -6,6 +6,8 @@ import { Notice } from '../../components/ui/feedback';
 import PageShell from '../../components/page/PageShell';
 import PageLoading from '../../components/PageLoading';
 import ChildBar from '../../components/ChildBar';
+import ProcessingStatusBar from '../../components/ProcessingStatusBar';
+import { processingStepKey } from '../utils/processing-progress.mjs';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { SurveyClosedError } from '../../common/api-client/profile-client';
@@ -24,8 +26,8 @@ import { surveyQueryKey, useChildSurvey } from './use-child-survey';
 import { ResearchChoice, SurveyPart } from './SurveyParts';
 import './survey.css';
 
-/** How often the banner re-reads the IEP's progress while it is being read. */
-const DOCUMENT_POLL_MS = 15_000;
+/** How often the progress card re-reads the IEP, the processing screen's rate. */
+const DOCUMENT_POLL_MS = 5_000;
 
 /**
  * The baseline survey, asked while a child's IEP is read.
@@ -84,6 +86,7 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
   const [consent, setConsent] = useState<boolean | undefined>(survey.before?.researchConsent);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [nothingAnswered, setNothingAnswered] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const parts = baselineParts(isHouseholdDone(survey));
@@ -94,6 +97,7 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
     retry: false,
   });
   const documentState = childDocumentState(documentQuery.data, documentQuery.isError);
+  const progressDocument = (documentQuery.data ?? {}) as ProgressDocument;
 
   // A new screen: put the reader on its heading, as a page load would.
   // Focusing it also scrolls it into view, so a long part starts at its top.
@@ -146,6 +150,13 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
   const next = async (part: BaselinePart) => {
     const index = parts.indexOf(part);
     const isLast = index === parts.length - 1;
+    // Any one question can be skipped; finishing with none answered is not a
+    // survey, it is a "No thanks" that would be counted as a response.
+    if (isLast && Object.keys(pruneBaseline(withoutBlanks(answers))).length === 0) {
+      setNothingAnswered(true);
+      return;
+    }
+    setNothingAnswered(false);
     if (part === 'you') {
       const email = (household.email as string | undefined)?.trim();
       if (household.stayInTouch === 'yes' && email && !looksLikeEmail(email)) {
@@ -185,7 +196,12 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
   const heading = (text: string) => (
     <h1 ref={headingRef} tabIndex={-1} className="survey-title" data-testid="survey-title">{text}</h1>
   );
-  const saveError = saveFailed && <Notice tone="error" title={t('survey.error.save')} />;
+  const saveError = (
+    <>
+      {nothingAnswered && <Notice tone="error" title={t('survey.error.nothingAnswered')} data-testid="survey-nothing-answered" />}
+      {saveFailed && <Notice tone="error" title={t('survey.error.save')} />}
+    </>
+  );
 
   if (step === 'closed' || step === 'thanks') {
     return (
@@ -202,7 +218,7 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
     );
   }
 
-  const banner = <DocumentBanner state={documentState} name={name} />;
+  const banner = <DocumentBanner state={documentState} name={name} progressDocument={progressDocument} />;
 
   if (step === 'invite') {
     const reading = documentState === 'reading';
@@ -296,14 +312,33 @@ const SurveyShell: React.FC<{ banner: React.ReactNode; children: React.ReactNode
   </>
 );
 
+type ProgressDocument = React.ComponentProps<typeof ProcessingStatusBar>['document'];
+
 /**
- * The IEP's progress while the parent answers. It never offers the summary:
- * a ready summary is announced as waiting for them, not linked.
+ * The IEP's progress while the parent answers: while it is read, the same
+ * step-and-bar the processing screen shows, so the wait they are filling is
+ * visibly moving. It never offers the summary: a ready summary is announced
+ * as waiting for them, not linked.
  */
-const DocumentBanner: React.FC<{ state: ChildDocumentState; name: string }> = ({ state, name }) => {
+const DocumentBanner: React.FC<{ state: ChildDocumentState; name: string; progressDocument: ProgressDocument }> = ({
+  state, name, progressDocument,
+}) => {
   const { t } = useLanguage();
   const fill = (key: string) => fillName(t(key), name);
-  if (state === 'reading') return <Notice tone="info" title={fill('survey.banner.reading')} data-testid="survey-banner" />;
+  if (state === 'reading') {
+    return (
+      <section className="page-card survey-reading" aria-labelledby="survey-reading-title" data-testid="survey-banner">
+        <h2 id="survey-reading-title" className="survey-reading-title">{fill('survey.banner.readingTitle')}</h2>
+        <ProcessingStatusBar
+          document={progressDocument}
+          stepLabel={t(processingStepKey(progressDocument))}
+          stepOfTemplate={t('summary.processing.stepOf')}
+          valueTextTemplate={t('summary.processing.stepValueText')}
+        />
+        <p className="survey-note">{t('survey.banner.readingNote')}</p>
+      </section>
+    );
+  }
   if (state === 'ready') return <Notice tone="success" announce title={fill('survey.banner.ready')} data-testid="survey-banner" />;
   if (state === 'failed') return <Notice tone="warning" announce title={fill('survey.banner.failed')} data-testid="survey-banner" />;
   return null;
