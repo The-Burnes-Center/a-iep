@@ -213,7 +213,7 @@ describe("the child step's outcomes", () => {
 
     expectNoEnglishLeak([
       en["child.heading"],
-      en["child.name.label"],
+      en["addChild.name.label"],
       en["child.button.save"],
     ]);
   });

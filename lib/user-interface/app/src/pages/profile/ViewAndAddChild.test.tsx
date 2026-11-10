@@ -170,10 +170,10 @@ const renderPage = (
   return userEvent.setup();
 };
 
-const nameField = () => screen.getByPlaceholderText("child.name.placeholder");
+const nameField = () => screen.getByLabelText("addChild.name.label");
 const saveButton = () => screen.getByTestId("child-save-button");
 /** The form is on screen once the mount-time profile load has resolved. */
-const waitForForm = () => screen.findByPlaceholderText("child.name.placeholder");
+const waitForForm = () => screen.findByLabelText("addChild.name.label");
 
 /** Everything the screen sent that was not a read. */
 const writes = () => requests.filter((r) => r.method !== "GET");
@@ -194,13 +194,14 @@ beforeEach(() => {
 });
 
 describe("the screen", () => {
-  test("asks one question, with one field and one button", async () => {
+  test("asks for the name and, optionally, the district, with one button", async () => {
     stubFetch(profileWith({}));
     renderPage();
     await waitForForm();
 
     expect(screen.getByRole("heading", { name: "child.heading" })).toBeInTheDocument();
-    expect(screen.getAllByRole("textbox")).toHaveLength(1);
+    // The same two fields every later child gets (ChildDetailsFields).
+    expect(screen.getAllByRole("textbox")).toHaveLength(2);
     expect(saveButton()).toHaveTextContent("child.button.save");
   });
 
@@ -215,16 +216,30 @@ describe("the screen", () => {
     expect(saveButton()).not.toHaveTextContent("child.button.save");
   });
 
-  test("no longer asks for the school district", async () => {
-    // The design has one field, and nothing reads schoolCity. The input is
-    // gone by id (the e2e suite's anchor), by placeholder and by label.
+  test("asks for the school district as the add-child screen does, marked optional", async () => {
+    // It was missing from the first child only: two copies of the form had
+    // drifted. Both screens now render ChildDetailsFields.
     stubFetch(profileWith({}));
     renderPage();
     await waitForForm();
 
-    expect(document.querySelector("#formSchoolCity")).toBeNull();
-    expect(screen.queryByPlaceholderText("child.school.placeholder")).toBeNull();
-    expect(screen.queryByText("child.school.label")).toBeNull();
+    expect(screen.getByLabelText("addChild.school.label")).toBeInTheDocument();
+    expect(screen.getByText("child.school.hint")).toBeInTheDocument();
+  });
+
+  test("saves the district the parent types, and a blank one as before", async () => {
+    stubFetch(profileWith({ children: [{ childId: "child-1", name: "", schoolCity: "Not specified" }] }));
+    const user = renderPage();
+    await waitForForm();
+    expect((screen.getByLabelText("addChild.school.label") as HTMLInputElement).value).toBe("");
+
+    await user.type(nameField(), "Alex Rivera");
+    await user.type(screen.getByLabelText("addChild.school.label"), "Lakeview Unified");
+    await user.click(saveButton());
+
+    await waitFor(() => expect(childWrite()).toBeDefined());
+    const child = (childWrite()?.body?.children as Record<string, unknown>[])[0];
+    expect(child.schoolCity).toBe("Lakeview Unified");
   });
 
   test("carries no sub-copy under the heading", async () => {
@@ -253,9 +268,9 @@ describe("the screen", () => {
     stubFetch(profileWith({}));
     renderPage();
 
-    const field = await screen.findByRole("textbox", { name: "child.name.label" });
+    const field = await screen.findByRole("textbox", { name: "addChild.name.label" });
     expect(field).toHaveAttribute("id", "formChildName");
-    expect(screen.getByText("child.name.label")).not.toHaveClass("visually-hidden");
+    expect(screen.getByText("addChild.name.label")).not.toHaveClass("visually-hidden");
   });
 });
 
@@ -397,12 +412,12 @@ describe("the name rule", () => {
 
     const message = await screen.findByText("child.name.error.invalid");
     expect(nameField()).toHaveAttribute("aria-invalid", "true");
-    // TextField puts the message in a <p> with its own id, and the text sits
-    // inside that p, so the id to check is the element the text is in.
-    const describedBy = nameField().getAttribute("aria-describedby") ?? "";
-    expect(describedBy).not.toBe("");
-    expect(document.getElementById(describedBy)).toHaveTextContent("child.name.error.invalid");
-    expect(message.closest(`#${describedBy}`)).not.toBeNull();
+    // TextField puts the message in a <p> with its own id, beside the hint's,
+    // so the error has to be one of the ids the field is described by.
+    const describedBy = (nameField().getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean);
+    expect(describedBy.map((id) => document.getElementById(id)?.textContent ?? ""))
+      .toContainEqual(expect.stringContaining("child.name.error.invalid"));
+    expect(describedBy.some((id) => message.closest(`#${id}`) !== null)).toBe(true);
   });
 
   test("drops the message as soon as the parent starts fixing it", async () => {
@@ -682,8 +697,10 @@ describe("the copy this screen depends on", () => {
   // so a value missing from one file shows a parent "child.heading".
   const keys = [
     "child.heading",
-    "child.name.label",
-    "child.name.placeholder",
+    "addChild.name.label",
+    "addChild.description",
+    "addChild.school.label",
+    "child.school.hint",
     "child.name.error.required",
     "child.name.error.invalid",
     "child.name.error.tooLong",
@@ -718,8 +735,6 @@ describe("the copy this screen depends on", () => {
 
   test("asks the question and labels the button the way the design does", () => {
     expect(enDict["child.heading"]).toBe("What is the name of your child?");
-    // Deliberate wording: it disambiguates for a parent with more than one child.
-    expect(enDict["child.name.placeholder"]).toBe("Name of your child with an IEP");
     expect(enDict["child.button.save"]).toBe("Continue");
   });
 });

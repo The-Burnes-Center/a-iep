@@ -242,9 +242,7 @@ describe("ViewAndAddChild, the gate's destination", () => {
     stubFetch(placeholderStudentName());
     const user = renderPage("/view-update-add-child", <ViewAndAddChild />, ["studentNameGate"]);
 
-    const nameField = (await screen.findByPlaceholderText(
-      "child.name.placeholder",
-    )) as HTMLInputElement;
+    const nameField = (await screen.findByLabelText("addChild.name.label")) as HTMLInputElement;
     expect(nameField.value).toBe("");
 
     // And an empty field still cannot get a parent past this screen. That used
@@ -262,7 +260,7 @@ describe("ViewAndAddChild, the gate's destination", () => {
     stubFetch(noStudentName({ parentName: "Jane Rivera" }));
     const user = renderPage("/view-update-add-child", <ViewAndAddChild />, []);
 
-    const nameField = await screen.findByPlaceholderText("child.name.placeholder");
+    const nameField = await screen.findByLabelText("addChild.name.label");
     await user.type(nameField, "Alex Rivera");
     await user.click(screen.getByTestId("child-save-button"));
 

@@ -957,5 +957,6 @@
     "survey.research.skip": "You can answer the questions either way. If you don't choose, we'll take it as no.",
     "survey.banner.readingTitle": "Reading {name}'s IEP",
     "survey.banner.readingNote": "Keep answering. The summary will be waiting when you finish.",
-    "survey.error.nothingAnswered": "Answer at least one question, or choose No thanks."
+    "survey.error.nothingAnswered": "Answer at least one question, or choose No thanks.",
+    "child.school.hint": "This helps us see which school districts A-IEP reaches. It is never shared with your school."
 }

@@ -7,28 +7,18 @@ import { useLanguage } from '../../common/language-context';
 import { useFeatures } from '../../common/hooks/use-features';
 import { useActiveChild } from '../../common/hooks/use-active-child';
 import { PROFILE_QUERY_KEY } from '../../common/hooks/use-language-preference';
-import { CHILD_NAME_MAX_LENGTH, ChildNameError, normalizeChildName, validateChildName } from '../../common/child-name';
+import { ChildNameError, normalizeChildName, validateChildName } from '../../common/child-name';
 import { CHILD_QUERY_PARAM, fillTemplate, pathForChild } from '../../common/active-child';
 import { isPlaceholderChildName } from '../../common/features';
 import { STEP } from '../../common/breadcrumb-steps';
 import PageShell from '../../components/page/PageShell';
 import Button from '../../components/ui/Button';
-import { TextField } from '../../components/ui/fields';
 import { Notice } from '../../components/ui/feedback';
 import PageLoading from '../../components/PageLoading';
 import PageHero from '../../components/page/PageHero';
+import ChildDetailsFields from './ChildDetailsFields';
+import { schoolForField } from './child-school';
 import './MyChildren.css';
-
-/** The same limit the API enforces (MAX_SCHOOL_CITY_LENGTH). */
-const SCHOOL_MAX_LENGTH = 100;
-/** What the API stores for a school nobody gave; shown as an empty field. */
-const SCHOOL_PLACEHOLDER = 'Not specified';
-
-const NAME_ERROR_KEY: Record<ChildNameError, string> = {
-  required: 'child.name.error.required',
-  tooLong: 'child.name.error.tooLong',
-  invalid: 'child.name.error.invalid',
-};
 
 interface ChildFormProps {
   mode: 'add' | 'edit';
@@ -68,7 +58,7 @@ const ChildForm: React.FC<ChildFormProps> = ({ mode }) => {
   useEffect(() => {
     if (!isEdit || prefilled || !child) return;
     setName(isPlaceholderChildName(child.name) ? '' : child.name);
-    setSchool(child.schoolCity === SCHOOL_PLACEHOLDER ? '' : child.schoolCity ?? '');
+    setSchool(schoolForField(child.schoolCity));
     setPrefilled(true);
   }, [isEdit, prefilled, child]);
 
@@ -122,26 +112,16 @@ const ChildForm: React.FC<ChildFormProps> = ({ mode }) => {
           )}
 
           <form className="my-children-form" onSubmit={handleSubmit} noValidate>
-            <TextField
-              id="childFormName"
-              label={t('addChild.name.label')}
-              // Why the full name matters, where the parent types it
-              // (GOV.UK hint text), not as a paragraph in the hero.
-              hint={t('addChild.description')}
-              error={nameError ? t(NAME_ERROR_KEY[nameError]) : null}
-              value={name}
-              autoComplete="off"
-              maxLength={CHILD_NAME_MAX_LENGTH + 10}
-              onChange={(e) => { setName(e.target.value); if (nameError) setNameError(null); }}
-              data-testid="add-child-name"
-            />
-            <TextField
-              id="childFormSchool"
-              label={t('addChild.school.label')}
-              value={school}
-              maxLength={SCHOOL_MAX_LENGTH}
-              onChange={(e) => setSchool(e.target.value)}
-              data-testid="add-child-school"
+            <ChildDetailsFields
+              name={name}
+              onNameChange={(value) => { setName(value); if (nameError) setNameError(null); }}
+              nameError={nameError}
+              school={school}
+              onSchoolChange={setSchool}
+              nameId="childFormName"
+              schoolId="childFormSchool"
+              nameTestId="add-child-name"
+              schoolTestId="add-child-school"
             />
             <Button
               type="submit"

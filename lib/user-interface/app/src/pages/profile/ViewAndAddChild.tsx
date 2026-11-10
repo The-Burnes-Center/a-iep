@@ -12,15 +12,15 @@ import { STEP } from '../../common/breadcrumb-steps';
 import PageShell from '../../components/page/PageShell';
 import PageHero from '../../components/page/PageHero';
 import Button from '../../components/ui/Button';
-import { TextField } from '../../components/ui/fields';
+import ChildDetailsFields from './ChildDetailsFields';
+import { SCHOOL_PLACEHOLDER, schoolForField } from './child-school';
 import { Notice } from '../../components/ui/feedback';
 
-// The school district is no longer asked for: nothing reads schoolCity - not
-// the pipeline, not a summary, no logic - and the design has one field. The
-// backend still rejects addChild without one (user-profile-handler, "Missing
-// required fields"), so an existing value is kept and a new child gets the
-// same default the other three addChild call sites send.
-const SCHOOL_CITY_DEFAULT = 'Not specified';
+// The school district is optional, as on every later child (ChildDetailsFields):
+// the research team uses it to see which districts A-IEP reaches. The backend
+// still rejects a child without one, so a blank is stored as the same default
+// the other addChild call sites send.
+const SCHOOL_CITY_DEFAULT = SCHOOL_PLACEHOLDER;
 
 // Named once: the e2e walker and the tests find the field by it, and focus
 // goes back to it after a refused name (TextField does not forward a ref).
@@ -78,7 +78,7 @@ export default function ViewAndAddChild() {
         // without ever typing a real name, which the gate would then send
         // them right back here to do.
         setChildName(isPlaceholderChildName(firstChild.name) ? '' : firstChild.name);
-        setSchoolCity(firstChild.schoolCity || '');
+        setSchoolCity(schoolForField(firstChild.schoolCity));
         setFirstChildId(firstChild.childId || null);
         setHasExistingChild(true);
       } else {
@@ -209,8 +209,8 @@ export default function ViewAndAddChild() {
     void handleSaveAndContinue();
   };
 
-  const handleNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setChildName(event.target.value);
+  const handleNameChange = (value: string) => {
+    setChildName(value);
     // Nagging somebody mid-word is worse than saying nothing: the message goes
     // as soon as they start fixing it, and comes back on blur or on submit if
     // the new value still breaks the rule.
@@ -240,22 +240,20 @@ export default function ViewAndAddChild() {
   // trail says where the parent actually came from.
   return (
     <PageShell trail={[isOnboarding ? STEP.consent : STEP.account, STEP.child]}>
-      {/* One question and one field, per the design. What the name is used
-          for is explained on the privacy screen further into onboarding, not
-          here: `child.description` is still in the dictionaries for it. */}
       <PageHero titleId="child-title" title={t('child.heading')} />
 
       {saveError && <Notice tone="error">{saveError}</Notice>}
 
       <form className="page-card" onSubmit={handleSubmit}>
-        <TextField
-          id={CHILD_NAME_INPUT_ID}
-          label={t('child.name.label')}
-          placeholder={t('child.name.placeholder')}
-          value={childName}
-          onChange={handleNameChange}
-          onBlur={() => setNameError(validateChildName(childName))}
-          error={nameError ? t(`child.name.error.${nameError}`) : null}
+        <ChildDetailsFields
+          name={childName}
+          onNameChange={handleNameChange}
+          onNameBlur={() => setNameError(validateChildName(childName))}
+          nameError={nameError}
+          school={schoolCity}
+          onSchoolChange={setSchoolCity}
+          nameId={CHILD_NAME_INPUT_ID}
+          schoolId="formChildSchool"
         />
 
         <Button

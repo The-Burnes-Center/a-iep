@@ -957,5 +957,6 @@
     "survey.research.skip": "无论选择哪项，您都可以回答问题。如果您不选择，我们会视为不同意。",
     "survey.banner.readingTitle": "正在阅读{name}的IEP",
     "survey.banner.readingNote": "请继续回答。您答完时，摘要就在这里等您。",
-    "survey.error.nothingAnswered": "请至少回答一个问题，或选择“不用了，谢谢”。"
+    "survey.error.nothingAnswered": "请至少回答一个问题，或选择“不用了，谢谢”。",
+    "child.school.hint": "这能帮助我们了解A-IEP覆盖了哪些学区。我们绝不会把它分享给您的学校。"
 }

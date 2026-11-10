@@ -957,5 +957,6 @@
     "survey.research.skip": "Puede responder las preguntas de cualquier manera. Si no elige, lo tomaremos como un no.",
     "survey.banner.readingTitle": "Leyendo el IEP de {name}",
     "survey.banner.readingNote": "Siga respondiendo. El resumen le estará esperando cuando termine.",
-    "survey.error.nothingAnswered": "Responda al menos una pregunta, o elija No, gracias."
+    "survey.error.nothingAnswered": "Responda al menos una pregunta, o elija No, gracias.",
+    "child.school.hint": "Nos ayuda a ver a qué distritos escolares llega A-IEP. Nunca se comparte con su escuela."
 }
