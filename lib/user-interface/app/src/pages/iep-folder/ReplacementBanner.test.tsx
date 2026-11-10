@@ -53,7 +53,7 @@ describe("ReplacementBanner", () => {
     const { onCheckAgain, onUploadAgain } = renderBanner(
       { iepId: "iep-new", status: "PROCESSING" }, true);
 
-    fireEvent.click(screen.getByRole("button", { name: "Try Again" }));
+    fireEvent.click(screen.getByRole("button", { name: t("common.tryAgain") }));
     expect(onCheckAgain).toHaveBeenCalledTimes(1);
     expect(onUploadAgain).not.toHaveBeenCalled();
   });

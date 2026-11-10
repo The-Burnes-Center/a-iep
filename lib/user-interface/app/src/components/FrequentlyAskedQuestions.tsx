@@ -396,15 +396,15 @@ const FrequentlyAskedQuestions: React.FC = () => {
   const getFaqHeaderText = () => {
     switch(language) {
       case 'es':
-        return 'Preguntas Frecuentes';
+        return 'Preguntas frecuentes';
       case 'vi':
-        return 'Câu Hỏi Thường Gặp';
+        return 'Câu hỏi thường gặp';
       case 'zh':
         return '常见问题';
       case 'ar':
         return 'الأسئلة الشائعة';
       default:
-        return 'Frequently Asked Questions';
+        return 'Frequently asked questions';
     }
   };
 

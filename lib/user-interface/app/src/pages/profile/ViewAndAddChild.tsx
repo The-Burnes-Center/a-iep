@@ -270,7 +270,10 @@ export default function ViewAndAddChild() {
           // Stable E2E hook: the label is localized
           data-testid="child-save-button"
         >
-          {t('child.button.save')}
+          {/* "Continue" between onboarding steps, "Save changes" for an
+              edit (docs/UI_STANDARDS.md): from the Account Center this saves
+              and goes back, it does not continue anywhere. */}
+          {isOnboarding ? t('child.button.save') : t('common.saveChanges')}
         </Button>
       </form>
     </PageShell>

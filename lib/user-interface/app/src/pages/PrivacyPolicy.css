@@ -45,6 +45,7 @@
   color: var(--aiep-muted);
   letter-spacing: 0.05em;
   font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  text-transform: uppercase;
 }
 
 .breadcrumb-text.active {

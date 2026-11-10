@@ -204,6 +204,17 @@ describe("the screen", () => {
     expect(saveButton()).toHaveTextContent("child.button.save");
   });
 
+  test("says Save changes, not Continue, when the parent came to correct the name", async () => {
+    // From Account Center the button saves and goes back; there is nothing
+    // to continue to (docs/UI_STANDARDS.md: one verb per action).
+    stubFetch(profileWith({}));
+    renderPage({ onboarding: false });
+    await waitForForm();
+
+    expect(saveButton()).toHaveTextContent("common.saveChanges");
+    expect(saveButton()).not.toHaveTextContent("child.button.save");
+  });
+
   test("no longer asks for the school district", async () => {
     // The design has one field, and nothing reads schoolCity. The input is
     // gone by id (the e2e suite's anchor), by placeholder and by label.

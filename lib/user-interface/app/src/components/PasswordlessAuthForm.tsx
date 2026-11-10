@@ -76,8 +76,11 @@ const EMAIL_ERROR_ID = 'email-error';
     Verify button is off. */
 const CODE_STATUS_ID = 'code-status';
 const VERIFY_REASON_ID = 'verify-reason';
-/** Fewer digits than this and Verify stays off. */
-const MIN_CODE_LENGTH = 4;
+/** Every code is this long (OTP_LENGTH in phone-otp-auth/create-auth-challenge.js),
+    and the field's label says so. Verify stays off until all of it is typed:
+    at 4 it lit up two digits early, so a press spent one of the three answers
+    Cognito allows on a code that could not be right. */
+const CODE_LENGTH = 6;
 
 /**
  * Deliberately loose: one @, something either side of it, a dot in the domain,
@@ -338,7 +341,7 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
 
   if (auth.step === 'awaiting_code') {
     const codeError = formError ?? auth.error;
-    const showVerifyReason = !auth.loading && code.length < MIN_CODE_LENGTH;
+    const showVerifyReason = !auth.loading && code.length < CODE_LENGTH;
     return (
       <Form onSubmit={handleVerify}>
         <div className="mobile-form-container">
@@ -407,7 +410,7 @@ const PasswordlessAuthForm: React.FC<PasswordlessAuthFormProps> = ({
             <SubmitButton
               loading={auth.loading}
               buttonText={t('auth.verify')}
-              disabled={auth.loading || code.length < MIN_CODE_LENGTH}
+              disabled={auth.loading || code.length < CODE_LENGTH}
               describedBy={showVerifyReason ? VERIFY_REASON_ID : undefined}
             />
             <Button

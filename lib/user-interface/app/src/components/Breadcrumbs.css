@@ -18,6 +18,10 @@
   font-style: normal;
   letter-spacing: 0.05em;
   padding-bottom: 0.5rem;
+  /* Uppercase is a style, not the text: the dictionaries hold every crumb in
+     sentence case, so a screen reader reads words rather than spelling out
+     capitals, and no trail mixes "ACCOUNT > Invite" again. */
+  text-transform: uppercase;
 }
 
 /* ">" rather than Bootstrap's "/": the app shipped this separator on every

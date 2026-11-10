@@ -53,8 +53,8 @@ import {
 
 /** Copy the steps key on, mirroring src/translations/{en,es}.json. */
 const COPY = {
-  accountCenterTitle: 'Account Center',
-  accountCenterTitleEs: 'Centro de Cuenta',
+  accountCenterTitle: 'Account center',
+  accountCenterTitleEs: 'Centro de cuenta',
 } as const;
 
 test('profile settings round-trip: parent name, child, language preference', async ({ page }) => {

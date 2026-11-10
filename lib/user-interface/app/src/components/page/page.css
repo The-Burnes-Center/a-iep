@@ -58,9 +58,6 @@
 
 .page-shell .breadcrumb-item {
   padding-bottom: 0;
-  /* Uppercase is a style, not the text: the dictionaries hold the crumbs in
-     whatever case, and a trail never mixes "ACCOUNT > Invite" again. */
-  text-transform: uppercase;
 }
 
 /* WCAG 2.2 target size: the crumb links measured 21px tall. */

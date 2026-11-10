@@ -1005,7 +1005,12 @@ describe("the names and reasons a screen reader is given", () => {
     expect(verify()).toBeDisabled();
     expect(verify()).toHaveAccessibleDescription("auth.verifyNeedsCode");
 
-    await user.type(screen.getByTestId("sms-code-input"), "3456");
+    // One digit short of every code we send is still not a code: the label
+    // says 6 digits, and this lit up at 4.
+    await user.type(screen.getByTestId("sms-code-input"), "345");
+    expect(verify()).toBeDisabled();
+
+    await user.type(screen.getByTestId("sms-code-input"), "6");
     expect(verify()).toBeEnabled();
     expect(verify()).not.toHaveAttribute("aria-describedby");
   });

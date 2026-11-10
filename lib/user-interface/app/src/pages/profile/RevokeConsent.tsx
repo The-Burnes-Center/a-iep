@@ -47,12 +47,13 @@ const RevokeConsent: React.FC = () => {
     navigate('/', { replace: true });
   };
 
+  // Back to where the trail says this page sits, not the retired /profile.
   const handleCancel = () => {
-    navigate('/profile');
+    navigate('/account-center');
   };
 
   // This page is the confirmation: it says what is lost before the one
-  // irreversible button, and "Take me back" is the way out.
+  // irreversible button, and Cancel is the way out.
   return (
     <PageShell trail={[STEP.account, { labelKey: 'revoke.breadcrumb.revoke' }]}>
       <PageHero titleId="revoke-consent-title" title={t('revoke.title')} showFaces={false} />

@@ -34,7 +34,7 @@ import { REFERRER_USER, REFERRAL_SIGNUP_USER } from '../helpers/phones';
 
 /** English invite-page copy the flow keys on (mirrors src/translations/en.json). */
 const EN_INVITE = {
-  title: 'Invite Other Parents',
+  title: 'Invite other parents',
   joinedItem: 'A parent joined',
 } as const;
 

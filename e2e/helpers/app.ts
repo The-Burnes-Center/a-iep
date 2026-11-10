@@ -46,10 +46,11 @@ export const EN = {
   wrongCodeInSession: 'An error occurred. Please try again.',
   sessionFailed: 'Invalid verification code. Please try again.',
   preferEnglish: 'I prefer English',
-  updateProfile: 'Update Profile',
+  /** The parent-name form's submit (updateProfile.button.update). */
+  saveChanges: 'Save changes',
   navigateToAccount: 'Navigate to Account',
   deleteYourAccount: 'Delete your account',
-  deleteMyAccount: 'Delete My Account',
+  deleteMyAccount: 'Delete my account',
 } as const;
 
 /**
@@ -432,7 +433,7 @@ export async function completeOnboardingIfShown(page: Page): Promise<string> {
         const nameInput = page.locator('#formParentName');
         if (await nameInput.isVisible()) {
           await nameInput.fill('E2E Test Parent');
-          await page.getByRole('button', { name: EN.updateProfile }).click();
+          await page.getByRole('button', { name: EN.saveChanges }).click();
           await page.waitForURL((url) => url.pathname !== '/account-center/profile', { timeout: 30_000 });
           continue;
         }
@@ -455,7 +456,7 @@ export async function completeOnboardingIfShown(page: Page): Promise<string> {
 
 /**
  * Delete the signed-in account the way a parent would: app nav -> Account
- * Center -> Delete your account -> Delete My Account.
+ * Center -> Delete your account -> Delete my account.
  *
  * The backend deletes the S3 documents, the document rows, the profile row
  * and the Cognito user, then the app signs out and lands on the public

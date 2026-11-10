@@ -42,7 +42,7 @@ const LandingTopNavigation: React.FC = () => {
     },
     {
       icon: IconFileDescription,
-      label: t('navigation.uploadIEP') || 'Upload An IEP',
+      label: t('navigation.uploadIEP') || 'Upload an IEP',
       route: uploadRoute
     },
     {
