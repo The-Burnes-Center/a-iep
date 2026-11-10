@@ -6,6 +6,7 @@ import {
   processingStepPosition,
 } from '../pages/utils/processing-progress.mjs';
 import type { ProcessingProgressState } from '../pages/utils/processing-progress.mjs';
+import './ProcessingStatusBar.css';
 
 /**
  * The step in flight and how far along it is.
@@ -28,6 +29,13 @@ interface ProcessingStatusBarProps {
   stepOfTemplate?: string;
   /** "Step {number} of {total}, {step}": what the bar reads aloud. */
   valueTextTemplate?: string;
+  /**
+   * Just the bar and a percentage, for a list where each row is one child
+   * (My children). No step names: the parent wants to know how far along it
+   * is, and the full screen is one tap away. `label` names the bar instead.
+   */
+  compact?: boolean;
+  label?: string;
 }
 
 const DEFAULT_STEP_OF_TEMPLATE = 'Step {number} of {total}';
@@ -54,6 +62,8 @@ const ProcessingStatusBar: React.FC<ProcessingStatusBarProps> = ({
   stepLabel,
   stepOfTemplate = DEFAULT_STEP_OF_TEMPLATE,
   valueTextTemplate = DEFAULT_VALUE_TEXT_TEMPLATE,
+  compact = false,
+  label,
 }) => {
   // The bar's accessible name is the step name beside it, so a screen reader
   // reads "Writing your plain-language summary" rather than an unnamed
@@ -116,6 +126,27 @@ const ProcessingStatusBar: React.FC<ProcessingStatusBarProps> = ({
   const valueText = position
     ? fill(valueTextTemplate, { ...position, step: stepLabel })
     : undefined;
+
+  if (compact) {
+    const shown = Math.round(percent);
+    return (
+      <div className="processing-status-compact">
+        <ProgressBar className="processing-status-bar">
+          <ProgressBar
+            now={percent}
+            min={0}
+            max={100}
+            aria-label={label}
+            aria-valuetext={`${shown}%`}
+            data-testid="processing-progress-bar"
+            data-confirmed-percent={easedState.confirmedPercent}
+          />
+        </ProgressBar>
+        {/* The value is already the bar's valuetext; this is for sighted readers. */}
+        <span className="processing-status-percent" aria-hidden="true">{shown}%</span>
+      </div>
+    );
+  }
 
   return (
     <>

@@ -19,6 +19,9 @@ import PageShell from '../../components/page/PageShell';
 import PageLoading from '../../components/PageLoading';
 import { Child } from '../../common/types';
 import ChildrenHero from './ChildrenHero';
+import { TextHelper } from '../../common/helpers/text-helper';
+import ProcessingStatusBar from '../../components/ProcessingStatusBar';
+import { schoolForField } from './child-school';
 import { ChildDocumentState, MAX_CHILDREN, childDocumentState } from './my-children-status';
 import './MyChildren.css';
 
@@ -45,7 +48,7 @@ const STATUS_TONE: Record<ChildDocumentState, StatusTone> = {
  * the state of server work.
  */
 const MyChildren: React.FC = () => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { isFeatureEnabled } = useFeatures();
   const appContext = useContext(AppContext);
   const queryClient = useQueryClient();
@@ -84,6 +87,10 @@ const MyChildren: React.FC = () => {
 
   if (!isFeatureEnabled('multiChild')) return <Navigate to="/account-center" replace />;
   if (isLoading) return <PageLoading message={t('common.loading')} />;
+
+  // The summary page's own "Last update:" line, so the two never disagree.
+  const lastUpdate = (doc: unknown) =>
+    TextHelper.formatUnixTimestamp((doc as { updatedAt?: number } | undefined)?.updatedAt, language);
 
   const displayName = (child: Child) =>
     isPlaceholderChildName(child.name) ? t('myChildren.unnamed') : child.name;
@@ -131,8 +138,15 @@ const MyChildren: React.FC = () => {
                   <span className="my-children-initial" aria-hidden="true">{name.trim().charAt(0).toUpperCase()}</span>
                   <span className="my-children-who">
                     <span className="my-children-name">{name}</span>
-                    {child.schoolCity && child.schoolCity !== 'Not specified' && (
-                      <span className="my-children-meta">{child.schoolCity}</span>
+                    {state === 'ready' && lastUpdate(query?.data) && (
+                      <span className="my-children-meta" data-testid="my-children-updated">
+                        {t('summary.lastUpdate')} {lastUpdate(query?.data)}
+                      </span>
+                    )}
+                    {schoolForField(child.schoolCity) && (
+                      <span className="my-children-meta">
+                        {fillTemplate(t('myChildren.district'), { district: child.schoolCity as string })}
+                      </span>
                     )}
                   </span>
                   {query?.isLoading ? (
@@ -145,7 +159,13 @@ const MyChildren: React.FC = () => {
                 </div>
 
                 {!query?.isLoading && (
-                  <CardAction state={state} name={name} childPath={childPath} onRetry={() => query?.refetch()} />
+                  <CardAction
+                    state={state}
+                    name={name}
+                    childPath={childPath}
+                    onRetry={() => query?.refetch()}
+                    document={query?.data as ProgressDocument | undefined}
+                  />
                 )}
 
                 {isConfirming ? (
@@ -177,7 +197,7 @@ const MyChildren: React.FC = () => {
                 ) : (
                   <div className="my-children-manage">
                     <Button
-                      variant="secondary"
+                      variant="text"
                       to={`/account-center/children/edit?child=${encodeURIComponent(child.childId ?? '')}`}
                       aria-label={fillTemplate(t('myChildren.editLabel'), { name })}
                       data-testid="my-children-edit"
@@ -186,7 +206,7 @@ const MyChildren: React.FC = () => {
                     </Button>
                     {canRemove && (
                       <Button
-                        variant="secondary"
+                        variant="text"
                         className="my-children-remove"
                         aria-label={fillTemplate(t('myChildren.removeLabel'), { name })}
                         onClick={() => { setFailedName(null); setConfirmingId(child.childId ?? null); }}
@@ -215,15 +235,19 @@ const MyChildren: React.FC = () => {
   );
 };
 
+type ProgressDocument = React.ComponentProps<typeof ProcessingStatusBar>['document'];
+
 interface CardActionProps {
   state: ChildDocumentState;
   name: string;
   childPath: (path: string) => string;
   onRetry: () => void;
+  /** The document as the documents API returned it, for the progress bar. */
+  document?: ProgressDocument;
 }
 
 /** The one next step for a child, by the state their IEP is in. */
-const CardAction: React.FC<CardActionProps> = ({ state, name, childPath, onRetry }) => {
+const CardAction: React.FC<CardActionProps> = ({ state, name, childPath, onRetry, document }) => {
   const { t } = useLanguage();
   const action = (key: string) => fillTemplate(t(key), { name });
 
@@ -231,11 +255,19 @@ const CardAction: React.FC<CardActionProps> = ({ state, name, childPath, onRetry
     case 'ready':
       return <Button fullWidth to={childPath('/summary-and-translations')}>{action('myChildren.action.view')}</Button>;
     case 'reading':
+      // How far along, and nothing to press: the card turns into "View the
+      // summary" on its own when it is ready (the list re-checks while one is
+      // read). The step names are on the full processing screen.
       return (
-        <>
+        <div className="my-children-progress" data-testid="my-children-progress">
+          <ProcessingStatusBar
+            compact
+            document={document ?? {}}
+            stepLabel=""
+            label={action('myChildren.progress.label')}
+          />
           <p className="my-children-hint">{t('myChildren.reading.hint')}</p>
-          <Button fullWidth variant="secondary" to={childPath('/summary-and-translations')}>{action('myChildren.action.progress')}</Button>
-        </>
+        </div>
       );
     case 'failed':
       return (

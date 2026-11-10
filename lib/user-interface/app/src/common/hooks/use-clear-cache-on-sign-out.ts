@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../auth-provider';
+import { rememberChild } from '../active-child';
 
 /**
  * Empties the query cache the moment a signed-in parent stops being signed in:
@@ -22,7 +23,12 @@ export function useClearCacheOnSignOut(): void {
   const wasAuthenticated = useRef(authenticated);
 
   useEffect(() => {
-    if (wasAuthenticated.current && !authenticated) queryClient.clear();
+    if (wasAuthenticated.current && !authenticated) {
+      queryClient.clear();
+      // Which child this tab last opened goes too: the next account's
+      // children are not these.
+      rememberChild(null);
+    }
     wasAuthenticated.current = authenticated;
   }, [authenticated, queryClient]);
 }

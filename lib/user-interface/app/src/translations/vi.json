@@ -958,5 +958,7 @@
     "survey.banner.readingTitle": "Đang đọc IEP của {name}",
     "survey.banner.readingNote": "Bạn cứ tiếp tục trả lời. Bản tóm tắt sẽ chờ bạn khi bạn xong.",
     "survey.error.nothingAnswered": "Hãy trả lời ít nhất một câu hỏi, hoặc chọn Không, cảm ơn.",
-    "child.school.hint": "Thông tin này giúp chúng tôi biết A-IEP đến được những khu học chánh nào. Nó không bao giờ được chia sẻ với trường của bạn."
+    "child.school.hint": "Thông tin này giúp chúng tôi biết A-IEP đến được những khu học chánh nào. Nó không bao giờ được chia sẻ với trường của bạn.",
+    "myChildren.district": "Khu học chánh: {district}",
+    "myChildren.progress.label": "Đang đọc IEP của {name}"
 }

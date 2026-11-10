@@ -958,5 +958,7 @@
     "survey.banner.readingTitle": "Reading {name}'s IEP",
     "survey.banner.readingNote": "Keep answering. The summary will be waiting when you finish.",
     "survey.error.nothingAnswered": "Answer at least one question, or choose No thanks.",
-    "child.school.hint": "This helps us see which school districts A-IEP reaches. It is never shared with your school."
+    "child.school.hint": "This helps us see which school districts A-IEP reaches. It is never shared with your school.",
+    "myChildren.district": "District: {district}",
+    "myChildren.progress.label": "Reading {name}'s IEP"
 }

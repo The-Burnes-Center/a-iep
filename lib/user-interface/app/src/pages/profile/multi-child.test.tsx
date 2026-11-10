@@ -93,6 +93,7 @@ const settle = async () => {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  window.sessionStorage.clear();
   window.history.replaceState(null, "", "/");
   Auth.getCurrentUser.mockResolvedValue({ username: "u", userId: "u" });
   Auth.fetchAuthSession.mockResolvedValue({ tokens: { idToken: { toString: () => "tok", payload: {} } } });
@@ -301,6 +302,21 @@ describe("the summary for one of several children", () => {
     renderAt("/summary-and-translations?child=c-leo", <SummaryAndTranslationsPage />);
     await settle();
 
+    expect(urls()).toContain(docsUrl(LEO.childId));
+    expect(urls()).not.toContain(docsUrl(MAYA.childId));
+  });
+
+  test("a link that names no child (the Summary tab, Show me around) stays on the child last opened", async () => {
+    documents[LEO.childId] = { ...(documents[MAYA.childId] as object), documentId: "d-leo", summaries: { en: "Leo summary" } };
+    window.history.replaceState(null, "", "/summary-and-translations?child=c-leo");
+    const first = renderAt("/summary-and-translations?child=c-leo", <SummaryAndTranslationsPage />);
+    await settle();
+    first.unmount();
+    fetchMock.mockClear();
+
+    window.history.replaceState(null, "", "/summary-and-translations");
+    renderAt("/summary-and-translations", <SummaryAndTranslationsPage />);
+    await settle();
     expect(urls()).toContain(docsUrl(LEO.childId));
     expect(urls()).not.toContain(docsUrl(MAYA.childId));
   });

@@ -958,5 +958,7 @@
     "survey.banner.readingTitle": "نقرأ خطة IEP الخاصة بـ {name}",
     "survey.banner.readingNote": "تابع الإجابة. سيكون الملخص بانتظارك عندما تنتهي.",
     "survey.error.nothingAnswered": "أجب عن سؤال واحد على الأقل، أو اختر لا، شكرًا.",
-    "child.school.hint": "يساعدنا هذا على معرفة المناطق التعليمية التي يصل إليها A-IEP. لا تتم مشاركته مع مدرستك أبدًا."
+    "child.school.hint": "يساعدنا هذا على معرفة المناطق التعليمية التي يصل إليها A-IEP. لا تتم مشاركته مع مدرستك أبدًا.",
+    "myChildren.district": "المنطقة التعليمية: {district}",
+    "myChildren.progress.label": "نقرأ خطة IEP الخاصة بـ {name}"
 }

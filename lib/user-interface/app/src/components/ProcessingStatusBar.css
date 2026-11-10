@@ -1,0 +1,39 @@
+/* The compact bar (My children): a track, a fill and the percentage beside
+   it. The full bar's own look is in ProcessingModal.css, drawn for the
+   dark-green band; this one sits on a white card. */
+.processing-status-compact {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.processing-status-compact .processing-status-bar.progress {
+  flex: 1 1 auto;
+  height: 8px;
+  direction: ltr;
+  background-color: var(--aiep-surface-field);
+  border-radius: 999px;
+}
+
+.processing-status-compact .processing-status-bar .progress-bar {
+  background-color: var(--aiep-accent-blue);
+  border-radius: 999px;
+  transition: width 900ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.processing-status-percent {
+  flex: 0 0 auto;
+  min-width: 3ch;
+  text-align: end;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-weight: 700;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--aiep-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .processing-status-compact .processing-status-bar .progress-bar {
+    transition: none;
+  }
+}

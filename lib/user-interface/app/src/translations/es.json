@@ -958,5 +958,7 @@
     "survey.banner.readingTitle": "Leyendo el IEP de {name}",
     "survey.banner.readingNote": "Siga respondiendo. El resumen le estará esperando cuando termine.",
     "survey.error.nothingAnswered": "Responda al menos una pregunta, o elija No, gracias.",
-    "child.school.hint": "Nos ayuda a ver a qué distritos escolares llega A-IEP. Nunca se comparte con su escuela."
+    "child.school.hint": "Nos ayuda a ver a qué distritos escolares llega A-IEP. Nunca se comparte con su escuela.",
+    "myChildren.district": "Distrito: {district}",
+    "myChildren.progress.label": "Leyendo el IEP de {name}"
 }

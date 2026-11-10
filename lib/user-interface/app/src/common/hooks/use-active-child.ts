@@ -1,4 +1,4 @@
-import { useContext } from 'react';
+import { useContext, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AppContext } from '../app-context';
@@ -10,6 +10,8 @@ import {
   CHILD_QUERY_PARAM,
   isMultiChildFamily,
   pathForChild,
+  readRememberedChild,
+  rememberChild,
   resolveActiveChild,
 } from '../active-child';
 
@@ -45,9 +47,17 @@ export function useActiveChild(): ActiveChildState {
   });
 
   const children = profileQuery.data?.children ?? [];
-  const active = resolveActiveChild(children, searchParams.get(CHILD_QUERY_PARAM), enabled);
+  const requested = searchParams.get(CHILD_QUERY_PARAM);
+  const active = resolveActiveChild(children, requested, enabled, readRememberedChild());
   const isMultiChild = isMultiChildFamily(children, enabled);
   const childId = active?.child.childId;
+
+  // A screen the URL points at a real child of theirs is the one to come back
+  // to when a later link names nobody.
+  const opened = requested && active && !active.requestedMissing ? active.child.childId : undefined;
+  useEffect(() => {
+    if (opened) rememberChild(opened);
+  }, [opened]);
 
   return {
     child: active?.child ?? null,

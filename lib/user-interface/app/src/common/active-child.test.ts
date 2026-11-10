@@ -60,3 +60,26 @@ describe('fillTemplate', () => {
     expect(fillTemplate('{name}', { name: '$&' })).toBe('$&');
   });
 });
+
+describe('a link that names no child', () => {
+  const kids = [{ childId: 'a' }, { childId: 'b' }, { childId: 'c' }];
+
+  test('opens the child last opened in this tab, not the first', () => {
+    expect(resolveActiveChild(kids, null, true, 'b')?.child.childId).toBe('b');
+  });
+
+  test('opens the first when nothing is remembered, or the remembered child is gone', () => {
+    expect(resolveActiveChild(kids, null, true, null)?.child.childId).toBe('a');
+    const gone = resolveActiveChild(kids, null, true, 'removed');
+    expect(gone?.child.childId).toBe('a');
+    expect(gone?.requestedMissing).toBe(false);
+  });
+
+  test('a child the URL names still wins over the remembered one', () => {
+    expect(resolveActiveChild(kids, 'c', true, 'b')?.child.childId).toBe('c');
+  });
+
+  test('with multiChild off, every screen is about the first child as before', () => {
+    expect(resolveActiveChild(kids, null, false, 'b')?.child.childId).toBe('a');
+  });
+});

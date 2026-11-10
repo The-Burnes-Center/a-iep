@@ -30,18 +30,55 @@ export interface ActiveChild<C extends ChildLike> {
 
 /**
  * The child a screen is about: the one the URL names when that is allowed and
- * it is really on the profile, otherwise the first. Null when there are none.
+ * it is really on the profile; else the child last opened in this tab
+ * (`rememberedId`), when it is still on the profile; else the first. Null when
+ * there are none.
+ *
+ * The remembered child is what a link that names nobody means: the Summary
+ * tab, or Support's "Show me around". Those used to open the first child,
+ * whichever child the parent had just been reading.
  */
 export const resolveActiveChild = <C extends ChildLike>(
   children: ReadonlyArray<C> | null | undefined,
   requestedId: string | null | undefined,
   multiChildEnabled: boolean,
+  rememberedId?: string | null,
 ): ActiveChild<C> | null => {
   if (!children || children.length === 0) return null;
-  if (!multiChildEnabled || !requestedId) return { child: children[0], index: 0, requestedMissing: false };
-  const index = children.findIndex((c) => c.childId === requestedId);
-  if (index === -1) return { child: children[0], index: 0, requestedMissing: true };
-  return { child: children[index], index, requestedMissing: false };
+  const first = { child: children[0], index: 0, requestedMissing: false };
+  if (!multiChildEnabled) return first;
+  if (requestedId) {
+    const index = children.findIndex((c) => c.childId === requestedId);
+    if (index === -1) return { ...first, requestedMissing: true };
+    return { child: children[index], index, requestedMissing: false };
+  }
+  const remembered = rememberedId ? children.findIndex((c) => c.childId === rememberedId) : -1;
+  return remembered === -1 ? first : { child: children[remembered], index: remembered, requestedMissing: false };
+};
+
+/**
+ * The child last opened in this tab: an id only, in sessionStorage, so it
+ * goes with the tab and is cleared at sign-out (use-clear-cache-on-sign-out).
+ * Storage that throws (a private window, blocked site data) means nothing is
+ * remembered, which is the first-child behaviour from before.
+ */
+export const REMEMBERED_CHILD_KEY = 'aiep.activeChild';
+
+export const readRememberedChild = (): string | null => {
+  try {
+    return window.sessionStorage.getItem(REMEMBERED_CHILD_KEY);
+  } catch {
+    return null;
+  }
+};
+
+export const rememberChild = (childId: string | null): void => {
+  try {
+    if (childId) window.sessionStorage.setItem(REMEMBERED_CHILD_KEY, childId);
+    else window.sessionStorage.removeItem(REMEMBERED_CHILD_KEY);
+  } catch {
+    // Not remembered; the next unnamed link opens the first child.
+  }
 };
 
 /** True when the family has more than one child and the feature is on. */
