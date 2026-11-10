@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import PreferredLanguage from "./PreferredLanguage";
 import ConsentForm from "./ConsentForm";
 import ViewAndAddChild from "./ViewAndAddChild";
@@ -120,6 +121,7 @@ const renderPage = (
     // Every test here walks the onboarding flow, and onboarding carries this
     // state on every hop. ViewAndAddChild reads it to tell finishing the flow
     // apart from coming back later to correct the name.
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <MemoryRouter initialEntries={[{ pathname: path, state: { onboardingContinue: true } }]}>
       <AppContext.Provider value={appConfig(enabledFeatures)}>
         <LanguageContext.Provider value={languageValue}>
@@ -138,7 +140,8 @@ const renderPage = (
           </AuthProvider>
         </LanguageContext.Provider>
       </AppContext.Provider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </QueryClientProvider>,
   );
 
   return userEvent.setup();

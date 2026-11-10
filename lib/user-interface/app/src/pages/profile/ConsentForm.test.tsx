@@ -19,6 +19,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ConsentForm from "./ConsentForm";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
@@ -68,6 +69,7 @@ const Here = () => <div data-testid="landed-on">{useLocation().pathname}</div>;
 const renderPage = (profile: Record<string, unknown> = NOT_YET_CONSENTED) => {
   stubFetch(profile);
   render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <MemoryRouter initialEntries={[PAGE]}>
       <AppContext.Provider value={appConfig}>
         <LanguageContext.Provider
@@ -88,7 +90,8 @@ const renderPage = (profile: Record<string, unknown> = NOT_YET_CONSENTED) => {
           </Routes>
         </LanguageContext.Provider>
       </AppContext.Provider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </QueryClientProvider>,
   );
 
   return userEvent.setup();
@@ -215,6 +218,7 @@ describe("the failed-load state", () => {
       vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })),
     );
     render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <MemoryRouter initialEntries={[PAGE]}>
         <AppContext.Provider value={appConfig}>
           <LanguageContext.Provider
@@ -231,7 +235,8 @@ describe("the failed-load state", () => {
             </Routes>
           </LanguageContext.Provider>
         </AppContext.Provider>
-      </MemoryRouter>,
+      </MemoryRouter>
+    </QueryClientProvider>,
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent("profile.error.serviceUnavailable");

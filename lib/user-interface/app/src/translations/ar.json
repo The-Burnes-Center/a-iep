@@ -860,8 +860,6 @@
     "survey.invite.yes": "نعم، سأساعد",
     "survey.invite.remind": "ذكّرني لاحقًا",
     "survey.invite.no": "لا، شكرًا",
-    "survey.consent.label": "يمكنكم أيضًا استخدام إجاباتي، دون اسمي أو بيانات الاتصال بي، في أبحاث حول A-IEP.",
-    "survey.consent.hint": "اختياري. إذا تركت هذا المربع دون تحديد، فستظل إجاباتك تساعدنا في تحسين التطبيق.",
     "survey.progress": "الجزء {n} من {total}",
     "survey.progress.skip": "يمكنك تخطي الأسئلة",
     "survey.progress.label": "تقدّم الاستبيان",
@@ -890,7 +888,6 @@
     "survey.q.k12": "هل {name} في الصفوف من الروضة إلى الثاني عشر؟",
     "survey.q.englishLearner": "هل {name} يتعلم اللغة الإنجليزية؟",
     "survey.q.homeLanguageCopy": "هل لديك نسخة من خطة IEP الخاصة بـ {name} بلغة منزلك؟",
-    "survey.about.known": "لقد أخبرتنا بالفعل بلغتك، وبأن خطة IEP الخاصة بـ {name} محفوظة كملف، لذلك لن نسألك مرة أخرى.",
     "survey.q.u1": "خطة IEP الخاصة بـ {name} مكتوبة بطريقة أستطيع فهمها.",
     "survey.q.u2": "أفهم ما تقوله خطة IEP الخاصة بـ {name} عن احتياجاته.",
     "survey.q.u3": "أفهم أهداف خطة IEP الخاصة بـ {name}.",
@@ -953,5 +950,10 @@
     "survey.nextChild.title": "هل تريد إضافة خطة IEP لطفلك التالي؟",
     "survey.nextChild.body": "أخبرتنا أن أكثر من طفل من أطفالك لديه خطة IEP. سيبقى ملخص {name} هنا.",
     "survey.nextChild.button": "أضف طفلي التالي",
-    "survey.thanks.nextChild": "عندما تضيف طفلك التالي، سنسألك فقط الأسئلة الخاصة به."
+    "survey.thanks.nextChild": "عندما تضيف طفلك التالي، سنسألك فقط الأسئلة الخاصة به.",
+    "survey.research.legend": "هل يمكننا استخدام إجاباتك في البحث؟ (اختياري)",
+    "survey.research.explain": "البحث يعني أن أشخاصًا في Burnes Center، الجهة التي صنعت A-IEP، يدرسون إجابات عائلات كثيرة معًا لمعرفة ما إذا كان A-IEP يساعد. لن يروا اسمك أو رقم هاتفك أو بريدك الإلكتروني.",
+    "survey.research.yes": "نعم، يمكنكم استخدام إجاباتي في البحث",
+    "survey.research.no": "لا، استخدموها فقط لتحسين A-IEP",
+    "survey.research.skip": "يمكنك الإجابة عن الأسئلة في الحالتين. إذا لم تختر، فسنعتبر ذلك رفضًا."
 }

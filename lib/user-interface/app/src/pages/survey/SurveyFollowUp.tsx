@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import Button from '../../components/ui/Button';
-import { Checkbox, TextArea } from '../../components/ui/fields';
+import { TextArea } from '../../components/ui/fields';
 import { Notice } from '../../components/ui/feedback';
 import PageShell from '../../components/page/PageShell';
 import PageLoading from '../../components/PageLoading';
@@ -18,7 +18,7 @@ import type { ChildSurvey, SurveyAnswers, SurveySave } from '../../common/types'
 import { QUESTIONS, withoutBlanks } from './questions';
 import { isFollowUpDue } from './survey-state';
 import { surveyQueryKey, useChildSurvey } from './use-child-survey';
-import { FollowUpStatements } from './SurveyParts';
+import { FollowUpStatements, ResearchChoice } from './SurveyParts';
 import './survey.css';
 
 /**
@@ -59,7 +59,7 @@ const SurveyFollowUp: React.FC = () => {
   if (!isFollowUpDue(surveyQuery.data)) return <Navigate to={summaryPath} replace />;
 
   const shown = answers ?? surveyQuery.data.after?.answers ?? {};
-  const agreed = consent ?? surveyQuery.data.after?.researchConsent ?? false;
+  const agreed = consent ?? surveyQuery.data.after?.researchConsent;
   const name = isPlaceholderChildName(child?.name) ? t('survey.yourChild') : (child?.name as string);
 
   const finish = async (status: 'done' | 'declined') => {
@@ -95,12 +95,7 @@ const SurveyFollowUp: React.FC = () => {
             value={(shown.anythingElse as string) ?? ''}
             onChange={(e) => setAnswer('anythingElse', e.target.value)}
           />
-          <Checkbox
-            label={t('survey.consent.label')}
-            hint={t('survey.consent.hint')}
-            checked={agreed}
-            onChange={(e) => setConsent(e.target.checked)}
-          />
+          <ResearchChoice name="research-after" value={agreed} onChange={setConsent} />
           {saveFailed && <Notice tone="error" title={t('survey.error.save')} />}
           <div className="survey-actions">
             <Button fullWidth busy={saving} busyLabel={t('common.saving')} onClick={() => finish('done')} data-testid="follow-up-send">

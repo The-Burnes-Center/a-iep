@@ -18,6 +18,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import PreferredLanguage from "./PreferredLanguage";
 import ConsentForm from "./ConsentForm";
 import ViewAndAddChild from "./ViewAndAddChild";
@@ -70,6 +71,7 @@ const renderPage = async (language: string, path: string, page: React.ReactEleme
   localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
 
   render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <MemoryRouter initialEntries={[path]}>
       <AppContext.Provider value={appConfig}>
         <LanguageProvider>
@@ -85,7 +87,8 @@ const renderPage = async (language: string, path: string, page: React.ReactEleme
             </Routes>
         </LanguageProvider>
       </AppContext.Provider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </QueryClientProvider>,
   );
 
   await screen.findByTestId("mounted");

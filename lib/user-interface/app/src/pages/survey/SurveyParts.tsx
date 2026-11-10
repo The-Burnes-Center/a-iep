@@ -1,7 +1,7 @@
 import React from 'react';
 import { Checkbox, Radios, TextArea, TextField } from '../../components/ui/fields';
 import { useLanguage } from '../../common/language-context';
-import { fillTemplate } from '../../common/active-child';
+import { fillName } from './fill-name';
 import type { SurveyAnswers } from '../../common/types';
 import {
   BaselinePart, FOLLOW_UP_KEYS, HELP_KEYS, QUESTIONS, REFLECT_KEYS, SCALE, SPEAK_KEYS, UNDERSTAND_KEYS,
@@ -9,6 +9,41 @@ import {
 } from './questions';
 
 type Setter = (key: string, value: string | string[]) => void;
+
+interface ResearchChoiceProps {
+  /** Unanswered is undefined, and is saved as no answer: only "yes" is consent. */
+  value: boolean | undefined;
+  onChange: (value: boolean) => void;
+  name: string;
+}
+
+/**
+ * Research use of the answers, asked as its own question with two equal
+ * answers and neither chosen. It was a pre-worded "You can also use my
+ * answers..." checkbox in the same bordered box as the app's required
+ * consent, which read as one more thing to tick to get to the button. Consent
+ * has to be a choice the parent sees as one: what research means here, that
+ * it is optional, and that not answering is a no.
+ */
+export const ResearchChoice: React.FC<ResearchChoiceProps> = ({ value, onChange, name }) => {
+  const { t } = useLanguage();
+  return (
+    <section className="survey-research" data-testid="survey-research">
+      <Radios
+        name={name}
+        legend={t('survey.research.legend')}
+        hint={t('survey.research.explain')}
+        options={[
+          { value: 'yes', label: t('survey.research.yes') },
+          { value: 'no', label: t('survey.research.no') },
+        ]}
+        value={value === undefined ? undefined : value ? 'yes' : 'no'}
+        onChange={(choice) => onChange(choice === 'yes')}
+      />
+      <p className="survey-note">{t('survey.research.skip')}</p>
+    </section>
+  );
+};
 
 /** EMAIL_MAX_LENGTH in user-profile-handler's survey.py. */
 const EMAIL_MAX_LENGTH = 254;
@@ -32,7 +67,7 @@ export const Statements: React.FC<StatementsProps> = ({ keys, name, answers, onA
         <Radios
           key={key}
           name={`${prefix}-${key}`}
-          legend={fillTemplate(t(`survey.q.${key}`), { name })}
+          legend={fillName(t(`survey.q.${key}`), name)}
           hint={HELP_KEYS.includes(key) ? t(`survey.q.${key}.help`) : undefined}
           options={options}
           setApart={['unsure']}
@@ -82,7 +117,7 @@ const toggle = (list: unknown, value: string): string[] => {
 /** The questions of one baseline screen. */
 export const SurveyPart: React.FC<PartProps> = ({ part, name, answers, onAnswer, household, onHousehold, errors }) => {
   const { t, language } = useLanguage();
-  const q = (key: string) => fillTemplate(t(`survey.q.${key}`), { name });
+  const q = (key: string) => fillName(t(`survey.q.${key}`), name);
   const choice = QUESTIONS.before.choice;
 
   if (part === 'about') {
@@ -95,7 +130,6 @@ export const SurveyPart: React.FC<PartProps> = ({ part, name, answers, onAnswer,
           <Short id="homeLanguageCopy" legend={q('homeLanguageCopy')} options={choice.homeLanguageCopy}
             value={answers.homeLanguageCopy as string} onChange={(v) => onAnswer('homeLanguageCopy', v)} />
         )}
-        <p className="survey-note">{fillTemplate(t('survey.about.known'), { name })}</p>
       </div>
     );
   }

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useContext } from 'react';
 import PageLoading from '../../components/PageLoading';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { PROFILE_QUERY_KEY } from '../../common/hooks/use-language-preference';
 import { DEFAULT_CHILD_NAME } from '../../common/features';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -20,6 +22,7 @@ export default function ConsentForm() {
   const appContext = useContext(AppContext);
   const apiClient = new ApiClient(appContext);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { t } = useLanguage();
   const { isFeatureEnabled } = useFeatures();
 
@@ -70,6 +73,10 @@ export default function ConsentForm() {
    * PDF question and then to the upload.
    */
   const continueOnboarding = () => {
+    // This screen writes consent, a default child and showOnboarding=false
+    // straight through the API; the shared cache has to hear about them, or
+    // the next screen that reads it still sees onboarding unfinished.
+    void queryClient.invalidateQueries({ queryKey: PROFILE_QUERY_KEY });
     // With onboardingSurvey on, "how many of your children have an IEP"
     // comes first, once; see common/onboarding-next.ts.
     const next = afterConsent(profile, isFeatureEnabled);

@@ -2,7 +2,6 @@ import React, { useContext, useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Button from '../../components/ui/Button';
-import { Checkbox } from '../../components/ui/fields';
 import { Notice } from '../../components/ui/feedback';
 import PageShell from '../../components/page/PageShell';
 import PageLoading from '../../components/PageLoading';
@@ -15,13 +14,14 @@ import { useLanguage } from '../../common/language-context';
 import { useFeatures } from '../../common/hooks/use-features';
 import { useActiveChild } from '../../common/hooks/use-active-child';
 import { fillTemplate } from '../../common/active-child';
+import { fillName } from './fill-name';
 import { isPlaceholderChildName } from '../../common/features';
 import type { ChildSurvey, SurveyAnswers, SurveySave } from '../../common/types';
 import { childDocumentState, ChildDocumentState } from '../profile/my-children-status';
 import { BaselinePart, baselineParts, looksLikeEmail, pruneBaseline, pruneHousehold, withoutBlanks } from './questions';
 import { SurveyStep, initialStep, isHouseholdDone } from './survey-state';
 import { surveyQueryKey, useChildSurvey } from './use-child-survey';
-import { SurveyPart } from './SurveyParts';
+import { ResearchChoice, SurveyPart } from './SurveyParts';
 import './survey.css';
 
 /** How often the banner re-reads the IEP's progress while it is being read. */
@@ -80,7 +80,8 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
   const [step, setStep] = useState<SurveyStep>(() => initialStep(survey));
   const [answers, setAnswers] = useState<SurveyAnswers>(survey.before?.answers ?? {});
   const [household, setHousehold] = useState<SurveyAnswers>(survey.household?.answers ?? {});
-  const [consent, setConsent] = useState<boolean>(survey.before?.researchConsent ?? false);
+  // Unanswered stays undefined and is not sent: only an explicit yes is consent.
+  const [consent, setConsent] = useState<boolean | undefined>(survey.before?.researchConsent);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -128,9 +129,10 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
   const start = async () => {
     if (await persist(baseline('started', parts[0]))) setStep(parts[0]);
   };
-  // Leaving for now must not open a summary that is ready: that would close
-  // the baseline the parent meant to come back to. Account is neutral.
-  const leavePath = documentState === 'ready' ? '/account-center' : summaryPath;
+  // "Later" means coming back, and opening a ready summary would close these
+  // questions for good. So while the summary is ready there is no "later":
+  // the parent answers now or says no, and "No thanks" opens the summary.
+  const canLeaveForLater = documentState !== 'ready';
 
   const leaveForNow = async (status: 'remind' | 'declined') => {
     // A reminder keeps what was answered and the consent given; "No thanks"
@@ -138,7 +140,7 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
     const save: SurveySave = status === 'declined'
       ? { phase: 'before', status, researchConsent: false }
       : baseline('remind');
-    if (await persist(save)) navigate(leavePath);
+    if (await persist(save)) navigate(summaryPath);
   };
 
   const next = async (part: BaselinePart) => {
@@ -173,12 +175,12 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
   };
 
   const later = async (part: BaselinePart) => {
-    if (await persist(baseline('started', part))) navigate(leavePath);
+    if (await persist(baseline('started', part))) navigate(summaryPath);
   };
 
   const setAnswer = (key: string, value: string | string[]) => setAnswers((old) => ({ ...old, [key]: value }));
   const setHouseholdAnswer = (key: string, value: string | string[]) => setHousehold((old) => ({ ...old, [key]: value }));
-  const fill = (key: string) => fillTemplate(t(key), { name });
+  const fill = (key: string) => fillName(t(key), name);
 
   const heading = (text: string) => (
     <h1 ref={headingRef} tabIndex={-1} className="survey-title" data-testid="survey-title">{text}</h1>
@@ -215,20 +217,17 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
           <li>{t('survey.invite.private')}</li>
           {reading && <li>{fill('survey.invite.summaryWaits')}</li>}
         </ul>
-        <Checkbox
-          label={t('survey.consent.label')}
-          hint={t('survey.consent.hint')}
-          checked={consent}
-          onChange={(e) => setConsent(e.target.checked)}
-        />
+        <ResearchChoice name="research-before" value={consent} onChange={setConsent} />
         {saveError}
         <div className="survey-actions">
           <Button fullWidth busy={saving} busyLabel={t('common.saving')} onClick={start} data-testid="survey-start">
             {t('survey.invite.yes')}
           </Button>
-          <Button variant="secondary" fullWidth disabled={saving} onClick={() => leaveForNow('remind')} data-testid="survey-remind">
-            {t('survey.invite.remind')}
-          </Button>
+          {canLeaveForLater && (
+            <Button variant="secondary" fullWidth disabled={saving} onClick={() => leaveForNow('remind')} data-testid="survey-remind">
+              {t('survey.invite.remind')}
+            </Button>
+          )}
           <Button variant="text" fullWidth disabled={saving} onClick={() => leaveForNow('declined')} data-testid="survey-decline">
             {t('survey.invite.no')}
           </Button>
@@ -278,9 +277,11 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
           {isLast ? t('survey.finish') : t('survey.next')}
         </Button>
       </div>
-      <Button variant="text" fullWidth disabled={saving} onClick={() => later(step)} data-testid="survey-later">
-        {t('survey.later')}
-      </Button>
+      {canLeaveForLater && (
+        <Button variant="text" fullWidth disabled={saving} onClick={() => later(step)} data-testid="survey-later">
+          {t('survey.later')}
+        </Button>
+      )}
     </SurveyShell>
   );
 };
@@ -301,7 +302,7 @@ const SurveyShell: React.FC<{ banner: React.ReactNode; children: React.ReactNode
  */
 const DocumentBanner: React.FC<{ state: ChildDocumentState; name: string }> = ({ state, name }) => {
   const { t } = useLanguage();
-  const fill = (key: string) => fillTemplate(t(key), { name });
+  const fill = (key: string) => fillName(t(key), name);
   if (state === 'reading') return <Notice tone="info" title={fill('survey.banner.reading')} data-testid="survey-banner" />;
   if (state === 'ready') return <Notice tone="success" announce title={fill('survey.banner.ready')} data-testid="survey-banner" />;
   if (state === 'failed') return <Notice tone="warning" announce title={fill('survey.banner.failed')} data-testid="survey-banner" />;
@@ -311,7 +312,7 @@ const DocumentBanner: React.FC<{ state: ChildDocumentState; name: string }> = ({
 /** Where the thank-you sends the parent, by what their IEP is doing now. */
 const FinishAction: React.FC<{ state: ChildDocumentState; name: string; summaryPath: string }> = ({ state, name, summaryPath }) => {
   const { t } = useLanguage();
-  const fill = (key: string) => fillTemplate(t(key), { name });
+  const fill = (key: string) => fillName(t(key), name);
   if (state === 'ready') {
     return <Button to={summaryPath} fullWidth data-testid="survey-see-summary">{fill('survey.thanks.seeSummary')}</Button>;
   }

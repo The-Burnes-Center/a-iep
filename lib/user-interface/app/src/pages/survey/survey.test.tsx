@@ -169,7 +169,7 @@ describe("the baseline survey", () => {
     await settle();
     expect(title()).toBe("survey.invite.titleWhileReading");
 
-    fireEvent.click(screen.getByLabelText("survey.consent.label"));
+    fireEvent.click(screen.getByLabelText("survey.research.yes"));
     await click("survey-start");
     expect(saves[0]).toMatchObject({ phase: "before", status: "started", part: "about", researchConsent: true });
 
@@ -253,14 +253,40 @@ describe("the baseline survey", () => {
     expect(where()).toBe("/summary-and-translations");
   });
 
-  test("leaving for now never opens a summary that is ready, which would close the baseline", async () => {
+  test("while the summary is ready there is no 'later', which would close the questions on arrival", async () => {
     server.before = record("started", "speak");
     documentAnswer = { documentId: "d-1", status: "PROCESSED" };
+    const part = renderAt("/survey", <SurveyPage />);
+    await settle();
+    expect(screen.queryByTestId("survey-later")).toBeNull();
+    part.unmount();
+
+    server.before = null;
     renderAt("/survey", <SurveyPage />);
     await settle();
-    await click("survey-later");
-    expect(server.before?.status).toBe("started");
-    expect(where()).toBe("/account-center");
+    expect(screen.queryByTestId("survey-remind")).toBeNull();
+    await click("survey-decline");
+    expect(where()).toBe("/summary-and-translations");
+  });
+
+  test("research use is a choice with neither answer picked, and unanswered is not consent", async () => {
+    renderAt("/survey", <SurveyPage />);
+    await settle();
+    const yes = screen.getByLabelText("survey.research.yes") as HTMLInputElement;
+    const no = screen.getByLabelText("survey.research.no") as HTMLInputElement;
+    expect(yes.type).toBe("radio");
+    expect(yes.checked || no.checked).toBe(false);
+    await click("survey-start");
+    expect(saves[0]).not.toHaveProperty("researchConsent");
+    expect(server.before?.researchConsent).toBeUndefined();
+  });
+
+  test("a parent who says no is saved as no", async () => {
+    renderAt("/survey", <SurveyPage />);
+    await settle();
+    fireEvent.click(screen.getByLabelText("survey.research.no"));
+    await click("survey-start");
+    expect(server.before?.researchConsent).toBe(false);
   });
 
   test("No thanks withdraws the research consent with the survey", async () => {

@@ -40,7 +40,11 @@ test('a new parent is asked how many children have an IEP, then answers the surv
   // ---- The invite ------------------------------------------------------------
   await page.goto(appUrl('/survey'));
   await expect(page.getByTestId('survey-title')).toHaveText('Can you help us improve A-IEP?', { timeout: 30_000 });
-  await page.getByRole('checkbox').check(); // research consent, unticked by default
+  // Research use: two equal answers, neither picked until the parent picks.
+  const researchYes = page.getByRole('radio', { name: 'Yes, you can use my answers for research' });
+  await expect(researchYes).not.toBeChecked();
+  await expect(page.getByRole('radio', { name: 'No, only use them to improve A-IEP' })).not.toBeChecked();
+  await researchYes.check();
   await page.getByTestId('survey-start').click();
 
   // ---- Part 1, then leave and come back: the server kept the place ----------

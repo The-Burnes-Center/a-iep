@@ -860,8 +860,6 @@
     "survey.invite.yes": "Có, tôi sẽ giúp",
     "survey.invite.remind": "Nhắc tôi sau",
     "survey.invite.no": "Không, cảm ơn",
-    "survey.consent.label": "Bạn cũng có thể dùng câu trả lời của tôi, không kèm tên hay thông tin liên lạc của tôi, trong nghiên cứu về A-IEP.",
-    "survey.consent.hint": "Không bắt buộc. Nếu bạn không đánh dấu ô này, câu trả lời của bạn vẫn giúp chúng tôi cải thiện ứng dụng.",
     "survey.progress": "Phần {n} / {total}",
     "survey.progress.skip": "Có thể bỏ qua câu hỏi",
     "survey.progress.label": "Tiến độ khảo sát",
@@ -890,7 +888,6 @@
     "survey.q.k12": "{name} có đang học từ mẫu giáo đến lớp 12 không?",
     "survey.q.englishLearner": "{name} có phải là học sinh đang học tiếng Anh không?",
     "survey.q.homeLanguageCopy": "Bạn có bản IEP của {name} bằng ngôn ngữ ở nhà của bạn không?",
-    "survey.about.known": "Bạn đã cho chúng tôi biết ngôn ngữ của bạn và IEP của {name} được lưu dưới dạng tệp, nên chúng tôi sẽ không hỏi lại.",
     "survey.q.u1": "IEP của {name} được viết theo cách tôi có thể hiểu.",
     "survey.q.u2": "Tôi hiểu IEP của {name} nói gì về nhu cầu của con.",
     "survey.q.u3": "Tôi hiểu các mục tiêu trong IEP của {name}.",
@@ -953,5 +950,10 @@
     "survey.nextChild.title": "Thêm IEP của con tiếp theo?",
     "survey.nextChild.body": "Bạn cho biết có hơn một người con có IEP. Bản tóm tắt của {name} vẫn ở đây.",
     "survey.nextChild.button": "Thêm con tiếp theo",
-    "survey.thanks.nextChild": "Khi bạn thêm con tiếp theo, chúng tôi chỉ hỏi những câu về con đó."
+    "survey.thanks.nextChild": "Khi bạn thêm con tiếp theo, chúng tôi chỉ hỏi những câu về con đó.",
+    "survey.research.legend": "Chúng tôi có thể dùng câu trả lời của bạn cho nghiên cứu không? (không bắt buộc)",
+    "survey.research.explain": "Nghiên cứu nghĩa là những người ở Burnes Center, nơi làm ra A-IEP, xem xét chung câu trả lời của nhiều gia đình để biết A-IEP có giúp ích không. Họ sẽ không thấy tên, số điện thoại hay email của bạn.",
+    "survey.research.yes": "Có, bạn có thể dùng câu trả lời của tôi cho nghiên cứu",
+    "survey.research.no": "Không, chỉ dùng để cải thiện A-IEP",
+    "survey.research.skip": "Bạn vẫn có thể trả lời các câu hỏi dù chọn thế nào. Nếu bạn không chọn, chúng tôi sẽ hiểu là không."
 }

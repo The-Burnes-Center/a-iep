@@ -860,8 +860,6 @@
     "survey.invite.yes": "好的，我愿意帮忙",
     "survey.invite.remind": "稍后提醒我",
     "survey.invite.no": "不用了，谢谢",
-    "survey.consent.label": "您也可以在关于A-IEP的研究中使用我的回答，但不包括我的姓名或联系方式。",
-    "survey.consent.hint": "选填。即使不勾选，您的回答也能帮助我们改进应用。",
     "survey.progress": "第{n}部分，共{total}部分",
     "survey.progress.skip": "问题均可跳过",
     "survey.progress.label": "问卷进度",
@@ -890,7 +888,6 @@
     "survey.q.k12": "{name}是否在读幼儿园到12年级？",
     "survey.q.englishLearner": "{name}是英语学习者吗？",
     "survey.q.homeLanguageCopy": "您是否有一份用您家庭语言写的{name}的IEP？",
-    "survey.about.known": "您已经告诉我们您的语言，以及{name}的IEP已存为文件，所以我们不会再问。",
     "survey.q.u1": "{name}的IEP写得我能看懂。",
     "survey.q.u2": "我明白{name}的IEP中关于其需求的内容。",
     "survey.q.u3": "我理解{name}的IEP目标。",
@@ -953,5 +950,10 @@
     "survey.nextChild.title": "添加下一个孩子的IEP？",
     "survey.nextChild.body": "您告诉过我们不止一个孩子有IEP。{name}的摘要会保留在这里。",
     "survey.nextChild.button": "添加下一个孩子",
-    "survey.thanks.nextChild": "添加下一个孩子时，我们只会问关于那个孩子的问题。"
+    "survey.thanks.nextChild": "添加下一个孩子时，我们只会问关于那个孩子的问题。",
+    "survey.research.legend": "我们可以将您的回答用于研究吗？（选填）",
+    "survey.research.explain": "研究是指开发A-IEP的Burnes Center的人员把许多家庭的回答放在一起分析，了解A-IEP是否有帮助。他们不会看到您的姓名、电话号码或电子邮件。",
+    "survey.research.yes": "可以，我的回答可以用于研究",
+    "survey.research.no": "不可以，只用于改进A-IEP",
+    "survey.research.skip": "无论选择哪项，您都可以回答问题。如果您不选择，我们会视为不同意。"
 }

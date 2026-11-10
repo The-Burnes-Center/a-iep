@@ -7,7 +7,7 @@ import { ApiClient } from '../../common/api-client/api-client';
 import { useLanguage } from '../../common/language-context';
 import { useFeatures } from '../../common/hooks/use-features';
 import { useActiveChild } from '../../common/hooks/use-active-child';
-import { fillTemplate } from '../../common/active-child';
+import { fillName } from './fill-name';
 import { isPlaceholderChildName } from '../../common/features';
 import { isFollowUpDue, isNextChildDue, isWhileYouWaitDue } from './survey-state';
 import { surveyQueryKey, useChildSurvey } from './use-child-survey';
@@ -39,7 +39,7 @@ export const SurveyWhileYouWait: React.FC = () => {
   return (
     <section className="survey-wait-card" aria-labelledby="survey-wait-title" data-testid="survey-wait-card">
       <h2 id="survey-wait-title" className="survey-card-title">{t('survey.wait.title')}</h2>
-      <p>{fillTemplate(t(started ? 'survey.wait.resume' : 'survey.wait.body'), { name })}</p>
+      <p>{fillName(t(started ? 'survey.wait.resume' : 'survey.wait.body'), name)}</p>
       <Button to={pathFor('/survey')} variant="secondary" fullWidth data-testid="survey-wait-open">
         {t(started ? 'survey.wait.resumeButton' : 'survey.wait.button')}
       </Button>
@@ -97,7 +97,7 @@ export const SummarySurveyCards: React.FC = () => {
       {nextChild && (
         <section className="page-card survey-summary-card survey-next-child" aria-labelledby="survey-next-child-title" data-testid="survey-next-child-card">
           <h2 id="survey-next-child-title" className="survey-card-title">{t('survey.nextChild.title')}</h2>
-          <p>{fillTemplate(t('survey.nextChild.body'), { name })}</p>
+          <p>{fillName(t('survey.nextChild.body'), name)}</p>
           <Button to="/account-center/children/add" icon={<IconPlus size={20} />} fullWidth data-testid="survey-next-child-add">
             {t('survey.nextChild.button')}
           </Button>

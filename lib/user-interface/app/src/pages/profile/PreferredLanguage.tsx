@@ -2,6 +2,8 @@ import React, { useState, useEffect, useContext } from 'react';
 import { Container, Alert } from 'react-bootstrap';
 import PageLoading from '../../components/PageLoading';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { PROFILE_QUERY_KEY } from '../../common/hooks/use-language-preference';
 import { IconCheck } from '@tabler/icons-react';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
@@ -22,6 +24,7 @@ export default function PreferredLanguage() {
   const apiClient = new ApiClient(appContext);
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const { setLanguage, enabledLanguages, t } = useLanguage();
   const { isFeatureEnabled } = useFeatures();
 
@@ -48,6 +51,12 @@ export default function PreferredLanguage() {
       setLoading(true);
       const data = await apiClient.profile.getProfile();
       setProfile(data);
+      // Every redirect below is decided on this fresh read, and the screens it
+      // sends a parent to read the shared cache. Without this, a cache still
+      // holding the profile from mid-onboarding (showOnboarding: true) sent
+      // the summary straight back here, and the two bounced the parent between
+      // them several times a second (staging, 2026-11-10).
+      queryClient.setQueryData(PROFILE_QUERY_KEY, data);
 
       // Skip automatic redirects if user is updating from profile page
       if (isUpdatingFromProfile) {

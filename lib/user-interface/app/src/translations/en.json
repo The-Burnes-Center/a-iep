@@ -860,8 +860,6 @@
     "survey.invite.yes": "Yes, I'll help",
     "survey.invite.remind": "Remind me later",
     "survey.invite.no": "No thanks",
-    "survey.consent.label": "You can also use my answers, without my name or contact details, in research about A-IEP.",
-    "survey.consent.hint": "Optional. Your answers still help us improve the app if you leave this unticked.",
     "survey.progress": "Part {n} of {total}",
     "survey.progress.skip": "Skip any question",
     "survey.progress.label": "Survey progress",
@@ -890,7 +888,6 @@
     "survey.q.k12": "Is {name} in grades K–12?",
     "survey.q.englishLearner": "Is {name} an English learner?",
     "survey.q.homeLanguageCopy": "Do you have a copy of {name}'s IEP in your home language?",
-    "survey.about.known": "You've already told us your language, and that {name} has an IEP saved as a file, so we won't ask again.",
     "survey.q.u1": "{name}'s IEP is written in a way I can understand.",
     "survey.q.u2": "I understand what {name}'s IEP says about their needs.",
     "survey.q.u3": "I understand {name}'s IEP goals.",
@@ -953,5 +950,10 @@
     "survey.nextChild.title": "Add your next child's IEP?",
     "survey.nextChild.body": "You told us more than one of your children has an IEP. {name}'s summary stays here.",
     "survey.nextChild.button": "Add my next child",
-    "survey.thanks.nextChild": "When you add your next child, we'll only ask the questions about them."
+    "survey.thanks.nextChild": "When you add your next child, we'll only ask the questions about them.",
+    "survey.research.legend": "Can we use your answers for research? (optional)",
+    "survey.research.explain": "Research means people at the Burnes Center, which makes A-IEP, studying many families' answers together to learn whether A-IEP helps. They would not see your name, phone number or email.",
+    "survey.research.yes": "Yes, you can use my answers for research",
+    "survey.research.no": "No, only use them to improve A-IEP",
+    "survey.research.skip": "You can answer the questions either way. If you don't choose, we'll take it as no."
 }

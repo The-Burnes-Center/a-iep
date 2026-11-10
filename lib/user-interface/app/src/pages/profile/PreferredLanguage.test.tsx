@@ -22,6 +22,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import PreferredLanguage from "./PreferredLanguage";
 import { NavLanguageSlotProvider, NavLanguageSlotTarget } from "../../components/NavLanguageSlot";
 import { AppContext } from "../../common/app-context";
@@ -92,6 +93,7 @@ const renderPage = (
     { pathname: PAGE, state: fromProfile ? { fromProfile: true } : null },
   ];
   render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <MemoryRouter initialEntries={entries} initialIndex={1}>
       <AppContext.Provider value={appConfig(enabledLanguages)}>
         <LanguageContext.Provider
@@ -120,7 +122,8 @@ const renderPage = (
           </NavLanguageSlotProvider>
         </LanguageContext.Provider>
       </AppContext.Provider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </QueryClientProvider>,
   );
 
   return userEvent.setup();

@@ -860,8 +860,6 @@
     "survey.invite.yes": "Sí, le ayudo",
     "survey.invite.remind": "Recuérdemelo después",
     "survey.invite.no": "No, gracias",
-    "survey.consent.label": "También pueden usar mis respuestas, sin mi nombre ni mis datos de contacto, en investigaciones sobre A-IEP.",
-    "survey.consent.hint": "Opcional. Si deja esta casilla sin marcar, sus respuestas igual nos ayudan a mejorar la aplicación.",
     "survey.progress": "Parte {n} de {total}",
     "survey.progress.skip": "Puede saltarse preguntas",
     "survey.progress.label": "Progreso de la encuesta",
@@ -890,7 +888,6 @@
     "survey.q.k12": "¿Está {name} entre kínder y 12.º grado?",
     "survey.q.englishLearner": "¿Está {name} aprendiendo inglés como segundo idioma?",
     "survey.q.homeLanguageCopy": "¿Tiene una copia del IEP de {name} en el idioma de su hogar?",
-    "survey.about.known": "Ya nos dijo su idioma y que el IEP de {name} está guardado como archivo, así que no se lo volveremos a preguntar.",
     "survey.q.u1": "El IEP de {name} está escrito de una manera que puedo entender.",
     "survey.q.u2": "Entiendo lo que dice el IEP de {name} sobre sus necesidades.",
     "survey.q.u3": "Entiendo las metas del IEP de {name}.",
@@ -953,5 +950,10 @@
     "survey.nextChild.title": "¿Agregar el IEP de su siguiente hijo?",
     "survey.nextChild.body": "Nos dijo que más de uno de sus hijos tiene un IEP. El resumen de {name} se queda aquí.",
     "survey.nextChild.button": "Agregar a mi siguiente hijo",
-    "survey.thanks.nextChild": "Cuando agregue a su siguiente hijo, solo le haremos las preguntas sobre él o ella."
+    "survey.thanks.nextChild": "Cuando agregue a su siguiente hijo, solo le haremos las preguntas sobre él o ella.",
+    "survey.research.legend": "¿Podemos usar sus respuestas para investigación? (opcional)",
+    "survey.research.explain": "Investigación significa que personas del Burnes Center, que creó A-IEP, estudian juntas las respuestas de muchas familias para saber si A-IEP ayuda. No verían su nombre, su teléfono ni su correo electrónico.",
+    "survey.research.yes": "Sí, pueden usar mis respuestas para investigación",
+    "survey.research.no": "No, úsenlas solo para mejorar A-IEP",
+    "survey.research.skip": "Puede responder las preguntas de cualquier manera. Si no elige, lo tomaremos como un no."
 }

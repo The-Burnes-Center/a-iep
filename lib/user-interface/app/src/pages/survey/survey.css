@@ -144,9 +144,35 @@
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  margin: 1.5rem 0;
+  /* On the summary page's own insets (IEPSummarizationAndTranslation.css:
+     1rem on a phone, 9rem from 992px), so the cards line up with the text
+     above them instead of running edge to edge. */
+  /* The Update IEP button above already leaves a wide gap. */
+  margin: 0 0 2.5rem;
+  padding-inline: 1rem;
+}
+
+@media (min-width: 992px) {
+  .survey-summary-cards {
+    padding-inline: 9rem;
+  }
+}
+
+.survey-summary-card {
+  padding: 1.5rem;
 }
 
 .survey-next-child {
   border: 2px solid var(--aiep-amber);
+}
+
+/* Research use: its own question, set apart from the invite above it and
+   from the buttons below, so it reads as a decision rather than small print. */
+.survey-research {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-radius: 12px;
+  background-color: var(--aiep-surface-sunk);
 }

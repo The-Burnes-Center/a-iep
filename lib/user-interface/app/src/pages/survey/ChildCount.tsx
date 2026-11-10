@@ -56,7 +56,10 @@ const ChildCount: React.FC = () => {
     try {
       const iepChildCount = Number(answered);
       await new ApiClient(appContext).profile.updateProfile({ iepChildCount });
-      queryClient.setQueryData<UserProfile>(PROFILE_QUERY_KEY, (old) => (old ? { ...old, iepChildCount } : old));
+      // A fresh read, not a patch of the cached copy: that copy can date from
+      // earlier in onboarding, and patching it marks it fresh for five more
+      // minutes (see pages/profile/onboarding-cache.test.tsx).
+      void queryClient.invalidateQueries({ queryKey: PROFILE_QUERY_KEY });
       const next = afterChildCount(profileQuery.data, isFeatureEnabled);
       navigate(next.path, next.state ? { state: next.state } : undefined);
     } catch {
