@@ -387,6 +387,16 @@ export async function completeOnboardingIfShown(page: Page): Promise<string> {
           await page.waitForURL((url) => url.pathname !== '/consent-form', { timeout: 30_000 });
           continue;
         }
+      } else if (path === '/your-children') {
+        // onboardingSurvey's "how many of your children have an IEP". One:
+        // every journey here is about one child unless it adds another itself.
+        const one = page.getByRole('radio', { name: '1', exact: true });
+        if (await one.isVisible()) {
+          await one.check();
+          await page.getByTestId('child-count-continue').click();
+          await page.waitForURL((url) => url.pathname !== '/your-children', { timeout: 30_000 });
+          continue;
+        }
       } else if (path === '/view-update-add-child') {
         // The student-name step (ViewAndAddChild), which both onboarding
         // routes into ahead of the parent-name step when studentNameGate is

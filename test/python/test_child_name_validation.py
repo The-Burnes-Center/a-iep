@@ -125,6 +125,7 @@ def api(monkeypatch):
             unload('child_name_lambda')
             unload('router')  # imported as a sibling during module exec
             unload('student_name_substitution')  # both lambdas ship one; do not leak it
+            unload('survey')  # imported as a sibling during module exec
 
 
 @pytest.fixture()

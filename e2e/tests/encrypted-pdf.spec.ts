@@ -62,7 +62,7 @@ import playwrightConfig from '../playwright.config';
 import { loginWithOtp } from '../helpers/app';
 import { ensureTestUser } from '../helpers/aws';
 import { appUrl } from '../helpers/config';
-import { gotoDocumentsPage, TESTID } from '../helpers/documents';
+import { AFTER_UPLOAD_PATHS, gotoDocumentsPage, TESTID } from '../helpers/documents';
 import {
   SyntheticPdfFile,
   hasEncryptEntry,
@@ -274,7 +274,8 @@ test.describe('password-protected PDF upload (detect, prompt, decrypt in the bro
     ).toBeHidden();
     await expect(stagedFile(page)).toContainText(fixture.name);
 
-    const routed = page.waitForURL((url) => url.pathname === '/summary-and-translations', {
+    // The summary, or first the survey's invite where onboardingSurvey is on.
+    const routed = page.waitForURL((url) => AFTER_UPLOAD_PATHS.includes(url.pathname), {
       timeout: 60_000,
     });
     await page.getByTestId(TESTID.uploadSubmit).click();
@@ -337,7 +338,8 @@ test.describe('password-protected PDF upload (detect, prompt, decrypt in the bro
     await expect(stagedFile(page)).toContainText(fixture.name);
     await expect(page.getByText(EN.encryptedRefusal)).toHaveCount(0);
 
-    const routed = page.waitForURL((url) => url.pathname === '/summary-and-translations', {
+    // The summary, or first the survey's invite where onboardingSurvey is on.
+    const routed = page.waitForURL((url) => AFTER_UPLOAD_PATHS.includes(url.pathname), {
       timeout: 60_000,
     });
     await page.getByTestId(TESTID.uploadSubmit).click();

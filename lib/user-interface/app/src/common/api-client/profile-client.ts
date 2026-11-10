@@ -1,5 +1,16 @@
 import { Utils } from "../utils";
-import { AppConfig, UserProfile, ChildResponse } from "../types";
+import { AppConfig, UserProfile, ChildResponse, ChildSurvey, SurveySave, SurveyRecord } from "../types";
+
+/**
+ * A baseline save after the summary was opened (409 baseline_closed). Not a
+ * failure to show as one: the screen thanks the parent and moves on.
+ */
+export class SurveyClosedError extends Error {
+  constructor() {
+    super('The baseline closed when the summary was opened');
+    this.name = 'SurveyClosedError';
+  }
+}
 
 export class ProfileClient {
   private readonly API;
@@ -124,6 +135,64 @@ export class ProfileClient {
 
     if (!response.ok) {
       throw new Error('Failed to delete profile');
+    }
+  }
+
+  private surveyPath(childId: string): string {
+    return `${this.API}/profile/children/${encodeURIComponent(childId)}/survey`;
+  }
+
+  /** This child's survey and the household's. Throws on any non-2xx. */
+  async getSurvey(childId: string): Promise<ChildSurvey> {
+    const auth = await Utils.authenticate();
+    const response = await fetch(this.surveyPath(childId), {
+      method: 'GET',
+      mode: 'cors',
+      headers: { 'Authorization': 'Bearer ' + auth, 'Accept': 'application/json' }
+    });
+    if (!response.ok) {
+      throw new Error('Failed to load survey');
+    }
+    return response.json();
+  }
+
+  /**
+   * Save one phase; the answers sent replace that phase's answers. Throws
+   * SurveyClosedError for a baseline save after the summary was opened.
+   */
+  async saveSurvey(childId: string, save: SurveySave): Promise<SurveyRecord> {
+    const auth = await Utils.authenticate();
+    const response = await fetch(this.surveyPath(childId), {
+      method: 'PUT',
+      mode: 'cors',
+      headers: {
+        'Authorization': 'Bearer ' + auth,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(save)
+    });
+    if (response.status === 409) {
+      const body = await response.json().catch(() => ({}));
+      if (body?.code === 'baseline_closed') throw new SurveyClosedError();
+    }
+    if (!response.ok) {
+      throw new Error('Failed to save survey');
+    }
+    const body = await response.json();
+    return body[save.phase];
+  }
+
+  /** Record that this child's summary was opened. Idempotent on the server. */
+  async markSummaryViewed(childId: string): Promise<void> {
+    const auth = await Utils.authenticate();
+    const response = await fetch(`${this.surveyPath(childId)}/summary-viewed`, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Authorization': 'Bearer ' + auth, 'Accept': 'application/json' }
+    });
+    if (!response.ok) {
+      throw new Error('Failed to record the summary view');
     }
   }
 }

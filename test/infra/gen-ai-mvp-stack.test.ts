@@ -2701,6 +2701,11 @@ describe('per-child profile routes', () => {
   const CHILD_ROUTES = [
     'PUT /profile/children/{childId}',
     'DELETE /profile/children/{childId}',
+    // The survey's answers are a parent's and a child's; each route is the
+    // caller's own child only, which the handler checks behind this JWT.
+    'GET /profile/children/{childId}/survey',
+    'PUT /profile/children/{childId}/survey',
+    'POST /profile/children/{childId}/survey/summary-viewed',
   ];
 
   test.each(CHILD_ROUTES)('%s exists and carries the JWT authorizer', (routeKey) => {

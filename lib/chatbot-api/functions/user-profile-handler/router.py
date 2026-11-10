@@ -91,6 +91,21 @@ class UserProfileRouter:
         from lambda_function import delete_child_documents
         return delete_child_documents(event)
     
+    @route('/profile/children/{childId}/survey', 'GET')
+    def get_survey(self, event: Dict) -> Dict:
+        from lambda_function import get_survey
+        return get_survey(event)
+
+    @route('/profile/children/{childId}/survey', 'PUT')
+    def put_survey(self, event: Dict) -> Dict:
+        from lambda_function import put_survey
+        return put_survey(event)
+
+    @route('/profile/children/{childId}/survey/summary-viewed', 'POST')
+    def mark_summary_viewed(self, event: Dict) -> Dict:
+        from lambda_function import mark_summary_viewed
+        return mark_summary_viewed(event)
+
     @route('/profile', 'DELETE')
     def delete_user_profile(self, event: Dict) -> Dict:
         from lambda_function import delete_user_profile

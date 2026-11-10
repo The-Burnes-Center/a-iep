@@ -48,6 +48,12 @@ interface ProcessingModalProps {
    */
   onViewCurrent?: () => void;
   viewCurrentLabel?: string;
+  /**
+   * Something for the parent to do during the wait, under the status (the
+   * survey's "while you wait" card). Not shown once polling has stalled,
+   * when the one thing to do is check again.
+   */
+  aside?: React.ReactNode;
 }
 
 const ProcessingModal: React.FC<ProcessingModalProps> = ({
@@ -65,6 +71,7 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
   onCheckAgain,
   onViewCurrent,
   viewCurrentLabel,
+  aside,
 }) => {
   /**
    * The step in flight and the bar, as one block.
@@ -153,6 +160,7 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
                       {t('summary.processing.hangTight')}
                     </h1>
                     {statusBlock}
+                    {aside}
                   </>
                 )}
                 {viewCurrentButton}
@@ -189,6 +197,7 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
                       {t('summary.processing.hangTight')}
                     </h1>
                     {statusBlock}
+                    {aside}
                   </>
                 )}
                 {viewCurrentButton}

@@ -7,7 +7,7 @@ import { ApiClient } from '../../common/api-client/api-client';
 import { UserProfile } from '../../common/types';
 import { useLanguage } from '../../common/language-context';
 import { useFeatures } from '../../common/hooks/use-features';
-import { isStudentNameMissing } from '../../common/features';
+import { afterConsent } from '../../common/onboarding-next';
 import { STEP } from '../../common/breadcrumb-steps';
 import PageShell from '../../components/page/PageShell';
 import PageHero from '../../components/page/PageHero';
@@ -70,11 +70,10 @@ export default function ConsentForm() {
    * PDF question and then to the upload.
    */
   const continueOnboarding = () => {
-    if (isFeatureEnabled('studentNameGate') && isStudentNameMissing(profile)) {
-      navigate('/view-update-add-child', { state: { onboardingContinue: true } });
-    } else {
-      navigate('/how-to-use-the-tool');
-    }
+    // With onboardingSurvey on, "how many of your children have an IEP"
+    // comes first, once; see common/onboarding-next.ts.
+    const next = afterConsent(profile, isFeatureEnabled);
+    navigate(next.path, next.state ? { state: next.state } : undefined);
   };
 
   const handleContinue = async () => {

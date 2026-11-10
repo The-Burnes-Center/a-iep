@@ -9,7 +9,7 @@ import type { Crumb } from '../components/Breadcrumbs';
  * a step renames it on both sides of the arrow and the shape of the flow is
  * readable in one place:
  *
- *   language -> consent -> child -> howItWorks -> yourIep -> askForPdf -> upload
+ *   language -> consent -> (yourChildren) -> child -> howItWorks -> yourIep -> askForPdf -> upload
  *                                        \-> privacy
  *
  * `to` is carried on every step, including the ones used as the last crumb.
@@ -22,6 +22,7 @@ export const STEP = {
   language: { labelKey: 'breadcrumb.language', to: '/preferred-language' },
   whatAiepDoes: { labelKey: 'breadcrumb.whatAiepDoes', to: '/onboarding-user' },
   consent: { labelKey: 'breadcrumb.consent', to: '/consent-form' },
+  yourChildren: { labelKey: 'breadcrumb.yourChildren', to: '/your-children' },
   child: { labelKey: 'breadcrumb.child', to: '/view-update-add-child' },
   howItWorks: { labelKey: 'breadcrumb.howItWorks', to: '/how-to-use-the-tool' },
   privacy: { labelKey: 'breadcrumb.privacy', to: '/how-we-protect-your-privacy' },
@@ -34,6 +35,7 @@ export const STEP = {
   addChild: { labelKey: 'breadcrumb.addChild', to: '/account-center/children/add' },
   editChild: { labelKey: 'breadcrumb.editChild', to: '/account-center/children/edit' },
   summary: { labelKey: 'breadcrumb.summary', to: '/summary-and-translations' },
+  followUp: { labelKey: 'breadcrumb.followUp', to: '/survey/follow-up' },
   uploadIep: { labelKey: 'breadcrumb.uploadIep', to: '/iep-documents' },
   profile: { labelKey: 'breadcrumb.profile', to: '/profile' },
   rights: { labelKey: 'breadcrumb.rights', to: '/rights-and-onboarding' },

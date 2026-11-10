@@ -33,6 +33,7 @@ def profile_module(monkeypatch):
             unload('user_profile_lambda')
             unload('router')  # imported as a sibling during module exec
             unload('student_name_substitution')  # both lambdas ship one; do not leak it
+            unload('survey')  # imported as a sibling during module exec
 
 
 # ---------------------------------------------------------------------------

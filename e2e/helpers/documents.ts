@@ -471,16 +471,31 @@ export async function documentOnFileId(page: Page, timeoutMs: number = 60_000): 
   }
 }
 
+/** Where a successful upload lands: the summary, or first the survey's invite. */
+export const AFTER_UPLOAD_PATHS = ['/summary-and-translations', '/survey'];
+
+/**
+ * After an upload, with onboardingSurvey on and the child's baseline still
+ * open, the survey's invite comes before the summary. Every journey but
+ * survey.spec.ts declines it, so they keep walking the path production runs
+ * (production has the survey dark); survey.spec.ts walks the survey itself.
+ */
+export async function declineSurveyIfShown(page: Page): Promise<void> {
+  await page.waitForURL((url) => AFTER_UPLOAD_PATHS.includes(url.pathname), { timeout: 120_000 });
+  if (new URL(page.url()).pathname !== '/survey') return;
+  await page.getByTestId('survey-decline').click();
+  await page.waitForURL((url) => url.pathname === '/summary-and-translations', { timeout: 30_000 });
+}
+
 /** Upload a synthetic fixture from /iep-documents and follow the redirect. */
 export async function uploadFixture(page: Page, fixture: string = FIXTURE_PDF): Promise<void> {
   await gotoDocumentsPage(page);
   // The visible chooser is a styled overlay; the real input keeps this id.
   await page.locator('#fileUpload').setInputFiles(fixture);
   await page.getByTestId(TESTID.uploadSubmit).click();
-  // A successful S3 upload routes to the summary page.
-  await page.waitForURL((url) => url.pathname === '/summary-and-translations', {
-    timeout: 120_000,
-  });
+  // A successful S3 upload routes to the summary page, by way of the
+  // survey's invite where that is on.
+  await declineSurveyIfShown(page);
 }
 
 /**

@@ -117,6 +117,7 @@ def api(monkeypatch):
             unload('user_profile_api')
             unload('router')  # imported as a sibling during module exec
             unload('student_name_substitution')  # both lambdas ship one; do not leak it
+            unload('survey')  # imported as a sibling during module exec
 
 
 def api_event(path, method, body=None, user=USER):
@@ -1965,6 +1966,9 @@ def test_every_route_is_still_registered(api):
         ('/profile/children/{childId}', 'DELETE'),
         ('/profile/children/{childId}/documents', 'GET'),
         ('/profile/children/{childId}/documents', 'DELETE'),
+        ('/profile/children/{childId}/survey', 'GET'),
+        ('/profile/children/{childId}/survey', 'PUT'),
+        ('/profile/children/{childId}/survey/summary-viewed', 'POST'),
     }
 
 

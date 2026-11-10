@@ -50,11 +50,21 @@ export type Feature =
   // screen read children[0]. With the flag on, a family with ONE child sees
   // exactly what prod shows (the child bar and switcher appear only once a
   // second child exists), so staging's E2E keeps covering prod's path.
-  | 'multiChild';
+  | 'multiChild'
+  // The family survey (pages/survey) and onboarding's "how many of your
+  // children have an IEP". The survey is offered while an IEP is read and
+  // closes for good once that summary is opened, so every baseline answer
+  // came before the parent saw it. Its wording, consent and timing are
+  // placeholders taken from the onboarding prototype until the research
+  // team decides them, which is why it stays dark in prod. Unlike
+  // multiChild it changes what a one-child family sees (one more onboarding
+  // step, and the invite after an upload), so staging's E2E declines the
+  // invite to keep walking prod's path to the summary.
+  | 'onboardingSurvey';
 
 // Master list, in a stable order. Add a feature here (plus the two build
 // configs) to make it gateable app-wide.
-export const ALL_FEATURES: Feature[] = ['tts', 'referrals', 'studentNameGate', 'passwordlessAuth', 'pdfHelpScreens', 'multiChild'];
+export const ALL_FEATURES: Feature[] = ['tts', 'referrals', 'studentNameGate', 'passwordlessAuth', 'pdfHelpScreens', 'multiChild', 'onboardingSurvey'];
 
 export const isFeature = (feature: unknown): feature is Feature =>
   typeof feature === 'string' && (ALL_FEATURES as string[]).includes(feature);

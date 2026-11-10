@@ -77,6 +77,42 @@ export interface UserProfile {
   // profile, not in the browser, so a parent who moves from a phone to a
   // laptop is not shown it twice. Absent means not seen yet.
   summaryTourSeen?: boolean;
+  // Onboarding's "how many of your children have an IEP" (onboardingSurvey).
+  iepChildCount?: number;
+}
+
+/** The family survey (pages/survey). Questions: survey_schema.json in user-profile-handler. */
+export type SurveyPhase = 'before' | 'after' | 'household';
+export type SurveyAnswers = Record<string, string | string[]>;
+
+export interface SurveyRecord {
+  version: number;
+  status: string;
+  part?: string;
+  researchConsent?: boolean;
+  answers: SurveyAnswers;
+  startedAt: number;
+  updatedAt: number;
+  completedAt?: number;
+}
+
+export interface ChildSurvey {
+  version: number;
+  before: SurveyRecord | null;
+  after: SurveyRecord | null;
+  /** Once per parent, not per child. */
+  household: SurveyRecord | null;
+  /** When this child's summary was first opened; the baseline closed then. */
+  summaryFirstViewedAt: number | null;
+  iepChildCount: number | null;
+}
+
+export interface SurveySave {
+  phase: SurveyPhase;
+  status: string;
+  part?: string;
+  answers?: SurveyAnswers;
+  researchConsent?: boolean;
 }
 
 export interface ReferralJoin {

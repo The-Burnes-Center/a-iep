@@ -121,3 +121,12 @@ export const PASSWORDLESS_LOCKOUT_USER = '+15555550125';
  * TEST_PHONE_NUMBERS and was unclaimed.
  */
 export const MULTI_CHILD_USER = '+15555550128';
+
+/**
+ * The burner for the family-survey journey (survey.spec.ts). Healed at the
+ * start of every attempt and admin-deleted in an afterEach: the survey is
+ * asked once per child and closes for good when a summary is opened, so only
+ * a brand-new parent ever sees all of it. 0129 is allowlisted in
+ * new-auth.ts's TEST_PHONE_NUMBERS and was unclaimed.
+ */
+export const SURVEY_USER = '+15555550129';

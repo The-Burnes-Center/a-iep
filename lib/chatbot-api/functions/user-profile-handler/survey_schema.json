@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "scale": ["disagree", "somewhat_disagree", "somewhat_agree", "agree", "unsure"],
+  "phases": {
+    "before": {
+      "parts": ["about", "understand", "speak", "reflect", "you"],
+      "statuses": ["remind", "started", "declined", "done"],
+      "choice": {
+        "k12": ["yes", "no"],
+        "englishLearner": ["yes", "no", "unsure"],
+        "homeLanguageCopy": ["yes", "no", "unsure"],
+        "u1": "scale", "u2": "scale", "u3": "scale", "u4": "scale", "u5": "scale", "u6": "scale",
+        "p1": "scale", "p2": "scale", "p3": "scale", "p4": "scale", "p5": "scale",
+        "r1": "scale", "r2": "scale"
+      },
+      "multi": {
+        "reflectParts": ["presentLevels", "eligibility", "goals", "services", "accommodations", "placement", "other"]
+      },
+      "text": { "speakWhy": 500, "reflectOther": 500 }
+    },
+    "after": {
+      "parts": ["followUp"],
+      "statuses": ["started", "declined", "done"],
+      "choice": { "u3": "scale", "u4": "scale", "p1": "scale", "p5": "scale" },
+      "multi": {},
+      "text": { "anythingElse": 1000 }
+    },
+    "household": {
+      "parts": ["you"],
+      "statuses": ["started", "done"],
+      "choice": {
+        "aiUse": ["daily", "weekly", "monthly", "tried", "never"],
+        "stayInTouch": ["yes", "no"]
+      },
+      "multi": {},
+      "text": { "aiTools": 200 },
+      "email": ["email"]
+    }
+  }
+}

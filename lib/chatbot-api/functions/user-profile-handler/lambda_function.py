@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Dict, List, Optional, Literal, Tuple
 from router import Router, UserProfileRouter, RouteNotFoundException
 from student_name_substitution import substitute_content, usable_student_name
+import survey
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import copy
@@ -661,6 +662,11 @@ def get_user_profile(event: Dict) -> Dict:
         except KmsUnavailable as e:
             return service_unavailable(event, 'get_user_profile decrypt', e)
 
+        # Survey answers have their own route; the profile every screen loads
+        # carries none of them, not even as ciphertext.
+        for field in SURVEY_PROFILE_FIELDS:
+            existing_profile.pop(field, None)
+
         return create_response(event, 200, {'profile': existing_profile})
         
     except Exception as e:
@@ -718,7 +724,10 @@ def update_user_profile(event: Dict) -> Dict:
             # The summary page's guided tour, offered once per parent rather
             # than once per browser: parents move between a phone and a laptop.
             # Absent means not seen yet, so every existing parent gets it once.
-            'summaryTourSeen': 'summaryTourSeen'
+            'summaryTourSeen': 'summaryTourSeen',
+            # Onboarding's "how many of your children have an IEP". Drives the
+            # next-child card at the end of a summary; it is never a limit.
+            'iepChildCount': 'iepChildCount'
         }
 
         # If email is in the request, return an error
@@ -749,6 +758,13 @@ def update_user_profile(event: Dict) -> Dict:
                         event, 'update_user_profile', user_id, 'showOnboarding is not a boolean',
                         'showOnboarding must be a boolean value (true or false)')
                 
+                if field == 'iepChildCount' and (
+                        isinstance(body[field], bool) or not isinstance(body[field], int)
+                        or not 1 <= body[field] <= MAX_CHILDREN):
+                    return bad_request(
+                        event, 'update_user_profile', user_id, 'iepChildCount is not a whole number from 1 to MAX_CHILDREN',
+                        f'iepChildCount must be a whole number from 1 to {MAX_CHILDREN}')
+
                 if field == 'summaryTourSeen' and not isinstance(body[field], bool):
                     return bad_request(
                         event, 'update_user_profile', user_id, 'summaryTourSeen is not a boolean',
@@ -2002,11 +2018,19 @@ def delete_child(event: Dict) -> Dict:
         try:
             # The size guard keeps the last child: if a concurrent removal left
             # one child, this write refuses rather than emptying the list.
+            # The child's survey answers go with it. Only named when they
+            # exist: REMOVE on a path under a map that is not there is an error.
+            has_survey = isinstance(profile.get('surveys'), dict) and child_id in profile['surveys']
+            names = {'#children': 'children'}
+            remove = f'#children[{index}]'
+            if has_survey:
+                names.update({'#surveys': 'surveys', '#cid': child_id})
+                remove += ', #surveys.#cid'
             user_profiles_table.update_item(
                 Key={'userId': user_id},
-                UpdateExpression=f'REMOVE #children[{index}] SET updatedAt = :updatedAt, updatedAtISO = :updatedAtISO',
+                UpdateExpression=f'REMOVE {remove} SET updatedAt = :updatedAt, updatedAtISO = :updatedAtISO',
                 ConditionExpression=f'#children[{index}].childId = :childId AND size(#children) > :one',
-                ExpressionAttributeNames={'#children': 'children'},
+                ExpressionAttributeNames=names,
                 ExpressionAttributeValues={
                     ':childId': child_id,
                     ':one': 1,
@@ -2230,6 +2254,225 @@ def delete_user_profile(event: Dict) -> Dict:
     except Exception as e:
         print(f"Error in delete_user_profile: {str(e)}")
         return create_response(event, 500, {'message': 'Could not delete your account. Please try again later.'})
+
+# --- The family survey -------------------------------------------------------
+# Validation and record shape live in survey.py; these read and write the
+# profile item. See survey.py for the three phases and why the baseline closes.
+
+SURVEY_PROFILE_FIELDS = ('surveys', 'surveyHousehold')
+
+
+class BaselineClosed(Exception):
+    """A baseline save arrived after the parent had opened the summary."""
+
+
+def _survey_answers(record: Optional[Dict]) -> Dict:
+    """The decrypted answers of one stored phase ({} when it has none).
+
+    Raises KmsUnavailable rather than return ciphertext or an empty set that
+    the next save would then write back over the real answers.
+    """
+    if not record or not record.get('answersEnc'):
+        return {}
+    plaintext = kms_decrypt_string(record['answersEnc'], strict=True)
+    try:
+        answers = json.loads(plaintext)
+    except (TypeError, ValueError) as e:
+        raise KmsUnavailable('answers did not decrypt to JSON') from e
+    return answers if isinstance(answers, dict) else {}
+
+
+def _survey_body(profile: Dict, child_id: str) -> Dict:
+    """GET /survey's body for one child, answers decrypted."""
+    surveys = profile.get('surveys') if isinstance(profile.get('surveys'), dict) else {}
+    child_survey = surveys.get(child_id) or {}
+    household = profile.get('surveyHousehold')
+    body = {'version': survey.VERSION,
+            'summaryFirstViewedAt': child_survey.get('summaryFirstViewedAt'),
+            'iepChildCount': profile.get('iepChildCount'),
+            'household': survey.public_record(household, _survey_answers(household))}
+    for phase in survey.CHILD_PHASES:
+        record = child_survey.get(phase)
+        body[phase] = survey.public_record(record, _survey_answers(record))
+    return body
+
+
+def _set_child_survey_field(user_id: str, profile: Dict, child_id: str,
+                            field: str, value, baseline_must_be_open: bool) -> None:
+    """SET surveys.<child>.<field> on the profile, creating the maps it needs.
+
+    DynamoDB cannot SET a path under a map that does not exist, so the write
+    depends on what the read saw, and is conditioned on it still being true:
+    a concurrent first write, or the child being removed meanwhile, makes this
+    raise ConditionalCheckFailedException instead of writing.
+
+    `baseline_must_be_open` adds the condition that the summary has not been
+    opened, so a baseline answer can never land after it, even in a race with
+    the summary page.
+    """
+    surveys = profile.get('surveys')
+    names = {'#surveys': 'surveys', '#cid': child_id, '#field': field}
+    index = _child_index(profile, child_id)
+    if not isinstance(surveys, dict):
+        update, condition = 'SET #surveys = :value', 'attribute_not_exists(#surveys)'
+        names = {'#surveys': 'surveys'}
+        value = {child_id: {field: value}}
+    elif child_id not in surveys:
+        update, condition = 'SET #surveys.#cid = :value', 'attribute_not_exists(#surveys.#cid)'
+        names.pop('#field')
+        value = {field: value}
+    else:
+        update, condition = 'SET #surveys.#cid.#field = :value', 'attribute_exists(#surveys.#cid)'
+        if baseline_must_be_open:
+            names['#viewed'] = 'summaryFirstViewedAt'
+            condition += ' AND attribute_not_exists(#surveys.#cid.#viewed)'
+    # The child is still where the read found it: a child removed in between
+    # must not get its survey written back.
+    names['#children'] = 'children'
+    condition += f' AND #children[{index}].childId = :childId'
+    user_profiles_table.update_item(
+        Key={'userId': user_id}, UpdateExpression=update, ConditionExpression=condition,
+        ExpressionAttributeNames=names, ExpressionAttributeValues={':value': value, ':childId': child_id})
+
+
+def _read_owned_profile(event: Dict, operation: str, user_id: str, child_id: str):
+    """(profile, None) for the caller's child, or (None, the response to send)."""
+    try:
+        profile = user_profiles_table.get_item(Key={'userId': user_id}, ConsistentRead=True).get('Item')
+    except AWS_FAULTS as e:
+        return None, service_unavailable(event, f'{operation} read', e)
+    if _find_child(profile, child_id) is None:
+        print(f"Access denied: user {user_id} does not own child {child_id} ({operation})")
+        return None, not_found(event)
+    return profile, None
+
+
+def get_survey(event: Dict) -> Dict:
+    """GET /profile/children/{childId}/survey: this child's survey and the household's.
+
+    200 {version, before, after, household, summaryFirstViewedAt,
+    iepChildCount}; each phase is null until first saved. 404 for a child that
+    is not the caller's, 503 when the profile or the key cannot be reached.
+    """
+    try:
+        user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
+        child_id = event['pathParameters']['childId']
+        profile, refusal = _read_owned_profile(event, 'get_survey', user_id, child_id)
+        if refusal:
+            return refusal
+        try:
+            return create_response(event, 200, _survey_body(profile, child_id))
+        except KmsUnavailable as e:
+            return service_unavailable(event, 'get_survey decrypt', e)
+    except Exception as e:
+        print(f"Error in get_survey: {type(e).__name__}")
+        return create_response(event, 500, {'message': 'Could not load the survey. Please try again later.'})
+
+
+def put_survey(event: Dict) -> Dict:
+    """PUT /profile/children/{childId}/survey: save one phase.
+
+    Body {phase, status, part?, answers?, researchConsent?}. The answers sent
+    replace that phase's answers. 'household' is stored once per parent; the
+    child in the path only has to be the caller's.
+
+    409 {code: 'baseline_closed'} for a 'before' save once the summary has been
+    opened; 409 {code: 'changed'} when the profile moved under the write (a
+    concurrent first write created the survey map, or the child was removed).
+    Saves of an existing phase are last-write-wins.
+    """
+    try:
+        user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
+        child_id = event['pathParameters']['childId']
+        try:
+            body = json.loads(event['body']) if event.get('body') else {}
+        except (TypeError, ValueError):
+            return bad_request(event, 'put_survey', user_id, 'body is not valid JSON', 'Invalid JSON body')
+        save, problem = survey.validate_save(body)
+        if problem:
+            return bad_request(event, 'put_survey', user_id, *problem)
+
+        profile, refusal = _read_owned_profile(event, 'put_survey', user_id, child_id)
+        if refusal:
+            return refusal
+
+        phase = save['phase']
+        surveys = profile.get('surveys') if isinstance(profile.get('surveys'), dict) else {}
+        child_survey = surveys.get(child_id) or {}
+        if phase == 'before' and child_survey.get('summaryFirstViewedAt'):
+            raise BaselineClosed()
+
+        answers_enc = (kms_encrypt_string(json.dumps(save['answers'], ensure_ascii=False))
+                       if save['answers'] else None)
+        previous = profile.get('surveyHousehold') if phase == 'household' else child_survey.get(phase)
+        shown = save['answers'] if save['answers'] is not None else _survey_answers(previous)
+        now = get_timestamps()['timestamp']
+        if phase == 'household':
+            record = survey.build_record(save, answers_enc, previous, now)
+            user_profiles_table.update_item(
+                Key={'userId': user_id}, UpdateExpression='SET surveyHousehold = :value',
+                ExpressionAttributeValues={':value': record})
+        else:
+            record = survey.build_record(save, answers_enc, previous, now)
+            _set_child_survey_field(user_id, profile, child_id, phase, record,
+                                    baseline_must_be_open=(phase == 'before'))
+        return create_response(event, 200, {phase: survey.public_record(record, shown)})
+
+    except BaselineClosed:
+        print(f"Rejecting put_survey for userId {user_id}: the baseline closed when the summary was opened")
+        return create_response(event, 409, {'code': 'baseline_closed',
+                                            'message': 'These questions closed when the summary was opened.'})
+    except KmsUnavailable as e:
+        return service_unavailable(event, 'put_survey decrypt', e)
+    except FieldEncryptionError as e:
+        print(f"Refusing to save survey answers due to field encryption failure: {type(e).__name__}")
+        return create_response(event, 503, {'message': 'Could not save your answers right now. Please try again in a moment.'})
+    except ClientError as e:
+        if e.response.get('Error', {}).get('Code') != 'ConditionalCheckFailedException':
+            return service_unavailable(event, 'put_survey write', e)
+        print(f"Rejecting put_survey for userId {user_id}: the survey changed after it was read, or the summary was opened")
+        return create_response(event, 409, {'code': 'changed',
+                                            'message': 'Your answers changed somewhere else. Please reload and try again.'})
+    except AWS_FAULTS as e:
+        return service_unavailable(event, 'put_survey', e)
+    except Exception as e:
+        print(f"Error in put_survey: {type(e).__name__}")
+        return create_response(event, 500, {'message': 'Could not save your answers. Please try again later.'})
+
+
+def mark_summary_viewed(event: Dict) -> Dict:
+    """POST /profile/children/{childId}/survey/summary-viewed: close the baseline.
+
+    Records the first time the parent opened this child's summary; later calls
+    change nothing. Idempotent: 200 {summaryFirstViewedAt} either way. A lost
+    race with another first write is retried once from a fresh read.
+    """
+    try:
+        user_id = event['requestContext']['authorizer']['jwt']['claims']['sub']
+        child_id = event['pathParameters']['childId']
+        for attempt in range(2):
+            profile, refusal = _read_owned_profile(event, 'mark_summary_viewed', user_id, child_id)
+            if refusal:
+                return refusal
+            surveys = profile.get('surveys') if isinstance(profile.get('surveys'), dict) else {}
+            viewed = (surveys.get(child_id) or {}).get('summaryFirstViewedAt')
+            if viewed:
+                return create_response(event, 200, {'summaryFirstViewedAt': viewed})
+            now = get_timestamps()['timestamp']
+            try:
+                _set_child_survey_field(user_id, profile, child_id, 'summaryFirstViewedAt', now,
+                                        baseline_must_be_open=True)
+                return create_response(event, 200, {'summaryFirstViewedAt': now})
+            except ClientError as e:
+                if e.response.get('Error', {}).get('Code') != 'ConditionalCheckFailedException' or attempt:
+                    raise
+        return create_response(event, 500, {'message': 'Could not record that. Please try again later.'})
+    except AWS_FAULTS as e:
+        return service_unavailable(event, 'mark_summary_viewed', e)
+    except Exception as e:
+        print(f"Error in mark_summary_viewed: {type(e).__name__}")
+        return create_response(event, 500, {'message': 'Could not record that. Please try again later.'})
+
 
 def _build_router() -> Router:
     """The route table, from the @route-decorated methods of UserProfileRouter."""

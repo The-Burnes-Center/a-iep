@@ -82,6 +82,15 @@ describe('enabled features per environment', () => {
     expect(CDK_DARK_EVERYWHERE).not.toContain('multiChild');
   });
 
+  it('holds the family survey back from production', () => {
+    // Its questions, research consent and privacy wording are placeholders
+    // until the research team decides them. Asserted as absent so asking
+    // every family has to be written here deliberately.
+    expect(CDK_PROD_FEATURES).not.toContain('onboardingSurvey');
+    expect(CDK_ALL_FEATURES).toContain('onboardingSurvey');
+    expect(CDK_DARK_EVERYWHERE).not.toContain('onboardingSurvey');
+  });
+
   it('keeps the student-name gate on wherever the redaction runs', () => {
     // The pipeline's redaction is not behind this flag: redact_ocr's
     // ALLOWED_PII_ENTITY_TYPES runs in every environment. So a build that

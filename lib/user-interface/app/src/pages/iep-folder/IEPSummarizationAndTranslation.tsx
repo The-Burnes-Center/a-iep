@@ -41,6 +41,7 @@ import SummaryTour from './SummaryTour';
 import { useTourReplayRequest } from './summary-tour';
 import { NavLanguageSlot } from '../../components/NavLanguageSlot';
 import LanguageMenu from '../../components/LanguageMenu';
+import { SummarySurveyCards, SurveyWhileYouWait } from '../survey/SurveyCards';
 import { ApiClient } from '../../common/api-client/api-client';
 import {
   IEPDocumentClient,
@@ -1098,6 +1099,7 @@ const IEPSummarizationAndTranslation: React.FC = () => {
         progressStepLabel={t(processingStepKey(document))}
         pollingStopped={pollingStopped}
         onCheckAgain={checkAgain}
+        aside={<SurveyWhileYouWait />}
       />
       </>
     );
@@ -1333,6 +1335,12 @@ const IEPSummarizationAndTranslation: React.FC = () => {
             </Card>
           </Col>
         </Row>
+
+        {/* Readable summary on screen: the survey learns it was opened (the
+            baseline closes) and offers the follow-up and the next child. */}
+        {(document.status === "PROCESSED" || document.status === "PROCESSING_TRANSLATIONS") && hasContent(activeTab) && (
+          <SummarySurveyCards />
+        )}
         
         {/* Jargon Drawer */}
         <Offcanvas 

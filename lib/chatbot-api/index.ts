@@ -232,6 +232,22 @@ export class ChatBotApi extends Construct {
       authorizer: httpAuthorizer,
     });
 
+    // The family survey (pages/survey): one child's answers, and the moment
+    // that child's summary was first opened, which closes the baseline.
+    this.httpAPI.restAPI.addRoutes({
+      path: "/profile/children/{childId}/survey",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PUT],
+      integration: userProfileAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
+    this.httpAPI.restAPI.addRoutes({
+      path: "/profile/children/{childId}/survey/summary-viewed",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: userProfileAPIIntegration,
+      authorizer: httpAuthorizer,
+    });
+
     // On-demand translation of an already-processed document into one more
     // language. Its own lambda rather than the profile handler's: it is the
     // only route that starts a Step Functions execution and spends OpenAI

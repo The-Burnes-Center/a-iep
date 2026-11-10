@@ -221,6 +221,64 @@
   padding-inline-start: 0.875rem;
 }
 
+/* ---- Radios -------------------------------------------------------------------- */
+.ui-radios {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ui-radios-legend {
+  float: none;
+  width: 100%;
+  margin: 0 0 0.25rem;
+  padding: 0;
+  font-family: 'akzidenz-grotesk-next-pro', sans-serif;
+  font-weight: 700;
+  font-size: 1.05rem;
+  line-height: 1.4;
+  color: var(--aiep-ink);
+}
+
+.ui-radios-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ui-radios--inline .ui-radios-options {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.ui-radios--inline .ui-radio-row {
+  flex: 1 1 6rem;
+}
+
+.ui-radio-row {
+  align-items: center;
+}
+
+.ui-radio-row:has(.ui-check-input:checked) {
+  border: 2px solid var(--aiep-green);
+  padding: calc(0.6rem - 1px) calc(0.875rem - 1px);
+}
+
+/* "Not sure" is not a point on the scale, so it sits a step away from it. */
+.ui-radio-row--apart {
+  margin-top: 0.5rem;
+  border-style: dashed;
+}
+
+.ui-textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
 /* ---- Status tag --------------------------------------------------------------- */
 .ui-tag {
   display: inline-flex;

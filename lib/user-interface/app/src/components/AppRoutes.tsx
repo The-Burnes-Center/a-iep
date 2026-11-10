@@ -48,6 +48,9 @@ const ParentRightsCarousel = lazy(() => import('../components/ParentRightsCarous
 const AccountCenter = lazy(() => import('../pages/profile/AccountCenter'));
 const MyChildren = lazy(() => import('../pages/profile/MyChildren'));
 const ChildForm = lazy(() => import('../pages/profile/ChildForm'));
+const ChildCount = lazy(() => import('../pages/survey/ChildCount'));
+const SurveyPage = lazy(() => import('../pages/survey/SurveyPage'));
+const SurveyFollowUp = lazy(() => import('../pages/survey/SurveyFollowUp'));
 const AboutAIEP = lazy(() => import('../components/AboutAIEP'));
 const DeleteAccount = lazy(() => import('../pages/profile/DeleteAccount'));
 const ViewResources = lazy(() => import('../pages/profile/ViewResources'));
@@ -120,6 +123,9 @@ export default function AppRoutes() {
             PDF, and how to ask for one. Not behind ConsentGate - a parent
             reaches them straight off the consent form, and the gate's own
             profile read would race that write. */}
+        {/* onboardingSurvey: straight after consent, so outside ConsentGate
+            for the same reason. Redirects on when the feature is off. */}
+        <Route path="/your-children" element={<ChildCount />} />
         <Route path="/how-to-use-the-tool" element={<HowToUseTool />} />
         <Route path="/how-we-protect-your-privacy" element={<HowWeProtectYourPrivacy />} />
         <Route path="/do-you-have-pdf" element={<HaveIepPdf />} />
@@ -137,6 +143,9 @@ export default function AppRoutes() {
           <Route path="/account-center/children" element={<MyChildren />} />
           <Route path="/account-center/children/add" element={<ChildForm mode="add" />} />
           <Route path="/account-center/children/edit" element={<ChildForm mode="edit" />} />
+          {/* onboardingSurvey: each redirects to the summary when it is off */}
+          <Route path="/survey" element={<SurveyPage />} />
+          <Route path="/survey/follow-up" element={<SurveyFollowUp />} />
         </Route>
 
         {/* Profile & Settings */}
