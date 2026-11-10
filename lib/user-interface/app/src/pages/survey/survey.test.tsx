@@ -458,7 +458,7 @@ describe("how many children have an IEP", () => {
     expect(screen.getByTestId("child-count-missing")).toBeTruthy();
     expect(profilePuts).toEqual([]);
 
-    fireEvent.click(screen.getByLabelText("2"));
+    fireEvent.click(screen.getByLabelText("childCount.option.2"));
     await click("child-count-continue");
     expect(profilePuts).toEqual([{ iepChildCount: 2 }]);
     expect(where()).toBe("/how-to-use-the-tool");

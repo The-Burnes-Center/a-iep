@@ -841,11 +841,10 @@
     "breadcrumb.yourChildren": "Your children",
     "breadcrumb.followUp": "Follow-up questions",
     "childCount.title": "How many of your children have an IEP?",
-    "childCount.intro": "We'll start with one child. When their summary is ready, you can add the next one. Each child's IEP is kept separate.",
-    "childCount.legend": "Number of children with an IEP",
-    "childCount.fourOrMore": "4 or more",
-    "childCount.later": "You can add or remove children at any time.",
-    "childCount.missing": "Choose a number to continue.",
+    "childCount.intro": "This helps us set things up for your family. We'll start with one child, and you can add the others whenever you're ready. Each child's IEP stays separate.",
+    "childCount.legend": "Choose one",
+    "childCount.later": "Not sure? Pick your best guess. You can add or remove children any time.",
+    "childCount.missing": "Choose how many to continue.",
     "childCount.saveFailed": "We couldn't save your answer. Check your connection and try again.",
     "survey.yourChild": "your child",
     "survey.optional": "(optional)",
@@ -960,5 +959,9 @@
     "survey.error.nothingAnswered": "Answer at least one question, or choose No thanks.",
     "child.school.hint": "This helps us see which school districts A-IEP reaches. It is never shared with your school.",
     "myChildren.district": "District: {district}",
-    "myChildren.progress.label": "Reading {name}'s IEP"
+    "myChildren.progress.label": "Reading {name}'s IEP",
+    "childCount.option.1": "1 child",
+    "childCount.option.2": "2 children",
+    "childCount.option.3": "3 children",
+    "childCount.option.4": "4 or more"
 }

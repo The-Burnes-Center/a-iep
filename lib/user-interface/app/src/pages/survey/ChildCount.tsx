@@ -82,7 +82,7 @@ const ChildCount: React.FC = () => {
           legend={t('childCount.legend')}
           options={COUNT_OPTIONS.map((value) => ({
             value,
-            label: value === '4' ? t('childCount.fourOrMore') : value,
+            label: t(`childCount.option.${value}`),
           }))}
           value={answered}
           onChange={(value) => { setCount(value); setShowMissing(false); }}

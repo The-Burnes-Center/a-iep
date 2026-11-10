@@ -841,11 +841,10 @@
     "breadcrumb.yourChildren": "Sus hijos",
     "breadcrumb.followUp": "Preguntas de seguimiento",
     "childCount.title": "¿Cuántos de sus hijos tienen un IEP?",
-    "childCount.intro": "Empezaremos con un hijo. Cuando su resumen esté listo, podrá agregar al siguiente. El IEP de cada hijo se guarda por separado.",
-    "childCount.legend": "Número de hijos con un IEP",
-    "childCount.fourOrMore": "4 o más",
-    "childCount.later": "Puede agregar o quitar hijos en cualquier momento.",
-    "childCount.missing": "Elija un número para continuar.",
+    "childCount.intro": "Esto nos ayuda a preparar todo para su familia. Empezaremos con un hijo, y puede agregar a los demás cuando esté listo/a. El IEP de cada hijo se guarda por separado.",
+    "childCount.legend": "Elija una opción",
+    "childCount.later": "¿No está seguro/a? Elija lo que crea más cercano. Puede agregar o quitar hijos en cualquier momento.",
+    "childCount.missing": "Elija cuántos para continuar.",
     "childCount.saveFailed": "No pudimos guardar su respuesta. Revise su conexión e inténtelo de nuevo.",
     "survey.yourChild": "su hijo/a",
     "survey.optional": "(opcional)",
@@ -960,5 +959,9 @@
     "survey.error.nothingAnswered": "Responda al menos una pregunta, o elija No, gracias.",
     "child.school.hint": "Nos ayuda a ver a qué distritos escolares llega A-IEP. Nunca se comparte con su escuela.",
     "myChildren.district": "Distrito: {district}",
-    "myChildren.progress.label": "Leyendo el IEP de {name}"
+    "myChildren.progress.label": "Leyendo el IEP de {name}",
+    "childCount.option.1": "1 hijo/a",
+    "childCount.option.2": "2 hijos",
+    "childCount.option.3": "3 hijos",
+    "childCount.option.4": "4 o más"
 }

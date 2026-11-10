@@ -841,11 +841,10 @@
     "breadcrumb.yourChildren": "您的孩子",
     "breadcrumb.followUp": "后续问题",
     "childCount.title": "您有几个孩子有IEP？",
-    "childCount.intro": "我们先从一个孩子开始。等这个孩子的摘要准备好后，您可以添加下一个孩子。每个孩子的IEP都分开保存。",
-    "childCount.legend": "有IEP的孩子人数",
-    "childCount.fourOrMore": "4个或更多",
-    "childCount.later": "您可以随时添加或移除孩子。",
-    "childCount.missing": "请选择一个数字以继续。",
+    "childCount.intro": "这能帮助我们为您的家庭做好准备。我们先从一个孩子开始，您准备好后可以随时添加其他孩子。每个孩子的IEP都分开保存。",
+    "childCount.legend": "请选择一项",
+    "childCount.later": "不确定？选一个最接近的就好。您可以随时添加或移除孩子。",
+    "childCount.missing": "请选择人数以继续。",
     "childCount.saveFailed": "我们无法保存您的回答。请检查网络连接后重试。",
     "survey.yourChild": "您的孩子",
     "survey.optional": "（选填）",
@@ -960,5 +959,9 @@
     "survey.error.nothingAnswered": "请至少回答一个问题，或选择“不用了，谢谢”。",
     "child.school.hint": "这能帮助我们了解A-IEP覆盖了哪些学区。我们绝不会把它分享给您的学校。",
     "myChildren.district": "学区：{district}",
-    "myChildren.progress.label": "正在阅读{name}的IEP"
+    "myChildren.progress.label": "正在阅读{name}的IEP",
+    "childCount.option.1": "1个孩子",
+    "childCount.option.2": "2个孩子",
+    "childCount.option.3": "3个孩子",
+    "childCount.option.4": "4个或更多"
 }

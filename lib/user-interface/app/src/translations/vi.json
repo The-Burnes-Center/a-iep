@@ -841,11 +841,10 @@
     "breadcrumb.yourChildren": "Con của bạn",
     "breadcrumb.followUp": "Câu hỏi tiếp theo",
     "childCount.title": "Bao nhiêu người con của bạn có IEP?",
-    "childCount.intro": "Chúng ta sẽ bắt đầu với một con. Khi bản tóm tắt của con sẵn sàng, bạn có thể thêm con tiếp theo. IEP của mỗi con được giữ riêng.",
-    "childCount.legend": "Số con có IEP",
-    "childCount.fourOrMore": "4 trở lên",
-    "childCount.later": "Bạn có thể thêm hoặc xóa con bất cứ lúc nào.",
-    "childCount.missing": "Chọn một số để tiếp tục.",
+    "childCount.intro": "Điều này giúp chúng tôi chuẩn bị cho gia đình bạn. Chúng ta sẽ bắt đầu với một con, và bạn có thể thêm các con khác bất cứ khi nào bạn sẵn sàng. IEP của mỗi con được giữ riêng.",
+    "childCount.legend": "Chọn một",
+    "childCount.later": "Bạn chưa chắc? Hãy chọn con số gần đúng nhất. Bạn có thể thêm hoặc xóa con bất cứ lúc nào.",
+    "childCount.missing": "Hãy chọn số con để tiếp tục.",
     "childCount.saveFailed": "Chúng tôi không lưu được câu trả lời của bạn. Hãy kiểm tra kết nối và thử lại.",
     "survey.yourChild": "con của bạn",
     "survey.optional": "(không bắt buộc)",
@@ -960,5 +959,9 @@
     "survey.error.nothingAnswered": "Hãy trả lời ít nhất một câu hỏi, hoặc chọn Không, cảm ơn.",
     "child.school.hint": "Thông tin này giúp chúng tôi biết A-IEP đến được những khu học chánh nào. Nó không bao giờ được chia sẻ với trường của bạn.",
     "myChildren.district": "Khu học chánh: {district}",
-    "myChildren.progress.label": "Đang đọc IEP của {name}"
+    "myChildren.progress.label": "Đang đọc IEP của {name}",
+    "childCount.option.1": "1 con",
+    "childCount.option.2": "2 con",
+    "childCount.option.3": "3 con",
+    "childCount.option.4": "4 con trở lên"
 }

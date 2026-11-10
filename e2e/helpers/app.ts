@@ -388,9 +388,10 @@ export async function completeOnboardingIfShown(page: Page): Promise<string> {
           continue;
         }
       } else if (path === '/your-children') {
-        // onboardingSurvey's "how many of your children have an IEP". One:
-        // every journey here is about one child unless it adds another itself.
-        const one = page.getByRole('radio', { name: '1', exact: true });
+        // onboardingSurvey's "how many of your children have an IEP". One
+        // (the first option, whatever its wording): every journey here is
+        // about one child unless it adds another itself.
+        const one = page.getByRole('radio').first();
         if (await one.isVisible()) {
           await one.check();
           await page.getByTestId('child-count-continue').click();
