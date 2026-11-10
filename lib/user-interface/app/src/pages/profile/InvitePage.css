@@ -11,15 +11,7 @@
   vertical-align: -0.125em;
 }
 
-.invite-page .invite-shell {
-  width: 100%;
-  max-width: 40rem;
-  margin: 0 auto;
-  padding: 0 1rem 3rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
+/* The column, gutters and trail come from the shared PageShell. */
 
 /* ---- Hero ------------------------------------------------------------------
    The dark-green grid paper of the processing modal and the brand pattern
@@ -455,6 +447,11 @@
   }
 
   .invite-page .invite-shell > .alert {
+    grid-column: 1 / -1;
+  }
+
+  /* The trail spans the whole grid, above both columns. */
+  .invite-page .invite-shell > .breadcrumb-container {
     grid-column: 1 / -1;
   }
 

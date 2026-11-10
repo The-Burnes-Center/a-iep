@@ -11,12 +11,12 @@ import { CHILD_NAME_MAX_LENGTH, ChildNameError, normalizeChildName, validateChil
 import { CHILD_QUERY_PARAM, fillTemplate, pathForChild } from '../../common/active-child';
 import { isPlaceholderChildName } from '../../common/features';
 import { STEP } from '../../common/breadcrumb-steps';
-import Breadcrumbs from '../../components/Breadcrumbs';
+import PageShell from '../../components/page/PageShell';
 import Button from '../../components/ui/Button';
 import { TextField } from '../../components/ui/fields';
 import { Notice } from '../../components/ui/feedback';
 import PageLoading from '../../components/PageLoading';
-import ChildrenHero from './ChildrenHero';
+import PageHero from '../../components/page/PageHero';
 import './MyChildren.css';
 
 /** The same limit the API enforces (MAX_SCHOOL_CITY_LENGTH). */
@@ -113,9 +113,8 @@ const ChildForm: React.FC<ChildFormProps> = ({ mode }) => {
 
   return (
     <>
-      <Breadcrumbs trail={[STEP.account, STEP.myChildren, isEdit ? STEP.editChild : STEP.addChild]} />
-      <div className="my-children-page">
-        <ChildrenHero titleId="child-form-title" title={title} description={t('addChild.description')} />
+      <PageShell trail={[STEP.account, STEP.myChildren, isEdit ? STEP.editChild : STEP.addChild]} className="my-children-page">
+        <PageHero titleId="child-form-title" title={title} showFaces={false} />
 
         <div className="my-children-form-card">
           {saveFailed && (
@@ -126,6 +125,9 @@ const ChildForm: React.FC<ChildFormProps> = ({ mode }) => {
             <TextField
               id="childFormName"
               label={t('addChild.name.label')}
+              // Why the full name matters, where the parent types it
+              // (GOV.UK hint text), not as a paragraph in the hero.
+              hint={t('addChild.description')}
               error={nameError ? t(NAME_ERROR_KEY[nameError]) : null}
               value={name}
               autoComplete="off"
@@ -152,7 +154,7 @@ const ChildForm: React.FC<ChildFormProps> = ({ mode }) => {
             </Button>
           </form>
         </div>
-      </div>
+      </PageShell>
     </>
   );
 };

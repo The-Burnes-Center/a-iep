@@ -88,7 +88,7 @@ const SupportCenter: React.FC<SupportCenterProps> = ({
   return (
     <PageShell>
       <PageHero titleId="support-center-title" title={t("supportCenter.title")} description={t("supportCenter.lede")} />
-      <Accordion className="support-center-accordion page-list">
+      <Accordion className="page-list">
         {headers.map((header) => (
           <Accordion.Item key={header.id} eventKey={header.id}>
             <Accordion.Header
@@ -97,7 +97,7 @@ const SupportCenter: React.FC<SupportCenterProps> = ({
             >
               <span className="accordion-title-content">
                 {header.title}
-                <IconArrowRight size={18} stroke={2} className="accordion-icon arrow-icon" />
+                <IconArrowRight size={20} stroke={2} className="accordion-icon" aria-hidden="true" />
               </span>
             </Accordion.Header>
           </Accordion.Item>

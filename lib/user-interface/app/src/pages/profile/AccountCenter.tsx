@@ -137,7 +137,11 @@ const AccountCenter: React.FC = () => {
   const QUIET_ROWS = new Set(['2', '4']);
   const renderRows = (rows: typeof headers) =>
     rows.map((header) => (
-      <Accordion.Item key={header.id} eventKey={header.id}>
+      <Accordion.Item
+        key={header.id}
+        eventKey={header.id}
+        className={header.id === '2' ? 'page-list-row--danger' : undefined}
+      >
         <Accordion.Header
           data-testid={header.testId}
           onClick={() => handleAccordionClick(header.id)}
@@ -146,9 +150,9 @@ const AccountCenter: React.FC = () => {
           <span className="accordion-title-content">
             {header.title}
             {header.id === '4' ? (
-              <IconLogout size={18} stroke={2} className="accordion-icon logout-icon" />
+              <IconLogout size={20} stroke={2} className="accordion-icon" aria-hidden="true" />
             ) : (
-              <IconArrowRight size={18} stroke={2} className="accordion-icon arrow-icon" />
+              <IconArrowRight size={20} stroke={2} className="accordion-icon" aria-hidden="true" />
             )}
           </span>
         </Accordion.Header>
@@ -158,10 +162,10 @@ const AccountCenter: React.FC = () => {
   return (
     <PageShell>
       <PageHero titleId="account-center-title" title={t("accountCenter.title")} description={t("accountCenter.lede")} />
-      <Accordion className="account-center-accordion page-list">
+      <Accordion className="page-list">
         {renderRows(headers.filter((header) => !QUIET_ROWS.has(header.id)))}
       </Accordion>
-      <Accordion className="account-center-accordion page-list page-list--quiet">
+      <Accordion className="page-list">
         {renderRows(headers.filter((header) => QUIET_ROWS.has(header.id)))}
       </Accordion>
     </PageShell>

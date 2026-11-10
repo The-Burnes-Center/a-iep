@@ -58,7 +58,8 @@ test('a parent adds a second child and every screen about them says whose IEP it
 
   await expect(page.getByTestId('child-bar-name')).toContainText(SECOND_CHILD);
   await expect(page.getByTestId('child-bar-switch')).toHaveText('Switch');
-  await expect(page.getByTestId('upload-child-badge')).toContainText(SECOND_CHILD);
+  // The child bar names them; the gold chip is only for one-child families.
+  await expect(page.getByTestId('upload-child-badge')).toHaveCount(0);
 
   // The last thing read before sending: whose IEP this will be.
   await page.locator('#fileUpload').setInputFiles(FIXTURE);

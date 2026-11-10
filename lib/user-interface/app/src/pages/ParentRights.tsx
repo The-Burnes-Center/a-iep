@@ -56,10 +56,9 @@ const ParentRights: React.FC = () => {
    }
 
   return (
-    <PageShell width="reading">
-      <PageHero titleId="parent-rights-title" title={t('rights.title')} showFaces={false} />
-      <div className="page-card">
-        <Accordion className="faqs-accordion">
+    <PageShell>
+      <PageHero titleId="parent-rights-title" title={t('rights.title')} description={t('rights.lede')} />
+      <Accordion className="page-accordion">
           {rightsByLanguage.map((faq) => (
             <Accordion.Item key={faq.id} eventKey={faq.id}>
               <Accordion.Header>
@@ -72,8 +71,7 @@ const ParentRights: React.FC = () => {
               </Accordion.Body>
             </Accordion.Item>
           ))}
-        </Accordion>
-      </div>
+      </Accordion>
     </PageShell>
   );
 };

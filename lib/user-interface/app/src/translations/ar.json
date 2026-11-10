@@ -833,5 +833,8 @@
     "revoke.breadcrumb.revoke": "سحب الموافقة",
     "invite.channel.whatsapp": "واتساب",
     "invite.channel.sms": "رسالة نصية",
-    "invite.channel.email": "البريد الإلكتروني"
+    "invite.channel.email": "البريد الإلكتروني",
+    "rights.lede": "ما يمكنك أن تطلبه من المدرسة في كل خطوة من خطوات خطة IEP.",
+    "faq.breadcrumb": "الأسئلة الشائعة",
+    "faq.lede": "إجابات قصيرة عن أكثر ما يسألنا عنه الآباء."
 }

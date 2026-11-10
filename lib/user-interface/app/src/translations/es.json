@@ -833,5 +833,8 @@
     "revoke.breadcrumb.revoke": "RETIRAR CONSENTIMIENTO",
     "invite.channel.whatsapp": "WhatsApp",
     "invite.channel.sms": "Mensaje de texto",
-    "invite.channel.email": "Correo electrónico"
+    "invite.channel.email": "Correo electrónico",
+    "rights.lede": "Lo que puede pedirle a la escuela en cada paso del IEP.",
+    "faq.breadcrumb": "PREGUNTAS FRECUENTES",
+    "faq.lede": "Respuestas breves a lo que más nos preguntan los padres."
 }

@@ -833,5 +833,8 @@
     "revoke.breadcrumb.revoke": "RÚT LẠI SỰ ĐỒNG Ý",
     "invite.channel.whatsapp": "WhatsApp",
     "invite.channel.sms": "Tin nhắn",
-    "invite.channel.email": "Email"
+    "invite.channel.email": "Email",
+    "rights.lede": "Những điều bạn có thể đề nghị nhà trường ở mỗi bước của IEP.",
+    "faq.breadcrumb": "CÂU HỎI THƯỜNG GẶP",
+    "faq.lede": "Câu trả lời ngắn cho những điều phụ huynh hỏi nhiều nhất."
 }

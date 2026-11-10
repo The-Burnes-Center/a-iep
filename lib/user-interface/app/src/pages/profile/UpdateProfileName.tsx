@@ -120,9 +120,9 @@ export default function UpdateProfileName() {
       <PageHero
         titleId="update-profile-title"
         title={t('updateProfile.title')}
-        description={t('updateProfile.description')}
         showFaces={false}
       />
+      <p className="page-lede">{t('updateProfile.description')}</p>
 
       <form
         className="page-card"

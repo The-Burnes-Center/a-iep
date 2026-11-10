@@ -3,16 +3,7 @@
    stripe, then white cards on the cream page. Colours are palette tokens
    only (styles/palette.css; color-contrast.test.tsx enforces it). */
 
-.my-children-page {
-  width: 100%;
-  max-width: 40rem;
-  margin: 0 auto;
-  padding: 0.5rem 1rem 3rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  text-align: start;
-}
+/* The column is the shared PageShell (components/page). */
 
 /* ---- Child cards ------------------------------------------------------------ */
 .my-children-list {
@@ -32,7 +23,6 @@
   background-color: var(--aiep-surface-white);
   border: 1px solid var(--aiep-surface-field);
   border-radius: 16px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 .my-children-card-head {

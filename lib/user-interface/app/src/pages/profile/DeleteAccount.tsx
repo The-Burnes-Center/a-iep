@@ -64,9 +64,9 @@ export default function DeleteAccount() {
       <PageHero
         titleId="delete-account-title"
         title={t('deleteAccount.title')}
-        description={t('deleteAccount.description')}
         showFaces={false}
       />
+      <p className="page-lede">{t('deleteAccount.description')}</p>
 
       <div className="page-card">
         {error && <Notice tone="error">{error}</Notice>}

@@ -15,7 +15,7 @@ import { PROFILE_QUERY_KEY } from '../../common/hooks/use-language-preference';
 import { fillTemplate, pathForChild } from '../../common/active-child';
 import { isPlaceholderChildName } from '../../common/features';
 import { STEP } from '../../common/breadcrumb-steps';
-import Breadcrumbs from '../../components/Breadcrumbs';
+import PageShell from '../../components/page/PageShell';
 import PageLoading from '../../components/PageLoading';
 import { Child } from '../../common/types';
 import ChildrenHero from './ChildrenHero';
@@ -97,8 +97,7 @@ const MyChildren: React.FC = () => {
 
   return (
     <>
-      <Breadcrumbs trail={[STEP.account, STEP.myChildren]} />
-      <div className="my-children-page">
+      <PageShell trail={[STEP.account, STEP.myChildren]} className="my-children-page">
         <ChildrenHero titleId="my-children-title" title={t('myChildren.title')} description={t('myChildren.intro')} />
 
         <div className="visually-hidden" role="status" aria-live="polite">{announcement}</div>
@@ -199,7 +198,7 @@ const MyChildren: React.FC = () => {
         ) : (
           <Notice tone="info" title={t('myChildren.limit')} />
         )}
-      </div>
+      </PageShell>
     </>
   );
 };

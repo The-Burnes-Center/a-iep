@@ -8,7 +8,6 @@
   background-color: var(--aiep-surface-white);
   border: 1px solid var(--aiep-surface-field);
   border-radius: 16px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 .language-options .language-option {

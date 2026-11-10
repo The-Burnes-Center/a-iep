@@ -4,7 +4,7 @@ import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { useLanguage } from '../../common/language-context';
 import PageLoading from '../../components/PageLoading';
-import Breadcrumbs from '../../components/Breadcrumbs';
+import PageShell from '../../components/page/PageShell';
 import Button from '../../components/ui/Button';
 import { Notice } from '../../components/ui/feedback';
 import {
@@ -68,14 +68,15 @@ export default function InvitePage() {
   return (
     <>
       <div className="invite-page">
-        <Breadcrumbs
+        {/* The shared column, so the trail sits on the hero's edge like every
+            other screen; the desktop two-column layout widens it (InvitePage.css). */}
+        <PageShell
+          className="invite-shell"
           trail={[
             { labelKey: 'changeLanguage.breadcrumb.account', to: '/account-center' },
             { labelKey: 'invite.breadcrumb.invite' },
           ]}
-        />
-
-        <div className="invite-shell">
+        >
               <section className="invite-hero" aria-labelledby="invite-title">
                 <div className="invite-hero-text">
                   <h1 id="invite-title" className="invite-hero-title">{t('invite.title')}</h1>
@@ -239,7 +240,7 @@ export default function InvitePage() {
                   </section>
                 </>
               )}
-        </div>
+        </PageShell>
       </div>
       {/* `inviteUrl` is the same value every other share control sends, so the
           code can never encode a different link. Empty until the referral

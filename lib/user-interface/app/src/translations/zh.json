@@ -833,5 +833,8 @@
     "revoke.breadcrumb.revoke": "撤回同意",
     "invite.channel.whatsapp": "WhatsApp",
     "invite.channel.sms": "短信",
-    "invite.channel.email": "电子邮件"
+    "invite.channel.email": "电子邮件",
+    "rights.lede": "在IEP的每个阶段，您都可以向学校提出的要求。",
+    "faq.breadcrumb": "常见问题",
+    "faq.lede": "家长最常问的问题的简短回答。"
 }

@@ -1,5 +1,8 @@
 import React from 'react';
-import { Container, Row, Col, Card, Accordion} from 'react-bootstrap';
+import { Accordion } from 'react-bootstrap';
+import { useLocation } from 'react-router-dom';
+import PageShell from './page/PageShell';
+import PageHero from './page/PageHero';
 import './FrequentlyAskedQuestions.css';
 import { useLanguage } from '../common/language-context';
 
@@ -383,7 +386,8 @@ const FrequentlyAskedQuestions: React.FC = () => {
     ]
   };
 
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
+  const location = useLocation();
   
   // Use the selected language or fallback to English if the language is not supported
   const displayFaqs = faqsByLanguage[language] || faqsByLanguage['en'];
@@ -404,38 +408,29 @@ const FrequentlyAskedQuestions: React.FC = () => {
     }
   };
 
+  // In the app, FAQ is reached from Support and says so; on the public site
+  // (/faqs) it is a page of its own with no trail.
+  const inApp = location.pathname === '/frequently-asked-questions';
+
   return (
-    <>
-      <Container className="faqs-container mt-3 mb-3">
-        <Row className="mt-2">
-          <Col>
-            <Card className="faqs-card">
-              <Row className="g-0">
-                <Col md={12} className="no-padding-inherit-faq">
-                  <>
-                    <h1 className="faqs-header mt-4 px-4">{getFaqHeaderText()}</h1>
-                    <Accordion defaultActiveKey={null} className="mb-3 faqs-accordion">
-                      {displayFaqs.map((faq) => (
-                        <Accordion.Item key={faq.id} eventKey={faq.id}>
-                          <Accordion.Header>
-                            {faq.question}
-                          </Accordion.Header>
-                          <Accordion.Body>
-                            <div className="faq-content">
-                              {faq.answer}
-                            </div>
-                          </Accordion.Body>
-                        </Accordion.Item>
-                      ))}
-                    </Accordion>
-                  </>
-                </Col>
-              </Row>
-            </Card>
-          </Col>
-        </Row>
-      </Container>
-    </>
+    <PageShell
+      trail={inApp ? [
+        { labelKey: 'resources.breadcrumb.supportCenter', to: '/support-center' },
+        { labelKey: 'faq.breadcrumb' },
+      ] : undefined}
+    >
+      <PageHero titleId="faq-title" title={getFaqHeaderText()} description={t('faq.lede')} showFaces={false} />
+      <Accordion defaultActiveKey={null} className="page-accordion">
+        {displayFaqs.map((faq) => (
+          <Accordion.Item key={faq.id} eventKey={faq.id}>
+            <Accordion.Header>{faq.question}</Accordion.Header>
+            <Accordion.Body>
+              <div className="faq-content">{faq.answer}</div>
+            </Accordion.Body>
+          </Accordion.Item>
+        ))}
+      </Accordion>
+    </PageShell>
   );
 };
 

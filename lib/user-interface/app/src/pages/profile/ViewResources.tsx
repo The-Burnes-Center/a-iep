@@ -48,7 +48,8 @@ export default function ViewResources() {
       { labelKey: "resources.breadcrumb.supportCenter", to: "/support-center" },
       { labelKey: "resources.breadcrumb.resources" },
     ]}>
-      <PageHero titleId="resources-title" title={t("resources.title")} description={t("resources.description")} showFaces={false} />
+      <PageHero titleId="resources-title" title={t("resources.title")} showFaces={false} />
+      <p className="page-lede">{t("resources.description")}</p>
 
       <ul className="resource-list">
         {resources.map((resource, index) => (

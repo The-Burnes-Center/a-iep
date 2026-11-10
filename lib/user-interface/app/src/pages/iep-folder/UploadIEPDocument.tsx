@@ -356,7 +356,9 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
 
   return (
     <Container className="p-0">
-          {childName && (
+          {/* With more than one child the child bar above already names them;
+              the chip would say it twice. */}
+          {childName && !activeChild.isMultiChild && (
             <p className="upload-child-badge" data-testid="upload-child-badge">
               {/* The name alone says nothing to a screen reader. */}
               <span className="visually-hidden">{t('upload.childBadge.label')}</span>
