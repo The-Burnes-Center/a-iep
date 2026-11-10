@@ -789,7 +789,7 @@
     "myChildren.add": "Add a child",
     "myChildren.limit": "You've added the most children one account can hold.",
     "addChild.title": "Add a child",
-    "addChild.description": "Use your child's full name as it is written on their IEP. We take it out before your summary is written, then use what you enter here to put it back, so you can see which summary belongs to which child.",
+    "addChild.description": "Use the name as it is written on the IEP. We remove every name from the IEP before our AI writes your summary. Afterwards, we put back only your child's name, the way you type it here.",
     "addChild.name.label": "Your child's full name",
     "addChild.school.label": "School district (optional)",
     "addChild.button": "Add child",

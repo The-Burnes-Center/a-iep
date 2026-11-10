@@ -789,7 +789,7 @@
     "myChildren.add": "添加孩子",
     "myChildren.limit": "您添加的孩子已达到一个账号的上限。",
     "addChild.title": "添加孩子",
-    "addChild.description": "请使用孩子IEP上所写的全名。我们会在撰写摘要前删除姓名，然后用您在此输入的姓名把它放回去，让您知道哪份摘要属于哪个孩子。",
+    "addChild.description": "请按IEP上的写法填写姓名。在我们的人工智能撰写摘要之前，我们会删除IEP中的所有姓名。之后，我们只会按您在此填写的方式放回您孩子的姓名。",
     "addChild.name.label": "孩子的全名",
     "addChild.school.label": "学区（选填）",
     "addChild.button": "添加",
