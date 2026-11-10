@@ -12,6 +12,7 @@ import AIEPSpinner from "./AIEPSpinner";
 import AppRoutes from "./AppRoutes";
 import AppErrorBoundary from "./ErrorBoundary";
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useClearCacheOnSignOut } from "../common/hooks/use-clear-cache-on-sign-out";
 
 // Amplify v6 expects Auth.Cognito.*, while the CDK still publishes the v5-flat
 // aws-exports.json shape (Auth.region / userPoolWebClientId / oauth.scope, with
@@ -75,6 +76,12 @@ const queryClient = new QueryClient({
       },
     },
   }); 
+
+/** Renders nothing; it needs both AuthProvider and QueryClientProvider above it. */
+function ClearCacheOnSignOut() {
+  useClearCacheOnSignOut();
+  return null;
+}
 
 export default function AppConfigured() {
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -153,6 +160,7 @@ export default function AppConfigured() {
       <LanguageProvider>
         <AuthProvider>
           <QueryClientProvider client={queryClient}>
+            <ClearCacheOnSignOut />
             <BrowserRouter>
               {/* Inside the router so a route change clears the fallback,
                   and inside LanguageProvider so it can be translated. */}
