@@ -22,6 +22,9 @@ import ChildrenHero from './ChildrenHero';
 import { ChildDocumentState, MAX_CHILDREN, childDocumentState } from './my-children-status';
 import './MyChildren.css';
 
+/** How often a child whose IEP is being read is checked again. */
+const READING_POLL_MS = 10_000;
+
 /** Each document state as one of the shared status tones (words + icon). */
 const STATUS_TONE: Record<ChildDocumentState, StatusTone> = {
   ready: 'ready',
@@ -55,12 +58,21 @@ const MyChildren: React.FC = () => {
   const [announcement, setAnnouncement] = useState('');
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
 
+  // From the server on every visit, and again every few seconds while an IEP
+  // is still being read. The app-wide cache keeps data for five minutes, and
+  // another screen (the survey) fills this same key while the IEP is read, so
+  // a cached "reading" stayed on screen long after the summary was ready.
   const documentQueries = useQueries({
     queries: children.map((child) => ({
       queryKey: ['child-document', child.childId],
       queryFn: () => new IEPDocumentClient(appContext).getMostRecentDocumentWithSummary(child.childId),
       enabled: Boolean(child.childId),
       retry: false,
+      staleTime: 0,
+      refetchInterval: (query: { state: { data?: unknown } }) =>
+        childDocumentState(query.state.data as Parameters<typeof childDocumentState>[0], false) === 'reading'
+          ? READING_POLL_MS
+          : false,
     })),
   });
 
