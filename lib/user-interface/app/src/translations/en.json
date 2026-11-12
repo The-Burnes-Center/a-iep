@@ -6,7 +6,7 @@
     "consent.tooltip": "Please check the box to continue",
     "consent.error.saveFailedRetry": "Failed to save consent. Please try again.",
     "child.title": "About Your Child",
-    "child.heading": "What is the name of your child?",
+    "child.heading": "About your child",
     "child.description": "We remove your child's name before any AI reads the document, then use the name you enter here to add it back to the summary.",
     "child.name.label": "Name",
     "child.name.placeholder": "Name of your child with an IEP",

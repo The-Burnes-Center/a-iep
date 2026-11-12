@@ -1,14 +1,14 @@
 /**
  * The student-name step, rebuilt to the designer's screen.
  *
- * It asks one question ("What is the name of your child?"), takes one answer,
+ * It asks about the child ("About your child"): the name and the district,
  * and is the gate every family passes through once studentNameGate is on, so
  * these cover the three things that can break a parent's onboarding:
  *
- *  - the screen itself: one field, no School District, the line that explains
- *    why the name is asked for at all;
+ *  - the screen itself: the shared child fields (ChildDetailsFields), the
+ *    full name and the optional district;
  *  - the contract underneath it: addChild still 400s without a schoolCity, so
- *    dropping the input must not drop the value;
+ *    a blank district must still send a value;
  *  - where a save sends them, which is a three-way branch nothing else covers.
  *
  * The real component is driven through the DOM with the real router, mocking
@@ -733,7 +733,7 @@ describe("the copy this screen depends on", () => {
   });
 
   test("asks the question and labels the button the way the design does", () => {
-    expect(enDict["child.heading"]).toBe("What is the name of your child?");
+    expect(enDict["child.heading"]).toBe("About your child");
     expect(enDict["child.button.save"]).toBe("Continue");
   });
 });

@@ -6,7 +6,7 @@
     "consent.tooltip": "Por favor marque la casilla para continuar",
     "consent.error.saveFailedRetry": "Error al guardar el consentimiento. Por favor, inténtelo de nuevo.",
     "child.title": "Sobre su hijo/a",
-    "child.heading": "¿Cuál es el nombre de su hijo/a?",
+    "child.heading": "Sobre su hijo/a",
     "child.description": "Quitamos el nombre de su hijo/a del documento antes de que cualquier IA lo lea, y usamos el nombre que ingrese aquí para agregarlo de nuevo al resumen.",
     "child.name.label": "Nombre",
     "child.name.placeholder": "Nombre de su hijo/a con un IEP",

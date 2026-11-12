@@ -6,7 +6,7 @@
     "consent.tooltip": "请勾选此框继续",
     "consent.error.saveFailedRetry": "保存同意失败。请重试。",
     "child.title": "关于您的孩子",
-    "child.heading": "您孩子的姓名是什么？",
+    "child.heading": "关于您的孩子",
     "child.description": "在任何AI读取文档之前，我们会先删除您孩子的姓名，然后使用您在此输入的姓名，将其重新添加到摘要中。",
     "child.name.label": "姓名",
     "child.name.placeholder": "拥有IEP的孩子的姓名",

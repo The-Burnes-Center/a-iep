@@ -6,7 +6,7 @@
     "consent.tooltip": "Vui lòng đánh dấu vào ô để tiếp tục",
     "consent.error.saveFailedRetry": "Không thể lưu sự đồng ý. Vui lòng thử lại.",
     "child.title": "Về con của bạn",
-    "child.heading": "Tên con của bạn là gì?",
+    "child.heading": "Về con của bạn",
     "child.description": "Chúng tôi xóa tên con bạn khỏi tài liệu trước khi AI đọc, sau đó dùng tên bạn nhập ở đây để thêm lại vào bản tóm tắt.",
     "child.name.label": "Tên",
     "child.name.placeholder": "Tên con của bạn có IEP",
