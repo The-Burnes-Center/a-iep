@@ -19,29 +19,12 @@ interface DefaultSlide extends SlideData {
  * component with no slides of its own.
  *
  * The keys are the same ones the processing screen builds its deck from, so a
- * parent reads the same words in the same language on both screens. The two
- * privacy slides run in the opposite order to the dictionary's numbering: this
- * route opens on "your data is safe", which is `privacy.slide2`.
+ * parent reads the same words in the same language on both screens: the six
+ * rights. The two "What A-IEP does" privacy slides were dropped from both
+ * decks (2026-11-12); one said A-IEP stores no personal details, which is not
+ * true (it stores the summary and the child's name).
  */
 const DEFAULT_DECK: DefaultSlide[] = [
-      {
-        id: 'slide-1',
-        type: 'privacy',
-        titleKey: 'privacy.slide2.title',
-        contentKey: 'privacy.slide2.content',
-        title: 'Your data is safe',
-        content: "We're removing your personal information from the summaries. We will not store any of your or your child's personal details.",
-        image: '/images/carousel/surprised.png'
-      },
-      {
-        id: 'slide-2',
-        type: 'privacy',
-        titleKey: 'privacy.slide1.title',
-        contentKey: 'privacy.slide1.content',
-        title: "Your IEP won't be changed",
-        content: "We're creating a separate document with your summary. You can download it by clicking on the button.",
-        image: '/images/carousel/blissful.png'
-      },
       {
         id: 'slide-3',
         type: 'rights',

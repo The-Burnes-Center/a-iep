@@ -56,9 +56,8 @@ const ONBOARDING_LANDING = "you are on the preferred-language step";
  * slides, then the six rights. No dividers (the slides carry a section label
  * instead) and no tutorial slides (the guided tour owns those).
  */
+// The six rights. The two privacy slides that opened it were dropped.
 const EXPECTED_DECK = [
-  "privacy-slide-1",
-  "privacy-slide-2",
   "rights-slide-1",
   "rights-slide-2",
   "rights-slide-3",
@@ -246,7 +245,7 @@ describe("while the document is processing", () => {
     expect(activeSlideId()).toBe(EXPECTED_DECK[0]);
   });
 
-  test("the deck is eight slides: two privacy, then six rights", async () => {
+  test("the deck is the six rights, with no privacy slides in front", async () => {
     renderPage();
     await settle();
 
@@ -257,21 +256,22 @@ describe("while the document is processing", () => {
     }
 
     expect(visited).toEqual(EXPECTED_DECK);
-    expect(visited).toHaveLength(8);
-    expect(document.querySelectorAll(".carousel-slide")).toHaveLength(8);
+    expect(visited).toHaveLength(6);
+    expect(document.querySelectorAll(".carousel-slide")).toHaveLength(6);
+    expect(document.querySelector("[data-slide-type='privacy']")).toBeNull();
     // No divider and no tutorial slide anywhere in it.
     expect(document.querySelector("[data-slide-type='section']")).toBeNull();
     expect(document.querySelector("[data-slide-type='tutorial']")).toBeNull();
   });
 
-  test("the counter starts at 1 / 8, between the arrows, and reads as a sentence", async () => {
+  test("the counter starts at 1 / 6, between the arrows, and reads as a sentence", async () => {
     renderPage();
     await settle();
 
-    expect(screen.getByTestId("carousel-counter")).toHaveTextContent("1 / 8");
-    expect(screen.getByText("Slide 1 of 8", { selector: ".visually-hidden" })).toBeInTheDocument();
+    expect(screen.getByTestId("carousel-counter")).toHaveTextContent("1 / 6");
+    expect(screen.getByText("Slide 1 of 6", { selector: ".visually-hidden" })).toBeInTheDocument();
     clickNext();
-    expect(screen.getByTestId("carousel-counter")).toHaveTextContent("2 / 8");
+    expect(screen.getByTestId("carousel-counter")).toHaveTextContent("2 / 6");
     expect(document.querySelector(".parent-rights-dot")).toBeNull();
   });
 
@@ -281,8 +281,6 @@ describe("while the document is processing", () => {
 
     const labels = Array.from(document.querySelectorAll(".slide-eyebrow")).map((n) => n.textContent);
     expect(labels).toEqual([
-      "What AIEP does · 1 of 2",
-      "What AIEP does · 2 of 2",
       "Your Rights · 1 of 6",
       "Your Rights · 2 of 6",
       "Your Rights · 3 of 6",

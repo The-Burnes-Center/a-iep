@@ -343,22 +343,21 @@ describe("the standalone /rights-of-parents route", () => {
     const { container } = inLanguage("es", bare());
 
     const text = container.textContent ?? "";
-    // One of each kind of slide: the privacy pair and the six rights. Each is
-    // a different key namespace, and each was English before.
-    expect(text).toContain(es["privacy.slide2.content"]);
-    expect(text).toContain(es["privacy.slide1.content"]);
+    // The six rights, the first and the last, each English before.
     expect(text).toContain(es["rights.slide1.content"]);
     expect(text).toContain(es["rights.slide6.content"]);
   });
 
-  test("is the same eight slides as the processing screen: no tutorial slides", () => {
+  test("is the same six slides as the processing screen: no tutorial or privacy slides", () => {
     // The tutorial slides (rights.slide7..10) moved to the guided tour.
     const { container } = inLanguage("es", bare());
 
-    expect(container.querySelectorAll(".carousel-slide")).toHaveLength(8);
+    expect(container.querySelectorAll(".carousel-slide")).toHaveLength(6);
+    expect(container.textContent).not.toContain(es["privacy.slide1.content"]);
+    expect(container.textContent).not.toContain(es["privacy.slide2.content"]);
     expect(container.textContent).not.toContain(es["rights.slide7.content"]);
     expect(container.textContent).not.toContain(es["rights.slide10.content"]);
-    expect(screen.getByTestId("carousel-counter")).toHaveTextContent("1 / 8");
+    expect(screen.getByTestId("carousel-counter")).toHaveTextContent("1 / 6");
   });
 
   test("leaves no English and no raw translation key behind", () => {
@@ -371,15 +370,15 @@ describe("the standalone /rights-of-parents route", () => {
     // does not exist would print "rights.slide7.content" at the parent.
     expect(text).not.toMatch(/\b(rights|privacy|carousel)\.[a-zA-Z0-9.]+/);
     // The chrome this change added is translated too: no English counter label.
-    expect(text).not.toContain("Slide 1 of 8");
+    expect(text).not.toContain("Slide 1 of 6");
     expect(text).not.toContain(" of 6");
   });
 
   test("translates the header cards, the numbering and the arrows too", () => {
     inLanguage("es", bare());
 
-    // The green privacy header is what slide 1 wears.
-    expect(screen.getByText(es["rights.header.title.green"])).toBeInTheDocument();
+    // Every slide is a right now, so the deck wears the pink rights header.
+    expect(screen.getByText(es["rights.header.title.pink"])).toBeInTheDocument();
     expect(screen.getByRole("button", { name: es["common.previous"] })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: es["common.next"] })).toBeInTheDocument();
     expect(screen.getAllByTestId("rights-indicator")[0]).toHaveTextContent(

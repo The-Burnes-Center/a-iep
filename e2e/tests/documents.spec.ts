@@ -335,7 +335,9 @@ test.describe('document lifecycle (upload -> summary -> translations -> replace 
     await expect(
       page.getByTestId('carousel-counter'),
       'a replacement showed the spinner card instead of the rights carousel'
-    ).toHaveText('1 / 8');
+    // "of 6", the six rights; which slide it is on depends on how long the
+    // auto-advancing deck has been up.
+    ).toHaveText(/^\d \/ 6$/);
     // One h1 for the screen, the headline; the slides under it are h2.
     await expect(page.getByTestId(TESTID.processing).getByRole('heading', { level: 1 })).toHaveCount(1);
     await page.getByTestId('replacement-view-current').click();

@@ -219,9 +219,10 @@ const IEPSummarizationAndTranslation: React.FC = () => {
 
   // Parent Rights carousel data - internationalized using useLanguage hook.
   //
-  // Two privacy slides, then the six rights. Which section a slide belongs to
-  // is its `type`: the carousel labels each slide with it, so there are no
-  // divider slides in the deck. The tutorial slides (rights.slide7..10) are
+  // The six rights. (Two "What A-IEP does" privacy slides opened the deck
+  // until 2026-11-12; one claimed no personal details are stored, which is
+  // not true.) Which section a slide belongs to is its `type`: the carousel
+  // labels each slide with it, so there are no divider slides in the deck. The tutorial slides (rights.slide7..10) are
   // not in the deck; the guided tour on the finished summary owns them.
   // Reaching the end does NOT end the wait: the carousel wraps and keeps going
   // until the document's status says it is done.
@@ -229,20 +230,6 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     if (!translationsLoaded) return [];
 
     return [
-      {
-        id: 'privacy-slide-1',
-        type: 'privacy',
-        title: t('privacy.slide1.title'),
-        content: t('privacy.slide1.content'),
-        image: '/images/carousel/joyful.png'
-      },
-      {
-        id: 'privacy-slide-2',
-        type: 'privacy',
-        title: t('privacy.slide2.title'),
-        content: t('privacy.slide2.content'),
-        image: '/images/carousel/joyful.png'
-      },
       {
         id: 'rights-slide-1',
         type: 'rights',
