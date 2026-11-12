@@ -1,5 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { firstUploadStep } from '../../common/onboarding-next';
+import { useFeatures } from '../../common/hooks/use-features';
 import { IconFileCheck, IconHelpCircle } from '@tabler/icons-react';
 import { useLanguage } from '../../common/language-context';
 import PageShell from '../../components/page/PageShell';
@@ -20,6 +22,7 @@ import './HaveIepPdf.css';
  */
 export default function HaveIepPdf() {
   const navigate = useNavigate();
+  const { isFeatureEnabled } = useFeatures();
   const { t } = useLanguage();
 
   return (
@@ -32,7 +35,7 @@ export default function HaveIepPdf() {
           fullWidth
           className="have-pdf-choice"
           icon={<IconFileCheck size={32} stroke={1.5} />}
-          onClick={() => navigate('/iep-documents')}
+          onClick={() => navigate(firstUploadStep(isFeatureEnabled))}
           // Stable E2E hook: both labels are localized
           data-testid="have-pdf-yes"
         >

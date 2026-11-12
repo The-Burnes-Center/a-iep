@@ -13,9 +13,6 @@ import { AppContext } from '../../common/app-context';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
 import { isPlaceholderChildName } from '../../common/features';
 import { useActiveChild } from '../../common/hooks/use-active-child';
-import { useFeatures } from '../../common/hooks/use-features';
-import { ApiClient } from '../../common/api-client/api-client';
-import { isBaselineOpen } from '../survey/survey-state';
 import { fillTemplate } from '../../common/active-child';
 import { FileUploader } from '../../common/file-uploader';
 import { Utils } from '../../common/utils';
@@ -146,7 +143,6 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
   const appContext = useContext(AppContext);
   const apiClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
-  const { isFeatureEnabled } = useFeatures();
 
   // The child this upload is for (common/active-child.ts), and the name the
   // design puts in a gold chip above the heading so a parent can see which
@@ -323,20 +319,11 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
       // Call the callback function to notify parent component
       onUploadComplete();
       
-      // To the survey's invite while this child's baseline is still open (it
-      // is asked while the IEP is read); otherwise to the child's summary,
-      // whether or not they had one before. A survey that cannot be read is
-      // never a reason to hold the parent here.
-      let next = activeChild.pathFor('/summary-and-translations');
-      if (isFeatureEnabled('onboardingSurvey') && activeChild.childId) {
-        try {
-          const survey = await new ApiClient(appContext).profile.getSurvey(activeChild.childId);
-          if (isBaselineOpen(survey)) next = activeChild.pathFor('/survey');
-        } catch {
-          // The summary route is always right; the survey can be reached from it.
-        }
-      }
-      navigate(next);
+      // To this child's summary, whether or not they had one before: the
+      // processing screen and its rights carousel while it is read. The survey
+      // is asked before the upload (common/onboarding-next.ts), and one put
+      // off for later is offered on the processing screen.
+      navigate(activeChild.pathFor('/summary-and-translations'));
     }
   };
 

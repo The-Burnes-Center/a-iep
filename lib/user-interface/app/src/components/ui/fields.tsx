@@ -103,16 +103,27 @@ export interface RadiosProps {
   onChange: (value: string) => void;
   /** Options that sit apart from the scale, after a gap (a "Not sure"). */
   setApart?: string[];
-  /** 'inline' for two or three short answers (Yes / No); otherwise stacked. */
-  layout?: 'stacked' | 'inline';
+  /**
+   * 'inline' for two or three short answers (Yes / No). 'scale' for an
+   * agreement scale: the ordered answers side by side in one row, the
+   * `setApart` ones (a "Not sure") on their own row under it. Otherwise
+   * stacked.
+   */
+  layout?: 'stacked' | 'inline' | 'scale';
   className?: string;
 }
 
 /**
  * One question with one answer: a fieldset whose legend is the question and
- * whose options are full-width rows, the whole row the target. Stacked by
- * default so a long translation or a 320px phone never clips an option, which
- * the prototype's review caught on a side-by-side agreement scale.
+ * whose options are native radios, the whole label the target. Stacked by
+ * default so a long translation never clips an option.
+ *
+ * 'scale' puts an agreement scale in one row, a third of the stacked height,
+ * and is still one radio group: arrow keys, the legend and the checked state
+ * work as in any other. Not a slider: a slider has to start on some value, so
+ * an untouched one either records an answer nobody gave or cannot be told
+ * apart from one somebody did, and "Not sure" is not a point on it. Under
+ * 360px (where four labels would clip) the row stacks again, in CSS.
  */
 export const Radios: React.FC<RadiosProps> = ({
   legend, hint, name, options, value, onChange, setApart = [], layout = 'stacked', className,
@@ -120,6 +131,28 @@ export const Radios: React.FC<RadiosProps> = ({
   const generated = useId();
   const groupId = `radios-${generated}`;
   const hintId = hint ? `${groupId}-hint` : undefined;
+  const renderOption = (option: RadioOption) => {
+    const optionId = `${groupId}-${option.value}`;
+    const apart = setApart.includes(option.value);
+    return (
+      <label
+        key={option.value}
+        htmlFor={optionId}
+        className={`ui-check-row ui-radio-row${apart && layout !== 'scale' ? ' ui-radio-row--apart' : ''}`}
+      >
+        <input
+          id={optionId}
+          type="radio"
+          className="ui-check-input"
+          name={name}
+          value={option.value}
+          checked={value === option.value}
+          onChange={() => onChange(option.value)}
+        />
+        <span className="ui-check-label">{option.label}</span>
+      </label>
+    );
+  };
   return (
     <fieldset
       className={`ui-radios ui-radios--${layout}${className ? ` ${className}` : ''}`}
@@ -127,29 +160,20 @@ export const Radios: React.FC<RadiosProps> = ({
     >
       <legend className="ui-radios-legend">{legend}</legend>
       {hint && <p id={hintId} className="ui-field-hint">{hint}</p>}
-      <div className="ui-radios-options">
-        {options.map((option) => {
-          const optionId = `${groupId}-${option.value}`;
-          return (
-            <label
-              key={option.value}
-              htmlFor={optionId}
-              className={`ui-check-row ui-radio-row${setApart.includes(option.value) ? ' ui-radio-row--apart' : ''}`}
-            >
-              <input
-                id={optionId}
-                type="radio"
-                className="ui-check-input"
-                name={name}
-                value={option.value}
-                checked={value === option.value}
-                onChange={() => onChange(option.value)}
-              />
-              <span className="ui-check-label">{option.label}</span>
-            </label>
-          );
-        })}
-      </div>
+      {layout === 'scale' ? (
+        <>
+          <div className="ui-radios-options ui-radios-scale">
+            {options.filter((option) => !setApart.includes(option.value)).map(renderOption)}
+          </div>
+          {options.some((option) => setApart.includes(option.value)) && (
+            <div className="ui-radios-options ui-radios-apart">
+              {options.filter((option) => setApart.includes(option.value)).map(renderOption)}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="ui-radios-options">{options.map(renderOption)}</div>
+      )}
     </fieldset>
   );
 };

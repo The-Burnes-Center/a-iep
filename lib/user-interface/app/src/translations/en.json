@@ -963,5 +963,9 @@
     "childCount.option.1": "1 child",
     "childCount.option.2": "2 children",
     "childCount.option.3": "3 children",
-    "childCount.option.4": "4 or more"
+    "childCount.option.4": "4 or more",
+    "carousel.pause": "Pause the slides",
+    "carousel.play": "Play the slides",
+    "survey.invite.uploadNext": "After this, you'll upload {name}'s IEP",
+    "survey.thanks.upload": "Upload {name}'s IEP"
 }

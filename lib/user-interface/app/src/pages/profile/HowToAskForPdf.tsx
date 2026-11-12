@@ -1,5 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { firstUploadStep } from '../../common/onboarding-next';
+import { useFeatures } from '../../common/hooks/use-features';
 import { IconPlayerPlay } from '@tabler/icons-react';
 import { useLanguage } from '../../common/language-context';
 import { STEP } from '../../common/breadcrumb-steps';
@@ -22,6 +24,7 @@ const HOW_TO_ASK_VIDEO: string | null = null;
 
 export default function HowToAskForPdf() {
   const navigate = useNavigate();
+  const { isFeatureEnabled } = useFeatures();
   const { t } = useLanguage();
 
   return (
@@ -50,7 +53,7 @@ export default function HowToAskForPdf() {
         <Button
           variant="primary"
           fullWidth
-          onClick={() => navigate('/iep-documents')}
+          onClick={() => navigate(firstUploadStep(isFeatureEnabled))}
           // Stable E2E hook: the label is localized
           data-testid="how-to-ask-upload"
         >

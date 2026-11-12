@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { firstUploadStep } from '../../common/onboarding-next';
 import { useLanguage } from '../../common/language-context';
 import { useFeatures } from '../../common/hooks/use-features';
 import { STEP } from '../../common/breadcrumb-steps';
@@ -24,7 +25,6 @@ const PRIVACY_SCREEN_ROUTE = '/how-we-protect-your-privacy';
  * not the page.
  */
 const NEXT_WITH_PDF_HELP = '/do-you-have-pdf';
-const NEXT_WITHOUT_PDF_HELP = '/iep-documents';
 
 /** The three things the tool does, in the order a parent does them. */
 const STEP_KEYS = ['howToUse.step1', 'howToUse.step2', 'howToUse.step3'];
@@ -63,7 +63,7 @@ export default function HowToUseTool() {
           variant="primary"
           fullWidth
           onClick={() => navigate(
-            isFeatureEnabled('pdfHelpScreens') ? NEXT_WITH_PDF_HELP : NEXT_WITHOUT_PDF_HELP)}
+            isFeatureEnabled('pdfHelpScreens') ? NEXT_WITH_PDF_HELP : firstUploadStep(isFeatureEnabled))}
           // Stable E2E hook: the label is localized
           data-testid="how-to-use-continue"
         >

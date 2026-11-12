@@ -1,5 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { firstUploadStep } from '../../common/onboarding-next';
+import { useFeatures } from '../../common/hooks/use-features';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faLock, faTrashCan, faArrowDownLong } from '@fortawesome/free-solid-svg-icons';
 import { useLanguage } from '../../common/language-context';
@@ -189,6 +191,7 @@ function Step({ number, figure, sentence }: StepProps) {
 
 export default function HowWeProtectYourPrivacy() {
   const navigate = useNavigate();
+  const { isFeatureEnabled } = useFeatures();
   const { t } = useLanguage();
 
   return (
@@ -320,7 +323,7 @@ export default function HowWeProtectYourPrivacy() {
           <Button
             variant="primary"
             fullWidth
-            onClick={() => navigate('/iep-documents')}
+            onClick={() => navigate(firstUploadStep(isFeatureEnabled))}
             // Stable E2E hook: the label is localized
             data-testid="privacy-upload"
           >

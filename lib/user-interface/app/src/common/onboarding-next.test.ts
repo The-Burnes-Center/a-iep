@@ -9,7 +9,7 @@ import { describe, expect, test } from 'vitest';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { afterChildCount, afterConsent } from './onboarding-next';
+import { afterChildCount, afterConsent, firstUploadStep } from './onboarding-next';
 import { ALL_FEATURES, Feature } from './features';
 
 const walker = readFileSync(
@@ -32,6 +32,9 @@ describe('the E2E walker knows every screen onboarding routes to', () => {
       const isOn = (feature: Feature) => flags.includes(feature);
       destinations.add(afterConsent(profile, isOn).path);
       destinations.add(afterChildCount(profile, isOn).path);
+      // Where the end of onboarding goes: the survey's invite, or the upload.
+      const upload = firstUploadStep(isOn);
+      if (upload !== '/iep-documents') destinations.add(upload);
     }
   }
 

@@ -398,6 +398,23 @@ export async function completeOnboardingIfShown(page: Page): Promise<string> {
           await page.waitForURL((url) => url.pathname !== '/your-children', { timeout: 30_000 });
           continue;
         }
+      } else if (path === '/survey') {
+        // onboardingSurvey asks the survey before the first upload. "Remind
+        // me later" rather than "No thanks": it leaves the invite open, so
+        // survey.spec.ts can still walk the whole survey after signing up,
+        // and every other journey goes straight on to the upload.
+        const later = page.getByTestId('survey-remind');
+        const upload = page.getByTestId('survey-upload');
+        if (await later.isVisible()) {
+          await later.click();
+          await page.waitForURL((url) => url.pathname !== '/survey', { timeout: 30_000 });
+          continue;
+        }
+        if (await upload.isVisible()) {
+          await upload.click();
+          await page.waitForURL((url) => url.pathname !== '/survey', { timeout: 30_000 });
+          continue;
+        }
       } else if (path === '/view-update-add-child') {
         // The student-name step (ViewAndAddChild), which both onboarding
         // routes into ahead of the parent-name step when studentNameGate is

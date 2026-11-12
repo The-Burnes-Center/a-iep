@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Carousel } from 'react-bootstrap';
+import { IconPlayerPauseFilled, IconPlayerPlayFilled } from '@tabler/icons-react';
 import { useLanguage } from '../common/language-context';
 import './ParentRightsCarousel.css';
 
@@ -168,6 +169,18 @@ const DEFAULT_PREVIOUS_LABEL = 'Previous';
 
 const DEFAULT_NEXT_LABEL = 'Next';
 
+const DEFAULT_PAUSE_LABEL = 'Pause the slides';
+
+const DEFAULT_PLAY_LABEL = 'Play the slides';
+
+const prefersReducedMotion = (): boolean => {
+  try {
+    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Templates for the same reason the rights indicator is one: word order, and
  * the separators each language uses. They are read from the dictionary by the
@@ -226,6 +239,15 @@ export interface ParentRightsCarouselProps {
    */
   loop?: boolean;
   rightsIndicatorTemplate?: string;
+  /**
+   * Move to the next slide on its own after this many milliseconds. Off when
+   * omitted. Meets WCAG 2.2.2 (pause, stop, hide): there is a Pause button,
+   * it holds while the pointer or keyboard focus is in the deck, it is off
+   * for a parent who asked their device for reduced motion, and the "slide N
+   * of M" announcement is silent while it moves on its own, so a screen
+   * reader is not interrupted every few seconds.
+   */
+  autoAdvanceMs?: number;
 }
 
 const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
@@ -235,10 +257,25 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
   headerGreenTitle,
   loop = true,
   rightsIndicatorTemplate,
+  autoAdvanceMs,
 }) => {
 
   const { t } = useLanguage();
   const [activeIndex, setActiveIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [interacting, setInteracting] = useState(false);
+  const [reducedMotion] = useState(prefersReducedMotion);
+  const canAutoAdvance = Boolean(autoAdvanceMs) && !reducedMotion;
+  const deckLength = (slidesProp ?? []).length;
+  const autoAdvancing = canAutoAdvance && !paused && !interacting && (slidesProp === undefined || deckLength > 1);
+
+  // One timer per slide: any move, by the parent or by the timer, restarts
+  // the count, so a slide the parent just chose gets its full time.
+  useEffect(() => {
+    if (!autoAdvancing) return undefined;
+    const timer = setTimeout(() => setActiveIndex((index) => index + 1), autoAdvanceMs);
+    return () => clearTimeout(timer);
+  }, [autoAdvancing, activeIndex, autoAdvanceMs]);
 
   useEffect(() => {
     for (const url of CARD_PATTERN_URLS) {
@@ -334,6 +371,15 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
     );
   };
 
+  const holdWhile = {
+    onMouseEnter: () => setInteracting(true),
+    onMouseLeave: () => setInteracting(false),
+    onFocus: () => setInteracting(true),
+    onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setInteracting(false);
+    },
+  };
+
   return (
     // A named region, so a screen reader can find the deck and says what it is.
     <div
@@ -341,6 +387,7 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
       role="region"
       aria-roledescription="carousel"
       aria-label={carouselLabel}
+      {...(canAutoAdvance ? holdWhile : {})}
     >
 
       {renderHeaderCard()}
@@ -349,7 +396,7 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
           plain text region that nothing focuses: pressing an arrow keeps the
           parent's place on the arrow. Always mounted, so the first change is
           spoken. */}
-      <div aria-live="polite" aria-atomic="true" className="visually-hidden">
+      <div aria-live={autoAdvancing ? 'off' : 'polite'} aria-atomic="true" className="visually-hidden">
         {fillTemplate(announceTemplate, { ...position, title: currentSlide.title })}
       </div>
 
@@ -416,6 +463,22 @@ const ParentRightsCarousel: React.FC<ParentRightsCarouselProps> = ({
             </span>
             <span className="visually-hidden">{counterLabel(currentIndex)}</span>
           </div>
+
+          {canAutoAdvance && (
+            <button
+              type="button"
+              onClick={() => setPaused((value) => !value)}
+              className="carousel-nav-button carousel-pause-button"
+              aria-label={paused
+                ? translated('carousel.play', DEFAULT_PLAY_LABEL)
+                : translated('carousel.pause', DEFAULT_PAUSE_LABEL)}
+              data-testid="carousel-pause"
+            >
+              {paused
+                ? <IconPlayerPlayFilled size={18} aria-hidden="true" />
+                : <IconPlayerPauseFilled size={18} aria-hidden="true" />}
+            </button>
+          )}
 
           <button
             type="button"

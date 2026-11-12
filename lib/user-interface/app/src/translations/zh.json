@@ -963,5 +963,9 @@
     "childCount.option.1": "1个孩子",
     "childCount.option.2": "2个孩子",
     "childCount.option.3": "3个孩子",
-    "childCount.option.4": "4个或更多"
+    "childCount.option.4": "4个或更多",
+    "carousel.pause": "暂停幻灯片",
+    "carousel.play": "播放幻灯片",
+    "survey.invite.uploadNext": "之后，您将上传{name}的IEP",
+    "survey.thanks.upload": "上传{name}的IEP"
 }

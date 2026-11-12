@@ -963,5 +963,9 @@
     "childCount.option.1": "طفل واحد",
     "childCount.option.2": "طفلان",
     "childCount.option.3": "3 أطفال",
-    "childCount.option.4": "4 أطفال أو أكثر"
+    "childCount.option.4": "4 أطفال أو أكثر",
+    "carousel.pause": "إيقاف الشرائح مؤقتًا",
+    "carousel.play": "تشغيل الشرائح",
+    "survey.invite.uploadNext": "بعد ذلك، سترفع خطة IEP الخاصة بـ {name}",
+    "survey.thanks.upload": "ارفع خطة IEP الخاصة بـ {name}"
 }

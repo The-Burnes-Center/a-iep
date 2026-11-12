@@ -62,7 +62,16 @@ const SurveyPage: React.FC = () => {
   }
 
   const name = isPlaceholderChildName(child?.name) ? t('survey.yourChild') : (child?.name as string);
-  return <SurveyFlow key={childId} childId={childId} name={name} survey={surveyQuery.data} summaryPath={pathFor('/summary-and-translations')} />;
+  return (
+    <SurveyFlow
+      key={childId}
+      childId={childId}
+      name={name}
+      survey={surveyQuery.data}
+      summaryPath={pathFor('/summary-and-translations')}
+      uploadPath={pathFor('/iep-documents')}
+    />
+  );
 };
 
 interface FlowProps {
@@ -70,9 +79,10 @@ interface FlowProps {
   name: string;
   survey: ChildSurvey;
   summaryPath: string;
+  uploadPath: string;
 }
 
-const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath }) => {
+const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath, uploadPath }) => {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const appContext = useContext(AppContext);
@@ -137,6 +147,11 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
   // questions for good. So while the summary is ready there is no "later":
   // the parent answers now or says no, and "No thanks" opens the summary.
   const canLeaveForLater = documentState !== 'ready';
+  // The survey comes before the upload, so with no IEP yet every way out of it
+  // goes on to the upload. Otherwise to the child's summary, which itself
+  // sends a child with no document to the upload.
+  const noIepYet = documentQuery.isSuccess && documentState === 'none';
+  const nextPath = noIepYet ? uploadPath : summaryPath;
 
   const leaveForNow = async (status: 'remind' | 'declined') => {
     // A reminder keeps what was answered and the consent given; "No thanks"
@@ -144,7 +159,7 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
     const save: SurveySave = status === 'declined'
       ? { phase: 'before', status, researchConsent: false }
       : baseline('remind');
-    if (await persist(save)) navigate(summaryPath);
+    if (await persist(save)) navigate(nextPath);
   };
 
   const next = async (part: BaselinePart) => {
@@ -186,7 +201,7 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
   };
 
   const later = async (part: BaselinePart) => {
-    if (await persist(baseline('started', part))) navigate(summaryPath);
+    if (await persist(baseline('started', part))) navigate(nextPath);
   };
 
   const setAnswer = (key: string, value: string | string[]) => setAnswers((old) => ({ ...old, [key]: value }));
@@ -213,7 +228,7 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
         {step === 'thanks' && (survey.iepChildCount ?? 1) > 1 && (
           <p className="survey-lede">{t('survey.thanks.nextChild')}</p>
         )}
-        <FinishAction state={documentState} name={name} summaryPath={summaryPath} />
+        <FinishAction state={documentState} name={name} summaryPath={summaryPath} uploadPath={noIepYet ? uploadPath : undefined} />
       </SurveyShell>
     );
   }
@@ -232,6 +247,7 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath })
           <li>{t('survey.invite.skip')}</li>
           <li>{t('survey.invite.private')}</li>
           {reading && <li>{fill('survey.invite.summaryWaits')}</li>}
+          {noIepYet && <li>{fill('survey.invite.uploadNext')}</li>}
         </ul>
         <ResearchChoice name="research-before" value={consent} onChange={setConsent} />
         {saveError}
@@ -345,9 +361,14 @@ const DocumentBanner: React.FC<{ state: ChildDocumentState; name: string; progre
 };
 
 /** Where the thank-you sends the parent, by what their IEP is doing now. */
-const FinishAction: React.FC<{ state: ChildDocumentState; name: string; summaryPath: string }> = ({ state, name, summaryPath }) => {
+const FinishAction: React.FC<{ state: ChildDocumentState; name: string; summaryPath: string; uploadPath?: string }> = ({
+  state, name, summaryPath, uploadPath,
+}) => {
   const { t } = useLanguage();
   const fill = (key: string) => fillName(t(key), name);
+  if (uploadPath) {
+    return <Button to={uploadPath} fullWidth data-testid="survey-upload">{fill('survey.thanks.upload')}</Button>;
+  }
   if (state === 'ready') {
     return <Button to={summaryPath} fullWidth data-testid="survey-see-summary">{fill('survey.thanks.seeSummary')}</Button>;
   }

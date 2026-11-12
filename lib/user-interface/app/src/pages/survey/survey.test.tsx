@@ -351,9 +351,9 @@ describe("the baseline survey", () => {
   });
 });
 
-describe("after an upload", () => {
-  const upload = async (features = ["onboardingSurvey"]) => {
-    renderAt("/iep-documents", <UploadIEPDocument onUploadComplete={vi.fn()} hasExistingDocument={false} />, { features });
+describe("before the upload", () => {
+  const upload = async () => {
+    renderAt("/iep-documents", <UploadIEPDocument onUploadComplete={vi.fn()} hasExistingDocument={false} />);
     await settle();
     fireEvent.change(document.getElementById("fileUpload")!, {
       target: { files: [new File(["hello"], "iep.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })] },
@@ -362,27 +362,28 @@ describe("after an upload", () => {
     await click("upload-submit-button");
   };
 
-  test("an open baseline sends the parent to the survey's invite", async () => {
+  test("an upload goes straight to the summary's processing screen; the survey came first", async () => {
     await upload();
-    expect(where()).toBe("/survey");
-  });
-
-  test("a closed baseline, or a survey that cannot be read, goes straight to the summary", async () => {
-    server.summaryFirstViewedAt = 3;
-    await upload();
-    expect(where()).toBe("/summary-and-translations");
-  });
-
-  test("a survey that cannot be read never holds the parent at the upload", async () => {
-    surveyGetFails = true;
-    await upload();
-    expect(where()).toBe("/summary-and-translations");
-  });
-
-  test("with the feature off, nothing about the survey is asked", async () => {
-    await upload([]);
     expect(where()).toBe("/summary-and-translations");
     expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/survey"))).toBe(false);
+  });
+
+  test("with no IEP yet, the invite says the upload comes next, and every way out leads to it", async () => {
+    documentAnswer = { message: "No document found for this child" };
+    const invite = renderAt("/survey", <SurveyPage />);
+    await settle();
+    expect(screen.getByText("survey.invite.uploadNext")).toBeTruthy();
+    await click("survey-decline");
+    expect(where()).toBe("/iep-documents");
+    invite.unmount();
+
+    server.household = record("done", "you");
+    server.before = record("started", "reflect", { u1: "agree" });
+    renderAt("/survey", <SurveyPage />);
+    await settle();
+    await click("survey-next");
+    expect(title()).toBe("survey.thanks.title");
+    expect(screen.getByTestId("survey-upload")).toHaveAttribute("href", "/iep-documents");
   });
 });
 

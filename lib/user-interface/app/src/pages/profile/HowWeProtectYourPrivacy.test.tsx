@@ -22,6 +22,8 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import HowWeProtectYourPrivacy from "./HowWeProtectYourPrivacy";
 import HowToUseTool from "./HowToUseTool";
+import { AppContext } from "../../common/app-context";
+import type { AppConfig } from "../../common/types";
 import { LanguageContext } from "../../common/language-context";
 import { ALL_LANGUAGES } from "../../common/languages";
 import type { SupportedLanguage } from "../../common/languages";
@@ -73,9 +75,11 @@ const contentLists = () =>
 const contentListItems = () =>
   contentLists().flatMap((list) => within(list).getAllByRole("listitem"));
 
-const renderScreen = (lang: SupportedLanguage = "en", start: string = ROUTE) => {
+const renderScreen = (lang: SupportedLanguage = "en", start: string = ROUTE, enabledFeatures?: string[]) => {
   const dictionary = DICTIONARIES[lang];
+  const appConfig = (enabledFeatures ? { enabledFeatures } : {}) as unknown as AppConfig;
   render(
+    <AppContext.Provider value={appConfig}>
     <MemoryRouter initialEntries={[start]}>
       <LanguageContext.Provider
         value={{
@@ -91,10 +95,12 @@ const renderScreen = (lang: SupportedLanguage = "en", start: string = ROUTE) => 
           <Route path={ROUTE} element={<HowWeProtectYourPrivacy />} />
           <Route path="/how-to-use-the-tool" element={<HowToUseTool />} />
           <Route path="/iep-documents" element={<div>upload</div>} />
+          <Route path="/survey" element={<div>survey</div>} />
           <Route path="/view-resources" element={<div>resources</div>} />
         </Routes>
       </LanguageContext.Provider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </AppContext.Provider>,
   );
 
   return userEvent.setup();
@@ -227,11 +233,15 @@ describe("How we protect your privacy", () => {
     expect(document.querySelector(".privacy-arrow")).toHaveAttribute("aria-hidden", "true");
   });
 
-  test("Go to document upload goes to the upload", async () => {
-    const user = renderScreen();
+  test("Go to document upload goes to the upload, by way of the survey where that is on", async () => {
+    const withSurvey = renderScreen();
+    await withSurvey.click(screen.getByTestId("privacy-upload"));
+    expect(landedOn()).toBe("/survey");
+  });
 
+  test("Go to document upload goes straight to the upload where the survey is off (production)", async () => {
+    const user = renderScreen("en", ROUTE, []);
     await user.click(screen.getByTestId("privacy-upload"));
-
     expect(landedOn()).toBe("/iep-documents");
   });
 

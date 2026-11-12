@@ -51,7 +51,16 @@ test('a parent adds a second child and every screen about them says whose IEP it
   await page.getByTestId('add-child-name').fill(SECOND_CHILD);
   await page.getByTestId('add-child-save').click();
 
-  // ---- Straight to uploading the NEW child's IEP --------------------------
+  // ---- On to the NEW child's IEP -------------------------------------------
+  // With onboardingSurvey on, that child's survey invite comes first (it is
+  // asked before the upload); "Remind me later" goes on to their upload.
+  await page.waitForURL(
+    (url) => ['/survey', '/iep-documents'].includes(url.pathname) && url.searchParams.has('child'),
+    { timeout: 30_000 },
+  );
+  if (new URL(page.url()).pathname === '/survey') {
+    await page.getByTestId('survey-remind').click();
+  }
   await page.waitForURL((url) => url.pathname === '/iep-documents' && url.searchParams.has('child'), { timeout: 30_000 });
   const secondChildId = new URL(page.url()).searchParams.get('child');
   expect(secondChildId).toBeTruthy();

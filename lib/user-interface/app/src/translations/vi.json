@@ -963,5 +963,9 @@
     "childCount.option.1": "1 con",
     "childCount.option.2": "2 con",
     "childCount.option.3": "3 con",
-    "childCount.option.4": "4 con trở lên"
+    "childCount.option.4": "4 con trở lên",
+    "carousel.pause": "Tạm dừng trình chiếu",
+    "carousel.play": "Tiếp tục trình chiếu",
+    "survey.invite.uploadNext": "Sau đó, bạn sẽ tải lên IEP của {name}",
+    "survey.thanks.upload": "Tải lên IEP của {name}"
 }

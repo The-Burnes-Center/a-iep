@@ -71,6 +71,7 @@ export const Statements: React.FC<StatementsProps> = ({ keys, name, answers, onA
           hint={HELP_KEYS.includes(key) ? t(`survey.q.${key}.help`) : undefined}
           options={options}
           setApart={['unsure']}
+          layout="scale"
           value={answers[key] as string | undefined}
           onChange={(value) => onAnswer(key, value)}
           className="survey-question"

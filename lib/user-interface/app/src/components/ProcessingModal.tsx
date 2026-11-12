@@ -8,6 +8,9 @@ import PollingStalledNotice from './PollingStalledNotice';
 import ProcessingStatusBar from './ProcessingStatusBar';
 import './ProcessingModal.css';
 
+/** How long each rights slide stays up before the next: long enough to read one. */
+const RIGHTS_SLIDE_MS = 8000;
+
 interface ProcessingModalProps {
   error: string | null;
   /**
@@ -170,6 +173,7 @@ const ProcessingModal: React.FC<ProcessingModalProps> = ({
                     does inside the carousel ends the wait — the document's
                     status does, by unmounting this whole screen. */}
                 <ParentRightsCarousel
+                  autoAdvanceMs={RIGHTS_SLIDE_MS}
                   slides={parentRightsSlideData}
                   headerPinkTitle={headerPinkTitle}
                   headerGreenTitle={headerGreenTitle}

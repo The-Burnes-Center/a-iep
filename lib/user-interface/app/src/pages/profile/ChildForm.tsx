@@ -11,6 +11,7 @@ import { ChildNameError, normalizeChildName, validateChildName } from '../../com
 import { CHILD_QUERY_PARAM, fillTemplate, pathForChild } from '../../common/active-child';
 import { isPlaceholderChildName } from '../../common/features';
 import { STEP } from '../../common/breadcrumb-steps';
+import { firstUploadStep } from '../../common/onboarding-next';
 import PageShell from '../../components/page/PageShell';
 import Button from '../../components/ui/Button';
 import { Notice } from '../../components/ui/feedback';
@@ -92,7 +93,7 @@ const ChildForm: React.FC<ChildFormProps> = ({ mode }) => {
         await queryClient.invalidateQueries({ queryKey: PROFILE_QUERY_KEY });
         // Adding a child always makes a family of two or more, so the upload
         // screen gets the child in its URL.
-        navigate(pathForChild('/iep-documents', added.childId, true));
+        navigate(pathForChild(firstUploadStep(isFeatureEnabled), added.childId, true));
       }
     } catch {
       // The cause is in the API's log; the parent gets what to do next.
