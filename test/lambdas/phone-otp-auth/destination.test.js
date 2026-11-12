@@ -37,6 +37,7 @@ describe('phoneNumberProblem: the NANP rule for +1 numbers', () => {
         ['the production smoke user', '+15555550102'],
         ['the smoke test unknown-number probe', '+15555550123'],
         ['the delete/re-signup pool', '+15555550129'],
+        ['the login-language journey', '+15555550130'],
         // N11 is only refused as an AREA code, where it is a service code.
         ['an exchange of 411', '+16174111234'],
     ])('%s is a number (%s)', (_label, value) => {

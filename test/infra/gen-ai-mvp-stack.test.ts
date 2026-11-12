@@ -1374,6 +1374,9 @@ describe('Cognito custom-auth wiring', () => {
     // silently turns that journey's OTP into a real (undeliverable) SMS.
     expect(numbers).toEqual(expect.arrayContaining([
       '+15555550111', '+15555550112', '+15555550113', '+15555550114',
+      // language.spec.ts's own number (it shared 0111 with login.spec.ts and
+      // read the other journey's code when the two ran together).
+      '+15555550130',
     ]));
   });
 

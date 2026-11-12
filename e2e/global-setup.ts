@@ -30,6 +30,7 @@ import {
   DOCUMENTS_USER,
   PASSWORDLESS_LOCKOUT_USER,
   PASSWORDLESS_WRONG_CODE_USER,
+  LANGUAGE_USER,
 } from './helpers/phones';
 
 async function resolveStackOutputs(): Promise<{ siteUrl: string; userPoolId: string }> {
@@ -115,6 +116,7 @@ export default async function globalSetup(): Promise<void> {
   await ensureTestUser(LOCKOUT_USER);
   await ensureTestUser(PROFILE_USER);
   await ensureTestUser(DOCUMENTS_USER);
+  await ensureTestUser(LANGUAGE_USER);
   console.log('[e2e setup] persistent test users ensured');
 
   // The lockout journeys submit wrong codes on purpose, and /auth/verify

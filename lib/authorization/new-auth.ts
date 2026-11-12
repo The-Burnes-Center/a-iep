@@ -77,7 +77,11 @@ const TURNSTILE_HOSTNAME_ENV: Record<string, string> = getEnvironment() === 'pro
 //
 // Allowlist roles: 0111 = stable E2E login user, 0112 = lockout-journey user,
 // 0113 = profile-journey user, 0114 = documents-journey user,
-// 0120-0129 = throwaway pool for the delete/re-signup journey.
+// 0120-0129 = throwaway pool for the delete/re-signup journey,
+// 0130 = the login-language journey (language.spec.ts), its own number so its
+// OTP is never read off a sign-in another journey is running at the same time.
+// Every number must stay inside 555-0100..0199: create-auth-challenge and
+// destination.js re-check that block whatever this list says.
 const TEST_PHONE_NUMBERS = [
   '+15555550111',
   '+15555550112',
@@ -88,6 +92,7 @@ const TEST_PHONE_NUMBERS = [
   // keeping it out of the allowlist removes the foot-gun entirely).
   '+15555550120', '+15555550121', '+15555550122', '+15555550124',
   '+15555550125', '+15555550126', '+15555550127', '+15555550128', '+15555550129',
+  '+15555550130',
 ];
 
 // The email half of the same allowlist, for the /auth/start and /auth/verify

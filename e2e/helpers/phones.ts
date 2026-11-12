@@ -130,3 +130,14 @@ export const MULTI_CHILD_USER = '+15555550128';
  * new-auth.ts's TEST_PHONE_NUMBERS and was unclaimed.
  */
 export const SURVEY_USER = '+15555550129';
+
+/**
+ * The login-language journey's own number (language.spec.ts). It signed in as
+ * STABLE_USER, which login.spec.ts signs in as too; when the two ran at the
+ * same moment the language check read the other journey's OTP, saw no
+ * language, and failed until a retry. Admin-created (idempotent) at the start
+ * of the journey, so it is always an existing account, as STABLE_USER was.
+ * 0130 is the first number outside the 0120-0129 pool, which is full; it is
+ * allowlisted in new-auth.ts's TEST_PHONE_NUMBERS.
+ */
+export const LANGUAGE_USER = '+15555550130';

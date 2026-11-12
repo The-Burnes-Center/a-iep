@@ -17,8 +17,8 @@
  */
 import { test, expect } from '../helpers/fixtures';
 import { gotoLogin, fillPhone, EN_PASSWORDLESS } from '../helpers/app';
-import { fetchOtp } from '../helpers/aws';
-import { STABLE_USER } from '../helpers/phones';
+import { ensureTestUser, fetchOtp } from '../helpers/aws';
+import { LANGUAGE_USER } from '../helpers/phones';
 
 /** Spanish copy this spec keys on, mirroring EN / EN_PASSWORDLESS in
  * helpers/app.ts (values from src/translations/es.json). */
@@ -54,7 +54,8 @@ test('login screen localizes and the OTP send carries the picked language', asyn
   await expect(page.getByRole('button', { name: sendButtonEs, exact: true })).toBeVisible();
 
   // Start a login so the backend actually resolves a language for the OTP.
-  await fillPhone(page, STABLE_USER);
+  await ensureTestUser(LANGUAGE_USER);
+  await fillPhone(page, LANGUAGE_USER);
   const sendStartedAt = Date.now();
   await page.getByRole('button', { name: sendButtonEs, exact: true }).click();
 
@@ -71,7 +72,7 @@ test('login screen localizes and the OTP send carries the picked language', asyn
 
   // The stashed payload's language field is what the SMS copy would have
   // been localized with; 'es' here means the whole chain held.
-  const otp = await fetchOtp(STABLE_USER, sendStartedAt);
+  const otp = await fetchOtp(LANGUAGE_USER, sendStartedAt);
   expect(otp.language).toBe('es');
 
   // Deliberately abandon the session: no tokens were issued, the session
