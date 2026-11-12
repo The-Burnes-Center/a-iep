@@ -698,7 +698,6 @@ describe("the copy this screen depends on", () => {
   const keys = [
     "child.heading",
     "addChild.name.label",
-    "addChild.description",
     "addChild.school.label",
     "child.school.hint",
     "child.name.error.required",

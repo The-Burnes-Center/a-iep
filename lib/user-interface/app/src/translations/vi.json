@@ -789,7 +789,6 @@
     "myChildren.add": "Thêm con",
     "myChildren.limit": "Bạn đã thêm số con tối đa cho một tài khoản.",
     "addChild.title": "Thêm con",
-    "addChild.description": "Hãy dùng tên đúng như trong IEP. Chúng tôi xóa mọi tên khỏi IEP trước khi AI của chúng tôi viết bản tóm tắt. Sau đó, chúng tôi chỉ điền lại tên của con bạn, đúng như bạn nhập ở đây.",
     "addChild.name.label": "Họ tên đầy đủ của con",
     "addChild.school.label": "Học khu (không bắt buộc)",
     "addChild.button": "Thêm con",

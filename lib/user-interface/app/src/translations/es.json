@@ -789,7 +789,6 @@
     "myChildren.add": "Agregar un hijo/a",
     "myChildren.limit": "Ha agregado el máximo de hijos que permite una cuenta.",
     "addChild.title": "Agregar un hijo/a",
-    "addChild.description": "Use el nombre tal como aparece en el IEP. Quitamos todos los nombres del IEP antes de que nuestra IA escriba su resumen. Después, volvemos a poner solo el nombre de su hijo/a, tal como lo escriba aquí.",
     "addChild.name.label": "Nombre completo de su hijo/a",
     "addChild.school.label": "Distrito escolar (opcional)",
     "addChild.button": "Agregar",

@@ -26,8 +26,9 @@ interface ChildDetailsFieldsProps {
  * the school district at all.
  *
  * The name is required and is the one the pipeline puts back into the
- * summary, so the hint asks for it as written on the IEP. The district is
- * optional and says so.
+ * summary; the redaction step matches it against the IEP by first and last
+ * name (redact_ocr/student_name.py), which is why the label asks for the full
+ * name. The district is optional and says so.
  */
 const ChildDetailsFields: React.FC<ChildDetailsFieldsProps> = ({
   name, onNameChange, onNameBlur, nameError, school, onSchoolChange, nameId, schoolId, nameTestId, schoolTestId,
@@ -38,7 +39,6 @@ const ChildDetailsFields: React.FC<ChildDetailsFieldsProps> = ({
       <TextField
         id={nameId}
         label={t('addChild.name.label')}
-        hint={t('addChild.description')}
         error={nameError ? t(`child.name.error.${nameError}`) : null}
         value={name}
         autoComplete="off"
