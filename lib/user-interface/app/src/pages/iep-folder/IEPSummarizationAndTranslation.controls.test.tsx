@@ -31,7 +31,12 @@ const CHILD_ID = "child-abc";
 const DOCUMENTS_URL = `${API_BASE}/profile/children/${CHILD_ID}/documents`;
 
 // Two paragraphs, so the summary is long enough for Read More to appear.
-const LONG_SUMMARY = "The first paragraph of the summary.\n\nThe second paragraph of the summary.";
+// Long enough to fold: the preview holds at least PREVIEW_MIN_CHARS of text
+// (summary-preview.ts), so the first paragraph alone has to reach that.
+const LONG_SUMMARY =
+  "The first paragraph of the summary says what the IEP is for, who it covers and how long it lasts, " +
+  "in the plain words a parent reads it in, and it is long enough to be the preview on its own." +
+  "\n\nThe second paragraph of the summary.";
 const GLOSSARY_SUMMARY = "The team agreed on accommodations for reading.";
 
 const appConfig = {

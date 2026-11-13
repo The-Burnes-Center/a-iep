@@ -42,6 +42,7 @@ import { useTourReplayRequest } from './summary-tour';
 import { NavLanguageSlot } from '../../components/NavLanguageSlot';
 import LanguageMenu from '../../components/LanguageMenu';
 import { SummarySurveyCards, SurveyWhileYouWait } from '../survey/SurveyCards';
+import { summaryPreview } from './summary-preview';
 import { ApiClient } from '../../common/api-client/api-client';
 import {
   IEPDocumentClient,
@@ -735,7 +736,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     }
   };
 
-  // Helper function to truncate content to the first paragraph
+  // The collapsed summary: enough of it to read, never a title line alone
+  // (see summary-preview.ts).
   const truncateContent = (content: string): { truncated: string; needsTruncation: boolean } => {
     // Not `!content`: the caller's guard is isReadableText now, but this
     // function is the thing that actually threw, so it refuses a non-string
@@ -743,18 +745,8 @@ const IEPSummarizationAndTranslation: React.FC = () => {
     if (!isReadableText(content)) {
       return { truncated: '', needsTruncation: false };
     }
-    
-    // Split by double newline (paragraph separator)
-    const paragraphs = content.split(/\n\n+/);
-    
-    // If there's only one paragraph (or no paragraph breaks), no truncation needed
-    if (paragraphs.length <= 1) {
-      return { truncated: content, needsTruncation: false };
-    }
-    
-    // Return the first paragraph as truncated content with ".." appended to indicate continuation
-    const firstParagraph = paragraphs[0].trim();
-    return { truncated: firstParagraph + '..', needsTruncation: true };
+    const { preview, truncated } = summaryPreview(content);
+    return { truncated: preview, needsTruncation: truncated };
   };
 
   // Toggle summary expansion for a specific language
