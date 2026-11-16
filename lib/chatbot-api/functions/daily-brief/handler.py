@@ -9,12 +9,12 @@ before any threshold moved.
 So this reports positively: every monitored component, whether it ran, and
 how many errors.
 
-The message follows the same shape as every alert (see the alert formatter):
-environment and severity first, as words, then only what needs attention.
-Components that ran normally are counted, not listed: a reader scanning on a
-phone should not pass twenty healthy lines to reach the one that matters.
-Components that did NOT run are listed with their purpose, because "0 runs"
-cannot be judged without knowing whether the thing was meant to run.
+The layout follows the GrantWell daily brief: a one-line title with an icon
+and the status in words, then one line per component. Problems come first,
+then components that ran, then components that did not run, so a reader on a
+phone sees what is wrong before the healthy lines. Components that did NOT
+run are listed with their purpose, because "0 runs" cannot be judged without
+knowing whether the thing was meant to run.
 
 FERPA: every value here is a name, a count or a timestamp. Nothing is sourced
 from a log message, a document or a request body, and nothing may be added
@@ -44,16 +44,19 @@ BRIEF_COMPONENTS_PARAM = os.environ.get('BRIEF_COMPONENTS_PARAM', '')
 ALARM_PREFIX = os.environ.get('ALARM_PREFIX', '')
 
 IS_PROD = ENVIRONMENT in ('prod', 'production')
-ENV_LABEL = 'PROD' if IS_PROD else 'STAGING'
 WINDOW_HOURS = 24
+
+OK = ':white_check_mark:'
+IDLE = ':zzz:'
+PROBLEM = ':rotating_light:'
+WARN = ':warning:'
+UNREADABLE_NOTE = ('The list of things to check could not be read, so nothing below '
+                   'was measured. Any alerts active right now are still listed above.')
 
 # The first line of every alarm description written by alert-copy.ts:
 # "[PROD] [CRITICAL] Sign-in codes are not being sent".
 _ALARM_TITLE = re.compile(r'^\[(?:PROD|STAGING)\] \[(CRITICAL|WARNING|INFO)\] (.+)$')
 _SEVERITY_ORDER = {'CRITICAL': 0, 'WARNING': 1, 'INFO': 2}
-
-_MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-           'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 
 def _components():
@@ -154,77 +157,71 @@ def _plural(count, noun):
     return f'{count} {noun}' if count == 1 else f'{count} {noun}s'
 
 
-def _component_summary(components, totals):
-    """Split the components into (broken, idle, healthy_count).
+def _component_lines(components, totals):
+    """`(lines, problems, ran, idle)`, one line per component.
 
-    broken: [(label, invocations, errors, purpose)], most errors first.
-    idle:   [(label, purpose)], alphabetical.
+    Order: components with errors (most errors first), then ran, then idle,
+    alphabetical within each group. Problems come first so the reader meets
+    them before any healthy line.
     """
-    broken, idle, healthy = [], [], 0
+    entries = []
     for index, component in enumerate(components):
         invocations, errors = totals[index]
         if errors:
-            broken.append((component['label'], invocations, errors, component['purpose']))
+            group, icon = 0, PROBLEM
         elif invocations:
-            healthy += 1
+            group, icon = 1, OK
         else:
-            idle.append((component['label'], component['purpose']))
-    broken.sort(key=lambda item: (-item[2], item[0].lower()))
-    idle.sort(key=lambda item: item[0].lower())
-    return broken, idle, healthy
+            group, icon = 2, IDLE
+        entries.append(((group, -errors, component['label'].lower()),
+                        icon, component, invocations, errors))
+    entries.sort(key=lambda entry: entry[0])
+    lines = [
+        f"{icon} {component['label']} — {_plural(invocations, 'run')}, "
+        f"{_plural(errors, 'error')} · {component['purpose']}"
+        for _, icon, component, invocations, errors in entries
+    ]
+    groups = [entry[0][0] for entry in entries]
+    return lines, groups.count(0), groups.count(1), groups.count(2)
 
 
-def _headline(problems, manifest_unreadable):
-    """`(severity, sentence)`. Never INFO when something needs attention or was not checked."""
+def _title(day, problems, manifest_unreadable, ran, idle, env_label):
+    """The card's first line. The status is in words after the icon."""
+    head = f'A-IEP daily brief — {day}'
     if problems:
-        verb = 'needs' if problems == 1 else 'need'
-        return 'WARNING', f'{_plural(problems, "problem")} {verb} attention'
+        return f'{WARN} {head} — {problems} problem(s) need attention · {env_label}'
     if manifest_unreadable:
-        # Never reassuring. This brief checked nothing, and "no problems"
-        # here would be the most misleading line the channel can carry: a
-        # daily assurance that nothing is wrong, issued by something that did
-        # not look.
-        return 'WARNING', 'could not read what it is meant to check'
-    return 'INFO', f'no problems in the last {WINDOW_HOURS} hours'
+        # Never green. This brief checked nothing, and a green tick here would
+        # be a daily assurance issued by something that did not look.
+        return f'{WARN} {head} — could not read what it is meant to check · {env_label}'
+    return f'{OK} {head} — all green ({ran} ran, {idle} idle) · {env_label}'
 
 
 def build_brief(now=None):
     """The whole message, as a Chatbot custom notification."""
     now = now or datetime.datetime.now(datetime.timezone.utc)
     start = now - datetime.timedelta(hours=WINDOW_HOURS)
+    env_label = 'prod' if IS_PROD else 'staging'
 
     components, manifest_unreadable = _components()
     totals = _totals(components, start, now) if components else {}
-    broken, idle, healthy = _component_summary(components, totals)
+    lines, errored, ran, idle = _component_lines(components, totals)
     firing = _alarms_now()
 
-    problems = len(broken) + len(firing)
-    severity, sentence = _headline(problems, manifest_unreadable)
-    title = f'[{ENV_LABEL}] [{severity}] Daily health check: {sentence}'
+    problems = errored + len(firing)
+    title = _title(now.date().isoformat(), problems, manifest_unreadable, ran, idle, env_label)
 
-    lines = []
-    if firing or broken:
-        lines.append('*Needs attention*')
+    sections = []
+    if firing:
         # Named, not counted: "2 alarms firing" sends someone to a console to
         # find out which, which is the thing this is supposed to save.
-        lines.extend(f"• [{item['severity']}] {item['headline']} (alert active now)"
-                     for item in firing)
-        lines.extend(
-            f'• {label}: {_plural(errors, "error")} in {_plural(invocations, "run")}'
-            f' ({purpose})'
-            for label, invocations, errors, purpose in broken)
+        sections.append(['*Needs attention*'] + [
+            f'{PROBLEM} {item["headline"]} (alert active now)' for item in firing])
     if manifest_unreadable:
-        lines.append('The list of things to check could not be read, so nothing below '
-                     'was measured. Any alerts active right now are still listed above.')
+        sections.append([UNREADABLE_NOTE])
     elif components:
-        lines.append(f'*Ran normally:* {_plural(healthy, "component")}, no errors.')
-        if idle:
-            lines.append('*Did not run in the last 24 hours* (expected for features that '
-                         'only run when a parent uses them):')
-            lines.extend(f'• {label}: {purpose}' for label, purpose in idle)
-        lines.append(f'Checked {_plural(len(components), "component")} for the '
-                     f'{WINDOW_HOURS} hours to {now.hour:02d}:{now.minute:02d} UTC on '
-                     f'{now.day} {_MONTHS[now.month]} {now.year}.')
+        sections.append(lines + [f'Window: {WINDOW_HOURS}h to {now.hour:02d}:{now.minute:02d} UTC.'])
+    description = '\n\n'.join('\n'.join(section) for section in sections) or 'Nothing is configured to report.'
 
     return {
         'version': '1.0',
@@ -232,7 +229,7 @@ def build_brief(now=None):
         'content': {
             'textType': 'client-markdown',
             'title': title,
-            'description': '\n'.join(lines) if lines else 'Nothing is configured to report.',
+            'description': description,
         },
         'metadata': {'summary': title},
     }

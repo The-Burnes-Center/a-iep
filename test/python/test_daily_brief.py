@@ -3,10 +3,10 @@
 Alarms only fire when something errors, so a component that stops being
 invoked at all keeps every alarm green while doing nothing. These tests pin
 the properties that make the brief worth reading: it distinguishes idle from
-broken, it cannot claim "no problems" while an alarm is firing or while it
+broken, it cannot claim "all green" while an alarm is firing or while it
 could not read what to check, and it says what an idle component is for so a
-reader can judge "0 runs" for themselves. It follows the same shape as every
-alert: environment and severity first, as words.
+reader can judge "0 runs" for themselves. The title carries the status in
+words after its icon, as every alert does.
 """
 import datetime
 import json
@@ -57,25 +57,27 @@ NOW = datetime.datetime(2026, 9, 10, 13, 0, tzinfo=datetime.timezone.utc)
 SIGN_IN = {'severity': 'CRITICAL', 'headline': 'Sign-in codes are not being sent'}
 
 
-def test_no_problems_leads_with_environment_and_severity_as_words(brief):
+def test_no_problems_title_is_green_and_says_so_in_words(brief):
     _stub(brief, {'fn-ocr': (4, 0), 'fn-tts': (11, 0)})
 
     content = brief.build_brief(now=NOW)['content']
 
-    assert content['title'] == '[PROD] [INFO] Daily health check: no problems in the last 24 hours'
-    # Words, not icons: the title must read in a push preview and a screen reader.
-    assert ':' not in content['title'].split(']')[0]
-    assert 'problem(s)' not in content['title']
+    assert content['title'] == ':white_check_mark: A-IEP daily brief — 2026-09-10 — all green (2 ran, 1 idle) · prod'
+    assert 'problem' not in content['title']
 
 
-def test_healthy_components_are_counted_not_listed(brief):
-    """A reader on a phone must not pass twenty green lines to reach the red."""
-    _stub(brief, {'fn-ocr': (4, 0), 'fn-tts': (11, 0)})
+def test_every_component_is_listed_problems_first_then_ran_then_idle(brief):
+    """A reader on a phone meets the red before the green, and every line says what it is."""
+    _stub(brief, {'fn-ocr': (4, 0), 'fn-tts': (11, 2)})
 
-    description = brief.build_brief(now=NOW)['content']['description']
+    lines = brief.build_brief(now=NOW)['content']['description'].splitlines()
 
-    assert '*Ran normally:* 2 components, no errors.' in description
-    assert 'Mistral OCR' not in description
+    assert lines == [
+        ':rotating_light: TTS — 11 runs, 2 errors · reads a summary aloud',
+        ':white_check_mark: Mistral OCR — 4 runs, 0 errors · reads the text out of an upload',
+        ':zzz: referrals — 0 runs, 0 errors · invite links',
+        'Window: 24h to 13:00 UTC.',
+    ]
 
 
 def test_an_idle_component_is_listed_with_its_purpose_and_is_not_a_problem(brief):
@@ -88,39 +90,51 @@ def test_an_idle_component_is_listed_with_its_purpose_and_is_not_a_problem(brief
 
     content = brief.build_brief(now=NOW)['content']
 
-    assert '[INFO]' in content['title']
-    assert '\u2022 TTS: reads a summary aloud' in content['description']
-    assert '\u2022 referrals: invite links' in content['description']
+    assert content['title'].endswith('all green (1 ran, 2 idle) · prod')
+    assert ':zzz: TTS — 0 runs, 0 errors · reads a summary aloud' in content['description']
+    assert ':zzz: referrals — 0 runs, 0 errors · invite links' in content['description']
+    assert ':rotating_light:' not in content['description']
     assert '*Needs attention*' not in content['description']
 
 
-def test_errors_are_a_problem_and_listed_first_with_their_counts(brief):
+def test_errored_components_sort_most_errors_first_and_singular_counts_read_singular(brief):
+    _stub(brief, {'fn-ocr': (4, 1), 'fn-tts': (11, 2), 'fn-ref': (1, 1)})
+
+    lines = brief.build_brief(now=NOW)['content']['description'].splitlines()
+
+    assert lines[0] == ':rotating_light: TTS — 11 runs, 2 errors · reads a summary aloud'
+    assert lines[1] == ':rotating_light: Mistral OCR — 4 runs, 1 error · reads the text out of an upload'
+    assert lines[2] == ':rotating_light: referrals — 1 run, 1 error · invite links'
+
+
+def test_errors_are_a_problem_in_the_title_and_not_repeated_under_needs_attention(brief):
     _stub(brief, {'fn-ocr': (4, 0), 'fn-tts': (11, 2), 'fn-ref': (1, 0)})
 
     content = brief.build_brief(now=NOW)['content']
-    lines = content['description'].splitlines()
 
-    assert content['title'] == '[PROD] [WARNING] Daily health check: 1 problem needs attention'
-    assert lines[0] == '*Needs attention*'
-    assert lines[1] == '\u2022 TTS: 2 errors in 11 runs (reads a summary aloud)'
+    assert content['title'] == ':warning: A-IEP daily brief — 2026-09-10 — 1 problem(s) need attention · prod'
+    # Needs attention holds firing alarms only; errored components sit at the top of the list.
+    assert '*Needs attention*' not in content['description']
 
 
-def test_the_problem_count_is_plural_when_it_should_be(brief):
+def test_the_problem_count_is_the_errored_components_plus_firing_alarms(brief):
     _stub(brief, {'fn-tts': (11, 2), 'fn-ref': (1, 1)}, firing=[SIGN_IN])
 
-    assert '3 problems need attention' in brief.build_brief(now=NOW)['content']['title']
+    assert '3 problem(s) need attention' in brief.build_brief(now=NOW)['content']['title']
 
 
-def test_a_firing_alarm_prevents_a_no_problems_claim(brief):
+def test_a_firing_alarm_prevents_an_all_green_claim(brief):
     """The worst failure this could have is saying all is well over a live outage."""
     _stub(brief, {'fn-ocr': (4, 0)}, firing=[SIGN_IN])
 
     content = brief.build_brief(now=NOW)['content']
 
-    assert 'no problems' not in content['title']
-    assert '1 problem needs attention' in content['title']
+    assert content['title'].startswith(':warning:')
+    assert 'all green' not in content['title']
+    assert '1 problem(s) need attention' in content['title']
     # Named by its headline, not counted and not a CloudWatch alarm name.
-    assert '\u2022 [CRITICAL] Sign-in codes are not being sent (alert active now)' in content['description']
+    assert content['description'].startswith(
+        '*Needs attention*\n:rotating_light: Sign-in codes are not being sent (alert active now)')
 
 
 def test_the_alarms_firing_come_from_their_headlines_worst_first(brief):
@@ -172,20 +186,20 @@ def test_it_publishes_as_a_custom_notification(brief):
 
 def test_staging_is_marked_staging(brief, monkeypatch):
     monkeypatch.setattr(brief, 'IS_PROD', False)
-    monkeypatch.setattr(brief, 'ENV_LABEL', 'STAGING')
     _stub(brief, {'fn-ocr': (4, 0)})
 
     title = brief.build_brief(now=NOW)['content']['title']
 
-    assert title.startswith('[STAGING] [INFO] Daily health check')
+    assert title.startswith(':white_check_mark: A-IEP daily brief')
+    assert title.endswith('· staging')
 
 
-def test_the_checked_line_says_what_was_covered(brief):
+def test_the_window_line_says_what_was_covered(brief):
     _stub(brief, {'fn-ocr': (4, 0)})
 
     description = brief.build_brief(now=NOW)['content']['description']
 
-    assert 'Checked 3 components for the 24 hours to 13:00 UTC on 10 Sep 2026.' in description
+    assert description.splitlines()[-1] == 'Window: 24h to 13:00 UTC.'
 
 
 def test_an_unreadable_manifest_still_produces_a_brief(brief, monkeypatch):
@@ -204,8 +218,8 @@ def test_an_unreadable_manifest_still_produces_a_brief(brief, monkeypatch):
 
     content = brief.build_brief(now=NOW)['content']
 
-    assert '1 problem needs attention' in content['title']
-    assert 'Sign-in codes are not being sent' in content['description']
+    assert '1 problem(s) need attention' in content['title']
+    assert ':rotating_light: Sign-in codes are not being sent (alert active now)' in content['description']
 
 
 def test_the_manifest_is_read_from_the_configured_parameter(brief):
@@ -223,7 +237,7 @@ def test_the_manifest_is_read_from_the_configured_parameter(brief):
     assert asked == ['/a-iep/prod/daily-brief/components']
 
 
-def test_an_unreadable_manifest_is_never_reported_as_no_problems(brief):
+def test_an_unreadable_manifest_is_never_reported_as_all_green(brief):
     """The failure this was found by: nothing firing, nothing measured.
 
     With an empty manifest and no alarms, the brief used to publish
@@ -235,8 +249,8 @@ def test_an_unreadable_manifest_is_never_reported_as_no_problems(brief):
 
     content = brief.build_brief(now=NOW)['content']
 
-    assert 'no problems' not in content['title']
-    assert content['title'] == '[PROD] [WARNING] Daily health check: could not read what it is meant to check'
+    assert 'all green' not in content['title']
+    assert content['title'] == ':warning: A-IEP daily brief — 2026-09-10 — could not read what it is meant to check · prod'
     # And it says which way it is broken, so the reader knows the components
     # are missing rather than healthy.
     assert 'nothing below was measured' in content['description']
