@@ -282,6 +282,8 @@ const PAIRS: Pair[] = [
   { fg: "--aiep-green-dark", bg: "--aiep-surface-white", level: "ui", where: "QR modules and eyes, gradient start" },
   { fg: "--aiep-accent-blue", bg: "--aiep-surface-white", level: "ui", where: "QR modules and eyes, gradient end" },
   { fg: "--aiep-ink", bg: "--aiep-amber", level: "ui", where: "the face in the middle of the QR code" },
+  { fg: "--aiep-ink", bg: "--aiep-face", level: "ui", where: "a face's eyes and mouth (components/ui/Face.tsx)" },
+  { fg: "--aiep-face", bg: "--aiep-surface-white", level: "surface", where: "a face against a card; its features are what carry the meaning, and the word beside it" },
 
   // -- invite hero ------------------------------------------------------------
   { fg: "--aiep-on-green-muted", bg: "--aiep-green-dark", level: "text", where: "the hint under the QR on the invite hero" },

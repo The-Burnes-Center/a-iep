@@ -1,0 +1,59 @@
+import React from 'react';
+
+/**
+ * The app's face: an amber rounded square with short thick eyes and a thick,
+ * round-ended mouth, drawn after the face artwork the app already uses
+ * (public/images/9_x_9_faces.png, the hero and the QR code's centre). Every
+ * face anywhere in the app is this one, so they always match.
+ *
+ * Only the mouth's curve carries the expression, from a frown to a smile, so
+ * faces in a row differ in one feature and read left to right at a glance.
+ * Every face is the same size with its features in the same place: placed in
+ * a row, the eye compares them moving sideways only (UI_STANDARDS.md, Faces).
+ *
+ * A face is decoration beside words, never a replacement for them: it is
+ * aria-hidden, and the answer it shows is always written next to it.
+ */
+
+import { FACE_MOOD, FaceExpression, mouthPath } from './face-shape';
+
+interface FaceProps {
+  /** Which face. 'unsure' shows a question mark; 'empty' is a face not yet chosen. */
+  expression?: FaceExpression;
+  /** A mood between -1 and 1 instead of a named answer, for a face that moves (a slider). */
+  mood?: number;
+  /** Width and height in px. */
+  size?: number;
+  className?: string;
+}
+
+const Face: React.FC<FaceProps> = ({ expression = 'empty', mood, size = 40, className }) => {
+  const blank = expression === 'empty' || expression === 'unsure';
+  const curve = mood ?? (blank ? 0 : FACE_MOOD[expression as keyof typeof FACE_MOOD]);
+  return (
+    <svg
+      className={`ui-face${className ? ` ${className}` : ''}`}
+      viewBox="0 0 48 48"
+      width={size}
+      height={size}
+      aria-hidden="true"
+      focusable="false"
+      data-expression={mood === undefined ? expression : 'mood'}
+    >
+      <rect
+        x="3" y="3" width="42" height="42" rx="15"
+        style={{ fill: blank && mood === undefined ? 'var(--aiep-surface-field)' : 'var(--aiep-face)', stroke: 'var(--aiep-cream)' }}
+        strokeWidth="1.5"
+      />
+      <path d="M18 16.5 L18 21" style={{ stroke: 'var(--aiep-ink)' }} strokeWidth="4.2" strokeLinecap="round" />
+      <path d="M30.5 15.5 L30.5 20" style={{ stroke: 'var(--aiep-ink)' }} strokeWidth="4.2" strokeLinecap="round" />
+      {expression === 'unsure' && mood === undefined ? (
+        <text x="24" y="37" textAnchor="middle" fontSize="14" fontWeight="700" style={{ fill: 'var(--aiep-ink)' }}>?</text>
+      ) : (
+        <path data-mouth d={mouthPath(curve)} style={{ stroke: 'var(--aiep-ink)' }} strokeWidth="3.8" fill="none" strokeLinecap="round" />
+      )}
+    </svg>
+  );
+};
+
+export default Face;

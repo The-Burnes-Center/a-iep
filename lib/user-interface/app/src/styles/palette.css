@@ -121,6 +121,11 @@
      a block of colour, and what has to be legible is the name inside it. */
   --aiep-amber: #eca400;
 
+  /* The faces (components/ui/Face.tsx): the amber of the app's own face
+     artwork (public/images/9_x_9_faces.png), sampled from it, with ink
+     features. Ink on it is 10.3, so every feature reads. */
+  --aiep-face: #ffb522;
+
   /* ---- Disabled -------------------------------------------------------- */
   /* WCAG 1.4.3 and 1.4.11 both exempt an inactive control, and looking
      inactive is the point, so these stay where they were. */
