@@ -1,5 +1,6 @@
 import React from 'react';
 import { Checkbox, Radios, TextArea, TextField } from '../../components/ui/fields';
+import Face from '../../components/ui/Face';
 import { useLanguage } from '../../common/language-context';
 import { fillName } from './fill-name';
 import type { SurveyAnswers } from '../../common/types';
@@ -57,10 +58,15 @@ interface StatementsProps {
   prefix?: string;
 }
 
-/** Statements on the agreement scale, each its own question, "Not sure" apart. */
+/**
+ * Statements on the agreement scale, each its own question: a row of the
+ * app's faces, frown to smile, each over its words, and "Not sure" a dashed
+ * box at the row's end (layout F3, chosen by the research team). One row per
+ * statement keeps the longest part to about one and a half phone screens.
+ */
 export const Statements: React.FC<StatementsProps> = ({ keys, name, answers, onAnswer, prefix = 'before' }) => {
   const { t } = useLanguage();
-  const options = SCALE.map((value) => ({ value, label: t(`survey.scale.${value}`) }));
+  const options = SCALE.map((value) => ({ value, label: t(`survey.scale.${value}`), icon: <Face expression={value} size={36} /> }));
   return (
     <div className="survey-questions">
       {keys.map((key) => (

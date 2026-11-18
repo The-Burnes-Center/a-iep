@@ -18,7 +18,7 @@ import React from 'react';
 import { FACE_MOOD, FaceExpression, mouthPath } from './face-shape';
 
 interface FaceProps {
-  /** Which face. 'unsure' shows a question mark; 'empty' is a face not yet chosen. */
+  /** Which face. 'unsure' is a dashed box with a question mark, not a face; 'empty' is a face not yet chosen. */
   expression?: FaceExpression;
   /** A mood between -1 and 1 instead of a named answer, for a face that moves (a slider). */
   mood?: number;
@@ -28,11 +28,26 @@ interface FaceProps {
 }
 
 const Face: React.FC<FaceProps> = ({ expression = 'empty', mood, size = 40, className }) => {
+  const classes = `ui-face${className ? ` ${className}` : ''}`;
+  if (expression === 'unsure' && mood === undefined) {
+    // Not a point on the scale, so not a face: a dashed box the same size,
+    // lined up with them. --aiep-face-ring turns it solid when chosen (ui.css).
+    return (
+      <svg className={classes} viewBox="0 0 48 48" width={size} height={size} aria-hidden="true" focusable="false" data-expression="unsure">
+        <rect
+          x="5" y="5" width="38" height="38" rx="13" fill="none"
+          style={{ stroke: 'var(--aiep-face-ring, var(--aiep-border))', strokeDasharray: 'var(--aiep-face-dash, 5 4)' }}
+          strokeWidth="2.5"
+        />
+        <text x="24" y="30" textAnchor="middle" fontSize="16" fontWeight="700" style={{ fill: 'var(--aiep-face-ring, var(--aiep-muted))' }}>?</text>
+      </svg>
+    );
+  }
   const blank = expression === 'empty' || expression === 'unsure';
   const curve = mood ?? (blank ? 0 : FACE_MOOD[expression as keyof typeof FACE_MOOD]);
   return (
     <svg
-      className={`ui-face${className ? ` ${className}` : ''}`}
+      className={classes}
       viewBox="0 0 48 48"
       width={size}
       height={size}
@@ -47,11 +62,7 @@ const Face: React.FC<FaceProps> = ({ expression = 'empty', mood, size = 40, clas
       />
       <path d="M18 16.5 L18 21" style={{ stroke: 'var(--aiep-ink)' }} strokeWidth="4.2" strokeLinecap="round" />
       <path d="M30.5 15.5 L30.5 20" style={{ stroke: 'var(--aiep-ink)' }} strokeWidth="4.2" strokeLinecap="round" />
-      {expression === 'unsure' && mood === undefined ? (
-        <text x="24" y="37" textAnchor="middle" fontSize="14" fontWeight="700" style={{ fill: 'var(--aiep-ink)' }}>?</text>
-      ) : (
-        <path data-mouth d={mouthPath(curve)} style={{ stroke: 'var(--aiep-ink)' }} strokeWidth="3.8" fill="none" strokeLinecap="round" />
-      )}
+      <path data-mouth d={mouthPath(curve)} style={{ stroke: 'var(--aiep-ink)' }} strokeWidth="3.8" fill="none" strokeLinecap="round" />
     </svg>
   );
 };

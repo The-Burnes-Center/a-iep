@@ -64,7 +64,7 @@ One `TextField`, one `Checkbox`, one `Radios`.
 | `StatusTag` | Status in words and an icon, never colour alone: Ready, Reading, Couldn't read it, No IEP yet. |
 | `Notice` | Information, success, warning or error, with an icon and a heading. Errors use `role="alert"`; the rest are not live regions unless they appear after an action. |
 | Confirmation | Anything that deletes says what is lost and that it can't be undone, and moves focus to the decision. |
-| `Face` | The app's one face (`components/ui/Face.tsx`), drawn after the face artwork: amber rounded square, ink eyes and mouth. Only the mouth changes, frown to smile. Faces in a row are the same size on one line, so the eye only moves sideways. Always beside the answer in words, never instead of it. |
+| `Face` | The app's one face (`components/ui/Face.tsx`), drawn after the face artwork: amber rounded square, ink eyes and mouth. Only the mouth changes, frown to smile. Faces in a row are the same size on one line, so the eye only moves sideways. Always beside the answer in words, never instead of it. "Not sure" is not a face: a dashed box with a question mark, the same size, at the row's end. |
 
 ## Words
 

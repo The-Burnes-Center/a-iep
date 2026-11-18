@@ -205,6 +205,21 @@ describe("the baseline survey", () => {
     expect((screen.getAllByLabelText("survey.scale.somewhat_agree")[1] as HTMLInputElement).checked).toBe(true);
   });
 
+  test("each statement is one row of faces, frown to smile, with Not sure at its end", async () => {
+    server.household = record("done", "you");
+    server.before = record("started", "understand");
+    renderAt("/survey", <SurveyPage />);
+    await settle();
+    expect(title()).toBe("survey.part.understand.title");
+    const groups = screen.getAllByRole("group").filter((group) => group.querySelector(".ui-radios-scale"));
+    expect(groups).toHaveLength(6);
+    for (const group of groups) {
+      expect(group.querySelectorAll(".ui-radios-options")).toHaveLength(1);
+      const faces = [...group.querySelectorAll("label svg")].map((svg) => svg.getAttribute("data-expression"));
+      expect(faces).toEqual(["disagree", "somewhat_disagree", "somewhat_agree", "agree", "unsure"]);
+    }
+  });
+
   test("finishing with nothing answered is refused; one answer is enough", async () => {
     server.household = record("done", "you");
     server.before = record("started", "reflect");

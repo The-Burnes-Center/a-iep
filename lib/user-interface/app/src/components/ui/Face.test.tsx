@@ -28,6 +28,8 @@ describe('the app face', () => {
     const unsure = render(<Face expression="unsure" />).container;
     expect(unsure.querySelector('text')).toHaveTextContent('?');
     expect(unsure.querySelector('[data-mouth]')).toBeNull();
+    expect(unsure.querySelectorAll('path')).toHaveLength(0);
+    expect(unsure.querySelector('rect')?.getAttribute('style')).toContain('stroke-dasharray');
     const empty = render(<Face expression="empty" />).container;
     expect(empty.querySelector('rect')?.getAttribute('style')).toContain('--aiep-surface-field');
   });

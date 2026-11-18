@@ -91,6 +91,8 @@ export const Checkbox: React.FC<CheckboxProps> = ({ label, hint, error, id, clas
 export interface RadioOption {
   value: string;
   label: string;
+  /** A picture above the words in a 'scale' (a Face). Decoration: the words are the answer. */
+  icon?: React.ReactNode;
 }
 
 export interface RadiosProps {
@@ -105,9 +107,9 @@ export interface RadiosProps {
   setApart?: string[];
   /**
    * 'inline' for two or three short answers (Yes / No). 'scale' for an
-   * agreement scale: the ordered answers side by side in one row, the
-   * `setApart` ones (a "Not sure") on their own row under it. Otherwise
-   * stacked.
+   * agreement scale: every answer side by side in one row, each its icon
+   * over its words, the `setApart` ones (a "Not sure") at the row's end.
+   * Otherwise stacked.
    */
   layout?: 'stacked' | 'inline' | 'scale';
   className?: string;
@@ -118,12 +120,14 @@ export interface RadiosProps {
  * whose options are native radios, the whole label the target. Stacked by
  * default so a long translation never clips an option.
  *
- * 'scale' puts an agreement scale in one row, a third of the stacked height,
- * and is still one radio group: arrow keys, the legend and the checked state
- * work as in any other. Not a slider: a slider has to start on some value, so
- * an untouched one either records an answer nobody gave or cannot be told
- * apart from one somebody did, and "Not sure" is not a point on it. Under
- * 360px (where four labels would clip) the row stacks again, in CSS.
+ * 'scale' puts an agreement scale in one row, "Not sure" included, so each
+ * statement costs one row on a phone (the survey's faces), and is still one
+ * radio group: arrow keys, the legend and the checked state work as in any
+ * other. The radio dot is hidden and the whole column is the target, its
+ * border showing the choice. Not a slider: a slider has to start on some
+ * value, so an untouched one either records an answer nobody gave or cannot
+ * be told apart from one somebody did, and "Not sure" is not a point on it.
+ * Under 360px (where five labels would clip) the row stacks again, in CSS.
  */
 export const Radios: React.FC<RadiosProps> = ({
   legend, hint, name, options, value, onChange, setApart = [], layout = 'stacked', className,
@@ -138,7 +142,7 @@ export const Radios: React.FC<RadiosProps> = ({
       <label
         key={option.value}
         htmlFor={optionId}
-        className={`ui-check-row ui-radio-row${apart && layout !== 'scale' ? ' ui-radio-row--apart' : ''}`}
+        className={`ui-check-row ui-radio-row${apart ? ' ui-radio-row--apart' : ''}`}
       >
         <input
           id={optionId}
@@ -149,6 +153,7 @@ export const Radios: React.FC<RadiosProps> = ({
           checked={value === option.value}
           onChange={() => onChange(option.value)}
         />
+        {option.icon && <span className="ui-radio-icon">{option.icon}</span>}
         <span className="ui-check-label">{option.label}</span>
       </label>
     );
@@ -160,20 +165,7 @@ export const Radios: React.FC<RadiosProps> = ({
     >
       <legend className="ui-radios-legend">{legend}</legend>
       {hint && <p id={hintId} className="ui-field-hint">{hint}</p>}
-      {layout === 'scale' ? (
-        <>
-          <div className="ui-radios-options ui-radios-scale">
-            {options.filter((option) => !setApart.includes(option.value)).map(renderOption)}
-          </div>
-          {options.some((option) => setApart.includes(option.value)) && (
-            <div className="ui-radios-options ui-radios-apart">
-              {options.filter((option) => setApart.includes(option.value)).map(renderOption)}
-            </div>
-          )}
-        </>
-      ) : (
-        <div className="ui-radios-options">{options.map(renderOption)}</div>
-      )}
+      <div className={`ui-radios-options${layout === 'scale' ? ' ui-radios-scale' : ''}`}>{options.map(renderOption)}</div>
     </fieldset>
   );
 };
