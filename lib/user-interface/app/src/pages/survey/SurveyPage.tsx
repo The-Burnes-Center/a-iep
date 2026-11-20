@@ -11,7 +11,7 @@ import { processingStepKey } from '../utils/processing-progress.mjs';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
 import { SurveyClosedError } from '../../common/api-client/profile-client';
-import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
+import { childDocumentQuery } from '../../common/child-document-query';
 import { useLanguage } from '../../common/language-context';
 import { useFeatures } from '../../common/hooks/use-features';
 import { useActiveChild } from '../../common/hooks/use-active-child';
@@ -43,13 +43,19 @@ const SurveyPage: React.FC = () => {
   const { t } = useLanguage();
   const { isFeatureEnabled } = useFeatures();
   const enabled = isFeatureEnabled('onboardingSurvey');
+  const appContext = useContext(AppContext);
   const { child, childId, isLoading, pathFor } = useActiveChild();
   const surveyQuery = useChildSurvey(childId, enabled);
+  // Read here, beside the survey, so both load at once and the flow never
+  // opens on a cached answer: one from before an upload says "no IEP yet",
+  // and every way out of the survey would lead back to the upload form.
+  const documentQuery = useQuery({ ...childDocumentQuery(appContext, childId, DOCUMENT_POLL_MS), enabled: enabled && Boolean(childId) });
 
   if (!enabled) return <Navigate to={pathFor('/summary-and-translations')} replace />;
   // Fresh from the server, never the cache: the flow starts from what it is
   // given, and a cached copy could write over answers from another device.
-  if (isLoading || surveyQuery.isLoading || (surveyQuery.isFetching && !surveyQuery.isFetchedAfterMount)) {
+  const isFresh = (query: { isLoading: boolean; isFetchedAfterMount: boolean }) => !query.isLoading && query.isFetchedAfterMount;
+  if (isLoading || !isFresh(surveyQuery) || !isFresh(documentQuery)) {
     return <PageLoading message={t('common.loading')} />;
   }
   if (surveyQuery.isError || !surveyQuery.data || !childId) {
@@ -68,6 +74,8 @@ const SurveyPage: React.FC = () => {
       childId={childId}
       name={name}
       survey={surveyQuery.data}
+      document={documentQuery.data as ProgressDocument | undefined}
+      documentFailedToLoad={documentQuery.isError}
       summaryPath={pathFor('/summary-and-translations')}
       uploadPath={pathFor('/iep-documents')}
     />
@@ -78,11 +86,14 @@ interface FlowProps {
   childId: string;
   name: string;
   survey: ChildSurvey;
+  /** The child's IEP as the server last said, polled while it is read. */
+  document: ProgressDocument | undefined;
+  documentFailedToLoad: boolean;
   summaryPath: string;
   uploadPath: string;
 }
 
-const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath, uploadPath }) => {
+const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, document, documentFailedToLoad, summaryPath, uploadPath }) => {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const appContext = useContext(AppContext);
@@ -90,6 +101,9 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath, u
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   const [step, setStep] = useState<SurveyStep>(() => initialStep(survey));
+  // How the survey stood when the parent arrived. Saves change `survey`, and
+  // finishing must still show the thank-you, so this is read once.
+  const [statusOnArrival] = useState(() => survey.before?.status);
   const [answers, setAnswers] = useState<SurveyAnswers>(survey.before?.answers ?? {});
   const [household, setHousehold] = useState<SurveyAnswers>(survey.household?.answers ?? {});
   // Unanswered stays undefined and is not sent: only an explicit yes is consent.
@@ -100,20 +114,23 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath, u
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const parts = baselineParts(isHouseholdDone(survey));
-  const documentQuery = useQuery({
-    queryKey: ['child-document', childId],
-    queryFn: () => new IEPDocumentClient(appContext).getMostRecentDocumentWithSummary(childId),
-    refetchInterval: (query) => (childDocumentState(query.state.data, false) === 'reading' ? DOCUMENT_POLL_MS : false),
-    retry: false,
-  });
-  const documentState = childDocumentState(documentQuery.data, documentQuery.isError);
-  const progressDocument = (documentQuery.data ?? {}) as ProgressDocument;
+  const documentState = childDocumentState(document as Parameters<typeof childDocumentState>[0], documentFailedToLoad);
+  const progressDocument = (document ?? {}) as ProgressDocument;
 
   // A new screen: put the reader on its heading, as a page load would.
   // Focusing it also scrolls it into view, so a long part starts at its top.
   useEffect(() => {
     headingRef.current?.focus();
   }, [step]);
+
+  // The onboarding steps before an upload all lead here (firstUploadStep), so
+  // a parent who already said no, or finished before uploading, meets the
+  // survey again on the way to the upload, e.g. from the upload screen's
+  // "how to ask for a PDF" detour. Step aside for them: the closed screen
+  // would tell a parent who said no that they had opened a summary.
+  const noIepOnArrival = childDocumentState(document as Parameters<typeof childDocumentState>[0], documentFailedToLoad) === 'none';
+  if (statusOnArrival === 'declined') return <Navigate to={noIepOnArrival ? uploadPath : summaryPath} replace />;
+  if (statusOnArrival === 'done' && noIepOnArrival) return <Navigate to={uploadPath} replace />;
 
   const persist = async (save: SurveySave): Promise<boolean> => {
     setSaving(true);
@@ -150,7 +167,7 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, summaryPath, u
   // The survey comes before the upload, so with no IEP yet every way out of it
   // goes on to the upload. Otherwise to the child's summary, which itself
   // sends a child with no document to the upload.
-  const noIepYet = documentQuery.isSuccess && documentState === 'none';
+  const noIepYet = documentState === 'none';
   const nextPath = noIepYet ? uploadPath : summaryPath;
 
   const leaveForNow = async (status: 'remind' | 'declined') => {

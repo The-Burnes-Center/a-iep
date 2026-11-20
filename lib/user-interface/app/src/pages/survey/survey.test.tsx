@@ -10,7 +10,7 @@
 import React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppContext } from "../../common/app-context";
 import { LanguageContext } from "../../common/language-context";
@@ -399,6 +399,152 @@ describe("before the upload", () => {
     await click("survey-next");
     expect(title()).toBe("survey.thanks.title");
     expect(screen.getByTestId("survey-upload")).toHaveAttribute("href", "/iep-documents");
+  });
+});
+
+/**
+ * The survey, the upload and the processing screen in one app with one query
+ * cache, carrying the app's real five-minute default (components/
+ * app-configured.tsx). Each screen rendered alone gets a fresh cache, which is
+ * how a stale "no IEP yet" read survived the upload unseen.
+ */
+/** The browser's Back button. */
+function HistoryBack() {
+  const navigate = useNavigate();
+  return <button type="button" data-testid="history-back" onClick={() => navigate(-1)}>back</button>;
+}
+
+const renderJourney = (path: string, before: string[] = []) => {
+  const appConfig = { httpEndpoint: `${API}/`, enabledFeatures: ["onboardingSurvey"], enabledLanguages: ["en"] } as unknown as AppConfig;
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 5 * 60 * 1000 } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[...before, path]} initialIndex={before.length}>
+        <AppContext.Provider value={appConfig}>
+          <LanguageContext.Provider
+            value={{
+              language: "en" as SupportedLanguage,
+              setLanguage: vi.fn(),
+              t: (key: string) => key,
+              translationsLoaded: true,
+              enabledLanguages: ["en"] as SupportedLanguage[],
+            }}
+          >
+            <Routes>
+              <Route path="/survey" element={<SurveyPage />} />
+              <Route path="/iep-documents" element={<UploadIEPDocument onUploadComplete={vi.fn()} hasExistingDocument={false} />} />
+              <Route path="/summary-and-translations" element={<SurveyWhileYouWait />} />
+              <Route path="*" element={null} />
+            </Routes>
+            <Where />
+            <HistoryBack />
+          </LanguageContext.Provider>
+        </AppContext.Provider>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+};
+
+describe("finishing later, uploading, and coming back", () => {
+  const leaveBeforeUploadThenUpload = async () => {
+    documentAnswer = { message: "No document found for this child" };
+    server.household = record("done", "you");
+    renderJourney("/survey");
+    await settle();
+    await click("survey-start");
+    await click("survey-next"); // about -> understand
+    await click("survey-later");
+    expect(where()).toBe("/iep-documents");
+
+    fireEvent.change(document.getElementById("fileUpload")!, {
+      target: { files: [new File(["hello"], "iep.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })] },
+    });
+    await settle();
+    documentAnswer = { documentId: "d-1", status: "PROCESSING" };
+    await click("upload-submit-button");
+    expect(where()).toBe("/summary-and-translations");
+    await click("survey-wait-open");
+    expect(where()).toBe("/survey");
+    expect(title()).toBe("survey.part.understand.title");
+  };
+
+  test("Back to the invite does not say the upload is still to come, and its ways out skip the upload", async () => {
+    await leaveBeforeUploadThenUpload();
+    await click("survey-back");
+    expect(title()).toBe("survey.part.about.title");
+    await click("survey-back");
+    expect(title()).toBe("survey.invite.titleWhileReading");
+    expect(screen.queryByText("survey.invite.uploadNext")).toBeNull();
+    await click("survey-remind");
+    expect(where()).toBe("/summary-and-translations");
+  });
+
+  test("finishing later again goes to the IEP being read, not back to the upload", async () => {
+    await leaveBeforeUploadThenUpload();
+    await click("survey-later");
+    expect(where()).toBe("/summary-and-translations");
+  });
+
+  test("the thank-you leads to the IEP being read, not to another upload", async () => {
+    await leaveBeforeUploadThenUpload();
+    choose("survey.scale.agree", 0);
+    for (let part = 0; part < 3; part++) await click("survey-next"); // understand, speak, reflect
+    expect(title()).toBe("survey.thanks.title");
+    expect(screen.queryByTestId("survey-upload")).toBeNull();
+    expect(screen.getByTestId("survey-see-summary")).toHaveAttribute("href", "/summary-and-translations");
+  });
+});
+
+describe("meeting the survey again on the way to the upload", () => {
+  test("Back from the processing screen skips the upload form it came from", async () => {
+    documentAnswer = { message: "No document found for this child" };
+    renderJourney("/iep-documents", ["/how-to-use-the-tool"]);
+    await settle();
+    fireEvent.change(document.getElementById("fileUpload")!, {
+      target: { files: [new File(["hello"], "iep.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })] },
+    });
+    await settle();
+    documentAnswer = { documentId: "d-1", status: "PROCESSING" };
+    await click("upload-submit-button");
+    expect(where()).toBe("/summary-and-translations");
+    await click("history-back");
+    expect(where()).toBe("/how-to-use-the-tool");
+  });
+
+  test("a parent who said no is sent on to the upload, not told they opened a summary", async () => {
+    documentAnswer = { message: "No document found for this child" };
+    server.before = record("declined");
+    renderJourney("/survey");
+    await settle();
+    expect(where()).toBe("/iep-documents");
+    expect(screen.queryByText("survey.closed.body")).toBeNull();
+    expect(saves).toHaveLength(0);
+  });
+
+  test("a parent who said no and has an IEP is sent to it", async () => {
+    server.before = record("declined");
+    renderJourney("/survey");
+    await settle();
+    expect(where()).toBe("/summary-and-translations");
+  });
+
+  test("a parent who finished before uploading goes straight on to the upload", async () => {
+    documentAnswer = { message: "No document found for this child" };
+    server.before = record("done");
+    renderJourney("/survey");
+    await settle();
+    expect(where()).toBe("/iep-documents");
+  });
+
+  test("finishing still shows the thank-you, not a jump to the upload", async () => {
+    documentAnswer = { message: "No document found for this child" };
+    server.household = record("done", "you");
+    server.before = record("started", "reflect", { u1: "agree" });
+    renderJourney("/survey");
+    await settle();
+    await click("survey-next");
+    expect(where()).toBe("/survey");
+    expect(title()).toBe("survey.thanks.title");
   });
 });
 

@@ -7,7 +7,7 @@ import Button from '../../components/ui/Button';
 import { Notice, StatusTag, StatusTone } from '../../components/ui/feedback';
 import { AppContext } from '../../common/app-context';
 import { ApiClient } from '../../common/api-client/api-client';
-import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
+import { childDocumentQuery } from '../../common/child-document-query';
 import { useLanguage } from '../../common/language-context';
 import { useFeatures } from '../../common/hooks/use-features';
 import { useActiveChild } from '../../common/hooks/use-active-child';
@@ -66,17 +66,7 @@ const MyChildren: React.FC = () => {
   // another screen (the survey) fills this same key while the IEP is read, so
   // a cached "reading" stayed on screen long after the summary was ready.
   const documentQueries = useQueries({
-    queries: children.map((child) => ({
-      queryKey: ['child-document', child.childId],
-      queryFn: () => new IEPDocumentClient(appContext).getMostRecentDocumentWithSummary(child.childId),
-      enabled: Boolean(child.childId),
-      retry: false,
-      staleTime: 0,
-      refetchInterval: (query: { state: { data?: unknown } }) =>
-        childDocumentState(query.state.data as Parameters<typeof childDocumentState>[0], false) === 'reading'
-          ? READING_POLL_MS
-          : false,
-    })),
+    queries: children.map((child) => childDocumentQuery(appContext, child.childId, READING_POLL_MS)),
   });
 
   // Move focus into the confirmation when it opens, so a keyboard or screen

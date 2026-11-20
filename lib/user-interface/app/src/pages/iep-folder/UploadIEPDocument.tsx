@@ -7,10 +7,12 @@ import {
   ListGroup
 } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import UIButton from '../../components/ui/Button';
 import { Notice } from '../../components/ui/feedback';
 import { AppContext } from '../../common/app-context';
 import { IEPDocumentClient } from '../../common/api-client/iep-document-client';
+import { childDocumentQueryKey } from '../../common/child-document-query';
 import { isPlaceholderChildName } from '../../common/features';
 import { useActiveChild } from '../../common/hooks/use-active-child';
 import { fillTemplate } from '../../common/active-child';
@@ -143,6 +145,7 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
   const appContext = useContext(AppContext);
   const apiClient = new IEPDocumentClient(appContext);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   // The child this upload is for (common/active-child.ts), and the name the
   // design puts in a gold chip above the heading so a parent can see which
@@ -323,7 +326,11 @@ const UploadIEPDocument: React.FC<UploadIEPDocumentProps> = ({ onUploadComplete,
       // processing screen and its rights carousel while it is read. The survey
       // is asked before the upload (common/onboarding-next.ts), and one put
       // off for later is offered on the processing screen.
-      navigate(activeChild.pathFor('/summary-and-translations'));
+      // Replacing, not pushing: Back from the processing screen would
+      // otherwise reopen this form, offering to replace an IEP still being read.
+      // Every screen that cached "no IEP yet" for this child reads it again.
+      void queryClient.invalidateQueries({ queryKey: childDocumentQueryKey(activeChild.childId) });
+      navigate(activeChild.pathFor('/summary-and-translations'), { replace: true });
     }
   };
 
