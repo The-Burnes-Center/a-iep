@@ -8,6 +8,7 @@ import { NagSuppressions } from "cdk-nag";
 import { getEnvironment, getTagProps, tagResource } from '../tags';
 import * as path from 'node:path';
 import { buildContentSecurityPolicy, inlineScriptHashes } from './content-security-policy';
+import { buildViewerRequestFunction, distributionAliases } from './edge-routing';
 
 
 export interface WebsiteProps {  
@@ -55,6 +56,13 @@ export class Website extends Construct {
       'Purpose': 'CloudFrontLogs'
     });
 
+    // Sends www.a-iep.org on to a-iep.org (edge-routing.ts).
+    const viewerRequest = new cf.Function(this, "ViewerRequestRouting", {
+      code: cf.FunctionCode.fromInline(buildViewerRequestFunction()),
+      runtime: cf.FunctionRuntime.JS_2_0,
+      comment: "A-IEP www redirect",
+    });
+
     const distribution = new cf.CloudFrontWebDistribution(
       this,
       "Distribution",
@@ -63,7 +71,7 @@ export class Website extends Construct {
           viewerCertificate: cf.ViewerCertificate.fromAcmCertificate(
             acm.Certificate.fromCertificateArn(this, 'CloudfrontAcm', process.env.ACM_CERTIFICATE_ARN),
             {
-              aliases: [process.env.DOMAIN],
+              aliases: distributionAliases(process.env.DOMAIN),
               // CloudFormation defaults MinimumProtocolVersion to TLSv1 when
               // a custom certificate omits it, and CDK passes the field
               // through unset, so the field has to be set explicitly. Set
@@ -99,6 +107,10 @@ export class Website extends Construct {
               compress: true,
               allowedMethods: cf.CloudFrontAllowedMethods.GET_HEAD_OPTIONS,
               cachedMethods: cf.CloudFrontAllowedCachedMethods.GET_HEAD,
+              functionAssociations: [{
+                function: viewerRequest,
+                eventType: cf.FunctionEventType.VIEWER_REQUEST,
+              }],
             }],
             s3OriginSource: {
               s3BucketSource: props.websiteBucket,
