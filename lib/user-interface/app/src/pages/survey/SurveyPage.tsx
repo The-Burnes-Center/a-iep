@@ -23,6 +23,8 @@ import { childDocumentState, ChildDocumentState } from '../profile/my-children-s
 import { BaselinePart, baselineParts, looksLikeEmail, pruneBaseline, pruneHousehold, withoutBlanks } from './questions';
 import { SurveyStep, initialStep, isHouseholdDone } from './survey-state';
 import { surveyQueryKey, useChildSurvey } from './use-child-survey';
+import { queueSurveySave } from './survey-saves';
+import { useSurveyAutosave } from './use-survey-autosave';
 import { ResearchChoice, SurveyPart } from './SurveyParts';
 import './survey.css';
 
@@ -36,8 +38,10 @@ const DOCUMENT_POLL_MS = 5_000;
  * parent who read the summary first would be answering about it, not about
  * where they started. The app's own navigation stays, so nobody is trapped
  * here; opening the summary that way closes the baseline, which the server
- * enforces. Every step is saved on the server as it is left, so leaving and
- * coming back (the bottom nav unmounts this page) lands on the same part.
+ * enforces. Every step is saved on the server as it is left, and answers on
+ * an open part a moment after they are given and again on leaving, so leaving
+ * and coming back (the bottom nav unmounts this page) lands on the same part
+ * with the same answers.
  */
 const SurveyPage: React.FC = () => {
   const { t } = useLanguage();
@@ -114,6 +118,31 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, document, docu
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const parts = baselineParts(isHouseholdDone(survey));
+
+  // Every save for this child, in order, and each one kept in the cache.
+  const write = (save: SurveySave) => queueSurveySave(childId, async () => {
+    const record = await new ApiClient(appContext).profile.saveSurvey(childId, save);
+    queryClient.setQueryData<ChildSurvey>(surveyQueryKey(childId), (old) =>
+      old ? { ...old, [save.phase]: record } : old);
+    return record;
+  });
+  const isPart = (parts as SurveyStep[]).includes(step);
+  const autosave = useSurveyAutosave({
+    isPart,
+    write,
+    onClosed: () => setStep('closed'),
+    saves: () => {
+      const kept: SurveySave[] = [baseline('started', step)];
+      // The household's answers go with them on their own part, unless the
+      // email would be refused; "Next" says why.
+      const email = (household.email as string | undefined)?.trim();
+      if (step === 'you' && (!email || looksLikeEmail(email))) {
+        kept.push({ phase: 'household', status: 'started', part: 'you', answers: pruneHousehold(withoutBlanks(household)) });
+      }
+      return kept;
+    },
+  });
+
   const documentState = childDocumentState(document as Parameters<typeof childDocumentState>[0], documentFailedToLoad);
   const progressDocument = (document ?? {}) as ProgressDocument;
 
@@ -135,17 +164,18 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, document, docu
   const persist = async (save: SurveySave): Promise<boolean> => {
     setSaving(true);
     setSaveFailed(false);
+    autosave.saved();
     try {
-      const record = await new ApiClient(appContext).profile.saveSurvey(childId, save);
-      queryClient.setQueryData<ChildSurvey>(surveyQueryKey(childId), (old) =>
-        old ? { ...old, [save.phase]: record } : old);
+      await write(save);
       return true;
     } catch (error) {
       if (error instanceof SurveyClosedError) {
         setStep('closed');
       } else {
-        // The cause is in the API's log; the parent's answers stay on screen.
+        // The cause is in the API's log; the parent's answers stay on screen,
+        // and are kept as unsaved, so leaving still saves them.
         setSaveFailed(true);
+        autosave.changed();
       }
       return false;
     } finally {
@@ -221,8 +251,14 @@ const SurveyFlow: React.FC<FlowProps> = ({ childId, name, survey, document, docu
     if (await persist(baseline('started', part))) navigate(nextPath);
   };
 
-  const setAnswer = (key: string, value: string | string[]) => setAnswers((old) => ({ ...old, [key]: value }));
-  const setHouseholdAnswer = (key: string, value: string | string[]) => setHousehold((old) => ({ ...old, [key]: value }));
+  const setAnswer = (key: string, value: string | string[]) => {
+    setAnswers((old) => ({ ...old, [key]: value }));
+    autosave.changed();
+  };
+  const setHouseholdAnswer = (key: string, value: string | string[]) => {
+    setHousehold((old) => ({ ...old, [key]: value }));
+    autosave.changed();
+  };
   const fill = (key: string) => fillName(t(key), name);
 
   const heading = (text: string) => (

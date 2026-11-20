@@ -9,7 +9,7 @@
  */
 import React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppContext } from "../../common/app-context";
@@ -17,6 +17,8 @@ import { LanguageContext } from "../../common/language-context";
 import type { AppConfig, SurveyRecord } from "../../common/types";
 import type { SupportedLanguage } from "../../common/languages";
 import SurveyPage from "./SurveyPage";
+import { AUTOSAVE_MS } from "./use-survey-autosave";
+import { SAVES_WAIT_MAX_MS } from "./survey-saves";
 import SurveyFollowUp from "./SurveyFollowUp";
 import ChildCount from "./ChildCount";
 import { SummarySurveyCards, SurveyWhileYouWait } from "./SurveyCards";
@@ -45,6 +47,7 @@ let server: FakeSurvey;
 let documentAnswer: unknown;
 let surveyGetFails: boolean;
 let saveFails: boolean;
+let saveDelayMs: number;
 let saves: Array<Record<string, unknown>>;
 let profilePuts: Array<Record<string, unknown>>;
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -123,6 +126,7 @@ beforeEach(() => {
   documentAnswer = { documentId: "d-1", status: "PROCESSING" };
   surveyGetFails = false;
   saveFails = false;
+  saveDelayMs = 0;
   saves = [];
   profilePuts = [];
   fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
@@ -140,6 +144,7 @@ beforeEach(() => {
     }
     if (url.endsWith("/survey") && method === "PUT") {
       const body = JSON.parse(String(init!.body));
+      if (saveDelayMs) await new Promise((resolve) => setTimeout(resolve, saveDelayMs));
       if (saveFails) return json(503, {});
       if (body.phase === "before" && server.summaryFirstViewedAt) return json(409, { code: "baseline_closed" });
       saves.push(body);
@@ -158,7 +163,11 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // Unmount here, then let the saves made on leaving land in this test's
+  // server: left for the automatic cleanup, they reached the next test's.
+  cleanup();
+  await act(async () => { await vi.advanceTimersByTimeAsync(SAVES_WAIT_MAX_MS); });
   vi.useRealTimers();
 });
 
@@ -202,6 +211,89 @@ describe("the baseline survey", () => {
     await click("survey-back");
     expect(title()).toBe("survey.part.understand.title");
     expect((screen.getAllByLabelText("survey.scale.somewhat_agree")[1] as HTMLInputElement).checked).toBe(true);
+  });
+
+  test("answers given on a part survive leaving it by the app's own navigation, without Next", async () => {
+    server.before = record("started", "understand");
+    const first = renderAt("/survey", <SurveyPage />);
+    await settle();
+    choose("survey.scale.somewhat_agree", 1);
+    first.unmount(); // the bottom nav, or the child switcher
+    await settle();
+    expect(server.before?.status).toBe("started");
+    expect(server.before?.part).toBe("understand");
+
+    renderAt("/survey", <SurveyPage />);
+    await settle();
+    expect(title()).toBe("survey.part.understand.title");
+    expect((screen.getAllByLabelText("survey.scale.somewhat_agree")[1] as HTMLInputElement).checked).toBe(true);
+  });
+
+  test("coming straight back waits for the save made on leaving, so it shows the answers just given", async () => {
+    server.before = record("started", "understand");
+    saveDelayMs = 400;
+    const first = renderAt("/survey", <SurveyPage />);
+    await settle();
+    choose("survey.scale.somewhat_agree", 1);
+    first.unmount();
+    renderAt("/survey", <SurveyPage />); // before the save has landed
+    await settle();
+    expect((screen.getAllByLabelText("survey.scale.somewhat_agree")[1] as HTMLInputElement).checked).toBe(true);
+  });
+
+  test("a save that never answers holds the survey back for a few seconds, not for good", async () => {
+    server.before = record("started", "understand");
+    saveDelayMs = 10 * 60 * 1000;
+    const first = renderAt("/survey", <SurveyPage />);
+    await settle();
+    choose("survey.scale.somewhat_agree", 1);
+    first.unmount();
+    renderAt("/survey", <SurveyPage />);
+    await settle();
+    expect(screen.queryByTestId("survey-title")).toBeNull(); // still waiting on the save
+    await act(async () => { await vi.advanceTimersByTimeAsync(SAVES_WAIT_MAX_MS); });
+    await settle();
+    expect(title()).toBe("survey.part.understand.title");
+    // Let the stuck save land, or the next test's reads wait behind it.
+    await act(async () => { await vi.advanceTimersByTimeAsync(saveDelayMs); });
+  });
+
+  test("an answer is saved a moment after it is given, while the parent stays", async () => {
+    server.before = record("started", "understand");
+    renderAt("/survey", <SurveyPage />);
+    await settle();
+    choose("survey.scale.somewhat_agree", 1);
+    expect(saves).toHaveLength(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(AUTOSAVE_MS); });
+    await settle();
+    expect(saves).toHaveLength(1);
+    expect(saves[0]).toMatchObject({ phase: "before", status: "started", part: "understand" });
+    expect(Object.values(saves[0].answers as Record<string, unknown>)).toContain("somewhat_agree");
+  });
+
+  test("Next with an answer still waiting sends one save, and leaving after it sends none", async () => {
+    server.before = record("started", "understand");
+    const view = renderAt("/survey", <SurveyPage />);
+    await settle();
+    choose("survey.scale.somewhat_agree", 1);
+    await click("survey-next");
+    view.unmount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(AUTOSAVE_MS * 2); });
+    expect(saves).toHaveLength(1);
+    expect(server.before?.part).toBe("speak");
+  });
+
+  test("saying No thanks is not undone by the save made on leaving", async () => {
+    server.before = record("started", "understand");
+    const view = renderAt("/survey", <SurveyPage />);
+    await settle();
+    choose("survey.scale.somewhat_agree", 1);
+    await click("survey-back"); // understand -> about, saving
+    await click("survey-back"); // about -> invite
+    await click("survey-decline");
+    view.unmount();
+    await settle();
+    expect(server.before?.status).toBe("declined");
   });
 
   test("each statement is one row of faces, frown to smile, with Not sure at its end", async () => {
