@@ -3454,6 +3454,13 @@ describe('custom-certificate synth: the CloudFront TLS floor', () => {
     // CloudFormation's own default here is 'TLSv1', which also permits 3DES.
     expect(viewerCertificate?.MinimumProtocolVersion).toBe('TLSv1.2_2021');
   });
+
+  // An apex DOMAIN (prod's a-iep.org) also answers for www, which the viewer
+  // function redirects; without the alias CloudFront refuses www at TLS.
+  test('an apex domain also answers for its www name', () => {
+    const [distribution] = Object.values(certTemplate.findResources('AWS::CloudFront::Distribution'));
+    expect((distribution as any).Properties?.DistributionConfig?.Aliases).toEqual(['example.test', 'www.example.test']);
+  });
 });
 
 /**

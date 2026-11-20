@@ -7,6 +7,7 @@
 // /pricing was told the page exists, and /llms.txt came back as the app's HTML.
 //
 // It now decides per path, before the cache:
+//   - any www. host is a 301 to the same address without it
 //   - a few short, guessable names redirect to the real page (/about, /privacy)
 //   - each public page gets its own prerendered HTML file (scripts/prerender.mjs),
 //     and any other spelling of it (/FAQs, /faqs/) a 301 to the real one
@@ -89,6 +90,16 @@ export const REDIRECTS: Record<string, string> = {
   "/contact-us": "/public-privacy-policy#contact",
 };
 
+/**
+ * The hostnames the distribution answers to. An apex domain (a-iep.org, prod)
+ * also answers for its www name, which the function sends on to the apex; a
+ * subdomain (dev.a-iep.org, staging) answers for itself only. The certificate
+ * has to cover every name here, or CloudFormation rejects the distribution.
+ */
+export function distributionAliases(domain: string): string[] {
+  return domain.split(".").length === 2 ? [domain, `www.${domain}`] : [domain];
+}
+
 export const NOT_FOUND_MARKDOWN = [
   "# Page not found",
   "",
@@ -132,6 +143,17 @@ function queryString(qs) {
 
 function handler(event) {
   var request = event.request;
+  // www.a-iep.org is the same site under a second name. Send it to the one
+  // name, keeping the path as asked: a referral code in /r/:code is
+  // case-sensitive, so this runs before the path is lowercased.
+  var host = request.headers.host ? request.headers.host.value.toLowerCase() : '';
+  if (host.indexOf('www.') === 0) {
+    return {
+      statusCode: 301,
+      statusDescription: 'Moved Permanently',
+      headers: { location: { value: 'https://' + host.slice(4) + request.uri + queryString(request.querystring) } }
+    };
+  }
   // React Router matches case-insensitively and ignores a trailing slash, so
   // /FAQs/ is the FAQ page to the app and must be here too.
   var path = request.uri.toLowerCase();

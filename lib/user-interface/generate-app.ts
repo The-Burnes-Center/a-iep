@@ -8,7 +8,7 @@ import { NagSuppressions } from "cdk-nag";
 import { getEnvironment, getTagProps, tagResource } from '../tags';
 import * as path from 'node:path';
 import { buildContentSecurityPolicy, inlineScriptHashes } from './content-security-policy';
-import { NOT_FOUND_FILE, buildViewerRequestFunction } from './edge-routing';
+import { NOT_FOUND_FILE, buildViewerRequestFunction, distributionAliases } from './edge-routing';
 
 
 export interface WebsiteProps {  
@@ -71,7 +71,7 @@ export class Website extends Construct {
           viewerCertificate: cf.ViewerCertificate.fromAcmCertificate(
             acm.Certificate.fromCertificateArn(this, 'CloudfrontAcm', process.env.ACM_CERTIFICATE_ARN),
             {
-              aliases: [process.env.DOMAIN],
+              aliases: distributionAliases(process.env.DOMAIN),
               // CloudFormation defaults MinimumProtocolVersion to TLSv1 when
               // a custom certificate omits it, and CDK passes the field
               // through unset, so the field has to be set explicitly. Set

@@ -15,6 +15,7 @@ import {
   NOT_FOUND_MARKDOWN,
   REDIRECTS,
   buildViewerRequestFunction,
+  distributionAliases,
   prerenderedFile,
 } from '../../lib/user-interface/edge-routing';
 import { PUBLIC_PATHS } from '../../lib/user-interface/site-files';
@@ -24,7 +25,10 @@ const source = buildViewerRequestFunction();
 // eslint-disable-next-line @typescript-eslint/no-implied-eval -- running the shipped string is the point
 const handler = new Function(`${source}\nreturn handler;`)() as Handler;
 
-function request(uri: string, opts: { accept?: string; querystring?: Record<string, unknown> } = {}) {
+function request(uri: string, opts: { accept?: string; host?: string; querystring?: Record<string, unknown> } = {}) {
+  const headers: Record<string, { value: string }> = {};
+  if (opts.accept) headers.accept = { value: opts.accept };
+  if (opts.host) headers.host = { value: opts.host };
   return handler({
     version: '1.0',
     context: { eventType: 'viewer-request' },
@@ -33,11 +37,48 @@ function request(uri: string, opts: { accept?: string; querystring?: Record<stri
       method: 'GET',
       uri,
       querystring: opts.querystring ?? {},
-      headers: opts.accept ? { accept: { value: opts.accept } } : {},
+      headers,
       cookies: {},
     },
   });
 }
+
+// www.a-iep.org answered with a TLS error (525) at the CDN, because the
+// distribution only knew a-iep.org. It now answers for both, and this sends
+// www to the one name a crawler and the canonical link use.
+describe('www is a 301 to the apex', () => {
+  test('the home page', () => {
+    const res = request('/', { host: 'www.a-iep.org' });
+    expect([res.statusCode, res.headers?.location?.value]).toEqual([301, 'https://a-iep.org/']);
+  });
+
+  test('keeps the path exactly, since a referral code is case-sensitive', () => {
+    expect(request('/r/AbC123', { host: 'www.a-iep.org' }).headers?.location?.value).toBe('https://a-iep.org/r/AbC123');
+  });
+
+  test('keeps the query string', () => {
+    const res = request('/faqs', { host: 'WWW.a-iep.org', querystring: { utm_source: { value: 'flyer' } } });
+    expect(res.headers?.location?.value).toBe('https://a-iep.org/faqs?utm_source=flyer');
+  });
+
+  test('the apex and staging are served, not redirected', () => {
+    for (const host of ['a-iep.org', 'dev.a-iep.org']) {
+      expect([host, request('/faqs', { host, accept: BROWSER_ACCEPT }).uri]).toEqual([host, '/faqs.html']);
+    }
+  });
+});
+
+describe('the names the distribution answers to', () => {
+  test('an apex domain answers for its www name too', () => {
+    expect(distributionAliases('a-iep.org')).toEqual(['a-iep.org', 'www.a-iep.org']);
+  });
+
+  // Staging's certificate covers dev.a-iep.org only, so a www alias there
+  // would fail the deploy.
+  test('a subdomain answers for itself only', () => {
+    expect(distributionAliases('dev.a-iep.org')).toEqual(['dev.a-iep.org']);
+  });
+});
 
 const BROWSER_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 
