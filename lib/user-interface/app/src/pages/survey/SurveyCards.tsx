@@ -9,7 +9,8 @@ import { useFeatures } from '../../common/hooks/use-features';
 import { useActiveChild } from '../../common/hooks/use-active-child';
 import { fillName } from './fill-name';
 import { isPlaceholderChildName } from '../../common/features';
-import { isFollowUpDue, isNextChildDue, isWhileYouWaitDue } from './survey-state';
+import { MAX_CHILDREN } from '../profile/my-children-status';
+import { isFollowUpDue, isWhileYouWaitDue } from './survey-state';
 import { surveyQueryKey, useChildSurvey } from './use-child-survey';
 import './survey.css';
 
@@ -50,7 +51,9 @@ export const SurveyWhileYouWait: React.FC = () => {
 /**
  * At the end of a summary the parent can read: record that they opened it
  * (which closes the baseline for good), then offer the follow-up questions
- * and, where the family said more children have an IEP, the next child.
+ * and a sibling. The sibling card is always there while the account has room
+ * for another child: it used to wait on the family's answer to "how many of
+ * your children have an IEP?", so most families never saw it.
  */
 export const SummarySurveyCards: React.FC = () => {
   const { t } = useLanguage();
@@ -78,10 +81,9 @@ export const SummarySurveyCards: React.FC = () => {
     return () => clearTimeout(retry);
   }, [enabled, childId, appContext, queryClient]);
 
-  if (!enabled) return null;
-  const followUp = isFollowUpDue(data);
-  const nextChild = isFeatureEnabled('multiChild') && isNextChildDue(data?.iepChildCount, children.length);
-  if (!followUp && !nextChild) return null;
+  const followUp = enabled && isFollowUpDue(data);
+  const sibling = isFeatureEnabled('multiChild') && children.length < MAX_CHILDREN;
+  if (!followUp && !sibling) return null;
 
   return (
     <div className="survey-summary-cards">
@@ -94,12 +96,12 @@ export const SummarySurveyCards: React.FC = () => {
           </Button>
         </section>
       )}
-      {nextChild && (
-        <section className="page-card survey-summary-card survey-next-child" aria-labelledby="survey-next-child-title" data-testid="survey-next-child-card">
-          <h2 id="survey-next-child-title" className="survey-card-title">{t('survey.nextChild.title')}</h2>
-          <p>{fillName(t('survey.nextChild.body'), name)}</p>
-          <Button to="/account-center/children/add" icon={<IconPlus size={20} />} fullWidth data-testid="survey-next-child-add">
-            {t('survey.nextChild.button')}
+      {sibling && (
+        <section className="page-card survey-summary-card survey-next-child" aria-labelledby="summary-sibling-title" data-testid="summary-sibling-card">
+          <h2 id="summary-sibling-title" className="survey-card-title">{fillName(t('sibling.title'), name)}</h2>
+          <p>{fillName(t('sibling.body'), name)}</p>
+          <Button to="/account-center/children/add" icon={<IconPlus size={20} />} fullWidth data-testid="summary-sibling-add">
+            {t('sibling.button')}
           </Button>
         </section>
       )}

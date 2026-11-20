@@ -40,7 +40,3 @@ export const isFollowUpDue = (survey: ChildSurvey | undefined): boolean => {
 
 /** "While you wait" on the processing screen: a parent who has not finished or said no. */
 export const isWhileYouWaitDue = (survey: ChildSurvey | undefined): boolean => isBaselineOpen(survey);
-
-/** The family said more children have an IEP than are on the profile. */
-export const isNextChildDue = (iepChildCount: number | null | undefined, childrenOnProfile: number): boolean =>
-  typeof iepChildCount === 'number' && iepChildCount > childrenOnProfile;

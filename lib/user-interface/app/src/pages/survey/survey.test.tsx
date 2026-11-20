@@ -31,7 +31,6 @@ vi.mock("../../common/file-uploader", () => ({
 
 const API = "https://api.example.test/api";
 const MAYA = { childId: "c-maya", name: "Maya Lopez", schoolCity: "Lakeview" };
-const LEO = { childId: "c-leo", name: "Leo Lopez", schoolCity: "Lakeview" };
 
 interface FakeSurvey {
   before: SurveyRecord | null;
@@ -569,13 +568,31 @@ describe("on the summary", () => {
     expect(screen.getByTestId("survey-follow-up-card")).toBeTruthy();
   });
 
-  test("offers the next child while the family has fewer on the profile than they said", async () => {
-    server.iepChildCount = 3;
-    children = [MAYA, LEO];
-    renderAt("/summary-and-translations", <SummarySurveyCards />, { features: ["onboardingSurvey", "multiChild"] });
+  test("always offers a sibling, whatever the family said about how many have an IEP", async () => {
+    for (const iepChildCount of [null, 1, 3]) {
+      server.iepChildCount = iepChildCount;
+      const view = renderAt("/summary-and-translations", <SummarySurveyCards />, { features: ["onboardingSurvey", "multiChild"] });
+      await settle();
+      expect(screen.getByTestId("summary-sibling-card")).toBeTruthy();
+      expect(screen.getByTestId("summary-sibling-add")).toHaveAttribute("href", "/account-center/children/add");
+      expect(screen.getByText("sibling.button")).toBeTruthy();
+      view.unmount();
+    }
+  });
+
+  test("offers a sibling without the survey, and records nothing", async () => {
+    renderAt("/summary-and-translations", <SummarySurveyCards />, { features: ["multiChild"] });
     await settle();
-    expect(screen.getByTestId("survey-next-child-card")).toBeTruthy();
+    expect(screen.getByTestId("summary-sibling-card")).toBeTruthy();
     expect(screen.queryByTestId("survey-follow-up-card")).toBeNull();
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/survey"))).toBe(false);
+  });
+
+  test("offers no sibling once the account holds the most children it can", async () => {
+    children = Array.from({ length: 10 }, (_, i) => ({ ...MAYA, childId: `c-${i}`, name: `Child ${i}` }));
+    renderAt("/summary-and-translations", <SummarySurveyCards />, { features: ["multiChild"] });
+    await settle();
+    expect(screen.queryByTestId("summary-sibling-card")).toBeNull();
   });
 
   test("with the feature off, the summary records nothing and shows nothing", async () => {

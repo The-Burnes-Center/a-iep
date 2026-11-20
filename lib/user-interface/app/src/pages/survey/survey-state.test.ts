@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { ChildSurvey, SurveyRecord } from '../../common/types';
-import { initialStep, isBaselineOpen, isFollowUpDue, isNextChildDue } from './survey-state';
+import { initialStep, isBaselineOpen, isFollowUpDue } from './survey-state';
 
 const record = (status: string, part?: string): SurveyRecord =>
   ({ version: 1, status, part, answers: {}, startedAt: 1, updatedAt: 1 });
@@ -42,11 +42,5 @@ describe('the cards on the summary', () => {
     expect(isFollowUpDue(survey({ before: record('started', 'speak') }))).toBe(true);
     expect(isFollowUpDue(survey({ before: record('done'), after: record('done') }))).toBe(false);
     expect(isFollowUpDue(survey({ before: record('done'), after: record('declined') }))).toBe(false);
-  });
-
-  test('the next child is due while fewer children are on the profile than the family said', () => {
-    expect(isNextChildDue(null, 1)).toBe(false);
-    expect(isNextChildDue(1, 1)).toBe(false);
-    expect(isNextChildDue(3, 2)).toBe(true);
   });
 });
