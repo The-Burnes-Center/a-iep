@@ -77,7 +77,10 @@ test('a new parent is asked how many children have an IEP, then answers the surv
     'the last part did not save: the server refused an answer the screen offered, or the walk lost its place',
   ).toHaveText('Thank you', { timeout: 30_000 });
 
-  // Finished is finished: coming back opens on the thank-you, not part 1.
+  // Finished is finished: coming back never reopens part 1. With no IEP yet
+  // the survey has nothing left to offer, so it goes straight on to the
+  // upload (SurveyPage's arrival redirect, pinned in survey.test.tsx).
   await page.goto(appUrl('/survey'));
-  await expect(page.getByTestId('survey-title')).toHaveText('Thank you', { timeout: 30_000 });
+  await page.waitForURL((url) => url.pathname === '/iep-documents', { timeout: 30_000 });
+  await expect(page.getByTestId('survey-title')).toHaveCount(0);
 });
