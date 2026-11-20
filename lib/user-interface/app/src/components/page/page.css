@@ -123,8 +123,9 @@
 
 .page-hero-title {
   margin: 0;
-  font-family: "Fjalla One", sans-serif;
-  font-weight: 400;
+  font-family: var(--aiep-font-display);
+  font-size-adjust: var(--aiep-font-display-adjust);
+  font-weight: var(--aiep-font-display-weight);
   font-size: clamp(1.75rem, 6vw, 2.25rem);
   line-height: 1.15;
   color: var(--aiep-cream);
@@ -175,8 +176,9 @@
 
 .page-card-title {
   margin: 0;
-  font-family: "Fjalla One", sans-serif;
-  font-weight: 400;
+  font-family: var(--aiep-font-display);
+  font-size-adjust: var(--aiep-font-display-adjust);
+  font-weight: var(--aiep-font-display-weight);
   font-size: 1.35rem;
   line-height: 1.2;
   color: var(--aiep-ink);

@@ -1,0 +1,43 @@
+/* The title face. Every heading rule uses these tokens instead of naming a
+   font, so the face can follow the language.
+
+   Salford Sans (salford-sans-variable, from the Adobe Fonts kit in
+   index.html) is the brand title face. It has no Vietnamese letters, and a
+   heading set in it would mix Salford with a fallback inside one word, so
+   Vietnamese gets Fjalla One for the whole heading instead. Body text keeps
+   Akzidenz-Grotesk in every language.
+
+   Salford's capitals are 0.60em tall to Fjalla's 0.83em, and the layouts
+   were tuned with Fjalla. font-size-adjust sets Salford's capitals to 0.76em:
+   at that size a heading runs the same width it did in Fjalla, so nothing
+   re-wraps, and it is the ratio the Salford design used (2.8rem headings
+   where Fjalla got 2.2rem). Weight 600 matches Fjalla's stroke. A browser
+   without two-value font-size-adjust shows Salford at its own, smaller size. */
+:root {
+  --aiep-font-display: "salford-sans-variable", "Fjalla One", sans-serif;
+  --aiep-font-display-weight: 600;
+  --aiep-font-display-adjust: cap-height 0.76;
+}
+
+/* :lang, not :root:lang, so a Vietnamese summary inside an English UI gets
+   the Vietnamese face too. */
+:lang(vi) {
+  --aiep-font-display: "Fjalla One", sans-serif;
+  --aiep-font-display-weight: 400;
+  --aiep-font-display-adjust: none;
+}
+
+/* Chinese headings are set in the system's CJK face either way, and the
+   adjustment would scale that face too (it shrank them 12%). Only the Latin
+   in a Chinese heading, such as "IEP", is Salford. */
+:lang(zh) {
+  --aiep-font-display-adjust: none;
+}
+
+/* Neither face has Arabic letters; rtl.css sets Cairo on headings, and this
+   covers the display rules that are not h1 to h6. */
+:lang(ar) {
+  --aiep-font-display: "Cairo", "Fjalla One", sans-serif;
+  --aiep-font-display-weight: 400;
+  --aiep-font-display-adjust: none;
+}

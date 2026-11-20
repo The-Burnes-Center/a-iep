@@ -15,8 +15,9 @@
 
 .how-to-banner-title {
     font-size: 3rem;
-    font-family: "Fjalla One", sans-serif;
-    font-weight: 400;
+    font-family: var(--aiep-font-display);
+    font-size-adjust: var(--aiep-font-display-adjust);
+    font-weight: var(--aiep-font-display-weight);
     font-style: normal;
 }
 

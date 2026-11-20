@@ -50,8 +50,9 @@
 
 .multi-face-green-banner-title {
     font-size: 2rem;
-    font-family: "Fjalla One", sans-serif;
-    font-weight: 400;
+    font-family: var(--aiep-font-display);
+    font-size-adjust: var(--aiep-font-display-adjust);
+    font-weight: var(--aiep-font-display-weight);
     font-style: normal;
     color: #F5F3EE;
     width: 100%;

@@ -66,8 +66,9 @@
 
 .invite-page .invite-hero-title {
   margin: 0 0 0.5rem;
-  font-family: "Fjalla One", sans-serif;
-  font-weight: 400;
+  font-family: var(--aiep-font-display);
+  font-size-adjust: var(--aiep-font-display-adjust);
+  font-weight: var(--aiep-font-display-weight);
   font-size: clamp(1.75rem, 6vw, 2.25rem);
   line-height: 1.15;
   color: var(--aiep-cream);
@@ -163,8 +164,9 @@
 
 .invite-page .invite-card-title {
   margin: 0 0 1rem;
-  font-family: "Fjalla One", sans-serif;
-  font-weight: 400;
+  font-family: var(--aiep-font-display);
+  font-size-adjust: var(--aiep-font-display-adjust);
+  font-weight: var(--aiep-font-display-weight);
   font-size: 1.35rem;
   color: var(--aiep-ink);
 }
@@ -331,8 +333,9 @@
 }
 
 .invite-page .invite-stat-value {
-  font-family: "Fjalla One", sans-serif;
-  font-weight: 400;
+  font-family: var(--aiep-font-display);
+  font-size-adjust: var(--aiep-font-display-adjust);
+  font-weight: var(--aiep-font-display-weight);
   font-size: 2.5rem;
   line-height: 1.1;
   color: var(--aiep-green-dark);

@@ -244,8 +244,9 @@ background-color: #F5f3EE;
 .summary-header {
   font-size: 2.2rem;
   padding-inline-start: 1rem;
-  font-family: "Fjalla One", sans-serif;
-  font-weight: 400;
+  font-family: var(--aiep-font-display);
+  font-size-adjust: var(--aiep-font-display-adjust);
+  font-weight: var(--aiep-font-display-weight);
   font-style: normal;
   padding-bottom: 0rem; /*Only different from profile-title*/
 }

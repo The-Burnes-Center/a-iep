@@ -15,6 +15,7 @@ import './styles/palette.css';
 // Self-hosted Google Fonts (Fjalla One, and the Arabic faces, which the browser
 // downloads only when Arabic glyphs are on screen).
 import './styles/fonts.css';
+import './styles/display-type.css';
 import './styles/app.scss';
 import './styles/modal.css';
 import './styles/buttons.css';

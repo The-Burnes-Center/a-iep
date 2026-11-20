@@ -10,8 +10,9 @@
   letter-spacing: 0;
 }
 
-/* Fjalla One display headings have no Arabic glyphs; use Cairo instead.
-   !important is needed to beat the per-component "Fjalla One" rules. */
+/* The display faces have no Arabic glyphs; use Cairo instead.
+   !important is needed to beat the per-component display rules, and the
+   size adjustment is for Salford's proportions, not Cairo's. */
 :lang(ar) h1,
 :lang(ar) h2,
 :lang(ar) h3,
@@ -19,6 +20,7 @@
 :lang(ar) h5,
 :lang(ar) h6 {
   font-family: "Cairo", "Fjalla One", sans-serif !important;
+  font-size-adjust: none !important;
 }
 
 /* Directional icons used as navigation affordances */

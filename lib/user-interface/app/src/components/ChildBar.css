@@ -38,8 +38,10 @@
   place-items: center;
   background-color: var(--aiep-green);
   color: var(--aiep-cream);
-  font-family: "Fjalla One", sans-serif;
+  font-family: var(--aiep-font-display);
+  font-size-adjust: var(--aiep-font-display-adjust);
   font-size: 1.2rem;
+  font-weight: var(--aiep-font-display-weight);
 }
 
 .child-bar-name {

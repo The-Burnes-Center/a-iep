@@ -43,8 +43,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: "Fjalla One", sans-serif;
+  font-family: var(--aiep-font-display);
+  font-size-adjust: var(--aiep-font-display-adjust);
   font-size: 1.25rem;
+  font-weight: var(--aiep-font-display-weight);
 }
 
 .onboarding-step-label {
