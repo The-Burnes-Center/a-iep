@@ -3461,6 +3461,17 @@ describe('custom-certificate synth: the CloudFront TLS floor', () => {
     const [distribution] = Object.values(certTemplate.findResources('AWS::CloudFront::Distribution'));
     expect((distribution as any).Properties?.DistributionConfig?.Aliases).toEqual(['example.test', 'www.example.test']);
   });
+
+  // The alias alone would serve www as a second copy of the site; the
+  // redirect is what makes it one name.
+  test('the default behaviour runs the viewer-request function', () => {
+    const [distribution] = Object.values(certTemplate.findResources('AWS::CloudFront::Distribution'));
+    const associations = (distribution as any).Properties?.DistributionConfig?.DefaultCacheBehavior?.FunctionAssociations;
+    expect(associations).toHaveLength(1);
+    expect(associations[0].EventType).toBe('viewer-request');
+    const [functionId] = Object.keys(certTemplate.findResources('AWS::CloudFront::Function'));
+    expect(associations[0].FunctionARN).toEqual({ 'Fn::GetAtt': [functionId, 'FunctionARN'] });
+  });
 });
 
 /**
